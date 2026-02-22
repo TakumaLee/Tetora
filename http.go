@@ -2787,6 +2787,135 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		})
 	})
 
+	// --- Pairing ---
+
+	// Create pairing manager inside startHTTPServer.
+	pairingManager := newPairingManager(cfg)
+
+	mux.HandleFunc("/api/pairing/pending", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		pending := pairingManager.ListPending()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pending": pending,
+			"count":   len(pending),
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/approve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Code == "" {
+			http.Error(w, `{"error":"code required"}`, http.StatusBadRequest)
+			return
+		}
+
+		approved, err := pairingManager.Approve(req.Code)
+		if err != nil {
+			logErrorCtx(r.Context(), "pairing approve failed", "code", req.Code, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  "approved",
+			"channel": approved.Channel,
+			"userId":  approved.UserID,
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/reject", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Code == "" {
+			http.Error(w, `{"error":"code required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := pairingManager.Reject(req.Code); err != nil {
+			logErrorCtx(r.Context(), "pairing reject failed", "code", req.Code, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"rejected"}`))
+	})
+
+	mux.HandleFunc("/api/pairing/approved", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		approved, err := pairingManager.ListApproved()
+		if err != nil {
+			logErrorCtx(r.Context(), "list approved failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"approved": approved,
+			"count":    len(approved),
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Channel string `json:"channel"`
+			UserID  string `json:"userId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Channel == "" || req.UserID == "" {
+			http.Error(w, `{"error":"channel and userId required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := pairingManager.Revoke(req.Channel, req.UserID); err != nil {
+			logErrorCtx(r.Context(), "pairing revoke failed", "channel", req.Channel, "userId", req.UserID, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"revoked"}`))
+	})
+
 	// --- Cost Estimate ---
 
 	mux.HandleFunc("/dispatch/estimate", func(w http.ResponseWriter, r *http.Request) {

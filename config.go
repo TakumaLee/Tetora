@@ -71,6 +71,7 @@ type Config struct {
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
 	Voice                 VoiceConfig                      `json:"voice,omitempty"`
 	Push                  PushConfig                       `json:"push,omitempty"`
+	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string

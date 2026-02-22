@@ -81,6 +81,9 @@ func main() {
 		case "webhook":
 			cmdWebhook(os.Args[2:])
 			return
+		case "pairing":
+			cmdPairing(os.Args[2:])
+			return
 		case "data":
 			cmdData(os.Args[2:])
 			return
