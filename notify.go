@@ -128,6 +128,14 @@ func buildNotifiers(cfg *Config) []Notifier {
 					ChatID: ch.WebhookURL, // use webhookUrl field for LINE user/group ID
 				})
 			}
+		case "matrix": // --- P15.2: Matrix Channel ---
+			// For Matrix, WebhookURL should contain the target room ID
+			if ch.WebhookURL != "" && cfg.Matrix.Enabled {
+				notifiers = append(notifiers, &MatrixNotifier{
+					Config: cfg.Matrix,
+					RoomID: ch.WebhookURL, // use webhookUrl field for Matrix room ID
+				})
+			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)
 		}
