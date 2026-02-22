@@ -52,9 +52,11 @@ var builtinProfiles = map[string]ToolProfile{
 
 // RoleToolPolicy configures tool access for a specific role.
 type RoleToolPolicy struct {
-	Profile string   `json:"profile,omitempty"` // profile name (minimal, standard, full, or custom)
-	Allow   []string `json:"allow,omitempty"`   // additional allowed tools
-	Deny    []string `json:"deny,omitempty"`    // explicitly denied tools
+	Profile      string   `json:"profile,omitempty"`      // profile name (minimal, standard, full, or custom)
+	Allow        []string `json:"allow,omitempty"`        // additional allowed tools
+	Deny         []string `json:"deny,omitempty"`         // explicitly denied tools
+	Sandbox      string   `json:"sandbox,omitempty"`      // "required" | "optional" | "never" (default: "never") --- P13.2: Sandbox Plugin ---
+	SandboxImage string   `json:"sandboxImage,omitempty"` // custom Docker image per role --- P13.2: Sandbox Plugin ---
 }
 
 // --- Tool Trust Override ---

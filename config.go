@@ -79,6 +79,7 @@ type Config struct {
 	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
 	Canvas                CanvasConfig                     `json:"canvas,omitempty"`
 	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"` // --- P13.1: Plugin System ---
+	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"` // --- P13.2: Sandbox Plugin ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string

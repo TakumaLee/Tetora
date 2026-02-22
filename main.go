@@ -446,6 +446,15 @@ func main() {
 			logInfo("plugin host initialized", "plugins", len(cfg.Plugins))
 		}
 
+		// --- P13.2: Sandbox Plugin --- Initialize sandbox manager.
+		if pluginHost != nil {
+			sm := NewSandboxManager(cfg, pluginHost)
+			if sm.PluginName() != "" {
+				state.sandboxMgr = sm
+				logInfo("sandbox manager initialized", "plugin", sm.PluginName())
+			}
+		}
+
 		// HTTP server.
 		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost)
 
@@ -492,6 +501,11 @@ func main() {
 		// Stop MCP host.
 		if mcpHost != nil {
 			mcpHost.Stop()
+		}
+
+		// --- P13.2: Sandbox Plugin --- Destroy all active sandboxes.
+		if state.sandboxMgr != nil {
+			state.sandboxMgr.DestroyAll()
 		}
 
 		// --- P13.1: Plugin System --- Stop plugin host.

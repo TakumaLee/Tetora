@@ -88,7 +88,8 @@ type dispatchState struct {
 	startAt     time.Time
 	active      bool
 	cancel      context.CancelFunc
-	broker      *sseBroker // SSE event broker for streaming progress
+	broker      *sseBroker       // SSE event broker for streaming progress
+	sandboxMgr  *SandboxManager  // --- P13.2: Sandbox Plugin ---
 }
 
 type taskState struct {
@@ -592,6 +593,34 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}
 	}
 
+	// --- P13.2: Sandbox Plugin --- Check sandbox policy for this role.
+	useSandbox, sandboxErr := shouldUseSandbox(cfg, roleName, state.sandboxMgr)
+	if sandboxErr != nil {
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "error",
+			Error: sandboxErr.Error(), Model: task.Model, SessionID: task.SessionID,
+		}
+	}
+	var sandboxID string
+	if useSandbox && state.sandboxMgr != nil {
+		image := sandboxImageForRole(cfg, roleName)
+		sbID, err := state.sandboxMgr.EnsureSandboxWithImage(task.SessionID, task.Workdir, image)
+		if err != nil {
+			logWarnCtx(ctx, "sandbox creation failed", "taskId", task.ID[:8], "error", err)
+			// If policy is "required", this is fatal; if "optional", fall through.
+			if sandboxPolicyForRole(cfg, roleName) == "required" {
+				return TaskResult{
+					ID: task.ID, Name: task.Name, Status: "error",
+					Error: fmt.Sprintf("sandbox required but creation failed: %v", err),
+					Model: task.Model, SessionID: task.SessionID,
+				}
+			}
+		} else {
+			sandboxID = sbID
+			logDebugCtx(ctx, "sandbox active for task", "taskId", task.ID[:8], "sandboxId", sandboxID)
+		}
+	}
+
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {
 		timeout = 15 * time.Minute
@@ -805,6 +834,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				logDebugCtx(ctx, "reflection stored", "taskId", task.ID[:8], "role", ref.Role, "score", ref.Score)
 			}
 		}()
+	}
+
+	// --- P13.2: Sandbox Plugin --- Cleanup sandbox after task completion.
+	if sandboxID != "" && state.sandboxMgr != nil {
+		if err := state.sandboxMgr.DestroySandbox(sandboxID); err != nil {
+			logWarnCtx(ctx, "sandbox cleanup failed", "sandboxId", sandboxID, "error", err)
+		}
 	}
 
 	// Check trust promotion after successful task.
