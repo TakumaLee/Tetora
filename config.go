@@ -200,6 +200,15 @@ type ToolConfig struct {
 	Profiles       map[string]ToolProfile    `json:"profiles,omitempty"`       // custom profiles
 	DefaultProfile string                    `json:"defaultProfile,omitempty"` // default "standard"
 	TrustOverride  map[string]string         `json:"trustOverride,omitempty"`  // tool → trust level
+	WebSearch      WebSearchConfig           `json:"webSearch,omitempty"`      // web search configuration
+}
+
+// WebSearchConfig configures the web search tool.
+type WebSearchConfig struct {
+	Provider   string `json:"provider,omitempty"`   // "brave", "tavily", "searxng"
+	APIKey     string `json:"apiKey,omitempty"`     // API key (supports $ENV_VAR)
+	BaseURL    string `json:"baseURL,omitempty"`    // for searxng self-hosted
+	MaxResults int    `json:"maxResults,omitempty"` // default 5
 }
 
 // MCPServerConfig defines an MCP server managed by Tetora.
@@ -671,6 +680,10 @@ func (cfg *Config) resolveSecrets() {
 	// Resolve Embedding API key.
 	if cfg.Embedding.APIKey != "" {
 		cfg.Embedding.APIKey = resolveEnvRef(cfg.Embedding.APIKey, "embedding.apiKey")
+	}
+	// Resolve WebSearch API key.
+	if cfg.Tools.WebSearch.APIKey != "" {
+		cfg.Tools.WebSearch.APIKey = resolveEnvRef(cfg.Tools.WebSearch.APIKey, "tools.webSearch.apiKey")
 	}
 }
 

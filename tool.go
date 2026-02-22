@@ -191,6 +191,23 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 		})
 	}
 
+	if enabled("web_search") && cfg.Tools.WebSearch.Provider != "" {
+		r.Register(&ToolDef{
+			Name:        "web_search",
+			Description: "Search the web using configured search provider (Brave, Tavily, or SearXNG)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query"},
+					"maxResults": {"type": "number", "description": "Maximum number of results (default 5)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolWebSearch,
+			Builtin: true,
+		})
+	}
+
 	if enabled("web_fetch") {
 		r.Register(&ToolDef{
 			Name:        "web_fetch",
@@ -198,7 +215,8 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"url": {"type": "string", "description": "URL to fetch"}
+					"url": {"type": "string", "description": "URL to fetch"},
+					"maxLength": {"type": "number", "description": "Maximum length in characters (default 50000)"}
 				},
 				"required": ["url"]
 			}`),
@@ -527,13 +545,17 @@ func toolEdit(ctx context.Context, cfg *Config, input json.RawMessage) (string, 
 // toolWebFetch fetches a URL and returns plain text.
 func toolWebFetch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		URL string `json:"url"`
+		URL       string `json:"url"`
+		MaxLength int    `json:"maxLength"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 	if args.URL == "" {
 		return "", fmt.Errorf("url is required")
+	}
+	if args.MaxLength <= 0 {
+		args.MaxLength = 50000 // default 50KB
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -543,9 +565,10 @@ func toolWebFetch(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Tetora/2.0 (AI Agent)")
+	req.Header.Set("User-Agent", "Tetora/2.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetch url: %w", err)
 	}
@@ -556,14 +579,19 @@ func toolWebFetch(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	}
 
 	// Limit response size.
-	const maxSize = 50 * 1024 // 50KB
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(args.MaxLength)))
 	if err != nil {
 		return "", fmt.Errorf("read body: %w", err)
 	}
 
 	// Simple HTML tag stripping.
 	text := stripHTMLTags(string(body))
+
+	// Truncate to maxLength after stripping tags.
+	if len(text) > args.MaxLength {
+		text = text[:args.MaxLength]
+	}
+
 	return text, nil
 }
 
