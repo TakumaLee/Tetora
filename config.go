@@ -235,9 +235,10 @@ func (c EstimateConfig) defaultOutputTokensOrDefault() int {
 
 // SessionConfig configures channel session sync and context compaction.
 type SessionConfig struct {
-	ContextMessages int `json:"contextMessages,omitempty"` // max messages to inject as context (default 20)
-	CompactAfter    int `json:"compactAfter,omitempty"`    // compact when message_count > N (default 30)
-	CompactKeep     int `json:"compactKeep,omitempty"`     // keep last N messages after compact (default 10)
+	ContextMessages int              `json:"contextMessages,omitempty"` // max messages to inject as context (default 20)
+	CompactAfter    int              `json:"compactAfter,omitempty"`    // compact when message_count > N (default 30) [deprecated: use Compaction.MaxMessages]
+	CompactKeep     int              `json:"compactKeep,omitempty"`     // keep last N messages after compact (default 10) [deprecated: use Compaction.CompactTo]
+	Compaction      CompactionConfig `json:"compaction,omitempty"`      // compaction settings
 }
 
 type LoggingConfig struct {

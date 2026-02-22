@@ -84,6 +84,9 @@ func main() {
 		case "proactive":
 			runProactive(os.Args[2:])
 			return
+		case "compact":
+			runCompaction(os.Args[2:])
+			return
 		case "data":
 			cmdData(os.Args[2:])
 			return
