@@ -66,13 +66,15 @@ type Config struct {
 	Trust                 TrustConfig                `json:"trust,omitempty"`
 	IncomingWebhooks      map[string]IncomingWebhookConfig `json:"incomingWebhooks,omitempty"`
 	Retention             RetentionConfig                  `json:"retention,omitempty"`
+	Tools                 ToolConfig                       `json:"tools,omitempty"`
 
 	// Resolved at runtime (not serialized).
-	baseDir    string
-	mcpPaths   map[string]string
-	tlsEnabled bool
-	registry   *providerRegistry
-	circuits   *circuitRegistry
+	baseDir      string
+	mcpPaths     map[string]string
+	tlsEnabled   bool
+	registry     *providerRegistry
+	circuits     *circuitRegistry
+	toolRegistry *ToolRegistry
 }
 
 type WebhookConfig struct {
@@ -182,6 +184,13 @@ type RoutingRule struct {
 type EstimateConfig struct {
 	ConfirmThreshold    float64 `json:"confirmThreshold,omitempty"`    // cost threshold for TG confirmation (default $1.00)
 	DefaultOutputTokens int     `json:"defaultOutputTokens,omitempty"` // fallback output token estimate (default 500)
+}
+
+// ToolConfig configures the tool engine.
+type ToolConfig struct {
+	MaxIterations int            `json:"maxIterations,omitempty"` // default 10
+	Timeout       int            `json:"timeout,omitempty"`       // seconds, default 120
+	Builtin       map[string]bool `json:"builtin,omitempty"`      // tool name -> enabled
 }
 
 // confirmThresholdOrDefault returns the configured confirm threshold (default $1.00).

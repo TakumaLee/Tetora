@@ -2449,6 +2449,36 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		json.NewEncoder(w).Encode(refs)
 	})
 
+	// --- Tool Engine ---
+
+	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if cfg.toolRegistry == nil {
+			json.NewEncoder(w).Encode([]any{})
+			return
+		}
+		tools := cfg.toolRegistry.List()
+		result := make([]map[string]any, 0, len(tools))
+		for _, t := range tools {
+			var schema map[string]any
+			if len(t.InputSchema) > 0 {
+				json.Unmarshal(t.InputSchema, &schema)
+			}
+			result = append(result, map[string]any{
+				"name":        t.Name,
+				"description": t.Description,
+				"inputSchema": schema,
+				"builtin":     t.Builtin,
+				"requireAuth": t.RequireAuth,
+			})
+		}
+		json.NewEncoder(w).Encode(result)
+	})
+
 	// --- API Documentation ---
 
 	mux.HandleFunc("/api/docs", handleAPIDocs)

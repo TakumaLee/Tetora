@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,12 @@ type Provider interface {
 	Name() string
 	// Execute runs a prompt and returns the result.
 	Execute(ctx context.Context, req ProviderRequest) (*ProviderResult, error)
+}
+
+// ToolCapableProvider extends Provider with tool execution support.
+type ToolCapableProvider interface {
+	Provider
+	ExecuteWithTools(ctx context.Context, req ProviderRequest) (*ProviderResult, error)
 }
 
 // ProviderRequest contains all information needed to execute a task.
@@ -39,6 +46,10 @@ type ProviderRequest struct {
 	// Optional event channel for SSE streaming.
 	// When set, provider publishes output_chunk events as output is generated.
 	EventCh chan<- SSEEvent `json:"-"`
+
+	// Tool support for agentic loop.
+	Tools    []ToolDef `json:"tools,omitempty"`
+	Messages []Message `json:"messages,omitempty"` // for multi-turn tool loop
 }
 
 // ProviderResult is the normalized output from any provider.
@@ -54,6 +65,27 @@ type ProviderResult struct {
 	TokensIn   int   `json:"tokensIn,omitempty"`   // input tokens consumed
 	TokensOut  int   `json:"tokensOut,omitempty"`  // output tokens generated
 	ProviderMs int64 `json:"providerMs,omitempty"` // provider-reported latency (vs wall-clock DurationMs)
+	// Tool support.
+	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+	StopReason string     `json:"stopReason,omitempty"` // "end_turn", "tool_use"
+}
+
+// Message represents a chat message for multi-turn conversations.
+type Message struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"` // string or []ContentBlock
+}
+
+// ContentBlock represents a piece of content (text or tool use/result).
+type ContentBlock struct {
+	Type      string          `json:"type"` // "text", "tool_use", "tool_result"
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 // --- Provider Registry ---

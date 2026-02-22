@@ -195,6 +195,10 @@ func main() {
 		initKnowledgeDir(cfg.baseDir)
 		logInfo("knowledge base initialized", "path", cfg.KnowledgeDir)
 
+		// Init tool registry.
+		cfg.toolRegistry = NewToolRegistry(cfg)
+		logInfo("tool registry initialized", "tools", len(cfg.toolRegistry.List()))
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

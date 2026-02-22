@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 // --- Task Types ---
@@ -635,7 +636,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	start := time.Now()
-	pr := executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, eventCh)
+	pr := executeWithProviderAndTools(taskCtx, cfg, task, roleName, cfg.registry, eventCh, state.broker)
 	if eventCh != nil {
 		close(eventCh)
 	}
@@ -947,4 +948,195 @@ func buildSummary(dr *DispatchResult) string {
 	dur := time.Duration(dr.DurationMs) * time.Millisecond
 	return fmt.Sprintf("%d/%d tasks succeeded ($%.2f, %s)",
 		ok, len(dr.Tasks), dr.TotalCost, dur.Round(time.Second))
+}
+
+// --- Agentic Loop ---
+
+// executeWithProviderAndTools runs a task with tool support via agentic loop.
+// If the provider supports tools and the tool registry has tools, it will:
+// 1. Call provider with tools
+// 2. Check for tool_use in response
+// 3. Execute tools via ToolRegistry
+// 4. Inject tool results back as messages
+// 5. Call provider again
+// 6. Repeat until no more tool_use or max iterations
+func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, roleName string, registry *providerRegistry, eventCh chan<- SSEEvent, broker *sseBroker) *ProviderResult {
+	// Check if tool engine is enabled and we have a tool registry.
+	if cfg.toolRegistry == nil {
+		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+	}
+
+	// Resolve provider.
+	providerName := resolveProviderName(cfg, task, roleName)
+	p, err := registry.get(providerName)
+	if err != nil {
+		return &ProviderResult{IsError: true, Error: err.Error()}
+	}
+
+	// Check if provider supports tools.
+	toolProvider, supportsTools := p.(ToolCapableProvider)
+	if !supportsTools {
+		// Fallback to regular execution.
+		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+	}
+
+	// Get available tools.
+	tools := cfg.toolRegistry.List()
+	if len(tools) == 0 {
+		// No tools available, use regular execution.
+		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+	}
+
+	// Build initial request.
+	req := buildProviderRequest(cfg, task, roleName, providerName, eventCh)
+	req.Tools = *(*[]ToolDef)(unsafe.Pointer(&tools)) // Convert []*ToolDef to []ToolDef
+
+	// Initialize loop detector.
+	detector := newLoopDetector()
+
+	// Max iterations.
+	maxIter := cfg.Tools.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 10
+	}
+
+	var messages []Message
+	var finalResult *ProviderResult
+
+	for i := 0; i < maxIter; i++ {
+		req.Messages = messages
+
+		// Call provider.
+		result, execErr := toolProvider.ExecuteWithTools(ctx, req)
+		if execErr != nil {
+			return &ProviderResult{IsError: true, Error: execErr.Error()}
+		}
+		if result.IsError {
+			return result
+		}
+
+		// Check stop reason.
+		if result.StopReason != "tool_use" || len(result.ToolCalls) == 0 {
+			// No more tool calls, we're done.
+			finalResult = result
+			break
+		}
+
+		// Publish SSE event for tool calls.
+		if broker != nil {
+			for _, tc := range result.ToolCalls {
+				broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
+					Type:      "tool_call",
+					TaskID:    task.ID,
+					SessionID: task.SessionID,
+					Data: map[string]any{
+						"id":   tc.ID,
+						"name": tc.Name,
+					},
+				})
+			}
+		}
+
+		// Execute tools.
+		toolResults := make([]ToolResult, 0, len(result.ToolCalls))
+		for _, tc := range result.ToolCalls {
+			// Check for loop.
+			if detector.Check(tc.Name, tc.Input) {
+				toolResults = append(toolResults, ToolResult{
+					ToolUseID: tc.ID,
+					Content:   "error: tool call loop detected",
+					IsError:   true,
+				})
+				continue
+			}
+
+			// Get tool handler.
+			tool, ok := cfg.toolRegistry.Get(tc.Name)
+			if !ok {
+				toolResults = append(toolResults, ToolResult{
+					ToolUseID: tc.ID,
+					Content:   fmt.Sprintf("error: tool %q not found", tc.Name),
+					IsError:   true,
+				})
+				continue
+			}
+
+			// Execute tool.
+			toolStart := time.Now()
+			output, err := tool.Handler(ctx, cfg, tc.Input)
+			toolDuration := time.Since(toolStart)
+
+			tr := ToolResult{ToolUseID: tc.ID}
+			if err != nil {
+				tr.Content = fmt.Sprintf("error: %v", err)
+				tr.IsError = true
+			} else {
+				tr.Content = output
+			}
+			toolResults = append(toolResults, tr)
+
+			// Publish SSE event for tool result.
+			if broker != nil {
+				broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
+					Type:      "tool_result",
+					TaskID:    task.ID,
+					SessionID: task.SessionID,
+					Data: map[string]any{
+						"id":       tc.ID,
+						"name":     tc.Name,
+						"duration": toolDuration.Milliseconds(),
+						"isError":  tr.IsError,
+					},
+				})
+			}
+		}
+
+		// Build assistant message with tool uses.
+		var assistantContent []ContentBlock
+		if result.Output != "" {
+			assistantContent = append(assistantContent, ContentBlock{
+				Type: "text",
+				Text: result.Output,
+			})
+		}
+		for _, tc := range result.ToolCalls {
+			assistantContent = append(assistantContent, ContentBlock{
+				Type:  "tool_use",
+				ID:    tc.ID,
+				Name:  tc.Name,
+				Input: tc.Input,
+			})
+		}
+		assistantMsg, _ := json.Marshal(assistantContent)
+		messages = append(messages, Message{
+			Role:    "assistant",
+			Content: assistantMsg,
+		})
+
+		// Build user message with tool results.
+		var userContent []ContentBlock
+		for _, tr := range toolResults {
+			userContent = append(userContent, ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: tr.ToolUseID,
+				Content:   tr.Content,
+				IsError:   tr.IsError,
+			})
+		}
+		userMsg, _ := json.Marshal(userContent)
+		messages = append(messages, Message{
+			Role:    "user",
+			Content: userMsg,
+		})
+	}
+
+	if finalResult == nil {
+		// Max iterations reached without final answer.
+		finalResult = &ProviderResult{
+			IsError: true,
+			Error:   fmt.Sprintf("max tool iterations (%d) reached", maxIter),
+		}
+	}
+
+	return finalResult
 }
