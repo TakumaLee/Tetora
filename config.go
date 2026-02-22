@@ -209,6 +209,7 @@ type ToolConfig struct {
 	DefaultProfile string                    `json:"defaultProfile,omitempty"` // default "standard"
 	TrustOverride  map[string]string         `json:"trustOverride,omitempty"`  // tool → trust level
 	WebSearch      WebSearchConfig           `json:"webSearch,omitempty"`      // web search configuration
+	Vision         VisionConfig              `json:"vision,omitempty"`         // vision/image analysis configuration
 }
 
 // WebSearchConfig configures the web search tool.
@@ -217,6 +218,17 @@ type WebSearchConfig struct {
 	APIKey     string `json:"apiKey,omitempty"`     // API key (supports $ENV_VAR)
 	BaseURL    string `json:"baseURL,omitempty"`    // for searxng self-hosted
 	MaxResults int    `json:"maxResults,omitempty"` // default 5
+}
+
+// --- P13.4: Image Analysis ---
+
+// VisionConfig configures the image analysis tool.
+type VisionConfig struct {
+	Provider     string `json:"provider,omitempty"`     // "anthropic" | "openai" | "google"
+	APIKey       string `json:"apiKey,omitempty"`       // $ENV_VAR supported
+	Model        string `json:"model,omitempty"`        // provider-specific model name
+	MaxImageSize int    `json:"maxImageSize,omitempty"` // max bytes, default 5MB
+	BaseURL      string `json:"baseURL,omitempty"`      // custom API endpoint
 }
 
 // MCPServerConfig defines an MCP server managed by Tetora.
@@ -755,6 +767,10 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.Push.VAPIDPrivateKey != "" {
 		cfg.Push.VAPIDPrivateKey = resolveEnvRef(cfg.Push.VAPIDPrivateKey, "push.vapidPrivateKey")
+	}
+	// Resolve Vision API key.
+	if cfg.Tools.Vision.APIKey != "" {
+		cfg.Tools.Vision.APIKey = resolveEnvRef(cfg.Tools.Vision.APIKey, "tools.vision.apiKey")
 	}
 }
 

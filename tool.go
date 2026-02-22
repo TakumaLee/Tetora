@@ -400,6 +400,25 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 			Builtin:     true,
 		})
 	}
+
+	// --- P13.4: Image Analysis ---
+	if enabled("image_analyze") && cfg.Tools.Vision.Provider != "" {
+		r.Register(&ToolDef{
+			Name:        "image_analyze",
+			Description: "Analyze an image using a Vision API (Anthropic, OpenAI, or Google). Accepts URL or base64 input.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"image": {"type": "string", "description": "Image URL or base64-encoded data (data URI or raw base64)"},
+					"prompt": {"type": "string", "description": "What to analyze in the image (default: describe the image)"},
+					"detail": {"type": "string", "enum": ["low", "high", "auto"], "description": "Analysis detail level (default: auto)"}
+				},
+				"required": ["image"]
+			}`),
+			Handler: toolImageAnalyze,
+			Builtin: true,
+		})
+	}
 }
 
 // --- Tool Handlers ---
