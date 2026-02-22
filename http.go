@@ -2523,6 +2523,61 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		})
 	})
 
+	// --- Embedding / Semantic Search ---
+
+	mux.HandleFunc("/api/embedding/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Query  string `json:"query"`
+			Source string `json:"source"`
+			TopK   int    `json:"topK"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.TopK <= 0 {
+			req.TopK = 10
+		}
+		results, err := hybridSearch(r.Context(), cfg, req.Query, req.Source, req.TopK)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(results)
+	})
+
+	mux.HandleFunc("/api/embedding/reindex", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if err := reindexAll(r.Context(), cfg); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"reindexing complete"}`))
+	})
+
+	mux.HandleFunc("/api/embedding/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		stats, err := embeddingStatus(cfg.HistoryDB)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(stats)
+	})
+
 	// --- API Documentation ---
 
 	mux.HandleFunc("/api/docs", handleAPIDocs)

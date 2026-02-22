@@ -146,6 +146,16 @@ func main() {
 				logWarn("init history db failed", "error", err)
 			} else {
 				logInfo("history db initialized", "path", cfg.HistoryDB)
+
+				// Init embedding DB if enabled.
+				if cfg.Embedding.Enabled {
+					if err := initEmbeddingDB(cfg.HistoryDB); err != nil {
+						logWarn("init embedding db failed", "error", err)
+					} else {
+						logInfo("embedding db initialized")
+					}
+				}
+
 				// Cleanup records using retention config.
 				if err := cleanupHistory(cfg.HistoryDB, retentionDays(cfg.Retention.History, 90)); err != nil {
 					logWarn("cleanup history failed", "error", err)

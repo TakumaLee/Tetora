@@ -68,6 +68,7 @@ type Config struct {
 	IncomingWebhooks      map[string]IncomingWebhookConfig `json:"incomingWebhooks,omitempty"`
 	Retention             RetentionConfig                  `json:"retention,omitempty"`
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
+	Embedding             EmbeddingConfig                  `json:"embedding,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -640,6 +641,10 @@ func (cfg *Config) resolveSecrets() {
 	// Resolve Discord token.
 	if cfg.Discord.BotToken != "" {
 		cfg.Discord.BotToken = resolveEnvRef(cfg.Discord.BotToken, "discord.botToken")
+	}
+	// Resolve Embedding API key.
+	if cfg.Embedding.APIKey != "" {
+		cfg.Embedding.APIKey = resolveEnvRef(cfg.Embedding.APIKey, "embedding.apiKey")
 	}
 }
 
