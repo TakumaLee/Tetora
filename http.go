@@ -45,9 +45,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, dashboard, and Slack events (uses its own signature verification).
+		// Skip auth for health check, metrics, dashboard, and Slack events (uses its own signature verification).
 		p := r.URL.Path
-		if p == "/healthz" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -290,8 +290,8 @@ func ipAllowlistMiddleware(al *ipAllowlist, dbPath string, next http.Handler) ht
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Always allow healthz for monitoring probes.
-		if r.URL.Path == "/healthz" {
+		// Always allow healthz and metrics for monitoring probes.
+		if r.URL.Path == "/healthz" || r.URL.Path == "/metrics" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -379,9 +379,9 @@ func rateLimitMiddleware(cfg *Config, rl *apiRateLimiter, next http.Handler) htt
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip rate limiting for healthz and static dashboard assets.
+		// Skip rate limiting for healthz, metrics, and static dashboard assets.
 		p := r.URL.Path
-		if p == "/healthz" {
+		if p == "/healthz" || p == "/metrics" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -445,6 +445,16 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		checks := deepHealthCheck(cfg, state, cron, startTime)
 		b, _ := json.MarshalIndent(checks, "", "  ")
 		w.Write(b)
+	})
+
+	// --- Metrics ---
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if metrics == nil {
+			http.Error(w, "metrics not initialized", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		metrics.WriteTo(w)
 	})
 
 	// --- Circuit Breakers ---

@@ -384,6 +384,9 @@ func main() {
 			}
 		}
 
+		// Initialize metrics registry.
+		initMetrics()
+
 		// HTTP server.
 		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, slackBot)
 
