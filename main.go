@@ -90,6 +90,9 @@ func main() {
 		case "compact":
 			runCompaction(os.Args[2:])
 			return
+		case "pairing":
+			cmdPairing(os.Args[2:])
+			return
 		case "data":
 			cmdData(os.Args[2:])
 			return
@@ -198,6 +201,10 @@ func main() {
 			// Init config versioning table.
 			if err := initVersionDB(cfg.HistoryDB); err != nil {
 				logWarn("init config_versions failed", "error", err)
+			}
+			// Init agent communication table.
+			if err := initAgentCommDB(cfg.HistoryDB); err != nil {
+				logWarn("init agent_messages failed", "error", err)
 			}
 		}
 
@@ -411,8 +418,25 @@ func main() {
 		// Initialize metrics registry.
 		initMetrics()
 
+		// Initialize WhatsApp bot.
+		var whatsappBot *WhatsAppBot
+		if cfg.WhatsApp.Enabled && cfg.WhatsApp.PhoneNumberID != "" && cfg.WhatsApp.AccessToken != "" {
+			whatsappBot = newWhatsAppBot(cfg, state, sem, cron)
+			logInfo("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
+		}
+
+		// Initialize voice engine.
+		var voiceEngine *VoiceEngine
+		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
+			voiceEngine = newVoiceEngine(cfg)
+			logInfo("voice engine initialized")
+		}
+
+		// Initialize agent communication DB.
+		initAgentCommDB(cfg.HistoryDB)
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -484,7 +508,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

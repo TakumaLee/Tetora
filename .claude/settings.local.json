@@ -67,7 +67,10 @@
       "WebFetch(domain:thenewstack.io)",
       "WebFetch(domain:inworld.ai)",
       "WebFetch(domain:deepgram.com)",
-      "WebFetch(domain:blog.modelcontextprotocol.io)"
+      "WebFetch(domain:blog.modelcontextprotocol.io)",
+      "Bash(for f in a6f859e a84eeb9 ae606e7)",
+      "Bash(do echo \"=== $f ===\" tail -3 /private/tmp/claude-501/-Users-kumaneko--tetora/tasks/$f.output)",
+      "Bash(GIT_EDITOR=true git rebase:*)"
     ]
   }
 }

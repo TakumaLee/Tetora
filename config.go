@@ -50,6 +50,7 @@ type Config struct {
 	SmartDispatch         SmartDispatchConfig        `json:"smartDispatch,omitempty"`
 	Slack                 SlackBotConfig             `json:"slack,omitempty"`
 	Discord               DiscordBotConfig           `json:"discord,omitempty"`
+	WhatsApp              WhatsAppConfig             `json:"whatsapp,omitempty"`
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -72,6 +73,11 @@ type Config struct {
 	Proactive             ProactiveConfig                  `json:"proactive,omitempty"`
 	GroupChat             GroupChatConfig                  `json:"groupChat,omitempty"`
 	QuickActions          []QuickAction                    `json:"quickActions,omitempty"`
+	Voice                 VoiceConfig                      `json:"voice,omitempty"`
+	Push                  PushConfig                       `json:"push,omitempty"`
+	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
+	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
+	Canvas                CanvasConfig                     `json:"canvas,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -111,11 +117,12 @@ type RoleConfig struct {
 }
 
 type ProviderConfig struct {
-	Type    string `json:"type"`              // "claude-cli" | "openai-compatible"
-	Path    string `json:"path,omitempty"`    // binary path for CLI providers
-	BaseURL string `json:"baseUrl,omitempty"` // API endpoint for API providers
-	APIKey  string `json:"apiKey,omitempty"`  // $ENV_VAR supported
-	Model   string `json:"model,omitempty"`   // default model for this provider
+	Type      string `json:"type"`              // "claude-cli" | "openai-compatible" | "claude-api"
+	Path      string `json:"path,omitempty"`    // binary path for CLI providers
+	BaseURL   string `json:"baseUrl,omitempty"` // API endpoint for API providers
+	APIKey    string `json:"apiKey,omitempty"`  // $ENV_VAR supported
+	Model     string `json:"model,omitempty"`   // default model for this provider
+	MaxTokens int    `json:"maxTokens,omitempty"` // max output tokens (default 8192 for claude-api)
 }
 
 type CostAlertConfig struct {
@@ -258,6 +265,44 @@ type LoggingConfig struct {
 	File      string `json:"file,omitempty"`      // log file path (default baseDir/logs/tetora.log)
 	MaxSizeMB int    `json:"maxSizeMB,omitempty"` // max file size before rotation in MB (default 50)
 	MaxFiles  int    `json:"maxFiles,omitempty"`  // rotated files to keep (default 5)
+}
+
+type VoiceConfig struct {
+	STT STTConfig `json:"stt,omitempty"`
+	TTS TTSConfig `json:"tts,omitempty"`
+}
+
+type STTConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"` // "openai"
+	Model    string `json:"model,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"` // supports $ENV_VAR
+	Language string `json:"language,omitempty"`
+}
+
+type TTSConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"` // "openai", "elevenlabs"
+	Model    string `json:"model,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"` // supports $ENV_VAR
+	Voice    string `json:"voice,omitempty"`
+	Format   string `json:"format,omitempty"` // "mp3", "opus"
+}
+
+type PushConfig struct {
+	Enabled         bool   `json:"enabled,omitempty"`
+	VAPIDPublicKey  string `json:"vapidPublicKey,omitempty"`  // base64url encoded
+	VAPIDPrivateKey string `json:"vapidPrivateKey,omitempty"` // base64url encoded
+	VAPIDEmail      string `json:"vapidEmail,omitempty"`      // contact email for VAPID
+	TTL             int    `json:"ttl,omitempty"`             // push message TTL in seconds (default 3600)
+}
+
+type AgentCommConfig struct {
+	Enabled        bool `json:"enabled,omitempty"`
+	MaxConcurrent  int  `json:"maxConcurrent,omitempty"`  // max concurrent agent_dispatch calls (default 3)
+	DefaultTimeout int  `json:"defaultTimeout,omitempty"` // seconds (default 300)
 }
 
 func (c LoggingConfig) levelOrDefault() string {
@@ -565,6 +610,10 @@ func (cfg *Config) validate() {
 			if pc.BaseURL == "" {
 				logWarn("provider has no baseUrl", "provider", name)
 			}
+		case "claude-api":
+			if pc.APIKey == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+				logWarn("provider has no apiKey and ANTHROPIC_API_KEY not set", "provider", name)
+			}
 		default:
 			logWarn("provider has unknown type", "provider", name, "type", pc.Type)
 		}
@@ -685,6 +734,27 @@ func (cfg *Config) resolveSecrets() {
 	// Resolve WebSearch API key.
 	if cfg.Tools.WebSearch.APIKey != "" {
 		cfg.Tools.WebSearch.APIKey = resolveEnvRef(cfg.Tools.WebSearch.APIKey, "tools.webSearch.apiKey")
+	}
+	// Resolve Voice API keys.
+	if cfg.Voice.STT.APIKey != "" {
+		cfg.Voice.STT.APIKey = resolveEnvRef(cfg.Voice.STT.APIKey, "voice.stt.apiKey")
+	}
+	if cfg.Voice.TTS.APIKey != "" {
+		cfg.Voice.TTS.APIKey = resolveEnvRef(cfg.Voice.TTS.APIKey, "voice.tts.apiKey")
+	}
+	// Resolve WhatsApp credentials.
+	if cfg.WhatsApp.AccessToken != "" {
+		cfg.WhatsApp.AccessToken = resolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
+	}
+	if cfg.WhatsApp.AppSecret != "" {
+		cfg.WhatsApp.AppSecret = resolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
+	}
+	// Resolve Push VAPID keys.
+	if cfg.Push.VAPIDPublicKey != "" {
+		cfg.Push.VAPIDPublicKey = resolveEnvRef(cfg.Push.VAPIDPublicKey, "push.vapidPublicKey")
+	}
+	if cfg.Push.VAPIDPrivateKey != "" {
+		cfg.Push.VAPIDPrivateKey = resolveEnvRef(cfg.Push.VAPIDPrivateKey, "push.vapidPrivateKey")
 	}
 }
 

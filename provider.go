@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -43,13 +44,15 @@ type ProviderRequest struct {
 	// Docker sandbox override (nil=use config default).
 	Docker *bool
 
+	// Tools for agentic loop (passed to provider).
+	Tools []ToolDef
+
 	// Optional event channel for SSE streaming.
 	// When set, provider publishes output_chunk events as output is generated.
 	EventCh chan<- SSEEvent `json:"-"`
 
-	// Tool support for agentic loop.
-	Tools    []ToolDef `json:"tools,omitempty"`
-	Messages []Message `json:"messages,omitempty"` // for multi-turn tool loop
+	// Messages for multi-turn tool loop.
+	Messages []Message `json:"messages,omitempty"`
 }
 
 // ProviderResult is the normalized output from any provider.
@@ -156,6 +159,32 @@ func initProviders(cfg *Config) *providerRegistry {
 				baseURL:      pc.BaseURL,
 				apiKey:       pc.APIKey,
 				defaultModel: pc.Model,
+			})
+
+		case "claude-api":
+			apiKey := pc.APIKey
+			if apiKey == "" {
+				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			}
+			model := pc.Model
+			if model == "" {
+				model = "claude-sonnet-4-5-20250929"
+			}
+			maxTokens := pc.MaxTokens
+			if maxTokens <= 0 {
+				maxTokens = 8192
+			}
+			baseURL := pc.BaseURL
+			if baseURL == "" {
+				baseURL = "https://api.anthropic.com/v1"
+			}
+			reg.register(name, &ClaudeAPIProvider{
+				name:      name,
+				apiKey:    apiKey,
+				model:     model,
+				maxTokens: maxTokens,
+				baseURL:   baseURL,
+				cfg:       cfg,
 			})
 		}
 	}

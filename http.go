@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -45,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, metrics, dashboard, and Slack events (uses its own signature verification).
+		// Skip auth for health check, metrics, dashboard, Slack events, and WhatsApp webhook.
 		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -426,17 +427,31 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
 	apiLimiter := newAPIRateLimiter(cfg.RateLimit.MaxPerMin)
 	allowlist := parseAllowlist(cfg.AllowedIPs)
 
+	// Initialize Canvas Engine.
+	canvasEngine := newCanvasEngine(cfg, mcpHost)
+
+	// Register canvas tools.
+	if cfg.toolRegistry != nil {
+		registerCanvasTools(cfg.toolRegistry, canvasEngine, cfg)
+	}
+
 	// Register Slack events endpoint (uses its own auth via signing secret,
 	// registered on mux directly; Slack signature verification is inside the handler).
-	if len(slackBot) > 0 && slackBot[0] != nil {
-		mux.HandleFunc("/slack/events", slackBot[0].slackEventHandler)
+	if slackBot != nil {
+		mux.HandleFunc("/slack/events", slackBot.slackEventHandler)
+	}
+
+	// Register WhatsApp webhook endpoint (uses its own auth via signature verification,
+	// registered on mux directly; WhatsApp signature verification is inside the handler).
+	if whatsappBot != nil {
+		mux.HandleFunc("/api/whatsapp/webhook", whatsappBot.whatsAppWebhookHandler)
 	}
 
 	// --- Health ---
@@ -2721,6 +2736,537 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		actions := quickActionEngine.Search(query)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(actions)
+	})
+
+	// --- Canvas Engine ---
+
+	mux.HandleFunc("/api/canvas/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		sessions := canvasEngine.listCanvasSessions()
+		json.NewEncoder(w).Encode(map[string]any{
+			"sessions": sessions,
+			"count":    len(sessions),
+		})
+	})
+
+	mux.HandleFunc("/api/canvas/get", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, `{"error":"id parameter required"}`, http.StatusBadRequest)
+			return
+		}
+		session, err := canvasEngine.getCanvas(id)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(session)
+	})
+
+	mux.HandleFunc("/api/canvas/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var msg CanvasMessage
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if msg.SessionID == "" {
+			http.Error(w, `{"error":"sessionId required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := canvasEngine.handleCanvasMessage(msg.SessionID, msg.Message); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "message received",
+		})
+	})
+
+	mux.HandleFunc("/api/canvas/close", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, `{"error":"DELETE only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, `{"error":"id parameter required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := canvasEngine.closeCanvas(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "closed",
+			"id":     id,
+		})
+	})
+
+	// --- Voice Engine ---
+
+	mux.HandleFunc("/api/voice/transcribe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if voiceEngine == nil || voiceEngine.stt == nil {
+			http.Error(w, `{"error":"voice stt not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse multipart form.
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"parse form: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Get audio file.
+		file, header, err := r.FormFile("audio")
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"missing audio field: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Get options from form.
+		language := r.FormValue("language")
+		format := r.FormValue("format")
+		if format == "" {
+			// Try to infer from filename.
+			if strings.HasSuffix(header.Filename, ".ogg") {
+				format = "ogg"
+			} else if strings.HasSuffix(header.Filename, ".wav") {
+				format = "wav"
+			} else if strings.HasSuffix(header.Filename, ".webm") {
+				format = "webm"
+			} else {
+				format = "mp3"
+			}
+		}
+
+		opts := STTOptions{
+			Language: language,
+			Format:   format,
+		}
+
+		// Transcribe.
+		result, err := voiceEngine.Transcribe(r.Context(), file, opts)
+		if err != nil {
+			logErrorCtx(r.Context(), "voice transcribe failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
+	mux.HandleFunc("/api/voice/synthesize", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if voiceEngine == nil || voiceEngine.tts == nil {
+			http.Error(w, `{"error":"voice tts not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse request body.
+		var req struct {
+			Text   string  `json:"text"`
+			Voice  string  `json:"voice,omitempty"`
+			Speed  float64 `json:"speed,omitempty"`
+			Format string  `json:"format,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Text == "" {
+			http.Error(w, `{"error":"text field required"}`, http.StatusBadRequest)
+			return
+		}
+
+		opts := TTSOptions{
+			Voice:  req.Voice,
+			Speed:  req.Speed,
+			Format: req.Format,
+		}
+
+		// Synthesize.
+		stream, err := voiceEngine.Synthesize(r.Context(), req.Text, opts)
+		if err != nil {
+			logErrorCtx(r.Context(), "voice synthesize failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		defer stream.Close()
+
+		// Determine content type.
+		format := req.Format
+		if format == "" {
+			format = cfg.Voice.TTS.Format
+		}
+		if format == "" {
+			format = "mp3"
+		}
+		contentType := "audio/mpeg"
+		if format == "opus" {
+			contentType = "audio/opus"
+		} else if format == "wav" {
+			contentType = "audio/wav"
+		}
+
+		// Stream audio to response.
+		w.Header().Set("Content-Type", contentType)
+		io.Copy(w, stream)
+	})
+
+	// --- Web Push ---
+
+	var pushManager *PushManager
+	if cfg.Push.Enabled {
+		pushManager = newPushManager(cfg)
+		logInfo("push: web push notifications enabled")
+	}
+
+	mux.HandleFunc("/api/push/vapid-key", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if pushManager == nil {
+			http.Error(w, `{"error":"push notifications not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"publicKey": cfg.Push.VAPIDPublicKey,
+		})
+	})
+
+	mux.HandleFunc("/api/push/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if pushManager == nil {
+			http.Error(w, `{"error":"push notifications not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		var sub PushSubscription
+		if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Set user agent from request.
+		sub.UserAgent = r.Header.Get("User-Agent")
+
+		if err := pushManager.Subscribe(sub); err != nil {
+			logErrorCtx(r.Context(), "push subscribe failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"subscribed"}`))
+	})
+
+	mux.HandleFunc("/api/push/unsubscribe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if pushManager == nil {
+			http.Error(w, `{"error":"push notifications not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		var req struct {
+			Endpoint string `json:"endpoint"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Endpoint == "" {
+			http.Error(w, `{"error":"endpoint required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := pushManager.Unsubscribe(req.Endpoint); err != nil {
+			logErrorCtx(r.Context(), "push unsubscribe failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"unsubscribed"}`))
+	})
+
+	mux.HandleFunc("/api/push/test", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if pushManager == nil {
+			http.Error(w, `{"error":"push notifications not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		var notif PushNotification
+		if err := json.NewDecoder(r.Body).Decode(&notif); err != nil {
+			// Use default test notification if no body provided.
+			notif = PushNotification{
+				Title: "Tetora Test Notification",
+				Body:  "This is a test push notification from Tetora",
+				Icon:  "/dashboard/icon-192.png",
+			}
+		}
+
+		if err := pushManager.SendNotification(notif); err != nil {
+			logErrorCtx(r.Context(), "push test failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"sent"}`))
+	})
+
+	mux.HandleFunc("/api/push/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if pushManager == nil {
+			http.Error(w, `{"error":"push notifications not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		subs := pushManager.ListSubscriptions()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"subscriptions": subs,
+			"count":         len(subs),
+		})
+	})
+
+	// --- Pairing ---
+
+	pairingManager := newPairingManager(cfg)
+
+	mux.HandleFunc("/api/pairing/pending", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		pending := pairingManager.ListPending()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pending": pending,
+			"count":   len(pending),
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/approve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Code == "" {
+			http.Error(w, `{"error":"code required"}`, http.StatusBadRequest)
+			return
+		}
+
+		approved, err := pairingManager.Approve(req.Code)
+		if err != nil {
+			logErrorCtx(r.Context(), "pairing approve failed", "code", req.Code, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":  "approved",
+			"channel": approved.Channel,
+			"userId":  approved.UserID,
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/reject", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Code == "" {
+			http.Error(w, `{"error":"code required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := pairingManager.Reject(req.Code); err != nil {
+			logErrorCtx(r.Context(), "pairing reject failed", "code", req.Code, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"rejected"}`))
+	})
+
+	mux.HandleFunc("/api/pairing/approved", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		approved, err := pairingManager.ListApproved()
+		if err != nil {
+			logErrorCtx(r.Context(), "list approved failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"approved": approved,
+			"count":    len(approved),
+		})
+	})
+
+	mux.HandleFunc("/api/pairing/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Channel string `json:"channel"`
+			UserID  string `json:"userId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Channel == "" || req.UserID == "" {
+			http.Error(w, `{"error":"channel and userId required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := pairingManager.Revoke(req.Channel, req.UserID); err != nil {
+			logErrorCtx(r.Context(), "pairing revoke failed", "channel", req.Channel, "userId", req.UserID, "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"revoked"}`))
+	})
+
+	// --- Agent Communication ---
+
+	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		result, err := toolAgentList(r.Context(), cfg, json.RawMessage(`{}`))
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(result))
+	})
+
+	mux.HandleFunc("/api/agents/messages", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		role := r.URL.Query().Get("role")
+		if role == "" {
+			http.Error(w, `{"error":"role parameter required"}`, http.StatusBadRequest)
+			return
+		}
+
+		markAsRead := r.URL.Query().Get("markAsRead") == "true"
+
+		messages, err := getAgentMessages(cfg.HistoryDB, role, markAsRead)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"messages": messages,
+			"count":    len(messages),
+		})
+	})
+
+	mux.HandleFunc("/api/agents/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Role      string `json:"role"`
+			Message   string `json:"message"`
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		input, _ := json.Marshal(req)
+		result, err := toolAgentMessage(r.Context(), cfg, input)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(result))
 	})
 
 	// --- Cost Estimate ---

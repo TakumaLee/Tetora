@@ -354,6 +354,52 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 			RequireAuth: true,
 		})
 	}
+
+	if enabled("agent_list") {
+		r.Register(&ToolDef{
+			Name:        "agent_list",
+			Description: "List available agents/roles with their capabilities",
+			InputSchema: json.RawMessage(`{"type": "object", "properties": {}}`),
+			Handler:     toolAgentList,
+			Builtin:     true,
+		})
+	}
+
+	if enabled("agent_dispatch") {
+		r.Register(&ToolDef{
+			Name:        "agent_dispatch",
+			Description: "Dispatch a sub-task to another agent and wait for the result",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"role": {"type": "string", "description": "Target agent role name"},
+					"prompt": {"type": "string", "description": "Task prompt to send"},
+					"timeout": {"type": "number", "description": "Timeout in seconds (default 300)"}
+				},
+				"required": ["role", "prompt"]
+			}`),
+			Handler:     toolAgentDispatch,
+			Builtin:     true,
+		})
+	}
+
+	if enabled("agent_message") {
+		r.Register(&ToolDef{
+			Name:        "agent_message",
+			Description: "Send an async message to another agent's session",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"role": {"type": "string", "description": "Target agent role name"},
+					"message": {"type": "string", "description": "Message content"},
+					"sessionId": {"type": "string", "description": "Target session ID (optional)"}
+				},
+				"required": ["role", "message"]
+			}`),
+			Handler:     toolAgentMessage,
+			Builtin:     true,
+		})
+	}
 }
 
 // --- Tool Handlers ---
