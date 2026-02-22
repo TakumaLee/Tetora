@@ -46,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, and Discord interactions.
+		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, Discord interactions, and LINE webhook.
 		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || strings.HasPrefix(p, "/api/line/") || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -427,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost, lineBot *LINEBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -455,14 +455,18 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	}
 
 	// --- P14.1: Discord Components v2 ---
-	// Register Discord interaction webhook endpoint (uses Ed25519 signature verification,
-	// registered on mux directly; signature verification is inside the handler).
 	if state.discordBot != nil && cfg.Discord.PublicKey != "" {
 		discordBot := state.discordBot
 		mux.HandleFunc("/api/discord/interactions", func(w http.ResponseWriter, r *http.Request) {
 			handleDiscordInteraction(discordBot, w, r)
 		})
 		logInfo("discord interactions endpoint enabled", "endpoint", "/api/discord/interactions")
+	}
+
+	// --- P15.1: LINE Channel --- Register LINE webhook endpoint.
+	if lineBot != nil {
+		webhookPath := cfg.LINE.webhookPathOrDefault()
+		mux.HandleFunc(webhookPath, lineBot.HandleWebhook)
 	}
 
 	// --- Health ---

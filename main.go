@@ -456,8 +456,15 @@ func main() {
 			}
 		}
 
+		// --- P15.1: LINE Channel --- Initialize LINE bot.
+		var lineBot *LINEBot
+		if cfg.LINE.Enabled && cfg.LINE.ChannelSecret != "" && cfg.LINE.ChannelAccessToken != "" {
+			lineBot = newLINEBot(cfg, state, sem)
+			logInfo("line bot enabled", "endpoint", cfg.LINE.webhookPathOrDefault())
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -539,7 +546,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {
