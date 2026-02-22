@@ -72,6 +72,7 @@ type Config struct {
 	Voice                 VoiceConfig                      `json:"voice,omitempty"`
 	Push                  PushConfig                       `json:"push,omitempty"`
 	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
+	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -281,6 +282,12 @@ type PushConfig struct {
 	VAPIDPrivateKey string `json:"vapidPrivateKey,omitempty"` // base64url encoded
 	VAPIDEmail      string `json:"vapidEmail,omitempty"`      // contact email for VAPID
 	TTL             int    `json:"ttl,omitempty"`             // push message TTL in seconds (default 3600)
+}
+
+type AgentCommConfig struct {
+	Enabled        bool `json:"enabled,omitempty"`
+	MaxConcurrent  int  `json:"maxConcurrent,omitempty"`  // max concurrent agent_dispatch calls (default 3)
+	DefaultTimeout int  `json:"defaultTimeout,omitempty"` // seconds (default 300)
 }
 
 func (c LoggingConfig) levelOrDefault() string {

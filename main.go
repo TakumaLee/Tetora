@@ -183,6 +183,10 @@ func main() {
 			if err := initVersionDB(cfg.HistoryDB); err != nil {
 				logWarn("init config_versions failed", "error", err)
 			}
+			// Init agent communication table.
+			if err := initAgentCommDB(cfg.HistoryDB); err != nil {
+				logWarn("init agent_messages failed", "error", err)
+			}
 		}
 
 		// Init outputs directory + cleanup.

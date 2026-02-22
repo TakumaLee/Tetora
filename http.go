@@ -2916,6 +2916,78 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		w.Write([]byte(`{"status":"revoked"}`))
 	})
 
+	// --- Agent Communication ---
+
+	mux.HandleFunc("/api/agents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		result, err := toolAgentList(r.Context(), cfg, json.RawMessage(`{}`))
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(result))
+	})
+
+	mux.HandleFunc("/api/agents/messages", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		role := r.URL.Query().Get("role")
+		if role == "" {
+			http.Error(w, `{"error":"role parameter required"}`, http.StatusBadRequest)
+			return
+		}
+
+		markAsRead := r.URL.Query().Get("markAsRead") == "true"
+
+		messages, err := getAgentMessages(cfg.HistoryDB, role, markAsRead)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"messages": messages,
+			"count":    len(messages),
+		})
+	})
+
+	mux.HandleFunc("/api/agents/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Role      string `json:"role"`
+			Message   string `json:"message"`
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		input, _ := json.Marshal(req)
+		result, err := toolAgentMessage(r.Context(), cfg, input)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(result))
+	})
+
 	// --- Cost Estimate ---
 
 	mux.HandleFunc("/dispatch/estimate", func(w http.ResponseWriter, r *http.Request) {
