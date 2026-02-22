@@ -71,6 +71,7 @@ type Config struct {
 	Embedding             EmbeddingConfig                  `json:"embedding,omitempty"`
 	Proactive             ProactiveConfig                  `json:"proactive,omitempty"`
 	GroupChat             GroupChatConfig                  `json:"groupChat,omitempty"`
+	QuickActions          []QuickAction                    `json:"quickActions,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string

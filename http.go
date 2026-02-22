@@ -2653,6 +2653,76 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	mux.HandleFunc("/api/docs", handleAPIDocs)
 	mux.HandleFunc("/api/spec", handleAPISpec(cfg))
 
+	// --- Quick Actions ---
+
+	quickActionEngine := newQuickActionEngine(cfg)
+
+	mux.HandleFunc("/api/quick/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		actions := quickActionEngine.List()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(actions)
+	})
+
+	mux.HandleFunc("/api/quick/run", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		ctx := r.Context()
+
+		var req struct {
+			Name   string         `json:"name"`
+			Params map[string]any `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Build prompt from action.
+		prompt, role, err := quickActionEngine.BuildPrompt(req.Name, req.Params)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Create task.
+		task := Task{
+			Name:   "quick:" + req.Name,
+			Prompt: prompt,
+			Role:   role,
+			Source: "quick:" + req.Name,
+		}
+		fillDefaults(cfg, &task)
+
+		// Dispatch task.
+		tasks := []Task{task}
+		result := dispatch(ctx, cfg, tasks, state, sem)
+
+		if len(result.Tasks) == 0 {
+			http.Error(w, `{"error":"no result"}`, http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result.Tasks[0])
+	})
+
+	mux.HandleFunc("/api/quick/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		query := r.URL.Query().Get("q")
+		actions := quickActionEngine.Search(query)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(actions)
+	})
+
 	// --- Cost Estimate ---
 
 	mux.HandleFunc("/dispatch/estimate", func(w http.ResponseWriter, r *http.Request) {

@@ -39,7 +39,7 @@ func completionSubcommands() []string {
 		"status", "service", "job", "role", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
-		"proactive", "dashboard", "compact", "version", "help", "completion",
+		"proactive", "quick", "dashboard", "compact", "version", "help", "completion",
 	}
 }
 
@@ -76,6 +76,8 @@ func completionSubActions(cmd string) []string {
 		return []string{"list", "show", "test"}
 	case "proactive":
 		return []string{"list", "trigger", "status"}
+	case "quick":
+		return []string{"list", "run", "search"}
 	case "service":
 		return []string{"install", "uninstall", "status"}
 	case "data":
