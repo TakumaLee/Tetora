@@ -434,6 +434,14 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	apiLimiter := newAPIRateLimiter(cfg.RateLimit.MaxPerMin)
 	allowlist := parseAllowlist(cfg.AllowedIPs)
 
+	// Initialize Canvas Engine.
+	canvasEngine := newCanvasEngine(cfg, mcpHost)
+
+	// Register canvas tools.
+	if cfg.toolRegistry != nil {
+		registerCanvasTools(cfg.toolRegistry, canvasEngine, cfg)
+	}
+
 	// Register Slack events endpoint (uses its own auth via signing secret,
 	// registered on mux directly; Slack signature verification is inside the handler).
 	if slackBot != nil {
@@ -2534,6 +2542,85 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 
 	mux.HandleFunc("/api/docs", handleAPIDocs)
 	mux.HandleFunc("/api/spec", handleAPISpec(cfg))
+
+	// --- Canvas Engine ---
+
+	mux.HandleFunc("/api/canvas/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		sessions := canvasEngine.listCanvasSessions()
+		json.NewEncoder(w).Encode(map[string]any{
+			"sessions": sessions,
+			"count":    len(sessions),
+		})
+	})
+
+	mux.HandleFunc("/api/canvas/get", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, `{"error":"id parameter required"}`, http.StatusBadRequest)
+			return
+		}
+		session, err := canvasEngine.getCanvas(id)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(session)
+	})
+
+	mux.HandleFunc("/api/canvas/message", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		var msg CanvasMessage
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if msg.SessionID == "" {
+			http.Error(w, `{"error":"sessionId required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := canvasEngine.handleCanvasMessage(msg.SessionID, msg.Message); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "message received",
+		})
+	})
+
+	mux.HandleFunc("/api/canvas/close", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, `{"error":"DELETE only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, `{"error":"id parameter required"}`, http.StatusBadRequest)
+			return
+		}
+		if err := canvasEngine.closeCanvas(id); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "closed",
+			"id":     id,
+		})
+	})
 
 	// --- Voice Engine ---
 

@@ -234,6 +234,13 @@ func (h *MCPHost) ServerStatus() []MCPServerStatus {
 	return result
 }
 
+// getServer retrieves a server by name.
+func (h *MCPHost) getServer(name string) *MCPServer {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.servers[name]
+}
+
 // --- MCP Server Methods ---
 
 // start spawns the MCP server process and initializes the connection.

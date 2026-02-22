@@ -73,6 +73,7 @@ type Config struct {
 	Push                  PushConfig                       `json:"push,omitempty"`
 	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
 	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
+	Canvas                CanvasConfig                     `json:"canvas,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
