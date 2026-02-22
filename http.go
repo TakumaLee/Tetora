@@ -426,7 +426,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, slackBot ...*SlackBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -2630,6 +2630,22 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(fmt.Sprintf(`{"status":"triggered","rule":"%s"}`, ruleName)))
+	})
+
+	// --- Group Chat ---
+
+	mux.HandleFunc("/api/groupchat/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if groupChatEngine == nil {
+			http.Error(w, `{"error":"group chat engine not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		status := groupChatEngine.Status()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
 	})
 
 	// --- API Documentation ---

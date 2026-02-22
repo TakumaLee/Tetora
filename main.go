@@ -303,6 +303,13 @@ func main() {
 			logInfo("proactive engine started", "rules", len(cfg.Proactive.Rules))
 		}
 
+		// Group chat engine.
+		var groupChatEngine *GroupChatEngine
+		if cfg.GroupChat.Activation != "" {
+			groupChatEngine = newGroupChatEngine(cfg)
+			logInfo("group chat engine started", "activation", cfg.GroupChat.Activation)
+		}
+
 		// Start SLA monitor + budget alert goroutine.
 		if cfg.SLA.Enabled {
 			go func() {
@@ -402,7 +409,7 @@ func main() {
 		initMetrics()
 
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, slackBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -474,7 +481,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

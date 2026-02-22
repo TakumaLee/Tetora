@@ -335,13 +335,7 @@ func TestToolPolicySummary(t *testing.T) {
 	}
 }
 
-// Helper function to check if a string contains a substring (case-insensitive).
-func containsString(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 &&
-		(s == substr || len(s) >= len(substr) &&
-		(s[:len(substr)] == substr ||
-		len(s) > len(substr) && containsStringHelper(s, substr)))
-}
+// containsString is defined in proactive_test.go
 
 func containsStringHelper(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {

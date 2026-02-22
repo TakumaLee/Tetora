@@ -70,6 +70,7 @@ type Config struct {
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
 	Embedding             EmbeddingConfig                  `json:"embedding,omitempty"`
 	Proactive             ProactiveConfig                  `json:"proactive,omitempty"`
+	GroupChat             GroupChatConfig                  `json:"groupChat,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -278,6 +279,23 @@ func (c LoggingConfig) maxFilesOrDefault() int {
 type ProactiveConfig struct {
 	Enabled bool             `json:"enabled,omitempty"`
 	Rules   []ProactiveRule  `json:"rules,omitempty"`
+}
+
+// GroupChatConfig configures group chat intelligence.
+type GroupChatConfig struct {
+	Activation    string                       `json:"activation,omitempty"`    // "mention", "keyword", "all"
+	Keywords      []string                     `json:"keywords,omitempty"`      // trigger keywords for "keyword" mode
+	ContextWindow int                          `json:"contextWindow,omitempty"` // messages to include for context (default 10)
+	RateLimit     GroupChatRateLimitConfig     `json:"rateLimit,omitempty"`
+	AllowedGroups map[string][]string          `json:"allowedGroups,omitempty"` // platform → group IDs
+	ThreadReply   bool                         `json:"threadReply,omitempty"`   // reply in threads
+	MentionNames  []string                     `json:"mentionNames,omitempty"`  // names that trigger activation (e.g. ["tetora", "テトラ"])
+}
+
+// GroupChatRateLimitConfig configures group chat rate limiting.
+type GroupChatRateLimitConfig struct {
+	MaxPerMin int  `json:"maxPerMin,omitempty"` // default 5
+	PerGroup  bool `json:"perGroup,omitempty"`  // per-group vs global rate limit
 }
 
 // sessionContextMessages returns the configured max context messages (default 20).
