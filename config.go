@@ -51,6 +51,7 @@ type Config struct {
 	Slack                 SlackBotConfig             `json:"slack,omitempty"`
 	Discord               DiscordBotConfig           `json:"discord,omitempty"`
 	WhatsApp              WhatsAppConfig             `json:"whatsapp,omitempty"`
+	LINE                  LINEConfig                 `json:"line,omitempty"`           // --- P15.1: LINE Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -784,6 +785,13 @@ func (cfg *Config) resolveSecrets() {
 	// --- P13.4: Image Analysis --- Resolve Vision API key.
 	if cfg.Tools.Vision.APIKey != "" {
 		cfg.Tools.Vision.APIKey = resolveEnvRef(cfg.Tools.Vision.APIKey, "tools.vision.apiKey")
+	}
+	// --- P15.1: LINE Channel --- Resolve LINE credentials.
+	if cfg.LINE.ChannelSecret != "" {
+		cfg.LINE.ChannelSecret = resolveEnvRef(cfg.LINE.ChannelSecret, "line.channelSecret")
+	}
+	if cfg.LINE.ChannelAccessToken != "" {
+		cfg.LINE.ChannelAccessToken = resolveEnvRef(cfg.LINE.ChannelAccessToken, "line.channelAccessToken")
 	}
 }
 

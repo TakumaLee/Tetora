@@ -120,6 +120,14 @@ func buildNotifiers(cfg *Config) []Notifier {
 					Recipient: ch.WebhookURL, // use webhookUrl field for phone number
 				})
 			}
+		case "line": // --- P15.1: LINE Channel ---
+			// For LINE, WebhookURL should contain the target user/group ID
+			if ch.WebhookURL != "" && cfg.LINE.Enabled {
+				notifiers = append(notifiers, &LINENotifier{
+					Config: cfg.LINE,
+					ChatID: ch.WebhookURL, // use webhookUrl field for LINE user/group ID
+				})
+			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)
 		}
