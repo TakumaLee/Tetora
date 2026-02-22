@@ -45,6 +45,7 @@ Commands:
   budget <action>    Cost governance (show|pause|resume)
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
+  plugin <action>    Manage external plugins (list|start|stop)
   backup             Create backup of tetora data
   restore            Restore from a backup file
   dashboard          Open web dashboard in browser

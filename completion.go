@@ -39,7 +39,7 @@ func completionSubcommands() []string {
 		"status", "service", "job", "role", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
-		"proactive", "quick", "dashboard", "compact", "version", "help", "completion",
+		"proactive", "quick", "dashboard", "compact", "plugin", "version", "help", "completion",
 	}
 }
 
@@ -82,6 +82,8 @@ func completionSubActions(cmd string) []string {
 		return []string{"install", "uninstall", "status"}
 	case "data":
 		return []string{"status", "cleanup", "export", "purge"}
+	case "plugin": // --- P13.1: Plugin System ---
+		return []string{"list", "start", "stop"}
 	case "completion":
 		return []string{"bash", "zsh", "fish"}
 	}
@@ -116,6 +118,7 @@ func completionSubcommandDescriptions() map[string]string {
 		"webhook":    "Manage incoming webhooks",
 		"proactive":  "Manage proactive agent rules",
 		"compact":    "Compact session messages",
+		"plugin":     "Manage external plugins",
 		"data":       "Data retention & privacy management",
 		"backup":     "Create backup of tetora data",
 		"restore":    "Restore from a backup file",
@@ -222,6 +225,12 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 		return map[string]string{
 			"install": "Install as launchd service", "uninstall": "Uninstall launchd service",
 			"status": "Show service status",
+		}
+	case "plugin": // --- P13.1: Plugin System ---
+		return map[string]string{
+			"list":  "List configured plugins",
+			"start": "Start a plugin",
+			"stop":  "Stop a running plugin",
 		}
 	case "completion":
 		return map[string]string{

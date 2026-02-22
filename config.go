@@ -78,6 +78,7 @@ type Config struct {
 	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
 	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
 	Canvas                CanvasConfig                     `json:"canvas,omitempty"`
+	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"` // --- P13.1: Plugin System ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -755,6 +756,15 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.Push.VAPIDPrivateKey != "" {
 		cfg.Push.VAPIDPrivateKey = resolveEnvRef(cfg.Push.VAPIDPrivateKey, "push.vapidPrivateKey")
+	}
+	// --- P13.1: Plugin System --- Resolve plugin env vars.
+	for name, pcfg := range cfg.Plugins {
+		if len(pcfg.Env) > 0 {
+			for k, v := range pcfg.Env {
+				pcfg.Env[k] = resolveEnvRef(v, fmt.Sprintf("plugins.%s.env.%s", name, k))
+			}
+			cfg.Plugins[name] = pcfg
+		}
 	}
 }
 

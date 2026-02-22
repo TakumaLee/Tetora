@@ -427,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -4047,6 +4047,76 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 			versions = []ConfigVersion{}
 		}
 		json.NewEncoder(w).Encode(versions)
+	})
+
+	// --- P13.1: Plugin System --- Plugin API routes.
+	mux.HandleFunc("/api/plugins", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if pluginHost == nil {
+			json.NewEncoder(w).Encode([]any{})
+			return
+		}
+		json.NewEncoder(w).Encode(pluginHost.List())
+	})
+
+	mux.HandleFunc("/api/plugins/", func(w http.ResponseWriter, r *http.Request) {
+		// Parse /api/plugins/{name}/{action}
+		path := strings.TrimPrefix(r.URL.Path, "/api/plugins/")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) == 0 || parts[0] == "" {
+			http.Error(w, `{"error":"plugin name required"}`, http.StatusBadRequest)
+			return
+		}
+		name := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if pluginHost == nil {
+			http.Error(w, `{"error":"plugin system not initialized"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		switch action {
+		case "start":
+			if r.Method != http.MethodPost {
+				http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			if err := pluginHost.Start(name); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"status": "started", "name": name})
+
+		case "stop":
+			if r.Method != http.MethodPost {
+				http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			if err := pluginHost.Stop(name); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"status": "stopped", "name": name})
+
+		case "health":
+			if r.Method != http.MethodGet {
+				http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			json.NewEncoder(w).Encode(pluginHost.Health(name))
+
+		default:
+			http.Error(w, `{"error":"unknown action, use start, stop, or health"}`, http.StatusBadRequest)
+		}
 	})
 
 	// PWA assets.

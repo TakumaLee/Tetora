@@ -96,6 +96,9 @@ func main() {
 		case "data":
 			cmdData(os.Args[2:])
 			return
+		case "plugin": // --- P13.1: Plugin System ---
+			cmdPlugin(os.Args[2:])
+			return
 		case "backup":
 			cmdBackup(os.Args[2:])
 			return
@@ -435,8 +438,16 @@ func main() {
 		// Initialize agent communication DB.
 		initAgentCommDB(cfg.HistoryDB)
 
+		// --- P13.1: Plugin System --- Initialize plugin host.
+		var pluginHost *PluginHost
+		if len(cfg.Plugins) > 0 {
+			pluginHost = NewPluginHost(cfg)
+			pluginHost.AutoStart()
+			logInfo("plugin host initialized", "plugins", len(cfg.Plugins))
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -483,6 +494,11 @@ func main() {
 			mcpHost.Stop()
 		}
 
+		// --- P13.1: Plugin System --- Stop plugin host.
+		if pluginHost != nil {
+			pluginHost.StopAll()
+		}
+
 		// Stop proactive engine.
 		if proactiveEngine != nil {
 			proactiveEngine.Stop()
@@ -508,7 +524,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

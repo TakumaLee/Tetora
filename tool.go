@@ -400,6 +400,42 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 			Builtin:     true,
 		})
 	}
+
+	// --- P13.1: Plugin System --- Code Mode meta-tools.
+	if enabled("search_tools") {
+		r.Register(&ToolDef{
+			Name:        "search_tools",
+			Description: "Search available tools by keyword (name or description). Use when there are many tools and you need to find the right one.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Keyword to search for in tool names and descriptions"},
+					"limit": {"type": "number", "description": "Maximum results to return (default 10)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolSearchTools,
+			Builtin: true,
+		})
+	}
+
+	if enabled("execute_tool") {
+		r.Register(&ToolDef{
+			Name:        "execute_tool",
+			Description: "Execute any registered tool by name with given input. Use with search_tools to discover and run tools dynamically.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Tool name to execute"},
+					"input": {"type": "object", "description": "Input parameters for the tool"}
+				},
+				"required": ["name"]
+			}`),
+			Handler:     toolExecuteTool,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
 }
 
 // --- Tool Handlers ---
