@@ -30,6 +30,8 @@ type DiscordBotConfig struct {
 	PublicKey      string                      `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
 	Components     DiscordComponentsConfig     `json:"components,omitempty"`
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
+	Reactions      DiscordReactionsConfig      `json:"reactions,omitempty"`      // P14.3: lifecycle reactions
+	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
 }
 
 // --- P14.1: Discord Components v2 ---
@@ -370,10 +372,12 @@ type DiscordBot struct {
 	stopCh       chan struct{}
 	interactions *discordInteractionState // P14.1: tracks pending component interactions
 	threads      *threadBindingStore      // P14.2: per-thread agent bindings
+	reactions    *discordReactionManager  // P14.3: lifecycle reactions
+	forumBoard   *discordForumBoard       // P14.4: forum task board
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
-	return &DiscordBot{
+	db := &DiscordBot{
 		cfg:          cfg,
 		state:        state,
 		sem:          sem,
@@ -383,6 +387,20 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 		interactions: newDiscordInteractionState(), // P14.1
 		threads:      newThreadBindingStore(),      // P14.2
 	}
+
+	// P14.3: Initialize reaction manager.
+	if cfg.Discord.Reactions.Enabled {
+		db.reactions = newDiscordReactionManager(db, cfg.Discord.Reactions.Emojis)
+		logInfo("discord lifecycle reactions enabled")
+	}
+
+	// P14.4: Initialize forum board.
+	if cfg.Discord.ForumBoard.Enabled {
+		db.forumBoard = newDiscordForumBoard(db, cfg.Discord.ForumBoard)
+		logInfo("discord forum board enabled", "channel", cfg.Discord.ForumBoard.ForumChannelID)
+	}
+
+	return db
 }
 
 // Run connects to the Discord Gateway and processes events. Blocks until stopped.
@@ -608,6 +626,22 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
+	// P14.4: Forum board commands (/assign, /status) — available in any context.
+	if db.forumBoard != nil && db.forumBoard.isConfigured() {
+		if strings.HasPrefix(text, "/assign") {
+			args := strings.TrimPrefix(text, "/assign")
+			reply := db.forumBoard.handleAssignCommand(msg.ChannelID, msg.GuildID, args)
+			db.sendMessage(msg.ChannelID, reply)
+			return
+		}
+		if strings.HasPrefix(text, "/status") {
+			args := strings.TrimPrefix(text, "/status")
+			reply := db.forumBoard.handleStatusCommand(msg.ChannelID, args)
+			db.sendMessage(msg.ChannelID, reply)
+			return
+		}
+	}
+
 	// Command handling.
 	if strings.HasPrefix(text, "!") {
 		db.handleCommand(msg, text[1:])
@@ -758,6 +792,11 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	db.sendTyping(msg.ChannelID)
 
+	// P14.3: Add queued reaction.
+	if db.reactions != nil {
+		db.reactions.reactQueued(msg.ChannelID, msg.ID)
+	}
+
 	ctx := withTraceID(context.Background(), newTraceID("discord"))
 	dbPath := db.cfg.HistoryDB
 
@@ -810,8 +849,22 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 	task.Prompt = expandPrompt(task.Prompt, "", db.cfg.HistoryDB, route.Role, db.cfg.KnowledgeDir, db.cfg)
 
+	// P14.3: Transition to thinking phase before task execution.
+	if db.reactions != nil {
+		db.reactions.reactThinking(msg.ChannelID, msg.ID)
+	}
+
 	taskStart := time.Now()
 	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Role)
+
+	// P14.3: Set done/error reaction based on result.
+	if db.reactions != nil {
+		if result.Status == "success" {
+			db.reactions.reactDone(msg.ChannelID, msg.ID)
+		} else {
+			db.reactions.reactError(msg.ChannelID, msg.ID)
+		}
+	}
 
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
