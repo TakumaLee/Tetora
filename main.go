@@ -395,6 +395,7 @@ func main() {
 		var discordBot *DiscordBot
 		if cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
 			discordBot = newDiscordBot(cfg, state, sem, cron)
+			state.discordBot = discordBot // P14.1: store for interaction handler
 			logInfo("discord bot enabled")
 
 			// Wire Discord into notification chain.

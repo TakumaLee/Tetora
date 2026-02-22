@@ -23,10 +23,21 @@ import (
 
 // DiscordBotConfig holds configuration for the Discord bot integration.
 type DiscordBotConfig struct {
-	Enabled   bool   `json:"enabled"`
-	BotToken  string `json:"botToken"`            // $ENV_VAR supported
-	GuildID   string `json:"guildID,omitempty"`    // restrict to specific guild
-	ChannelID string `json:"channelID,omitempty"`  // restrict to specific channel
+	Enabled    bool                    `json:"enabled"`
+	BotToken   string                  `json:"botToken"`            // $ENV_VAR supported
+	GuildID    string                  `json:"guildID,omitempty"`   // restrict to specific guild
+	ChannelID  string                  `json:"channelID,omitempty"` // restrict to specific channel
+	PublicKey  string                  `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
+	Components DiscordComponentsConfig `json:"components,omitempty"`
+}
+
+// --- P14.1: Discord Components v2 ---
+
+// DiscordComponentsConfig holds configuration for Discord interactive components.
+type DiscordComponentsConfig struct {
+	Enabled         bool   `json:"enabled,omitempty"`
+	ReusableDefault bool   `json:"reusableDefault,omitempty"` // default for button reusability
+	AccentColor     string `json:"accentColor,omitempty"`     // hex color, default "#5865F2"
 }
 
 // --- Constants ---
@@ -354,18 +365,20 @@ type DiscordBot struct {
 	seq       int
 	seqMu     sync.Mutex
 
-	client *http.Client
-	stopCh chan struct{}
+	client       *http.Client
+	stopCh       chan struct{}
+	interactions *discordInteractionState // P14.1: tracks pending component interactions
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
 	return &DiscordBot{
-		cfg:    cfg,
-		state:  state,
-		sem:    sem,
-		cron:   cron,
-		client: &http.Client{Timeout: 10 * time.Second},
-		stopCh: make(chan struct{}),
+		cfg:          cfg,
+		state:        state,
+		sem:          sem,
+		cron:         cron,
+		client:       &http.Client{Timeout: 10 * time.Second},
+		stopCh:       make(chan struct{}),
+		interactions: newDiscordInteractionState(), // P14.1
 	}
 }
 
@@ -895,4 +908,25 @@ func (db *DiscordBot) discordPost(path string, payload any) {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		logWarn("discord api error", "status", resp.StatusCode, "body", string(b))
 	}
+}
+
+// --- P14.1: Discord Components v2 ---
+
+// sendMessageWithComponents sends a message with interactive components (buttons, selects, etc.).
+func (db *DiscordBot) sendMessageWithComponents(channelID, content string, components []discordComponent) {
+	if len(content) > 2000 {
+		content = content[:1997] + "..."
+	}
+	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{
+		"content":    content,
+		"components": components,
+	})
+}
+
+// sendEmbedWithComponents sends an embed message with interactive components.
+func (db *DiscordBot) sendEmbedWithComponents(channelID string, embed discordEmbed, components []discordComponent) {
+	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{
+		"embeds":     []discordEmbed{embed},
+		"components": components,
+	})
 }

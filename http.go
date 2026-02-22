@@ -46,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, metrics, dashboard, Slack events, and WhatsApp webhook.
+		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, and Discord interactions.
 		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -452,6 +452,17 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	// registered on mux directly; WhatsApp signature verification is inside the handler).
 	if whatsappBot != nil {
 		mux.HandleFunc("/api/whatsapp/webhook", whatsappBot.whatsAppWebhookHandler)
+	}
+
+	// --- P14.1: Discord Components v2 ---
+	// Register Discord interaction webhook endpoint (uses Ed25519 signature verification,
+	// registered on mux directly; signature verification is inside the handler).
+	if state.discordBot != nil && cfg.Discord.PublicKey != "" {
+		discordBot := state.discordBot
+		mux.HandleFunc("/api/discord/interactions", func(w http.ResponseWriter, r *http.Request) {
+			handleDiscordInteraction(discordBot, w, r)
+		})
+		logInfo("discord interactions endpoint enabled", "endpoint", "/api/discord/interactions")
 	}
 
 	// --- Health ---

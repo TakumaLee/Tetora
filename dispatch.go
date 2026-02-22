@@ -92,6 +92,7 @@ type dispatchState struct {
 	cancel      context.CancelFunc
 	broker      *sseBroker       // SSE event broker for streaming progress
 	sandboxMgr  *SandboxManager  // --- P13.2: Sandbox Plugin ---
+	discordBot  *DiscordBot      // --- P14.1: Discord Components v2 ---
 }
 
 type taskState struct {
