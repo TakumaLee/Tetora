@@ -70,6 +70,7 @@ type Config struct {
 	Retention             RetentionConfig                  `json:"retention,omitempty"`
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
 	Voice                 VoiceConfig                      `json:"voice,omitempty"`
+	Push                  PushConfig                       `json:"push,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -271,6 +272,14 @@ type TTSConfig struct {
 	APIKey   string `json:"apiKey,omitempty"` // supports $ENV_VAR
 	Voice    string `json:"voice,omitempty"`
 	Format   string `json:"format,omitempty"` // "mp3", "opus"
+}
+
+type PushConfig struct {
+	Enabled         bool   `json:"enabled,omitempty"`
+	VAPIDPublicKey  string `json:"vapidPublicKey,omitempty"`  // base64url encoded
+	VAPIDPrivateKey string `json:"vapidPrivateKey,omitempty"` // base64url encoded
+	VAPIDEmail      string `json:"vapidEmail,omitempty"`      // contact email for VAPID
+	TTL             int    `json:"ttl,omitempty"`             // push message TTL in seconds (default 3600)
 }
 
 func (c LoggingConfig) levelOrDefault() string {
@@ -685,6 +694,13 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.WhatsApp.AppSecret != "" {
 		cfg.WhatsApp.AppSecret = resolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
+	}
+	// Resolve Push VAPID keys.
+	if cfg.Push.VAPIDPublicKey != "" {
+		cfg.Push.VAPIDPublicKey = resolveEnvRef(cfg.Push.VAPIDPublicKey, "push.vapidPublicKey")
+	}
+	if cfg.Push.VAPIDPrivateKey != "" {
+		cfg.Push.VAPIDPrivateKey = resolveEnvRef(cfg.Push.VAPIDPrivateKey, "push.vapidPrivateKey")
 	}
 }
 
