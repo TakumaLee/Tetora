@@ -536,11 +536,26 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	roleName := task.Role
 
-	// Inject role soul prompt, model, permission mode if role is set.
+	// Apply workspace configuration if role is set.
 	if roleName != "" {
-		if soulPrompt, err := loadRolePrompt(cfg, roleName); err == nil && soulPrompt != "" {
+		// Use workspace soul file if available, otherwise fallback to legacy loadRolePrompt.
+		soulPrompt := loadSoulFile(cfg, roleName)
+		if soulPrompt == "" {
+			if sp, err := loadRolePrompt(cfg, roleName); err == nil {
+				soulPrompt = sp
+			}
+		}
+		if soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
+
+		// Apply workspace directory as workdir if task doesn't specify one.
+		ws := resolveWorkspace(cfg, roleName)
+		if task.Workdir == cfg.DefaultWorkdir && ws.Dir != "" {
+			task.Workdir = ws.Dir
+		}
+
+		// Apply role config overrides.
 		if rc, ok := cfg.Roles[roleName]; ok {
 			if task.Model == cfg.DefaultModel && rc.Model != "" {
 				task.Model = rc.Model

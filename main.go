@@ -199,6 +199,13 @@ func main() {
 		cfg.toolRegistry = NewToolRegistry(cfg)
 		logInfo("tool registry initialized", "tools", len(cfg.toolRegistry.List()))
 
+		// Init workspace directories for all roles.
+		if err := initWorkspaces(cfg); err != nil {
+			logWarn("init workspaces failed", "error", err)
+		} else {
+			logInfo("workspaces initialized", "roles", len(cfg.Roles))
+		}
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 

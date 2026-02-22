@@ -92,17 +92,18 @@ type TelegramConfig struct {
 }
 
 type RoleConfig struct {
-	SoulFile          string         `json:"soulFile"`
-	Model             string         `json:"model"`
-	Description       string         `json:"description"`
-	Keywords          []string       `json:"keywords,omitempty"`          // routing keywords for smart dispatch
-	PermissionMode    string         `json:"permissionMode,omitempty"`
-	AllowedDirs       []string       `json:"allowedDirs,omitempty"`
-	Provider          string         `json:"provider,omitempty"`
-	Docker            *bool          `json:"docker,omitempty"`            // per-role Docker sandbox override
-	FallbackProviders []string       `json:"fallbackProviders,omitempty"` // failover chain
-	TrustLevel        string         `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
-	ToolPolicy        RoleToolPolicy `json:"tools,omitempty"`             // tool access policy
+	SoulFile          string          `json:"soulFile"`
+	Model             string          `json:"model"`
+	Description       string          `json:"description"`
+	Keywords          []string        `json:"keywords,omitempty"`          // routing keywords for smart dispatch
+	PermissionMode    string          `json:"permissionMode,omitempty"`
+	AllowedDirs       []string        `json:"allowedDirs,omitempty"`
+	Provider          string          `json:"provider,omitempty"`
+	Docker            *bool           `json:"docker,omitempty"`            // per-role Docker sandbox override
+	FallbackProviders []string        `json:"fallbackProviders,omitempty"` // failover chain
+	TrustLevel        string          `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
+	ToolPolicy        RoleToolPolicy  `json:"tools,omitempty"`             // tool access policy
+	Workspace         WorkspaceConfig `json:"workspace,omitempty"`         // workspace isolation config
 }
 
 type ProviderConfig struct {
