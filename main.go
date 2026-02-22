@@ -374,8 +374,15 @@ func main() {
 			}
 		}
 
+		// Initialize voice engine.
+		var voiceEngine *VoiceEngine
+		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
+			voiceEngine = newVoiceEngine(cfg)
+			logInfo("voice engine initialized")
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, voiceEngine, slackBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -442,7 +449,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

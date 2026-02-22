@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -426,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, voiceEngine *VoiceEngine, slackBot ...*SlackBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -2527,6 +2528,126 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 
 	mux.HandleFunc("/api/docs", handleAPIDocs)
 	mux.HandleFunc("/api/spec", handleAPISpec(cfg))
+
+	// --- Voice Engine ---
+
+	mux.HandleFunc("/api/voice/transcribe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if voiceEngine == nil || voiceEngine.stt == nil {
+			http.Error(w, `{"error":"voice stt not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse multipart form.
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"parse form: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Get audio file.
+		file, header, err := r.FormFile("audio")
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"missing audio field: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		// Get options from form.
+		language := r.FormValue("language")
+		format := r.FormValue("format")
+		if format == "" {
+			// Try to infer from filename.
+			if strings.HasSuffix(header.Filename, ".ogg") {
+				format = "ogg"
+			} else if strings.HasSuffix(header.Filename, ".wav") {
+				format = "wav"
+			} else if strings.HasSuffix(header.Filename, ".webm") {
+				format = "webm"
+			} else {
+				format = "mp3"
+			}
+		}
+
+		opts := STTOptions{
+			Language: language,
+			Format:   format,
+		}
+
+		// Transcribe.
+		result, err := voiceEngine.Transcribe(r.Context(), file, opts)
+		if err != nil {
+			logErrorCtx(r.Context(), "voice transcribe failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
+	mux.HandleFunc("/api/voice/synthesize", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if voiceEngine == nil || voiceEngine.tts == nil {
+			http.Error(w, `{"error":"voice tts not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Parse request body.
+		var req struct {
+			Text   string  `json:"text"`
+			Voice  string  `json:"voice,omitempty"`
+			Speed  float64 `json:"speed,omitempty"`
+			Format string  `json:"format,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid json: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Text == "" {
+			http.Error(w, `{"error":"text field required"}`, http.StatusBadRequest)
+			return
+		}
+
+		opts := TTSOptions{
+			Voice:  req.Voice,
+			Speed:  req.Speed,
+			Format: req.Format,
+		}
+
+		// Synthesize.
+		stream, err := voiceEngine.Synthesize(r.Context(), req.Text, opts)
+		if err != nil {
+			logErrorCtx(r.Context(), "voice synthesize failed", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		defer stream.Close()
+
+		// Determine content type.
+		format := req.Format
+		if format == "" {
+			format = cfg.Voice.TTS.Format
+		}
+		if format == "" {
+			format = "mp3"
+		}
+		contentType := "audio/mpeg"
+		if format == "opus" {
+			contentType = "audio/opus"
+		} else if format == "wav" {
+			contentType = "audio/wav"
+		}
+
+		// Stream audio to response.
+		w.Header().Set("Content-Type", contentType)
+		io.Copy(w, stream)
+	})
 
 	// --- Cost Estimate ---
 

@@ -68,6 +68,7 @@ type Config struct {
 	IncomingWebhooks      map[string]IncomingWebhookConfig `json:"incomingWebhooks,omitempty"`
 	Retention             RetentionConfig                  `json:"retention,omitempty"`
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
+	Voice                 VoiceConfig                      `json:"voice,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -245,6 +246,30 @@ type LoggingConfig struct {
 	File      string `json:"file,omitempty"`      // log file path (default baseDir/logs/tetora.log)
 	MaxSizeMB int    `json:"maxSizeMB,omitempty"` // max file size before rotation in MB (default 50)
 	MaxFiles  int    `json:"maxFiles,omitempty"`  // rotated files to keep (default 5)
+}
+
+type VoiceConfig struct {
+	STT STTConfig `json:"stt,omitempty"`
+	TTS TTSConfig `json:"tts,omitempty"`
+}
+
+type STTConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"` // "openai"
+	Model    string `json:"model,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"` // supports $ENV_VAR
+	Language string `json:"language,omitempty"`
+}
+
+type TTSConfig struct {
+	Enabled  bool   `json:"enabled,omitempty"`
+	Provider string `json:"provider,omitempty"` // "openai", "elevenlabs"
+	Model    string `json:"model,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"` // supports $ENV_VAR
+	Voice    string `json:"voice,omitempty"`
+	Format   string `json:"format,omitempty"` // "mp3", "opus"
 }
 
 func (c LoggingConfig) levelOrDefault() string {
@@ -645,6 +670,13 @@ func (cfg *Config) resolveSecrets() {
 	// Resolve Discord token.
 	if cfg.Discord.BotToken != "" {
 		cfg.Discord.BotToken = resolveEnvRef(cfg.Discord.BotToken, "discord.botToken")
+	}
+	// Resolve Voice API keys.
+	if cfg.Voice.STT.APIKey != "" {
+		cfg.Voice.STT.APIKey = resolveEnvRef(cfg.Voice.STT.APIKey, "voice.stt.apiKey")
+	}
+	if cfg.Voice.TTS.APIKey != "" {
+		cfg.Voice.TTS.APIKey = resolveEnvRef(cfg.Voice.TTS.APIKey, "voice.tts.apiKey")
 	}
 }
 
