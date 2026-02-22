@@ -463,6 +463,13 @@ func main() {
 			logInfo("line bot enabled", "endpoint", cfg.LINE.webhookPathOrDefault())
 		}
 
+		// --- P15.2: Matrix Channel --- Initialize Matrix bot.
+		var matrixBot *MatrixBot
+		if cfg.Matrix.Enabled && cfg.Matrix.Homeserver != "" && cfg.Matrix.AccessToken != "" {
+			matrixBot = newMatrixBot(cfg, state, sem)
+			logInfo("matrix bot enabled", "homeserver", cfg.Matrix.Homeserver, "userId", cfg.Matrix.UserID)
+		}
+
 		// HTTP server.
 		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot)
 
@@ -483,6 +490,11 @@ func main() {
 			go discordBot.Run(ctx)
 		}
 
+		// --- P15.2: Matrix Channel --- Start Matrix bot.
+		if matrixBot != nil {
+			go matrixBot.Run(ctx)
+		}
+
 		logInfo("tetora ready", "healthz", fmt.Sprintf("http://%s/healthz", cfg.ListenAddr))
 
 		// Wait for shutdown signal.
@@ -491,6 +503,11 @@ func main() {
 
 		if discordBot != nil {
 			discordBot.Stop()
+		}
+
+		// --- P15.2: Matrix Channel --- Stop Matrix bot.
+		if matrixBot != nil {
+			matrixBot.Stop()
 		}
 
 		// Cancel any running dispatch first.

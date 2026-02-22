@@ -52,6 +52,7 @@ type Config struct {
 	Discord               DiscordBotConfig           `json:"discord,omitempty"`
 	WhatsApp              WhatsAppConfig             `json:"whatsapp,omitempty"`
 	LINE                  LINEConfig                 `json:"line,omitempty"`           // --- P15.1: LINE Channel ---
+	Matrix                MatrixConfig               `json:"matrix,omitempty"`         // --- P15.2: Matrix Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -792,6 +793,10 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.LINE.ChannelAccessToken != "" {
 		cfg.LINE.ChannelAccessToken = resolveEnvRef(cfg.LINE.ChannelAccessToken, "line.channelAccessToken")
+	}
+	// --- P15.2: Matrix Channel --- Resolve Matrix access token.
+	if cfg.Matrix.AccessToken != "" {
+		cfg.Matrix.AccessToken = resolveEnvRef(cfg.Matrix.AccessToken, "matrix.accessToken")
 	}
 }
 
