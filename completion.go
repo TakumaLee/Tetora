@@ -39,7 +39,7 @@ func completionSubcommands() []string {
 		"status", "service", "job", "role", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
-		"dashboard", "version", "help", "completion",
+		"proactive", "dashboard", "version", "help", "completion",
 	}
 }
 
@@ -74,6 +74,8 @@ func completionSubActions(cmd string) []string {
 		return []string{"show", "set", "events"}
 	case "webhook":
 		return []string{"list", "show", "test"}
+	case "proactive":
+		return []string{"list", "trigger", "status"}
 	case "service":
 		return []string{"install", "uninstall", "status"}
 	case "data":
@@ -110,6 +112,7 @@ func completionSubcommandDescriptions() map[string]string {
 		"budget":     "Cost governance",
 		"trust":      "Manage trust gradient per agent",
 		"webhook":    "Manage incoming webhooks",
+		"proactive":  "Manage proactive agent rules",
 		"data":       "Data retention & privacy management",
 		"backup":     "Create backup of tetora data",
 		"restore":    "Restore from a backup file",

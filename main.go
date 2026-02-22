@@ -81,6 +81,9 @@ func main() {
 		case "webhook":
 			cmdWebhook(os.Args[2:])
 			return
+		case "proactive":
+			runProactive(os.Args[2:])
+			return
 		case "data":
 			cmdData(os.Args[2:])
 			return
@@ -289,6 +292,14 @@ func main() {
 			cron.start(ctx)
 		}
 
+		// Proactive engine.
+		var proactiveEngine *ProactiveEngine
+		if cfg.Proactive.Enabled {
+			proactiveEngine = newProactiveEngine(cfg, state.broker)
+			proactiveEngine.Start(ctx)
+			logInfo("proactive engine started", "rules", len(cfg.Proactive.Rules))
+		}
+
 		// Start SLA monitor + budget alert goroutine.
 		if cfg.SLA.Enabled {
 			go func() {
@@ -388,7 +399,7 @@ func main() {
 		initMetrics()
 
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, slackBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -435,6 +446,11 @@ func main() {
 			mcpHost.Stop()
 		}
 
+		// Stop proactive engine.
+		if proactiveEngine != nil {
+			proactiveEngine.Stop()
+		}
+
 		// Shut down HTTP server.
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
@@ -455,7 +471,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

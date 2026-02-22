@@ -426,7 +426,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, slackBot ...*SlackBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -2586,6 +2586,50 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	// --- Proactive Agent API ---
+
+	mux.HandleFunc("/api/proactive/rules", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if proactiveEngine == nil {
+			http.Error(w, `{"error":"proactive engine not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		rules := proactiveEngine.ListRules()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rules)
+	})
+
+	mux.HandleFunc("/api/proactive/rules/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if proactiveEngine == nil {
+			http.Error(w, `{"error":"proactive engine not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		// Extract rule name from path: /api/proactive/rules/{name}/trigger
+		path := strings.TrimPrefix(r.URL.Path, "/api/proactive/rules/")
+		parts := strings.Split(path, "/")
+		if len(parts) != 2 || parts[1] != "trigger" {
+			http.Error(w, `{"error":"invalid path, use /api/proactive/rules/{name}/trigger"}`, http.StatusBadRequest)
+			return
+		}
+
+		ruleName := parts[0]
+		if err := proactiveEngine.TriggerRule(ruleName); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(fmt.Sprintf(`{"status":"triggered","rule":"%s"}`, ruleName)))
 	})
 
 	// --- API Documentation ---

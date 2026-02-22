@@ -69,6 +69,7 @@ type Config struct {
 	Retention             RetentionConfig                  `json:"retention,omitempty"`
 	Tools                 ToolConfig                       `json:"tools,omitempty"`
 	Embedding             EmbeddingConfig                  `json:"embedding,omitempty"`
+	Proactive             ProactiveConfig                  `json:"proactive,omitempty"`
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -270,6 +271,12 @@ func (c LoggingConfig) maxFilesOrDefault() int {
 		return c.MaxFiles
 	}
 	return 5
+}
+
+// ProactiveConfig configures the proactive agent engine.
+type ProactiveConfig struct {
+	Enabled bool             `json:"enabled,omitempty"`
+	Rules   []ProactiveRule  `json:"rules,omitempty"`
 }
 
 // sessionContextMessages returns the configured max context messages (default 20).
