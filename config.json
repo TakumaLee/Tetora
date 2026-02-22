@@ -1,0 +1,85 @@
+{
+  "claudePath": "/Users/kumaneko/.local/bin/claude",
+  "maxConcurrent": 3,
+  "defaultModel": "sonnet",
+  "defaultTimeout": "15m",
+  "defaultBudget": 2.0,
+  "defaultPermissionMode": "acceptEdits",
+  "defaultWorkdir": "/Users/kumaneko/.openclaw/workspace",
+  "listenAddr": "127.0.0.1:8991",
+  "dashboardDB": "/Users/kumaneko/.openclaw/workspace/ruri-dashboard.db",
+  "jobsFile": "jobs.json",
+  "telegram": {
+    "enabled": true,
+    "botToken": "",
+    "chatID": 159996130,
+    "pollTimeout": 30
+  },
+  "mcpConfigs": {
+    "playwright": {
+      "mcpServers": {
+        "playwright": {
+          "command": "npx",
+          "args": ["@playwright/mcp@latest"]
+        }
+      }
+    }
+  },
+  "roles": {
+    "琉璃": {
+      "soulFile": "SOUL.md",
+      "model": "sonnet",
+      "description": "Coordinator, researcher, and strategist. Handles planning, research, analysis, coordination, and general questions.",
+      "keywords": ["plan", "research", "analyze", "coordinate", "summarize", "overview", "status", "report"]
+    },
+    "翡翠": {
+      "soulFile": "team/junshi/SOUL.md",
+      "model": "sonnet",
+      "description": "Military strategist and advisor. Handles strategy, competitive analysis, market research, business planning, and risk assessment.",
+      "keywords": ["strategy", "competitive", "market", "business", "risk", "assessment", "advisor", "forecast"]
+    },
+    "黒曜": {
+      "soulFile": "team/engineer/SOUL.md",
+      "model": "sonnet",
+      "description": "Engineer. Handles coding, debugging, security review, testing, devops, infrastructure, and CI/CD.",
+      "keywords": ["code", "debug", "fix", "test", "deploy", "build", "refactor", "implement", "engineer"]
+    },
+    "琥珀": {
+      "soulFile": "team/creator/SOUL.md",
+      "model": "opus",
+      "description": "Creator. Handles content creation, writing, documentation, design, copywriting, and translation.",
+      "keywords": ["write", "create", "design", "content", "copy", "translate", "draft", "blog", "article"]
+    }
+  },
+  "smartDispatch": {
+    "enabled": true,
+    "coordinator": "琉璃",
+    "defaultRole": "琉璃",
+    "classifyBudget": 0.1,
+    "classifyTimeout": "30s",
+    "review": false,
+    "rules": [
+      {
+        "role": "黒曜",
+        "keywords": ["bug", "error", "exception", "stacktrace", "segfault", "crash", "CI/CD", "pipeline", "dockerfile", "docker", "kubernetes", "k8s", "terraform", "ansible", "nginx", "security review", "pentest", "vulnerability", "CVE", "sentori", "lint", "eslint", "golint", "unit test", "integration test", "e2e test", "pull request", "merge conflict", "git", "github", "devops", "infrastructure"],
+        "patterns": ["(?:fix|resolve|patch)\\s+(?:bug|issue|error)", "(?:write|add|update)\\s+(?:test|spec)", "(?:deploy|release|rollback)", "(?:review|audit)\\s+(?:code|security|PR)", "\\b(?:go|python|typescript|rust|javascript)\\b.*(?:code|implement|function|module)"]
+      },
+      {
+        "role": "翡翠",
+        "keywords": ["competitive analysis", "market research", "business plan", "risk assessment", "SWOT", "go-to-market", "GTM", "pricing strategy", "product strategy", "threat analysis", "opportunity", "benchmark", "competitor", "due diligence", "growth strategy", "positioning"],
+        "patterns": ["(?:analyze|assess|evaluate)\\s+(?:market|competitor|risk|threat)", "(?:business|product|growth)\\s+(?:strategy|plan|model)"]
+      },
+      {
+        "role": "琥珀",
+        "keywords": ["blog post", "copywriting", "landing page", "newsletter", "press release", "social media", "tweet", "documentation", "README", "translation", "localization", "i18n", "illustration", "branding", "tagline", "slogan", "creative writing", "story", "poem", "essay"],
+        "patterns": ["(?:write|draft|create)\\s+(?:blog|article|post|copy|content|doc|readme|newsletter)", "(?:translate|localize)\\s+(?:to|into|from)", "(?:design|brand)\\s+(?:logo|identity|visual|banner)"]
+      },
+      {
+        "role": "琉璃",
+        "keywords": ["project plan", "roadmap", "sprint plan", "task breakdown", "coordination", "daily standup", "weekly review", "retrospective", "progress report", "team sync"],
+        "patterns": ["(?:plan|organize|coordinate|schedule)\\s+(?:project|sprint|team|meeting)", "(?:what|how|why|when|explain|tell me)\\s"]
+      }
+    ]
+  },
+  "log": true
+}

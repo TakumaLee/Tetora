@@ -1,0 +1,356 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+)
+
+// --- Smart Dispatch Types ---
+
+// RouteRequest is the input for the routing engine.
+type RouteRequest struct {
+	Prompt string `json:"prompt"`
+	Source string `json:"source,omitempty"` // "telegram", "http", "cli"
+}
+
+// RouteResult represents the outcome of smart dispatch routing.
+type RouteResult struct {
+	Role       string `json:"role"`              // selected role
+	Method     string `json:"method"`            // "keyword", "llm", "default"
+	Confidence string `json:"confidence"`        // "high", "medium", "low"
+	Reason     string `json:"reason,omitempty"`  // why this role was selected
+}
+
+// SmartDispatchResult is the full result of a routed task.
+type SmartDispatchResult struct {
+	Route    RouteResult `json:"route"`
+	Task     TaskResult  `json:"task"`
+	ReviewOK *bool       `json:"reviewOk,omitempty"` // nil if no review
+	Review   string      `json:"review,omitempty"`   // review comment from coordinator
+}
+
+// --- Keyword Classification (Fast Path) ---
+
+// classifyByKeywords checks routing rules and role keywords for a match.
+// Returns nil if no keyword match is found.
+func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
+	lower := strings.ToLower(prompt)
+
+	// Check explicit routing rules first (higher priority).
+	for _, rule := range cfg.SmartDispatch.Rules {
+		for _, kw := range rule.Keywords {
+			if strings.Contains(lower, strings.ToLower(kw)) {
+				return &RouteResult{
+					Role:       rule.Role,
+					Method:     "keyword",
+					Confidence: "high",
+					Reason:     fmt.Sprintf("matched rule keyword %q", kw),
+				}
+			}
+		}
+		for _, pat := range rule.Patterns {
+			re, err := regexp.Compile("(?i)" + pat)
+			if err != nil {
+				continue
+			}
+			if re.MatchString(prompt) {
+				return &RouteResult{
+					Role:       rule.Role,
+					Method:     "keyword",
+					Confidence: "high",
+					Reason:     fmt.Sprintf("matched rule pattern %q", pat),
+				}
+			}
+		}
+	}
+
+	// Check role-level keywords (lower priority).
+	for roleName, rc := range cfg.Roles {
+		for _, kw := range rc.Keywords {
+			if strings.Contains(lower, strings.ToLower(kw)) {
+				return &RouteResult{
+					Role:       roleName,
+					Method:     "keyword",
+					Confidence: "medium",
+					Reason:     fmt.Sprintf("matched role keyword %q", kw),
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// --- LLM Classification (Slow Path) ---
+
+// classifyByLLM asks the coordinator role to classify the task.
+func classifyByLLM(ctx context.Context, cfg *Config, prompt string, sem chan struct{}) (*RouteResult, error) {
+	coordinator := cfg.SmartDispatch.Coordinator
+
+	// Build role list for the classification prompt.
+	var roleLines []string
+	for name, rc := range cfg.Roles {
+		desc := rc.Description
+		if desc == "" {
+			desc = "(no description)"
+		}
+		kws := ""
+		if len(rc.Keywords) > 0 {
+			kws = " [keywords: " + strings.Join(rc.Keywords, ", ") + "]"
+		}
+		roleLines = append(roleLines, fmt.Sprintf("- %s: %s%s", name, desc, kws))
+	}
+	// Sort for deterministic output.
+	sort.Strings(roleLines)
+
+	classifyPrompt := fmt.Sprintf(
+		`You are a task router. Given a user request, decide which team member should handle it.
+
+Available roles:
+%s
+
+User request: %s
+
+Reply with ONLY a JSON object (no markdown, no explanation):
+{"role":"<role_name>","confidence":"high|medium|low","reason":"<brief reason>"}
+
+If no role is clearly appropriate, use %q as the default.`,
+		strings.Join(roleLines, "\n"),
+		prompt,
+		cfg.SmartDispatch.DefaultRole,
+	)
+
+	task := Task{
+		Prompt:  classifyPrompt,
+		Timeout: cfg.SmartDispatch.ClassifyTimeout,
+		Budget:  cfg.SmartDispatch.ClassifyBudget,
+		Source:  "route-classify",
+	}
+	fillDefaults(cfg, &task)
+
+	// Use coordinator's model.
+	if rc, ok := cfg.Roles[coordinator]; ok && rc.Model != "" {
+		task.Model = rc.Model
+	}
+
+	result := runSingleTask(ctx, cfg, task, sem, coordinator)
+	if result.Status != "success" {
+		return nil, fmt.Errorf("classification failed: %s", result.Error)
+	}
+
+	return parseLLMRouteResult(result.Output, cfg.SmartDispatch.DefaultRole)
+}
+
+// parseLLMRouteResult extracts RouteResult from LLM output.
+func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
+	// Try to find JSON in the output (LLM may wrap it in text).
+	start := strings.Index(output, "{")
+	end := strings.LastIndex(output, "}")
+	if start < 0 || end <= start {
+		return &RouteResult{
+			Role: defaultRole, Method: "llm", Confidence: "low",
+			Reason: "could not parse LLM response",
+		}, nil
+	}
+
+	var result RouteResult
+	if err := json.Unmarshal([]byte(output[start:end+1]), &result); err != nil {
+		return &RouteResult{
+			Role: defaultRole, Method: "llm", Confidence: "low",
+			Reason: "JSON parse error: " + err.Error(),
+		}, nil
+	}
+	result.Method = "llm"
+
+	if result.Role == "" {
+		result.Role = defaultRole
+	}
+	if result.Confidence == "" {
+		result.Confidence = "medium"
+	}
+
+	return &result, nil
+}
+
+// --- Two-Tier Route ---
+
+// routeTask determines which role should handle the given prompt.
+func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan struct{}) *RouteResult {
+	// Fast path: keyword matching.
+	if result := classifyByKeywords(cfg, req.Prompt); result != nil {
+		if _, ok := cfg.Roles[result.Role]; ok {
+			return result
+		}
+		logWarnCtx(ctx, "keyword matched role not in config, falling through", "role", result.Role)
+	}
+
+	// Slow path: LLM classification.
+	result, err := classifyByLLM(ctx, cfg, req.Prompt, sem)
+	if err != nil {
+		logWarnCtx(ctx, "LLM classify error, using default", "error", err)
+		return &RouteResult{
+			Role:       cfg.SmartDispatch.DefaultRole,
+			Method:     "default",
+			Confidence: "low",
+			Reason:     "LLM classification failed: " + err.Error(),
+		}
+	}
+
+	// Validate role exists.
+	if _, ok := cfg.Roles[result.Role]; !ok {
+		result.Role = cfg.SmartDispatch.DefaultRole
+		result.Confidence = "low"
+		result.Reason += " (role not found, using default)"
+	}
+
+	return result
+}
+
+// --- Full Smart Dispatch Pipeline ---
+
+// smartDispatch is the full pipeline: route → dispatch → memory → review → audit.
+func smartDispatch(ctx context.Context, cfg *Config, prompt string, source string,
+	state *dispatchState, sem chan struct{}) *SmartDispatchResult {
+
+	// Step 1: Route.
+	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source}, sem)
+
+	logInfoCtx(ctx, "route decision",
+		"prompt", truncate(prompt, 60), "role", route.Role,
+		"method", route.Method, "confidence", route.Confidence)
+
+	// Step 2: Build and run task with the selected role.
+	task := Task{
+		Prompt: prompt,
+		Role:   route.Role,
+		Source: "route:" + source,
+	}
+	fillDefaults(cfg, &task)
+
+	// Inject role soul prompt + model + permission mode.
+	if route.Role != "" {
+		if soulPrompt, err := loadRolePrompt(cfg, route.Role); err == nil && soulPrompt != "" {
+			task.SystemPrompt = soulPrompt
+		}
+		if rc, ok := cfg.Roles[route.Role]; ok {
+			if rc.Model != "" {
+				task.Model = rc.Model
+			}
+			if rc.PermissionMode != "" {
+				task.PermissionMode = rc.PermissionMode
+			}
+		}
+	}
+
+	// Expand template variables.
+	task.Prompt = expandPrompt(task.Prompt, "", cfg.HistoryDB, route.Role, cfg.KnowledgeDir, cfg)
+
+	taskStart := time.Now()
+	result := runSingleTask(ctx, cfg, task, sem, route.Role)
+
+	// Record to history.
+	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+
+	// Record session activity.
+	recordSessionActivity(cfg.HistoryDB, task, result, route.Role)
+
+	// Step 3: Store output summary in agent memory.
+	if result.Status == "success" && cfg.HistoryDB != "" {
+		setMemory(cfg.HistoryDB, route.Role, "last_route_output", truncate(result.Output, 500))
+		setMemory(cfg.HistoryDB, route.Role, "last_route_prompt", truncate(prompt, 200))
+		setMemory(cfg.HistoryDB, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+	}
+
+	sdr := &SmartDispatchResult{
+		Route: *route,
+		Task:  result,
+	}
+
+	// Step 4: Optional coordinator review.
+	if cfg.SmartDispatch.Review && result.Status == "success" {
+		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Role, sem)
+		sdr.ReviewOK = &reviewOK
+		sdr.Review = reviewComment
+	}
+
+	// Step 5: Audit log.
+	auditLog(cfg.HistoryDB, "route.dispatch", source,
+		fmt.Sprintf("role=%s method=%s confidence=%s prompt=%s",
+			route.Role, route.Method, route.Confidence, truncate(prompt, 100)), "")
+
+	// Webhook notifications.
+	sendWebhooks(cfg, result.Status, WebhookPayload{
+		JobID:    task.ID,
+		Name:     task.Name,
+		Source:   task.Source,
+		Status:   result.Status,
+		Cost:     result.CostUSD,
+		Duration: result.DurationMs,
+		Model:    result.Model,
+		Output:   truncate(result.Output, 500),
+		Error:    truncate(result.Error, 300),
+	})
+
+	return sdr
+}
+
+// --- Coordinator Review ---
+
+// reviewOutput asks the coordinator to review the agent's output.
+func reviewOutput(ctx context.Context, cfg *Config, originalPrompt, output, agentRole string, sem chan struct{}) (bool, string) {
+	coordinator := cfg.SmartDispatch.Coordinator
+
+	reviewPrompt := fmt.Sprintf(
+		`Review this agent output for quality and correctness.
+
+Original request: %s
+
+Agent (%s) output:
+%s
+
+Is this output satisfactory? Reply with ONLY a JSON object:
+{"ok":true,"comment":"brief comment"} or {"ok":false,"comment":"what's wrong"}`,
+		truncate(originalPrompt, 300),
+		agentRole,
+		truncate(output, 2000),
+	)
+
+	task := Task{
+		Prompt:  reviewPrompt,
+		Timeout: cfg.SmartDispatch.ClassifyTimeout,
+		Budget:  cfg.SmartDispatch.ReviewBudget,
+		Source:  "route-review",
+	}
+	fillDefaults(cfg, &task)
+
+	// Use coordinator's model.
+	if rc, ok := cfg.Roles[coordinator]; ok && rc.Model != "" {
+		task.Model = rc.Model
+	}
+
+	result := runSingleTask(ctx, cfg, task, sem, coordinator)
+	if result.Status != "success" {
+		return true, "review skipped (error)"
+	}
+
+	// Parse review JSON.
+	start := strings.Index(result.Output, "{")
+	end := strings.LastIndex(result.Output, "}")
+	if start >= 0 && end > start {
+		var review struct {
+			OK      bool   `json:"ok"`
+			Comment string `json:"comment"`
+		}
+		if json.Unmarshal([]byte(result.Output[start:end+1]), &review) == nil {
+			return review.OK, review.Comment
+		}
+	}
+
+	return true, "review parse error"
+}

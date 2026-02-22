@@ -1,0 +1,62 @@
+{
+  "jobs": [
+    {
+      "id": "heartbeat",
+      "name": "Heartbeat",
+      "enabled": true,
+      "schedule": "0 */2 8-22 * *",
+      "tz": "Asia/Taipei",
+      "task": {
+        "prompt": "Quick health check. Respond HEARTBEAT_OK if everything is fine.",
+        "model": "haiku",
+        "timeout": "1m",
+        "budget": 0.1
+      },
+      "notify": false
+    },
+    {
+      "id": "daily-report",
+      "name": "Daily Summary Report",
+      "enabled": false,
+      "schedule": "0 9 * * *",
+      "tz": "Asia/Taipei",
+      "task": {
+        "prompt": "Generate a daily summary of project status and send to Telegram.",
+        "model": "sonnet",
+        "timeout": "5m",
+        "budget": 1.0
+      },
+      "notify": true
+    },
+    {
+      "id": "code-review",
+      "name": "Automated Code Review",
+      "enabled": false,
+      "schedule": "0 10 * * 1-5",
+      "tz": "Asia/Taipei",
+      "task": {
+        "prompt": "Review recent git commits for code quality and potential issues.",
+        "workdir": "~/my-project",
+        "model": "sonnet",
+        "timeout": "10m",
+        "budget": 2.0
+      },
+      "notify": true
+    },
+    {
+      "id": "web-monitor",
+      "name": "Website Monitoring",
+      "enabled": false,
+      "schedule": "*/30 * * * *",
+      "tz": "UTC",
+      "task": {
+        "prompt": "Check if https://example.com is responding. Report any issues.",
+        "model": "haiku",
+        "timeout": "2m",
+        "budget": 0.2,
+        "mcp": "playwright"
+      },
+      "notify": true
+    }
+  ]
+}
