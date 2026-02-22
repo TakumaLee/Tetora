@@ -35,6 +35,8 @@ type Task struct {
 	Role           string   `json:"role,omitempty"`    // role name for smart dispatch
 	Source         string   `json:"source,omitempty"`  // "dispatch", "cron", "ask", "route:*"
 	TraceID        string   `json:"traceId,omitempty"` // trace ID for request correlation
+	Depth          int      `json:"depth,omitempty"`    // --- P13.3: Nested Sub-Agents --- nesting depth (0 = top-level)
+	ParentID       string   `json:"parentId,omitempty"` // --- P13.3: Nested Sub-Agents --- parent task ID
 }
 
 type TaskResult struct {

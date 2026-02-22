@@ -10,11 +10,83 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // --- Agent Communication Tools ---
 // These are registered as built-in tools in the tool registry.
+
+// --- P13.3: Nested Sub-Agents ---
+
+// spawnTracker tracks the number of active child tasks per parent task ID.
+// This enforces the maxChildrenPerTask limit to prevent unbounded spawning.
+type spawnTracker struct {
+	mu       sync.RWMutex
+	children map[string]int // parentTaskID → active child count
+}
+
+// globalSpawnTracker is the package-level spawn tracker instance.
+var globalSpawnTracker = &spawnTracker{
+	children: make(map[string]int),
+}
+
+// trySpawn attempts to increment the child count for parentID.
+// Returns true if the spawn is allowed (count < maxChildren), false otherwise.
+func (st *spawnTracker) trySpawn(parentID string, maxChildren int) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if parentID == "" {
+		return true // no parent tracking for top-level tasks
+	}
+	if maxChildren <= 0 {
+		maxChildren = 5 // default
+	}
+	current := st.children[parentID]
+	if current >= maxChildren {
+		return false
+	}
+	st.children[parentID] = current + 1
+	return true
+}
+
+// release decrements the child count for parentID when a child task completes.
+func (st *spawnTracker) release(parentID string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if parentID == "" {
+		return
+	}
+	if st.children[parentID] > 0 {
+		st.children[parentID]--
+	}
+	if st.children[parentID] == 0 {
+		delete(st.children, parentID)
+	}
+}
+
+// count returns the number of active children for a parent task.
+func (st *spawnTracker) count(parentID string) int {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	return st.children[parentID]
+}
+
+// maxDepthOrDefault returns the configured max nesting depth (default 3).
+func maxDepthOrDefault(cfg *Config) int {
+	if cfg.AgentComm.MaxDepth > 0 {
+		return cfg.AgentComm.MaxDepth
+	}
+	return 3
+}
+
+// maxChildrenPerTaskOrDefault returns the configured max children per task (default 5).
+func maxChildrenPerTaskOrDefault(cfg *Config) int {
+	if cfg.AgentComm.MaxChildrenPerTask > 0 {
+		return cfg.AgentComm.MaxChildrenPerTask
+	}
+	return 5
+}
 
 // toolAgentList lists all available agents/roles with their capabilities.
 func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
@@ -54,11 +126,14 @@ func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolAgentDispatch dispatches a sub-task to another agent and waits for the result.
 // This implementation calls the local HTTP API to avoid needing direct access to dispatchState.
+// --- P13.3: Nested Sub-Agents --- Added depth tracking, max depth enforcement, and spawn control.
 func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Role    string  `json:"role"`
-		Prompt  string  `json:"prompt"`
-		Timeout float64 `json:"timeout"`
+		Role     string  `json:"role"`
+		Prompt   string  `json:"prompt"`
+		Timeout  float64 `json:"timeout"`
+		Depth    int     `json:"depth"`    // --- P13.3: current depth (passed by parent)
+		ParentID string  `json:"parentId"` // --- P13.3: parent task ID
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -73,6 +148,24 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		args.Timeout = 300 // default 5 minutes
 	}
 
+	// --- P13.3: Enforce max nesting depth.
+	childDepth := args.Depth + 1
+	maxDepth := maxDepthOrDefault(cfg)
+	if args.Depth >= maxDepth {
+		return "", fmt.Errorf("max nesting depth exceeded: current depth %d >= maxDepth %d", args.Depth, maxDepth)
+	}
+
+	// --- P13.3: Enforce max children per parent task.
+	maxChildren := maxChildrenPerTaskOrDefault(cfg)
+	if args.ParentID != "" {
+		if !globalSpawnTracker.trySpawn(args.ParentID, maxChildren) {
+			return "", fmt.Errorf("max children per task exceeded: parent %s already has %d active children (limit %d)",
+				args.ParentID, globalSpawnTracker.count(args.ParentID), maxChildren)
+		}
+		// Release when done (deferred).
+		defer globalSpawnTracker.release(args.ParentID)
+	}
+
 	// Check if role exists.
 	if _, ok := cfg.Roles[args.Role]; !ok {
 		return "", fmt.Errorf("role %q not found", args.Role)
@@ -80,12 +173,16 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	// Build task request.
 	task := Task{
-		Prompt:  args.Prompt,
-		Role:    args.Role,
-		Timeout: fmt.Sprintf("%.0fs", args.Timeout),
-		Source:  "agent_dispatch",
+		Prompt:   args.Prompt,
+		Role:     args.Role,
+		Timeout:  fmt.Sprintf("%.0fs", args.Timeout),
+		Source:   "agent_dispatch",
+		Depth:    childDepth,  // --- P13.3: propagate depth
+		ParentID: args.ParentID, // --- P13.3: propagate parent ID
 	}
 	fillDefaults(cfg, &task)
+
+	logDebug("agent_dispatch", "role", args.Role, "depth", childDepth, "parentId", args.ParentID)
 
 	// Call local HTTP API.
 	requestBody, _ := json.Marshal([]Task{task})
