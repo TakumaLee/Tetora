@@ -25,6 +25,7 @@ type Config struct {
 	ListenAddr            string                     `json:"listenAddr"`
 	Telegram              TelegramConfig             `json:"telegram"`
 	MCPConfigs            map[string]json.RawMessage `json:"mcpConfigs"`
+	MCPServers            map[string]MCPServerConfig `json:"mcpServers,omitempty"`
 	Roles                 map[string]RoleConfig      `json:"roles"`
 	DashboardDB           string                     `json:"dashboardDB"`
 	HistoryDB             string                     `json:"historyDB"`
@@ -191,6 +192,14 @@ type ToolConfig struct {
 	MaxIterations int            `json:"maxIterations,omitempty"` // default 10
 	Timeout       int            `json:"timeout,omitempty"`       // seconds, default 120
 	Builtin       map[string]bool `json:"builtin,omitempty"`      // tool name -> enabled
+}
+
+// MCPServerConfig defines an MCP server managed by Tetora.
+type MCPServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Enabled *bool             `json:"enabled,omitempty"` // default true
 }
 
 // confirmThresholdOrDefault returns the configured confirm threshold (default $1.00).

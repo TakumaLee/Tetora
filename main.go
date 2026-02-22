@@ -356,8 +356,19 @@ func main() {
 			}
 		}
 
+		// Start MCP host.
+		var mcpHost *MCPHost
+		if len(cfg.MCPServers) > 0 {
+			mcpHost = newMCPHost(cfg, cfg.toolRegistry)
+			if err := mcpHost.Start(ctx); err != nil {
+				logError("MCP host start failed: %v", err)
+			} else {
+				logInfo("MCP host started", "servers", len(cfg.MCPServers))
+			}
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, slackBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -399,6 +410,11 @@ func main() {
 		// Stop cron scheduler (waits for running jobs up to 30s).
 		cron.stop()
 
+		// Stop MCP host.
+		if mcpHost != nil {
+			mcpHost.Stop()
+		}
+
 		// Shut down HTTP server.
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
@@ -419,7 +435,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

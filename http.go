@@ -426,7 +426,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, slackBot ...*SlackBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -2477,6 +2477,50 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 			})
 		}
 		json.NewEncoder(w).Encode(result)
+	})
+
+	// --- MCP Host ---
+
+	mux.HandleFunc("/api/mcp/servers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if mcpHost == nil {
+			json.NewEncoder(w).Encode([]any{})
+			return
+		}
+		statuses := mcpHost.ServerStatus()
+		json.NewEncoder(w).Encode(statuses)
+	})
+
+	mux.HandleFunc("/api/mcp/servers/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if mcpHost == nil {
+			http.Error(w, `{"error":"MCP host not enabled"}`, http.StatusBadRequest)
+			return
+		}
+		// Extract server name from path
+		path := strings.TrimPrefix(r.URL.Path, "/api/mcp/servers/")
+		parts := strings.Split(path, "/")
+		if len(parts) != 2 || parts[1] != "restart" {
+			http.Error(w, `{"error":"invalid path, use /api/mcp/servers/{name}/restart"}`, http.StatusBadRequest)
+			return
+		}
+		serverName := parts[0]
+		if err := mcpHost.RestartServer(serverName); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status": "restarted",
+			"server": serverName,
+		})
 	})
 
 	// --- API Documentation ---
