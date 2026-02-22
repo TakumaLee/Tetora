@@ -83,6 +83,21 @@ func (m *MultiNotifier) Send(text string) {
 	}
 }
 
+// WhatsAppNotifier sends via WhatsApp Cloud API.
+type WhatsAppNotifier struct {
+	Config    WhatsAppConfig
+	Recipient string // phone number to send to
+}
+
+func (w *WhatsAppNotifier) Send(text string) error {
+	if err := sendWhatsAppMessage(w.Config, w.Recipient, text); err != nil {
+		return fmt.Errorf("whatsapp: %w", err)
+	}
+	return nil
+}
+
+func (w *WhatsAppNotifier) Name() string { return "whatsapp" }
+
 // buildNotifiers creates Notifier instances from config.
 func buildNotifiers(cfg *Config) []Notifier {
 	var notifiers []Notifier
@@ -96,6 +111,14 @@ func buildNotifiers(cfg *Config) []Notifier {
 		case "discord":
 			if ch.WebhookURL != "" {
 				notifiers = append(notifiers, &DiscordNotifier{WebhookURL: ch.WebhookURL, client: client})
+			}
+		case "whatsapp":
+			// For WhatsApp, WebhookURL should contain the recipient phone number
+			if ch.WebhookURL != "" && cfg.WhatsApp.Enabled {
+				notifiers = append(notifiers, &WhatsAppNotifier{
+					Config:    cfg.WhatsApp,
+					Recipient: ch.WebhookURL, // use webhookUrl field for phone number
+				})
 			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)

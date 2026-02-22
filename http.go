@@ -46,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, dashboard, and Slack events (uses its own signature verification).
+		// Skip auth for health check, dashboard, Slack events, and WhatsApp webhook (use their own signature verification).
 		p := r.URL.Path
-		if p == "/healthz" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -427,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, voiceEngine *VoiceEngine, slackBot ...*SlackBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -436,8 +436,14 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 
 	// Register Slack events endpoint (uses its own auth via signing secret,
 	// registered on mux directly; Slack signature verification is inside the handler).
-	if len(slackBot) > 0 && slackBot[0] != nil {
-		mux.HandleFunc("/slack/events", slackBot[0].slackEventHandler)
+	if slackBot != nil {
+		mux.HandleFunc("/slack/events", slackBot.slackEventHandler)
+	}
+
+	// Register WhatsApp webhook endpoint (uses its own auth via signature verification,
+	// registered on mux directly; WhatsApp signature verification is inside the handler).
+	if whatsappBot != nil {
+		mux.HandleFunc("/api/whatsapp/webhook", whatsappBot.whatsAppWebhookHandler)
 	}
 
 	// --- Health ---

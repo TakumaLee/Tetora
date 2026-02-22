@@ -374,6 +374,13 @@ func main() {
 			}
 		}
 
+		// Initialize WhatsApp bot.
+		var whatsappBot *WhatsAppBot
+		if cfg.WhatsApp.Enabled && cfg.WhatsApp.PhoneNumberID != "" && cfg.WhatsApp.AccessToken != "" {
+			whatsappBot = newWhatsAppBot(cfg, state, sem, cron)
+			logInfo("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
+		}
+
 		// Initialize voice engine.
 		var voiceEngine *VoiceEngine
 		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
@@ -382,7 +389,7 @@ func main() {
 		}
 
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, voiceEngine, slackBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, voiceEngine, slackBot, whatsappBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -449,7 +456,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

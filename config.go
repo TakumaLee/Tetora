@@ -50,6 +50,7 @@ type Config struct {
 	SmartDispatch         SmartDispatchConfig        `json:"smartDispatch,omitempty"`
 	Slack                 SlackBotConfig             `json:"slack,omitempty"`
 	Discord               DiscordBotConfig           `json:"discord,omitempty"`
+	WhatsApp              WhatsAppConfig             `json:"whatsapp,omitempty"`
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -677,6 +678,13 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.Voice.TTS.APIKey != "" {
 		cfg.Voice.TTS.APIKey = resolveEnvRef(cfg.Voice.TTS.APIKey, "voice.tts.apiKey")
+	}
+	// Resolve WhatsApp credentials.
+	if cfg.WhatsApp.AccessToken != "" {
+		cfg.WhatsApp.AccessToken = resolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
+	}
+	if cfg.WhatsApp.AppSecret != "" {
+		cfg.WhatsApp.AppSecret = resolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
 	}
 }
 
