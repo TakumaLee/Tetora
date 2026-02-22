@@ -314,9 +314,11 @@ type PushConfig struct {
 }
 
 type AgentCommConfig struct {
-	Enabled        bool `json:"enabled,omitempty"`
-	MaxConcurrent  int  `json:"maxConcurrent,omitempty"`  // max concurrent agent_dispatch calls (default 3)
-	DefaultTimeout int  `json:"defaultTimeout,omitempty"` // seconds (default 300)
+	Enabled            bool `json:"enabled,omitempty"`
+	MaxConcurrent      int  `json:"maxConcurrent,omitempty"`      // max concurrent agent_dispatch calls (default 3)
+	DefaultTimeout     int  `json:"defaultTimeout,omitempty"`     // seconds (default 300)
+	MaxDepth           int  `json:"maxDepth,omitempty"`           // --- P13.3: Nested Sub-Agents --- max nesting depth (default 3)
+	MaxChildrenPerTask int  `json:"maxChildrenPerTask,omitempty"` // --- P13.3: Nested Sub-Agents --- max concurrent children per parent (default 5)
 }
 
 func (c LoggingConfig) levelOrDefault() string {
