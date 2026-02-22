@@ -107,11 +107,12 @@ type RoleConfig struct {
 }
 
 type ProviderConfig struct {
-	Type    string `json:"type"`              // "claude-cli" | "openai-compatible"
-	Path    string `json:"path,omitempty"`    // binary path for CLI providers
-	BaseURL string `json:"baseUrl,omitempty"` // API endpoint for API providers
-	APIKey  string `json:"apiKey,omitempty"`  // $ENV_VAR supported
-	Model   string `json:"model,omitempty"`   // default model for this provider
+	Type      string `json:"type"`              // "claude-cli" | "openai-compatible" | "claude-api"
+	Path      string `json:"path,omitempty"`    // binary path for CLI providers
+	BaseURL   string `json:"baseUrl,omitempty"` // API endpoint for API providers
+	APIKey    string `json:"apiKey,omitempty"`  // $ENV_VAR supported
+	Model     string `json:"model,omitempty"`   // default model for this provider
+	MaxTokens int    `json:"maxTokens,omitempty"` // max output tokens (default 8192 for claude-api)
 }
 
 type CostAlertConfig struct {
@@ -527,6 +528,10 @@ func (cfg *Config) validate() {
 		case "openai-compatible":
 			if pc.BaseURL == "" {
 				logWarn("provider has no baseUrl", "provider", name)
+			}
+		case "claude-api":
+			if pc.APIKey == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+				logWarn("provider has no apiKey and ANTHROPIC_API_KEY not set", "provider", name)
 			}
 		default:
 			logWarn("provider has unknown type", "provider", name, "type", pc.Type)
