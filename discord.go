@@ -23,12 +23,13 @@ import (
 
 // DiscordBotConfig holds configuration for the Discord bot integration.
 type DiscordBotConfig struct {
-	Enabled    bool                    `json:"enabled"`
-	BotToken   string                  `json:"botToken"`            // $ENV_VAR supported
-	GuildID    string                  `json:"guildID,omitempty"`   // restrict to specific guild
-	ChannelID  string                  `json:"channelID,omitempty"` // restrict to specific channel
-	PublicKey  string                  `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
-	Components DiscordComponentsConfig `json:"components,omitempty"`
+	Enabled        bool                        `json:"enabled"`
+	BotToken       string                      `json:"botToken"`            // $ENV_VAR supported
+	GuildID        string                      `json:"guildID,omitempty"`   // restrict to specific guild
+	ChannelID      string                      `json:"channelID,omitempty"` // restrict to specific channel
+	PublicKey      string                      `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
+	Components     DiscordComponentsConfig     `json:"components,omitempty"`
+	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
 }
 
 // --- P14.1: Discord Components v2 ---
@@ -368,6 +369,7 @@ type DiscordBot struct {
 	client       *http.Client
 	stopCh       chan struct{}
 	interactions *discordInteractionState // P14.1: tracks pending component interactions
+	threads      *threadBindingStore      // P14.2: per-thread agent bindings
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
@@ -379,11 +381,17 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 		client:       &http.Client{Timeout: 10 * time.Second},
 		stopCh:       make(chan struct{}),
 		interactions: newDiscordInteractionState(), // P14.1
+		threads:      newThreadBindingStore(),      // P14.2
 	}
 }
 
 // Run connects to the Discord Gateway and processes events. Blocks until stopped.
 func (db *DiscordBot) Run(ctx context.Context) {
+	// P14.2: Start thread binding cleanup goroutine.
+	if db.threads != nil && db.cfg.Discord.ThreadBindings.Enabled {
+		go startThreadCleanup(ctx, db.threads)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -548,11 +556,29 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 			logInfo("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
 		}
 	case "MESSAGE_CREATE":
-		var msg discordMessage
-		if json.Unmarshal(payload.D, &msg) == nil {
-			go db.handleMessage(msg)
+		// P14.2: Parse with channel_type for thread detection.
+		var msgT discordMessageWithType
+		if json.Unmarshal(payload.D, &msgT) == nil {
+			go db.handleMessageWithType(msgT.discordMessage, msgT.ChannelType)
 		}
 	}
+}
+
+// handleMessageWithType is the top-level message handler that checks for thread bindings
+// before falling through to normal message handling. (P14.2)
+func (db *DiscordBot) handleMessageWithType(msg discordMessage, channelType int) {
+	// Ignore bots.
+	if msg.Author.Bot || msg.Author.ID == db.botUserID {
+		return
+	}
+
+	// P14.2: Check thread bindings first.
+	if db.handleThreadMessage(msg, channelType) {
+		return
+	}
+
+	// Fall through to normal handling.
+	db.handleMessage(msg)
 }
 
 func (db *DiscordBot) handleMessage(msg discordMessage) {
