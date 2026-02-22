@@ -470,8 +470,15 @@ func main() {
 			logInfo("matrix bot enabled", "homeserver", cfg.Matrix.Homeserver, "userId", cfg.Matrix.UserID)
 		}
 
+		// --- P15.3: Teams Channel --- Initialize Teams bot.
+		var teamsBot *TeamsBot
+		if cfg.Teams.Enabled && cfg.Teams.AppID != "" && cfg.Teams.AppPassword != "" {
+			teamsBot = newTeamsBot(cfg, state, sem)
+			logInfo("teams bot enabled", "endpoint", "/api/teams/webhook")
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -563,7 +570,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

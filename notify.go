@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -135,6 +136,19 @@ func buildNotifiers(cfg *Config) []Notifier {
 					Config: cfg.Matrix,
 					RoomID: ch.WebhookURL, // use webhookUrl field for Matrix room ID
 				})
+			}
+		case "teams": // --- P15.3: Teams Channel ---
+			// For Teams, WebhookURL is used as "serviceUrl|conversationId" format
+			if ch.WebhookURL != "" && cfg.Teams.Enabled {
+				parts := strings.SplitN(ch.WebhookURL, "|", 2)
+				if len(parts) == 2 {
+					teamsBot := newTeamsBot(cfg, nil, nil)
+					notifiers = append(notifiers, &TeamsNotifier{
+						Bot:            teamsBot,
+						ServiceURL:     parts[0],
+						ConversationID: parts[1],
+					})
+				}
 			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)

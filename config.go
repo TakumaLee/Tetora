@@ -53,6 +53,7 @@ type Config struct {
 	WhatsApp              WhatsAppConfig             `json:"whatsapp,omitempty"`
 	LINE                  LINEConfig                 `json:"line,omitempty"`           // --- P15.1: LINE Channel ---
 	Matrix                MatrixConfig               `json:"matrix,omitempty"`         // --- P15.2: Matrix Channel ---
+	Teams                 TeamsConfig                `json:"teams,omitempty"`          // --- P15.3: Teams Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -797,6 +798,16 @@ func (cfg *Config) resolveSecrets() {
 	// --- P15.2: Matrix Channel --- Resolve Matrix access token.
 	if cfg.Matrix.AccessToken != "" {
 		cfg.Matrix.AccessToken = resolveEnvRef(cfg.Matrix.AccessToken, "matrix.accessToken")
+	}
+	// --- P15.3: Teams Channel --- Resolve Teams credentials.
+	if cfg.Teams.AppID != "" {
+		cfg.Teams.AppID = resolveEnvRef(cfg.Teams.AppID, "teams.appId")
+	}
+	if cfg.Teams.AppPassword != "" {
+		cfg.Teams.AppPassword = resolveEnvRef(cfg.Teams.AppPassword, "teams.appPassword")
+	}
+	if cfg.Teams.TenantID != "" {
+		cfg.Teams.TenantID = resolveEnvRef(cfg.Teams.TenantID, "teams.tenantId")
 	}
 }
 
