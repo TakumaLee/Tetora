@@ -100,28 +100,34 @@ func TestToolRegistryDisableBuiltin(t *testing.T) {
 }
 
 func TestLoopDetector(t *testing.T) {
-	d := newLoopDetector()
+	d := NewLoopDetector()
 	input1 := json.RawMessage(`{"command": "ls"}`)
 	input2 := json.RawMessage(`{"command": "pwd"}`)
 
 	// First call: no loop.
-	if d.Check("exec", input1) {
+	d.Record("exec", input1)
+	isLoop, _ := d.Check("exec", input1)
+	if isLoop {
 		t.Error("expected no loop on first call")
 	}
 
 	// Second and third calls: no loop.
-	d.Check("exec", input1)
-	if d.Check("exec", input1) {
-		t.Error("expected no loop on third call")
+	d.Record("exec", input1)
+	isLoop, _ = d.Check("exec", input1)
+	if isLoop {
+		t.Error("expected no loop on second call")
 	}
 
-	// Fourth call: loop detected (>= maxRep).
-	if !d.Check("exec", input1) {
-		t.Error("expected loop detected on fourth call")
+	d.Record("exec", input1)
+	isLoop, _ = d.Check("exec", input1)
+	if !isLoop {
+		t.Error("expected loop detected on third call (>= maxRep)")
 	}
 
 	// Different input: no loop.
-	if d.Check("exec", input2) {
+	d.Record("exec", input2)
+	isLoop, _ = d.Check("exec", input2)
+	if isLoop {
 		t.Error("expected no loop for different input")
 	}
 }

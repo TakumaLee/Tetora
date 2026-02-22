@@ -92,16 +92,17 @@ type TelegramConfig struct {
 }
 
 type RoleConfig struct {
-	SoulFile          string   `json:"soulFile"`
-	Model             string   `json:"model"`
-	Description       string   `json:"description"`
-	Keywords          []string `json:"keywords,omitempty"`          // routing keywords for smart dispatch
-	PermissionMode    string   `json:"permissionMode,omitempty"`
-	AllowedDirs       []string `json:"allowedDirs,omitempty"`
-	Provider          string   `json:"provider,omitempty"`
-	Docker            *bool    `json:"docker,omitempty"`            // per-role Docker sandbox override
-	FallbackProviders []string `json:"fallbackProviders,omitempty"` // failover chain
-	TrustLevel        string   `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
+	SoulFile          string         `json:"soulFile"`
+	Model             string         `json:"model"`
+	Description       string         `json:"description"`
+	Keywords          []string       `json:"keywords,omitempty"`          // routing keywords for smart dispatch
+	PermissionMode    string         `json:"permissionMode,omitempty"`
+	AllowedDirs       []string       `json:"allowedDirs,omitempty"`
+	Provider          string         `json:"provider,omitempty"`
+	Docker            *bool          `json:"docker,omitempty"`            // per-role Docker sandbox override
+	FallbackProviders []string       `json:"fallbackProviders,omitempty"` // failover chain
+	TrustLevel        string         `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
+	ToolPolicy        RoleToolPolicy `json:"tools,omitempty"`             // tool access policy
 }
 
 type ProviderConfig struct {
@@ -189,9 +190,12 @@ type EstimateConfig struct {
 
 // ToolConfig configures the tool engine.
 type ToolConfig struct {
-	MaxIterations int            `json:"maxIterations,omitempty"` // default 10
-	Timeout       int            `json:"timeout,omitempty"`       // seconds, default 120
-	Builtin       map[string]bool `json:"builtin,omitempty"`      // tool name -> enabled
+	MaxIterations  int                       `json:"maxIterations,omitempty"`  // default 10
+	Timeout        int                       `json:"timeout,omitempty"`        // seconds, default 120
+	Builtin        map[string]bool           `json:"builtin,omitempty"`        // tool name -> enabled
+	Profiles       map[string]ToolProfile    `json:"profiles,omitempty"`       // custom profiles
+	DefaultProfile string                    `json:"defaultProfile,omitempty"` // default "standard"
+	TrustOverride  map[string]string         `json:"trustOverride,omitempty"`  // tool → trust level
 }
 
 // MCPServerConfig defines an MCP server managed by Tetora.

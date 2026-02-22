@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -105,39 +103,6 @@ func (r *ToolRegistry) ListForProvider() []map[string]any {
 		})
 	}
 	return result
-}
-
-// --- Loop Detector ---
-
-// loopDetector tracks tool call history to detect loops.
-type loopDetector struct {
-	history []string
-	maxRep  int
-}
-
-// newLoopDetector creates a loop detector with default max repetitions (3).
-func newLoopDetector() *loopDetector {
-	return &loopDetector{
-		history: make([]string, 0, 20),
-		maxRep:  3,
-	}
-}
-
-// Check returns true if a loop is detected (same tool+input called > maxRep times).
-func (d *loopDetector) Check(name string, input json.RawMessage) bool {
-	h := sha256.Sum256(input)
-	sig := name + ":" + hex.EncodeToString(h[:8])
-	count := 0
-	for _, s := range d.history {
-		if s == sig {
-			count++
-		}
-	}
-	d.history = append(d.history, sig)
-	if len(d.history) > 20 {
-		d.history = d.history[len(d.history)-20:]
-	}
-	return count >= d.maxRep
 }
 
 // --- Built-in Tools ---

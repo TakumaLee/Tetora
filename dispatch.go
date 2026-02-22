@@ -991,8 +991,8 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	req := buildProviderRequest(cfg, task, roleName, providerName, eventCh)
 	req.Tools = *(*[]ToolDef)(unsafe.Pointer(&tools)) // Convert []*ToolDef to []ToolDef
 
-	// Initialize loop detector.
-	detector := newLoopDetector()
+	// Initialize enhanced loop detector.
+	detector := NewLoopDetector()
 
 	// Max iterations.
 	maxIter := cfg.Tools.MaxIterations
@@ -1040,13 +1040,49 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		// Execute tools.
 		toolResults := make([]ToolResult, 0, len(result.ToolCalls))
 		for _, tc := range result.ToolCalls {
-			// Check for loop.
-			if detector.Check(tc.Name, tc.Input) {
+			// Check tool policy - is tool allowed for this role?
+			if task.Role != "" && !isToolAllowed(cfg, task.Role, tc.Name) {
+				logWarnCtx(ctx, "tool call blocked by policy", "tool", tc.Name, "role", task.Role)
 				toolResults = append(toolResults, ToolResult{
 					ToolUseID: tc.ID,
-					Content:   "error: tool call loop detected",
+					Content:   fmt.Sprintf("error: tool %q not allowed by policy for role %q", tc.Name, task.Role),
 					IsError:   true,
 				})
+				continue
+			}
+
+			// Check for loop using enhanced detector.
+			isLoop, loopMsg := detector.Check(tc.Name, tc.Input)
+			if isLoop {
+				logWarnCtx(ctx, "tool loop detected", "tool", tc.Name, "msg", loopMsg)
+				toolResults = append(toolResults, ToolResult{
+					ToolUseID: tc.ID,
+					Content:   loopMsg,
+					IsError:   true,
+				})
+				continue
+			}
+
+			// Check for repeating pattern.
+			if i > 2 { // Only check after a few iterations.
+				if hasPattern, patternMsg := detector.detectToolLoopPattern(); hasPattern {
+					logWarnCtx(ctx, "tool pattern detected", "msg", patternMsg)
+					toolResults = append(toolResults, ToolResult{
+						ToolUseID: tc.ID,
+						Content:   patternMsg,
+						IsError:   true,
+					})
+					continue
+				}
+			}
+
+			// Record tool call for loop detection.
+			detector.Record(tc.Name, tc.Input)
+
+			// Apply trust-level filtering.
+			if mockResult, shouldExec := filterToolCall(cfg, task.Role, tc); !shouldExec {
+				// Tool call filtered by trust level (observe or suggest mode).
+				toolResults = append(toolResults, *mockResult)
 				continue
 			}
 
