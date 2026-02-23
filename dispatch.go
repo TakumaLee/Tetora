@@ -425,6 +425,14 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Apply trust level.
 	applyTrustToTask(cfg, &task, roleName)
 
+	// --- P16.3: Prompt Injection Defense v2 --- Apply before execution.
+	if err := applyInjectionDefense(ctx, cfg, &task); err != nil {
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "error",
+			Error: fmt.Sprintf("injection defense: %v", err), Model: task.Model, SessionID: task.SessionID,
+		}
+	}
+
 	// Validate directories before running.
 	if err := validateDirs(cfg, task, roleName); err != nil {
 		return TaskResult{
@@ -539,6 +547,14 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	roleName := task.Role
+
+	// --- P16.3: Prompt Injection Defense v2 --- Apply before execution.
+	if err := applyInjectionDefense(ctx, cfg, &task); err != nil {
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "error",
+			Error: fmt.Sprintf("injection defense: %v", err), Model: task.Model, SessionID: task.SessionID,
+		}
+	}
 
 	// Apply workspace configuration if role is set.
 	if roleName != "" {

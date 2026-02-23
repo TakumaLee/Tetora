@@ -13,7 +13,7 @@ func TestCompletionSubcommands(t *testing.T) {
 		"status", "service", "job", "role", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
-		"dashboard", "version", "help", "completion",
+		"proactive", "quick", "dashboard", "compact", "plugin", "task", "version", "help", "completion",
 	}
 
 	if len(cmds) != len(expected) {
