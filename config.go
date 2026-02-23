@@ -87,6 +87,7 @@ type Config struct {
 	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"` // --- P13.2: Sandbox Plugin ---
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"` // --- P14.6: Built-in Task Board API ---
 	Security              SecurityConfig                   `json:"security,omitempty"` // --- P16.3: Prompt Injection Defense v2 ---
+	DailyNotes            DailyNotesConfig                 `json:"dailyNotes,omitempty"` // --- P17.3: Daily Notes ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string

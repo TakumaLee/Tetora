@@ -15,7 +15,9 @@ type SkillConfig struct {
 	Description string            `json:"description"`
 	Command     string            `json:"command"`             // shell command to execute
 	Args        []string          `json:"args,omitempty"`      // command arguments
-	Env         map[string]string `json:"env,omitempty"`       // additional env vars
+	Env         map[string]string `json:"env,omitempty"`       // additional env vars (supports $ENV_VAR)
+	Matcher     *SkillMatcher     `json:"matcher,omitempty"`   // when to inject this skill (default: always)
+	Example     string            `json:"example,omitempty"`   // usage example for LLM
 	Workdir     string            `json:"workdir,omitempty"`   // working directory
 	Timeout     string            `json:"timeout,omitempty"`   // default "30s"
 	OutputAs    string            `json:"outputAs,omitempty"`  // "text" (default), "json"
@@ -64,7 +66,11 @@ func executeSkill(ctx context.Context, skill SkillConfig, vars map[string]string
 	// Set environment.
 	cmd.Env = os.Environ()
 	for k, v := range skill.Env {
-		cmd.Env = append(cmd.Env, k+"="+expandSkillVars(v, vars))
+		// Resolve $ENV_VAR references first.
+		resolved := resolveEnvRef(v, fmt.Sprintf("skill.%s.env.%s", skill.Name, k))
+		// Then expand template vars.
+		expanded := expandSkillVars(resolved, vars)
+		cmd.Env = append(cmd.Env, k+"="+expanded)
 	}
 
 	start := time.Now()

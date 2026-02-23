@@ -308,6 +308,8 @@ func main() {
 		if err := cron.loadJobs(); err != nil {
 			logWarn("cron load error, continuing without cron", "error", err)
 		} else {
+			// Register daily notes job if enabled.
+			registerDailyNotesJob(ctx, cfg, cron)
 			cron.start(ctx)
 		}
 
