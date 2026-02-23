@@ -119,8 +119,10 @@ func completionSubcommandDescriptions() map[string]string {
 		"trust":      "Manage trust gradient per agent",
 		"webhook":    "Manage incoming webhooks",
 		"proactive":  "Manage proactive agent rules",
+		"quick":      "Manage quick actions",
 		"compact":    "Compact session messages",
 		"plugin":     "Manage external plugins",
+		"task":       "Manage task board tasks",
 		"data":       "Data retention & privacy management",
 		"backup":     "Create backup of tetora data",
 		"restore":    "Restore from a backup file",
@@ -233,6 +235,29 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 			"list":  "List configured plugins",
 			"start": "Start a plugin",
 			"stop":  "Stop a running plugin",
+		}
+	case "proactive": // --- P11.1: Proactive Agent ---
+		return map[string]string{
+			"list":    "List proactive rules",
+			"trigger": "Manually trigger proactive engine",
+			"status":  "Show proactive engine status",
+		}
+	case "quick": // --- P11.2: Quick Actions ---
+		return map[string]string{
+			"list":   "List quick actions",
+			"run":    "Run a quick action",
+			"search": "Search for quick actions",
+		}
+	case "task": // --- P14.6: Built-in Task Board API ---
+		return map[string]string{
+			"list":    "List tasks",
+			"create":  "Create a new task",
+			"update":  "Update task status",
+			"show":    "Show task details",
+			"move":    "Move task to different column",
+			"assign":  "Assign task to agent",
+			"comment": "Add comment to task",
+			"thread":  "Show task thread",
 		}
 	case "completion":
 		return map[string]string{

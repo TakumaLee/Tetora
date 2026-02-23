@@ -86,6 +86,7 @@ type Config struct {
 	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"` // --- P13.1: Plugin System ---
 	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"` // --- P13.2: Sandbox Plugin ---
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"` // --- P14.6: Built-in Task Board API ---
+	Security              SecurityConfig                   `json:"security,omitempty"` // --- P16.3: Prompt Injection Defense v2 ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
