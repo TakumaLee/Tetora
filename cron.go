@@ -349,6 +349,15 @@ func (ce *CronEngine) tick(ctx context.Context) {
 			continue
 		}
 
+		// Special handling for daily notes job.
+		if j.ID == "daily_notes" {
+			if now.After(j.nextRun) || now.Equal(j.nextRun) {
+				j.nextRun = nextRunAfter(j.expr, j.loc, now.In(j.loc))
+				go ce.runDailyNotesJobAsync(ctx, j)
+			}
+			continue
+		}
+
 		nowLocal := now.In(j.loc)
 		if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
 			continue
@@ -373,6 +382,18 @@ func (ce *CronEngine) tick(ctx context.Context) {
 			defer ce.jobWg.Done()
 			ce.runJob(jobCtx, j)
 		}(j)
+	}
+}
+
+// runDailyNotesJobAsync runs the daily notes job in background.
+func (ce *CronEngine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
+	if err := runDailyNotesJob(ctx, ce.cfg); err != nil {
+		logError("daily notes job failed", "error", err)
+		if ce.notifyFn != nil {
+			ce.notifyFn(fmt.Sprintf("Daily notes generation failed: %v", err))
+		}
+	} else {
+		logInfo("daily notes job completed")
 	}
 }
 
