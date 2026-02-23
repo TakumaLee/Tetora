@@ -150,6 +150,20 @@ func buildNotifiers(cfg *Config) []Notifier {
 					})
 				}
 			}
+		case "signal": // --- P15.4: Signal Channel ---
+			// For Signal, WebhookURL format: "phoneNumber" or "group:groupId"
+			if ch.WebhookURL != "" && cfg.Signal.Enabled {
+				isGroup := strings.HasPrefix(ch.WebhookURL, "group:")
+				recipient := ch.WebhookURL
+				if isGroup {
+					recipient = strings.TrimPrefix(recipient, "group:")
+				}
+				notifiers = append(notifiers, &SignalNotifier{
+					Config:    cfg.Signal,
+					Recipient: recipient,
+					IsGroup:   isGroup,
+				})
+			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)
 		}

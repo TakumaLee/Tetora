@@ -46,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, Discord interactions, LINE webhook, and Teams webhook.
+		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, Discord interactions, LINE webhook, Teams webhook, and Signal webhook.
 		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || strings.HasPrefix(p, "/api/line/") || strings.HasPrefix(p, "/api/teams/") || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || strings.HasPrefix(p, "/api/line/") || strings.HasPrefix(p, "/api/teams/") || strings.HasPrefix(p, "/api/signal/") || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -427,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost, lineBot *LINEBot, teamsBot *TeamsBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost, lineBot *LINEBot, teamsBot *TeamsBot, signalBot *SignalBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -472,6 +472,12 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	// --- P15.3: Teams Channel --- Register Teams webhook endpoint.
 	if teamsBot != nil {
 		mux.HandleFunc("/api/teams/webhook", teamsBot.HandleWebhook)
+	}
+
+	// --- P15.4: Signal Channel --- Register Signal webhook endpoint.
+	if signalBot != nil {
+		webhookPath := cfg.Signal.webhookPathOrDefault()
+		mux.HandleFunc(webhookPath, signalBot.HandleWebhook)
 	}
 
 	// --- Health ---

@@ -54,6 +54,7 @@ type Config struct {
 	LINE                  LINEConfig                 `json:"line,omitempty"`           // --- P15.1: LINE Channel ---
 	Matrix                MatrixConfig               `json:"matrix,omitempty"`         // --- P15.2: Matrix Channel ---
 	Teams                 TeamsConfig                `json:"teams,omitempty"`          // --- P15.3: Teams Channel ---
+	Signal                SignalConfig               `json:"signal,omitempty"`         // --- P15.4: Signal Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -808,6 +809,10 @@ func (cfg *Config) resolveSecrets() {
 	}
 	if cfg.Teams.TenantID != "" {
 		cfg.Teams.TenantID = resolveEnvRef(cfg.Teams.TenantID, "teams.tenantId")
+	}
+	// --- P15.4: Signal Channel --- Resolve Signal credentials.
+	if cfg.Signal.PhoneNumber != "" {
+		cfg.Signal.PhoneNumber = resolveEnvRef(cfg.Signal.PhoneNumber, "signal.phoneNumber")
 	}
 }
 
