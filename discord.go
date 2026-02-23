@@ -32,6 +32,7 @@ type DiscordBotConfig struct {
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
 	Reactions      DiscordReactionsConfig      `json:"reactions,omitempty"`      // P14.3: lifecycle reactions
 	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
+	Voice          DiscordVoiceConfig          `json:"voice,omitempty"`          // P14.5: voice channel integration
 }
 
 // --- P14.1: Discord Components v2 ---
@@ -374,6 +375,8 @@ type DiscordBot struct {
 	threads      *threadBindingStore      // P14.2: per-thread agent bindings
 	reactions    *discordReactionManager  // P14.3: lifecycle reactions
 	forumBoard   *discordForumBoard       // P14.4: forum task board
+	voice        *discordVoiceManager     // P14.5: voice channel manager
+	gatewayConn  *wsConn                  // P14.5: active gateway connection for voice state updates
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
@@ -398,6 +401,12 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 	if cfg.Discord.ForumBoard.Enabled {
 		db.forumBoard = newDiscordForumBoard(db, cfg.Discord.ForumBoard)
 		logInfo("discord forum board enabled", "channel", cfg.Discord.ForumBoard.ForumChannelID)
+	}
+
+	// P14.5: Initialize voice manager.
+	db.voice = newDiscordVoiceManager(db)
+	if cfg.Discord.Voice.Enabled {
+		logInfo("discord voice enabled", "auto_join_count", len(cfg.Discord.Voice.AutoJoin))
 	}
 
 	return db
@@ -449,6 +458,10 @@ func (db *DiscordBot) connectAndRun(ctx context.Context) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer ws.Close()
+
+	// P14.5: Store gateway connection for voice state updates
+	db.gatewayConn = ws
+	defer func() { db.gatewayConn = nil }()
 
 	// Read Hello (op 10).
 	var hello gatewayPayload
@@ -520,9 +533,16 @@ func (db *DiscordBot) connectAndRun(ctx context.Context) error {
 }
 
 func (db *DiscordBot) sendIdentify(ws *wsConn) error {
+	intents := intentGuildMessages | intentDirectMessages | intentMessageContent
+
+	// P14.5: Add voice intents if voice is enabled
+	if db.cfg.Discord.Voice.Enabled {
+		intents |= intentGuildVoiceStates
+	}
+
 	id := identifyData{
 		Token:   db.cfg.Discord.BotToken,
-		Intents: intentGuildMessages | intentDirectMessages | intentMessageContent,
+		Intents: intents,
 		Properties: map[string]string{
 			"os": "linux", "browser": "tetora", "device": "tetora",
 		},
@@ -572,12 +592,29 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 			db.botUserID = ready.User.ID
 			db.sessionID = ready.SessionID
 			logInfo("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
+
+			// P14.5: Auto-join voice channels if configured
+			if db.cfg.Discord.Voice.Enabled && len(db.cfg.Discord.Voice.AutoJoin) > 0 {
+				go db.voice.autoJoinChannels()
+			}
 		}
 	case "MESSAGE_CREATE":
 		// P14.2: Parse with channel_type for thread detection.
 		var msgT discordMessageWithType
 		if json.Unmarshal(payload.D, &msgT) == nil {
 			go db.handleMessageWithType(msgT.discordMessage, msgT.ChannelType)
+		}
+	case "VOICE_STATE_UPDATE":
+		// P14.5: Handle voice state updates
+		var vsu voiceStateUpdateData
+		if json.Unmarshal(payload.D, &vsu) == nil {
+			db.voice.handleVoiceStateUpdate(vsu)
+		}
+	case "VOICE_SERVER_UPDATE":
+		// P14.5: Handle voice server updates
+		var vsuData voiceServerUpdateData
+		if json.Unmarshal(payload.D, &vsuData) == nil {
+			db.voice.handleVoiceServerUpdate(vsuData)
 		}
 	}
 }
@@ -640,6 +677,14 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 			db.sendMessage(msg.ChannelID, reply)
 			return
 		}
+	}
+
+	// P14.5: Voice channel commands (/vc join|leave|status)
+	if strings.HasPrefix(text, "/vc") {
+		argsStr := strings.TrimPrefix(text, "/vc")
+		args := strings.Fields(strings.TrimSpace(argsStr))
+		db.handleVoiceCommand(msg, args)
+		return
 	}
 
 	// Command handling.
