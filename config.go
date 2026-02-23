@@ -55,6 +55,7 @@ type Config struct {
 	Matrix                MatrixConfig               `json:"matrix,omitempty"`         // --- P15.2: Matrix Channel ---
 	Teams                 TeamsConfig                `json:"teams,omitempty"`          // --- P15.3: Teams Channel ---
 	Signal                SignalConfig               `json:"signal,omitempty"`         // --- P15.4: Signal Channel ---
+	GoogleChat            GoogleChatConfig           `json:"googleChat,omitempty"`     // --- P15.5: Google Chat Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -813,6 +814,10 @@ func (cfg *Config) resolveSecrets() {
 	// --- P15.4: Signal Channel --- Resolve Signal credentials.
 	if cfg.Signal.PhoneNumber != "" {
 		cfg.Signal.PhoneNumber = resolveEnvRef(cfg.Signal.PhoneNumber, "signal.phoneNumber")
+	}
+	// --- P15.5: Google Chat Channel --- Resolve Google Chat credentials.
+	if cfg.GoogleChat.ServiceAccountKey != "" {
+		cfg.GoogleChat.ServiceAccountKey = resolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
 	}
 }
 

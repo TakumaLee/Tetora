@@ -164,6 +164,13 @@ func buildNotifiers(cfg *Config) []Notifier {
 					IsGroup:   isGroup,
 				})
 			}
+		case "gchat", "googlechat": // --- P15.5: Google Chat Channel ---
+			// For Google Chat, WebhookURL should contain the space name (spaces/{space_id})
+			if ch.WebhookURL != "" && cfg.GoogleChat.Enabled {
+				// Note: GoogleChatNotifier requires a bot instance which is created in main.go
+				// This is a placeholder - actual initialization happens in main.go
+				logWarn("gchat notifier requires bot initialization in main.go", "space", ch.WebhookURL)
+			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)
 		}
