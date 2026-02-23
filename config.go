@@ -289,8 +289,10 @@ type LoggingConfig struct {
 }
 
 type VoiceConfig struct {
-	STT STTConfig `json:"stt,omitempty"`
-	TTS TTSConfig `json:"tts,omitempty"`
+	STT      STTConfig           `json:"stt,omitempty"`
+	TTS      TTSConfig           `json:"tts,omitempty"`
+	Wake     VoiceWakeConfig     `json:"wake,omitempty"`     // P16.2: wake word detection
+	Realtime VoiceRealtimeConfig `json:"realtime,omitempty"` // P16.2: OpenAI Realtime API
 }
 
 type STTConfig struct {

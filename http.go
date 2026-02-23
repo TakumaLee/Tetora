@@ -442,6 +442,9 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		registerCanvasTools(cfg.toolRegistry, canvasEngine, cfg)
 	}
 
+	// Initialize Voice Realtime Engine (P16.2).
+	voiceRealtimeEngine := newVoiceRealtimeEngine(cfg, voiceEngine)
+
 	// Register Slack events endpoint (uses its own auth via signing secret,
 	// registered on mux directly; Slack signature verification is inside the handler).
 	if slackBot != nil {
@@ -3132,6 +3135,32 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		// Stream audio to response.
 		w.Header().Set("Content-Type", contentType)
 		io.Copy(w, stream)
+	})
+
+	// --- P16.2: Voice Realtime WebSocket Endpoints ---
+
+	mux.HandleFunc("/ws/voice/wake", func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.Voice.Wake.Enabled {
+			http.Error(w, `{"error":"voice wake not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		if voiceRealtimeEngine == nil {
+			http.Error(w, `{"error":"voice realtime engine not initialized"}`, http.StatusServiceUnavailable)
+			return
+		}
+		voiceRealtimeEngine.handleWakeWebSocket(w, r)
+	})
+
+	mux.HandleFunc("/ws/voice/realtime", func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.Voice.Realtime.Enabled {
+			http.Error(w, `{"error":"voice realtime not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		if voiceRealtimeEngine == nil {
+			http.Error(w, `{"error":"voice realtime engine not initialized"}`, http.StatusServiceUnavailable)
+			return
+		}
+		voiceRealtimeEngine.handleRealtimeWebSocket(w, r)
 	})
 
 	// --- Web Push ---
