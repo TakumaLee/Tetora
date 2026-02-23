@@ -477,8 +477,20 @@ func main() {
 			logInfo("teams bot enabled", "endpoint", "/api/teams/webhook")
 		}
 
+		// --- P15.4: Signal Channel --- Initialize Signal bot.
+		var signalBot *SignalBot
+		if cfg.Signal.Enabled && cfg.Signal.PhoneNumber != "" {
+			signalBot = newSignalBot(cfg, state, sem)
+			if cfg.Signal.PollingMode {
+				signalBot.Start()
+				logInfo("signal bot enabled (polling mode)", "interval", cfg.Signal.pollIntervalOrDefault())
+			} else {
+				logInfo("signal bot enabled", "endpoint", cfg.Signal.webhookPathOrDefault())
+			}
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -508,6 +520,9 @@ func main() {
 		<-sigCh
 		logInfo("shutting down")
 
+		if signalBot != nil {
+			signalBot.Stop()
+		}
 		if discordBot != nil {
 			discordBot.Stop()
 		}
@@ -570,7 +585,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {
