@@ -14,8 +14,11 @@ import (
 
 // RouteRequest is the input for the routing engine.
 type RouteRequest struct {
-	Prompt string `json:"prompt"`
-	Source string `json:"source,omitempty"` // "telegram", "http", "cli"
+	Prompt    string `json:"prompt"`
+	Source    string `json:"source,omitempty"`    // "telegram", "http", "cli", "slack", "discord"
+	UserID    string `json:"userId,omitempty"`    // user ID (telegram, discord, etc.)
+	ChannelID string `json:"channelId,omitempty"` // channel/chat ID (slack, telegram group, etc.)
+	GuildID   string `json:"guildId,omitempty"`   // guild/server ID (discord)
 }
 
 // RouteResult represents the outcome of smart dispatch routing.
@@ -32,6 +35,43 @@ type SmartDispatchResult struct {
 	Task     TaskResult  `json:"task"`
 	ReviewOK *bool       `json:"reviewOk,omitempty"` // nil if no review
 	Review   string      `json:"review,omitempty"`   // review comment from coordinator
+}
+
+// --- Binding Classification (Highest Priority) ---
+
+// checkBindings checks if the request matches any channel/user binding rules.
+// Returns nil if no binding match is found.
+func checkBindings(cfg *Config, req RouteRequest) *RouteResult {
+	for _, binding := range cfg.SmartDispatch.Bindings {
+		// Channel must match.
+		if binding.Channel != "" && binding.Channel != req.Source {
+			continue
+		}
+
+		// Check if any of the ID fields match.
+		matched := false
+		if binding.UserID != "" && binding.UserID == req.UserID {
+			matched = true
+		}
+		if binding.ChannelID != "" && binding.ChannelID == req.ChannelID {
+			matched = true
+		}
+		if binding.GuildID != "" && binding.GuildID == req.GuildID {
+			matched = true
+		}
+
+		// If channel matches and at least one ID matches, return this binding.
+		if matched {
+			return &RouteResult{
+				Role:       binding.Role,
+				Method:     "binding",
+				Confidence: "high",
+				Reason:     fmt.Sprintf("matched binding rule for channel=%s", binding.Channel),
+			}
+		}
+	}
+
+	return nil
 }
 
 // --- Keyword Classification (Fast Path) ---
@@ -177,11 +217,20 @@ func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
 	return &result, nil
 }
 
-// --- Two-Tier Route ---
+// --- Multi-Tier Route ---
 
 // routeTask determines which role should handle the given prompt.
+// Priority: bindings → keywords → LLM/coordinator fallback.
 func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan struct{}) *RouteResult {
-	// Fast path: keyword matching.
+	// Tier 1: Check bindings (highest priority).
+	if result := checkBindings(cfg, req); result != nil {
+		if _, ok := cfg.Roles[result.Role]; ok {
+			return result
+		}
+		logWarnCtx(ctx, "binding matched role not in config, falling through", "role", result.Role)
+	}
+
+	// Tier 2: Keyword matching.
 	if result := classifyByKeywords(cfg, req.Prompt); result != nil {
 		if _, ok := cfg.Roles[result.Role]; ok {
 			return result
@@ -189,7 +238,23 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan stru
 		logWarnCtx(ctx, "keyword matched role not in config, falling through", "role", result.Role)
 	}
 
-	// Slow path: LLM classification.
+	// Tier 3: Fallback mode.
+	fallbackMode := cfg.SmartDispatch.Fallback
+	if fallbackMode == "" {
+		fallbackMode = "smart" // default to smart routing
+	}
+
+	if fallbackMode == "coordinator" {
+		// Direct fallback to coordinator (no LLM call).
+		return &RouteResult{
+			Role:       cfg.SmartDispatch.DefaultRole,
+			Method:     "coordinator",
+			Confidence: "high",
+			Reason:     "fallback mode set to coordinator",
+		}
+	}
+
+	// Smart fallback: LLM classification.
 	result, err := classifyByLLM(ctx, cfg, req.Prompt, sem)
 	if err != nil {
 		logWarnCtx(ctx, "LLM classify error, using default", "error", err)

@@ -186,14 +186,16 @@ type SecurityAlertConfig struct {
 
 // SmartDispatchConfig configures the smart dispatch routing engine.
 type SmartDispatchConfig struct {
-	Enabled         bool          `json:"enabled"`
-	Coordinator     string        `json:"coordinator,omitempty"`     // role name for LLM classification (default "琉璃")
-	DefaultRole     string        `json:"defaultRole,omitempty"`     // fallback if no match (default "琉璃")
-	ClassifyBudget  float64       `json:"classifyBudget,omitempty"`  // budget for classification LLM call (default 0.1)
-	ClassifyTimeout string        `json:"classifyTimeout,omitempty"` // timeout for classification (default "30s")
-	Review          bool          `json:"review,omitempty"`          // if true, coordinator reviews output
-	ReviewBudget    float64       `json:"reviewBudget,omitempty"`    // budget for review LLM call (default 0.2)
-	Rules           []RoutingRule `json:"rules,omitempty"`           // explicit keyword rules (fast path)
+	Enabled         bool             `json:"enabled"`
+	Coordinator     string           `json:"coordinator,omitempty"`     // role name for LLM classification (default "琉璃")
+	DefaultRole     string           `json:"defaultRole,omitempty"`     // fallback if no match (default "琉璃")
+	ClassifyBudget  float64          `json:"classifyBudget,omitempty"`  // budget for classification LLM call (default 0.1)
+	ClassifyTimeout string           `json:"classifyTimeout,omitempty"` // timeout for classification (default "30s")
+	Review          bool             `json:"review,omitempty"`          // if true, coordinator reviews output
+	ReviewBudget    float64          `json:"reviewBudget,omitempty"`    // budget for review LLM call (default 0.2)
+	Rules           []RoutingRule    `json:"rules,omitempty"`           // explicit keyword rules (fast path)
+	Bindings        []RoutingBinding `json:"bindings,omitempty"`        // channel/user bindings (highest priority)
+	Fallback        string           `json:"fallback,omitempty"`        // "smart" (LLM routing) | "coordinator" (always default role)
 }
 
 // RoutingRule is a keyword-based routing rule for fast-path matching.
@@ -201,6 +203,15 @@ type RoutingRule struct {
 	Role     string   `json:"role"`                // target role name
 	Keywords []string `json:"keywords"`            // case-insensitive keyword match (any = match)
 	Patterns []string `json:"patterns,omitempty"`  // regex patterns (any = match)
+}
+
+// RoutingBinding binds a channel/user/channelId/guildId to a specific role.
+type RoutingBinding struct {
+	Channel   string `json:"channel"`             // "telegram", "slack", "discord", etc.
+	UserID    string `json:"userId,omitempty"`    // user ID (telegram, discord, etc.)
+	ChannelID string `json:"channelId,omitempty"` // channel/chat ID (slack, telegram group, etc.)
+	GuildID   string `json:"guildId,omitempty"`   // guild/server ID (discord)
+	Role      string `json:"role"`                // target role name
 }
 
 // EstimateConfig configures pre-execution cost estimation.
