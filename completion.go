@@ -39,7 +39,7 @@ func completionSubcommands() []string {
 		"status", "service", "job", "role", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
-		"proactive", "quick", "dashboard", "compact", "plugin", "version", "help", "completion",
+		"proactive", "quick", "dashboard", "compact", "plugin", "task", "version", "help", "completion",
 	}
 }
 
@@ -84,6 +84,8 @@ func completionSubActions(cmd string) []string {
 		return []string{"status", "cleanup", "export", "purge"}
 	case "plugin": // --- P13.1: Plugin System ---
 		return []string{"list", "start", "stop"}
+	case "task": // --- P14.6: Task Board ---
+		return []string{"list", "create", "move", "assign", "comment", "thread"}
 	case "completion":
 		return []string{"bash", "zsh", "fish"}
 	}

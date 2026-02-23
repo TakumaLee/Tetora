@@ -2694,6 +2694,171 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 	mux.HandleFunc("/api/docs", handleAPIDocs)
 	mux.HandleFunc("/api/spec", handleAPISpec(cfg))
 
+	// --- P14.6: Task Board ---
+
+	var taskBoardEngine *TaskBoardEngine
+	if cfg.TaskBoard.Enabled {
+		taskBoardEngine = newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
+		if err := taskBoardEngine.initTaskBoardSchema(); err != nil {
+			logError("init task board schema failed", "error", err)
+		}
+	}
+
+	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		if taskBoardEngine == nil {
+			http.Error(w, `{"error":"task board not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.Method {
+		case http.MethodGet:
+			status := r.URL.Query().Get("status")
+			assignee := r.URL.Query().Get("assignee")
+			project := r.URL.Query().Get("project")
+			tasks, err := taskBoardEngine.ListTasks(status, assignee, project)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if tasks == nil {
+				tasks = []TaskBoard{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"tasks": tasks})
+
+		case http.MethodPost:
+			var task TaskBoard
+			if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			created, err := taskBoardEngine.CreateTask(task)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(created)
+
+		default:
+			http.Error(w, `{"error":"GET or POST only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		if taskBoardEngine == nil {
+			http.Error(w, `{"error":"task board not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+		parts := strings.Split(path, "/")
+		if len(parts) == 0 || parts[0] == "" {
+			http.Error(w, `{"error":"invalid path"}`, http.StatusBadRequest)
+			return
+		}
+
+		taskID := parts[0]
+
+		// GET /api/tasks/{id} → get single task.
+		if r.Method == http.MethodGet && len(parts) == 1 {
+			task, err := taskBoardEngine.GetTask(taskID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(task)
+			return
+		}
+
+		// PATCH /api/tasks/{id} → update task.
+		if r.Method == http.MethodPatch && len(parts) == 1 {
+			var updates map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			task, err := taskBoardEngine.UpdateTask(taskID, updates)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(task)
+			return
+		}
+
+		// POST /api/tasks/{id}/move → move task.
+		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "move" {
+			var req struct {
+				Status string `json:"status"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			task, err := taskBoardEngine.MoveTask(taskID, req.Status)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(task)
+			return
+		}
+
+		// POST /api/tasks/{id}/assign → assign task.
+		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "assign" {
+			var req struct {
+				Assignee string `json:"assignee"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			task, err := taskBoardEngine.AssignTask(taskID, req.Assignee)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(task)
+			return
+		}
+
+		// POST /api/tasks/{id}/comment → add comment.
+		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "comment" {
+			var req struct {
+				Author  string `json:"author"`
+				Content string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			comment, err := taskBoardEngine.AddComment(taskID, req.Author, req.Content)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(comment)
+			return
+		}
+
+		// GET /api/tasks/{id}/thread → get comments.
+		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "thread" {
+			comments, err := taskBoardEngine.GetThread(taskID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if comments == nil {
+				comments = []TaskComment{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"comments": comments})
+			return
+		}
+
+		http.Error(w, `{"error":"invalid path or method"}`, http.StatusBadRequest)
+	})
+
 	// --- Quick Actions ---
 
 	quickActionEngine := newQuickActionEngine(cfg)

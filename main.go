@@ -99,6 +99,9 @@ func main() {
 		case "plugin": // --- P13.1: Plugin System ---
 			cmdPlugin(os.Args[2:])
 			return
+		case "task": // --- P14.6: Task Board ---
+			cmdTask(os.Args[2:])
+			return
 		case "backup":
 			cmdBackup(os.Args[2:])
 			return
