@@ -11,12 +11,15 @@ import (
 
 func cmdSkill(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora skill <list|run|test> [name]")
+		fmt.Println("Usage: tetora skill <list|run|test|store|approve|reject> [name]")
 		fmt.Println()
 		fmt.Println("Commands:")
-		fmt.Println("  list                                   List configured skills")
+		fmt.Println("  list                                   List all skills (config + file-based)")
 		fmt.Println("  run  <name> [--var key=value ...]      Execute a skill")
 		fmt.Println("  test <name>                            Quick test (5s timeout)")
+		fmt.Println("  store                                  List file-based skills (store)")
+		fmt.Println("  approve <name>                         Approve a pending skill")
+		fmt.Println("  reject  <name>                         Reject (delete) a pending skill")
 		return
 	}
 	switch args[0] {
@@ -34,6 +37,20 @@ func cmdSkill(args []string) {
 			os.Exit(1)
 		}
 		skillTestCmd(args[1])
+	case "store":
+		skillStoreCmd()
+	case "approve":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora skill approve <name>")
+			os.Exit(1)
+		}
+		skillApproveCmd(args[1])
+	case "reject":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora skill reject <name>")
+			os.Exit(1)
+		}
+		skillRejectCmd(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown skill action: %s\n", args[0])
 		os.Exit(1)
@@ -144,5 +161,61 @@ func skillTestCmd(name string) {
 			fmt.Fprintf(os.Stderr, "Output: %s\n", strings.TrimSpace(result.Output))
 		}
 		os.Exit(1)
+	}
+}
+
+// --- P18.4: Self-Improving Skills CLI ---
+
+func skillStoreCmd() {
+	cfg := loadConfig(findConfigPath())
+	metas := loadAllFileSkillMetas(cfg)
+
+	if len(metas) == 0 {
+		fmt.Println("No file-based skills in store.")
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tSTATUS\tUSAGE\tCREATED BY\tCREATED AT")
+	for _, m := range metas {
+		status := "pending"
+		if m.Approved {
+			status = "approved"
+		}
+		createdAt := m.CreatedAt
+		if len(createdAt) > 10 {
+			createdAt = createdAt[:10]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
+			m.Name, status, m.UsageCount, m.CreatedBy, createdAt)
+	}
+	w.Flush()
+}
+
+func skillApproveCmd(name string) {
+	cfg := loadConfig(findConfigPath())
+	if err := approveSkill(cfg, name); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Skill %q approved.\n", name)
+
+	// Record approval event.
+	if cfg.HistoryDB != "" {
+		recordSkillEvent(cfg.HistoryDB, name, "approved", "", "cli")
+	}
+}
+
+func skillRejectCmd(name string) {
+	cfg := loadConfig(findConfigPath())
+	if err := rejectSkill(cfg, name); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Skill %q rejected and deleted.\n", name)
+
+	// Record rejection event.
+	if cfg.HistoryDB != "" {
+		recordSkillEvent(cfg.HistoryDB, name, "rejected", "", "cli")
 	}
 }

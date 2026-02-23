@@ -88,6 +88,18 @@ type Config struct {
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"` // --- P14.6: Built-in Task Board API ---
 	Security              SecurityConfig                   `json:"security,omitempty"` // --- P16.3: Prompt Injection Defense v2 ---
 	DailyNotes            DailyNotesConfig                 `json:"dailyNotes,omitempty"` // --- P17.3: Daily Notes ---
+	SkillStore            SkillStoreConfig                 `json:"skillStore,omitempty"` // --- P18.4: Self-Improving Skills ---
+	Usage                 UsageConfig                      `json:"usage,omitempty"`      // --- P18.1: Cost Dashboard ---
+	WorkflowTriggers      []WorkflowTriggerConfig          `json:"workflowTriggers,omitempty"` // --- P18.3: Workflow Triggers ---
+	OAuth                 OAuthConfig                      `json:"oauth,omitempty"`      // --- P18.2: OAuth 2.0 Framework ---
+	Reminders             ReminderConfig                   `json:"reminders,omitempty"`  // --- P19.3: Smart Reminders ---
+	Notes                 NotesConfig                      `json:"notes,omitempty"`      // --- P19.4: Notes/Obsidian Integration ---
+	HomeAssistant         HomeAssistantConfig              `json:"homeAssistant,omitempty"` // --- P20.1: Home Assistant ---
+	Device                DeviceConfig                     `json:"device,omitempty"`        // --- P20.4: Device Actions ---
+	IMessage              IMessageConfig                   `json:"imessage,omitempty"`      // --- P20.2: iMessage via BlueBubbles ---
+	Gmail                 GmailConfig                      `json:"gmail,omitempty"`         // --- P19.1: Gmail Integration ---
+	Calendar              CalendarConfig                   `json:"calendar,omitempty"`      // --- P19.2: Google Calendar ---
+	Twitter               TwitterConfig                    `json:"twitter,omitempty"`       // --- P20.3: Twitter/X Integration ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -834,6 +846,17 @@ func (cfg *Config) resolveSecrets() {
 	// --- P15.5: Google Chat Channel --- Resolve Google Chat credentials.
 	if cfg.GoogleChat.ServiceAccountKey != "" {
 		cfg.GoogleChat.ServiceAccountKey = resolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
+	}
+	// --- P20.1: Home Assistant --- Resolve HA token.
+	cfg.HomeAssistant.Token = resolveEnvRef(cfg.HomeAssistant.Token, "homeAssistant.token")
+	// --- P20.2: iMessage via BlueBubbles --- Resolve BB password.
+	cfg.IMessage.Password = resolveEnvRef(cfg.IMessage.Password, "imessage.password")
+	// --- P18.2: OAuth 2.0 Framework --- Resolve OAuth secrets.
+	cfg.OAuth.EncryptionKey = resolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
+	for name, svc := range cfg.OAuth.Services {
+		svc.ClientID = resolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))
+		svc.ClientSecret = resolveEnvRef(svc.ClientSecret, fmt.Sprintf("oauth.services.%s.clientSecret", name))
+		cfg.OAuth.Services[name] = svc
 	}
 }
 

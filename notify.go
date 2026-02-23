@@ -171,6 +171,14 @@ func buildNotifiers(cfg *Config) []Notifier {
 				// This is a placeholder - actual initialization happens in main.go
 				logWarn("gchat notifier requires bot initialization in main.go", "space", ch.WebhookURL)
 			}
+		case "imessage": // --- P20.2: iMessage via BlueBubbles ---
+			// For iMessage, WebhookURL field holds the target chat GUID.
+			if ch.WebhookURL != "" && cfg.IMessage.Enabled {
+				notifiers = append(notifiers, &IMessageNotifier{
+					Config:   cfg.IMessage,
+					ChatGUID: ch.WebhookURL,
+				})
+			}
 		default:
 			logWarn("unknown notification type", "type", ch.Type)
 		}

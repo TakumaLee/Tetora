@@ -104,19 +104,28 @@ func expandSkillVars(s string, vars map[string]string) string {
 	return s
 }
 
-// listSkills returns all configured skills.
+// listSkills returns all configured skills (config-based + file-based, merged).
 func listSkills(cfg *Config) []SkillConfig {
-	if cfg.Skills == nil {
-		return []SkillConfig{}
+	configSkills := cfg.Skills
+	if configSkills == nil {
+		configSkills = []SkillConfig{}
 	}
-	return cfg.Skills
+	fileSkills := loadFileSkills(cfg)
+	return mergeSkills(configSkills, fileSkills)
 }
 
-// getSkill returns a skill by name.
+// getSkill returns a skill by name, searching both config and file-based skills.
 func getSkill(cfg *Config, name string) *SkillConfig {
 	for i, s := range cfg.Skills {
 		if s.Name == name {
 			return &cfg.Skills[i]
+		}
+	}
+	// Also search file-based skills.
+	fileSkills := loadFileSkills(cfg)
+	for i, s := range fileSkills {
+		if s.Name == name {
+			return &fileSkills[i]
 		}
 	}
 	return nil

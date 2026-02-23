@@ -9,9 +9,11 @@ import (
 
 // ModelPricing defines per-model pricing rates.
 type ModelPricing struct {
-	Model       string  `json:"model"`
-	InputPer1M  float64 `json:"inputPer1M"`  // USD per 1M input tokens
-	OutputPer1M float64 `json:"outputPer1M"` // USD per 1M output tokens
+	Model           string  `json:"model"`
+	InputPer1M      float64 `json:"inputPer1M"`               // USD per 1M input tokens
+	OutputPer1M     float64 `json:"outputPer1M"`              // USD per 1M output tokens
+	CacheReadPer1M  float64 `json:"cacheReadPer1M,omitempty"`  // USD per 1M cache read tokens
+	CacheWritePer1M float64 `json:"cacheWritePer1M,omitempty"` // USD per 1M cache write tokens
 }
 
 // CostEstimate is the result for a single task estimation.
@@ -37,10 +39,10 @@ type EstimateResult struct {
 // defaultPricing returns built-in pricing for well-known models.
 func defaultPricing() map[string]ModelPricing {
 	return map[string]ModelPricing{
-		// Claude models
-		"opus":   {Model: "opus", InputPer1M: 15.00, OutputPer1M: 75.00},
-		"sonnet": {Model: "sonnet", InputPer1M: 3.00, OutputPer1M: 15.00},
-		"haiku":  {Model: "haiku", InputPer1M: 0.25, OutputPer1M: 1.25},
+		// Claude models (cacheRead: 10% of input, cacheWrite: 125% of input)
+		"opus":   {Model: "opus", InputPer1M: 15.00, OutputPer1M: 75.00, CacheReadPer1M: 1.50, CacheWritePer1M: 18.75},
+		"sonnet": {Model: "sonnet", InputPer1M: 3.00, OutputPer1M: 15.00, CacheReadPer1M: 0.30, CacheWritePer1M: 3.75},
+		"haiku":  {Model: "haiku", InputPer1M: 0.25, OutputPer1M: 1.25, CacheReadPer1M: 0.025, CacheWritePer1M: 0.3125},
 		// OpenAI models
 		"gpt-4o":      {Model: "gpt-4o", InputPer1M: 2.50, OutputPer1M: 10.00},
 		"gpt-4o-mini": {Model: "gpt-4o-mini", InputPer1M: 0.15, OutputPer1M: 0.60},

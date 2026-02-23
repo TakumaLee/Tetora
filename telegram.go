@@ -815,7 +815,12 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		if result.Status == "success" {
-			b.reply(msg.Chat.ID, truncate(result.Output, 3000))
+			output := truncate(result.Output, 3000)
+			// --- P18.1: Cost footer ---
+			if footer := formatResultCostFooter(b.cfg, &result); footer != "" {
+				output = output + "\n\n" + footer
+			}
+			b.reply(msg.Chat.ID, output)
 		} else {
 			b.reply(msg.Chat.ID, fmt.Sprintf("Error: %s", truncate(result.Error, 500)))
 		}

@@ -46,9 +46,9 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
-		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, Discord interactions, LINE webhook, Teams webhook, Signal webhook, and Google Chat webhook.
+		// Skip auth for health check, metrics, dashboard, Slack events, WhatsApp webhook, Discord interactions, LINE webhook, Teams webhook, Signal webhook, Google Chat webhook, and iMessage webhook.
 		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || strings.HasPrefix(p, "/api/line/") || strings.HasPrefix(p, "/api/teams/") || strings.HasPrefix(p, "/api/signal/") || strings.HasPrefix(p, "/api/gchat/") || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") {
+		if p == "/healthz" || p == "/metrics" || p == "/dashboard" || strings.HasPrefix(p, "/dashboard/") || p == "/slack/events" || p == "/api/whatsapp/webhook" || p == "/api/discord/interactions" || strings.HasPrefix(p, "/api/line/") || strings.HasPrefix(p, "/api/teams/") || strings.HasPrefix(p, "/api/signal/") || strings.HasPrefix(p, "/api/gchat/") || strings.HasPrefix(p, "/api/imessage/") || p == "/api/docs" || p == "/api/spec" || strings.HasPrefix(p, "/hooks/") || (strings.HasPrefix(p, "/api/oauth/") && strings.HasSuffix(p, "/callback")) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -427,7 +427,7 @@ func cleanupRouteResults() {
 	}
 }
 
-func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost, lineBot *LINEBot, teamsBot *TeamsBot, signalBot *SignalBot, gchatBot *GoogleChatBot) *http.Server {
+func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan struct{}, cron *CronEngine, secMon *securityMonitor, mcpHost *MCPHost, proactiveEngine *ProactiveEngine, groupChatEngine *GroupChatEngine, voiceEngine *VoiceEngine, slackBot *SlackBot, whatsappBot *WhatsAppBot, pluginHost *PluginHost, lineBot *LINEBot, teamsBot *TeamsBot, signalBot *SignalBot, gchatBot *GoogleChatBot, imessageBot *IMessageBot) *http.Server {
 	startTime := time.Now()
 	mux := http.NewServeMux()
 	limiter := newLoginLimiter()
@@ -488,6 +488,17 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		webhookPath := cfg.GoogleChat.webhookPathOrDefault()
 		mux.HandleFunc(webhookPath, gchatBot.HandleWebhook)
 	}
+
+	// --- P20.2: iMessage --- BlueBubbles webhook.
+	if imessageBot != nil {
+		mux.HandleFunc(cfg.IMessage.webhookPathOrDefault(), imessageBot.webhookHandler)
+	}
+
+	// --- P18.2: OAuth 2.0 Framework ---
+	oauthMgr := newOAuthManager(cfg)
+	globalOAuthManager = oauthMgr // expose for Gmail/Calendar tools
+	mux.HandleFunc("/api/oauth/services", oauthMgr.handleOAuthServices)
+	mux.HandleFunc("/api/oauth/", oauthMgr.handleOAuthRoute)
 
 	// --- Health ---
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -3762,6 +3773,145 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 		w.Write([]byte(`{"status":"active"}`))
 	})
 
+	// --- P18.1: Usage / Cost Dashboard API ---
+
+	mux.HandleFunc("/api/usage/summary", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		period := r.URL.Query().Get("period")
+		if period == "" {
+			period = "today"
+		}
+
+		summary, err := queryUsageSummary(cfg.HistoryDB, period)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		// Overlay budget info.
+		switch period {
+		case "today":
+			if cfg.Budgets.Global.Daily > 0 {
+				summary.BudgetLimit = cfg.Budgets.Global.Daily
+				summary.BudgetPct = summary.TotalCost / summary.BudgetLimit * 100
+			}
+		case "week":
+			if cfg.Budgets.Global.Weekly > 0 {
+				summary.BudgetLimit = cfg.Budgets.Global.Weekly
+				summary.BudgetPct = summary.TotalCost / summary.BudgetLimit * 100
+			}
+		case "month":
+			if cfg.Budgets.Global.Monthly > 0 {
+				summary.BudgetLimit = cfg.Budgets.Global.Monthly
+				summary.BudgetPct = summary.TotalCost / summary.BudgetLimit * 100
+			}
+		}
+
+		json.NewEncoder(w).Encode(summary)
+	})
+
+	mux.HandleFunc("/api/usage/breakdown", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		by := r.URL.Query().Get("by")
+		days := 30
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
+				days = n
+			}
+		}
+
+		switch by {
+		case "model":
+			models, err := queryUsageByModel(cfg.HistoryDB, days)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if models == nil {
+				models = []ModelUsage{}
+			}
+			json.NewEncoder(w).Encode(models)
+		case "role":
+			roles, err := queryUsageByRole(cfg.HistoryDB, days)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if roles == nil {
+				roles = []RoleUsage{}
+			}
+			json.NewEncoder(w).Encode(roles)
+		default:
+			http.Error(w, `{"error":"by parameter required: model or role"}`, http.StatusBadRequest)
+		}
+	})
+
+	mux.HandleFunc("/api/usage/sessions", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		limit := 10
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+				limit = n
+			}
+		}
+		days := 30
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
+				days = n
+			}
+		}
+
+		sessions, err := queryExpensiveSessions(cfg.HistoryDB, limit, days)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		if sessions == nil {
+			sessions = []ExpensiveSession{}
+		}
+		json.NewEncoder(w).Encode(sessions)
+	})
+
+	mux.HandleFunc("/api/usage/trend", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		days := 30
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
+				days = n
+			}
+		}
+
+		trend, err := queryCostTrend(cfg.HistoryDB, days)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		if trend == nil {
+			trend = []DayUsage{}
+		}
+		json.NewEncoder(w).Encode(trend)
+	})
+
 	// --- Audit Log ---
 	// --- Trust Gradient ---
 	mux.HandleFunc("/trust", func(w http.ResponseWriter, r *http.Request) {
@@ -4342,6 +4492,357 @@ func startHTTPServer(addr string, state *dispatchState, cfg *Config, sem chan st
 
 		default:
 			http.Error(w, `{"error":"unknown action, use start, stop, or health"}`, http.StatusBadRequest)
+		}
+	})
+
+	// --- P18.4: Self-Improving Skills Store API ---
+	mux.HandleFunc("/api/skills/store", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			allMetas := loadAllFileSkillMetas(cfg)
+			pending := listPendingSkills(cfg)
+			json.NewEncoder(w).Encode(map[string]any{
+				"skills":  allMetas,
+				"pending": pending,
+				"total":   len(allMetas),
+			})
+		default:
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/skills/store/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Parse /api/skills/store/<name>/<action>
+		path := strings.TrimPrefix(r.URL.Path, "/api/skills/store/")
+		if path == "" {
+			http.Error(w, `{"error":"name required"}`, http.StatusBadRequest)
+			return
+		}
+		parts := strings.SplitN(path, "/", 2)
+		name := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+
+		switch r.Method {
+		case http.MethodPost:
+			switch action {
+			case "approve":
+				auditLog(cfg.HistoryDB, "skill.approve", "http",
+					fmt.Sprintf("name=%s", name), clientIP(r))
+				if err := approveSkill(cfg, name); err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+					return
+				}
+				if cfg.HistoryDB != "" {
+					recordSkillEvent(cfg.HistoryDB, name, "approved", "", "http")
+				}
+				json.NewEncoder(w).Encode(map[string]string{"status": "approved", "name": name})
+
+			case "reject":
+				auditLog(cfg.HistoryDB, "skill.reject", "http",
+					fmt.Sprintf("name=%s", name), clientIP(r))
+				if err := rejectSkill(cfg, name); err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+					return
+				}
+				if cfg.HistoryDB != "" {
+					recordSkillEvent(cfg.HistoryDB, name, "rejected", "", "http")
+				}
+				json.NewEncoder(w).Encode(map[string]string{"status": "rejected", "name": name})
+
+			default:
+				http.Error(w, `{"error":"unknown action, use approve or reject"}`, http.StatusBadRequest)
+			}
+
+		case http.MethodDelete:
+			if action != "" {
+				http.Error(w, `{"error":"DELETE /api/skills/store/<name>"}`, http.StatusBadRequest)
+				return
+			}
+			auditLog(cfg.HistoryDB, "skill.delete", "http",
+				fmt.Sprintf("name=%s", name), clientIP(r))
+			if err := deleteFileSkill(cfg, name); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "name": name})
+
+		default:
+			http.Error(w, `{"error":"POST or DELETE only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/skills/usage", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		limit := 50
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+				limit = n
+			}
+		}
+
+		rows, err := queryDB(cfg.HistoryDB,
+			fmt.Sprintf(`SELECT id, skill_name, event_type, task_prompt, role, created_at FROM skill_usage ORDER BY id DESC LIMIT %d`, limit))
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"events": rows,
+			"count":  len(rows),
+		})
+	})
+
+	// --- P18.3: Workflow Triggers ---
+
+	// Build trigger engine reference for HTTP handlers.
+	// The engine may be nil if no triggers are configured; the daemon creates it in main.go.
+	// We create a lightweight one here for HTTP-only access to listing/firing.
+	var triggerEngine *WorkflowTriggerEngine
+	if len(cfg.WorkflowTriggers) > 0 {
+		triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, state.broker)
+	}
+
+	mux.HandleFunc("/api/triggers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if triggerEngine == nil {
+			json.NewEncoder(w).Encode(map[string]any{"triggers": []any{}, "count": 0})
+			return
+		}
+		infos := triggerEngine.ListTriggers()
+		if infos == nil {
+			infos = []TriggerInfo{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"triggers": infos,
+			"count":    len(infos),
+		})
+	})
+
+	mux.HandleFunc("/api/triggers/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/triggers/")
+		parts := strings.SplitN(path, "/", 2)
+		name := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+
+		if name == "" {
+			http.Error(w, `{"error":"trigger name required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Handle webhook trigger: POST /api/triggers/webhook/{id}
+		if name == "webhook" && action != "" && r.Method == http.MethodPost {
+			webhookID := action
+			if triggerEngine == nil {
+				http.Error(w, `{"error":"no triggers configured"}`, http.StatusNotFound)
+				return
+			}
+			// Parse JSON payload into vars.
+			var payload map[string]string
+			if r.Body != nil {
+				json.NewDecoder(r.Body).Decode(&payload)
+			}
+			if payload == nil {
+				payload = make(map[string]string)
+			}
+			payload["_webhook_remote"] = clientIP(r)
+
+			if err := triggerEngine.HandleWebhookTrigger(webhookID, payload); err != nil {
+				status := http.StatusNotFound
+				if strings.Contains(err.Error(), "cooldown") || strings.Contains(err.Error(), "disabled") {
+					status = http.StatusTooManyRequests
+				}
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), status)
+				return
+			}
+			auditLog(cfg.HistoryDB, "trigger.webhook", "http",
+				fmt.Sprintf("trigger=%s", webhookID), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":  "accepted",
+				"trigger": webhookID,
+			})
+			return
+		}
+
+		switch {
+		case action == "fire" && r.Method == http.MethodPost:
+			if triggerEngine == nil {
+				http.Error(w, `{"error":"no triggers configured"}`, http.StatusNotFound)
+				return
+			}
+			if err := triggerEngine.FireTrigger(name); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+				return
+			}
+			auditLog(cfg.HistoryDB, "trigger.fire", "http",
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":  "accepted",
+				"trigger": name,
+			})
+
+		case action == "runs" && r.Method == http.MethodGet:
+			limit := 20
+			if l := r.URL.Query().Get("limit"); l != "" {
+				if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+					limit = n
+				}
+			}
+			runs, err := queryTriggerRuns(cfg.HistoryDB, name, limit)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if runs == nil {
+				runs = []map[string]any{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"runs":  runs,
+				"count": len(runs),
+			})
+
+		default:
+			http.Error(w, `{"error":"use POST .../fire or GET .../runs"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	// --- P19.3: Smart Reminders ---
+
+	mux.HandleFunc("/api/reminders", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if globalReminderEngine == nil {
+			json.NewEncoder(w).Encode(map[string]any{"reminders": []any{}, "count": 0, "note": "reminder engine not enabled"})
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			// GET /api/reminders?user_id=...
+			userID := r.URL.Query().Get("user_id")
+			reminders, err := globalReminderEngine.listReminders(userID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if reminders == nil {
+				reminders = []Reminder{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"reminders": reminders,
+				"count":     len(reminders),
+			})
+
+		case http.MethodPost:
+			// POST /api/reminders — create a reminder.
+			var req struct {
+				Text      string `json:"text"`
+				Time      string `json:"time"`
+				Recurring string `json:"recurring"`
+				Channel   string `json:"channel"`
+				UserID    string `json:"userId"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+				return
+			}
+			if req.Text == "" || req.Time == "" {
+				http.Error(w, `{"error":"text and time are required"}`, http.StatusBadRequest)
+				return
+			}
+			dueAt, err := parseNaturalTime(req.Time)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"cannot parse time: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			if req.Recurring != "" {
+				if _, err := parseCronExpr(req.Recurring); err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"invalid cron expression: %v"}`, err), http.StatusBadRequest)
+					return
+				}
+			}
+			rem, err := globalReminderEngine.addReminder(req.Text, dueAt, req.Recurring, req.Channel, req.UserID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(rem)
+
+		default:
+			http.Error(w, `{"error":"GET or POST only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/reminders/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if globalReminderEngine == nil {
+			http.Error(w, `{"error":"reminder engine not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/reminders/")
+		parts := strings.SplitN(path, "/", 2)
+		id := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+
+		if id == "" {
+			http.Error(w, `{"error":"reminder id required"}`, http.StatusBadRequest)
+			return
+		}
+
+		switch {
+		case r.Method == http.MethodDelete && action == "":
+			// DELETE /api/reminders/{id}
+			userID := r.URL.Query().Get("user_id")
+			if err := globalReminderEngine.cancelReminder(id, userID); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "status": "cancelled"})
+
+		case r.Method == http.MethodPost && action == "snooze":
+			// POST /api/reminders/{id}/snooze?duration=10m
+			durStr := r.URL.Query().Get("duration")
+			if durStr == "" {
+				durStr = "10m"
+			}
+			dur, err := time.ParseDuration(durStr)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid duration: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			if err := globalReminderEngine.snoozeReminder(id, dur); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id, "snoozed": durStr})
+
+		default:
+			http.Error(w, `{"error":"DELETE /api/reminders/{id} or POST /api/reminders/{id}/snooze"}`, http.StatusMethodNotAllowed)
 		}
 	})
 

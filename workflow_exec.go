@@ -473,6 +473,20 @@ func (e *workflowExecutor) runStepOnce(ctx context.Context, step *WorkflowStep, 
 			// Parallel steps recurse into runStepOnce which will hit dry-run again.
 			e.runParallelStep(ctx, step, result, wCtx)
 			return
+		// --- P18.3: New step types in dry-run ---
+		case "tool_call":
+			result.Status = "success"
+			result.Output = fmt.Sprintf("[DRY-RUN] Would call tool: %s", step.ToolName)
+			return
+		case "delay":
+			result.Status = "success"
+			result.Output = fmt.Sprintf("[DRY-RUN] Would delay: %s", step.Delay)
+			return
+		case "notify":
+			msg := resolveTemplate(step.NotifyMsg, wCtx)
+			result.Status = "success"
+			result.Output = fmt.Sprintf("[DRY-RUN] Would notify (%s): %s", step.NotifyTo, msg)
+			return
 		default:
 			result.Status = "error"
 			result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -501,6 +515,13 @@ func (e *workflowExecutor) runStepOnce(ctx context.Context, step *WorkflowStep, 
 		e.runConditionStep(step, result, wCtx)
 	case "parallel":
 		e.runParallelStep(ctx, step, result, wCtx)
+	// --- P18.3: Workflow Triggers --- New step types.
+	case "tool_call":
+		e.runToolCallStep(ctx, step, result, wCtx)
+	case "delay":
+		e.runDelayStep(ctx, step, result)
+	case "notify":
+		e.runNotifyStep(step, result, wCtx)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -818,6 +839,91 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	})
 
 	logDebugCtx(ctx, "handoff completed", "from", fromRole, "to", step.Role, "workflow", e.workflow.Name, "step", step.ID, "status", result.Status)
+}
+
+// --- P18.3: New Step Type Implementations ---
+
+// runToolCallStep executes a registered tool.
+func (e *workflowExecutor) runToolCallStep(ctx context.Context, step *WorkflowStep,
+	result *StepRunResult, wCtx *WorkflowContext) {
+
+	if e.cfg.toolRegistry == nil {
+		result.Status = "error"
+		result.Error = "tool registry not initialized"
+		return
+	}
+
+	tool, ok := e.cfg.toolRegistry.Get(step.ToolName)
+	if !ok {
+		result.Status = "error"
+		result.Error = fmt.Sprintf("tool %q not found", step.ToolName)
+		return
+	}
+
+	// Expand {{var}} in tool input values.
+	expandedInput := expandToolInput(step.ToolInput, wCtx.Input)
+	inputJSON := toolInputToJSON(expandedInput)
+
+	output, err := tool.Handler(ctx, e.cfg, inputJSON)
+	if err != nil {
+		result.Status = "error"
+		result.Error = fmt.Sprintf("tool %q error: %v", step.ToolName, err)
+		result.Output = output
+		return
+	}
+
+	result.Status = "success"
+	result.Output = output
+}
+
+// runDelayStep waits for the specified duration.
+func (e *workflowExecutor) runDelayStep(ctx context.Context, step *WorkflowStep,
+	result *StepRunResult) {
+
+	d, err := time.ParseDuration(step.Delay)
+	if err != nil {
+		result.Status = "error"
+		result.Error = fmt.Sprintf("invalid delay %q: %v", step.Delay, err)
+		return
+	}
+
+	select {
+	case <-time.After(d):
+		result.Status = "success"
+		result.Output = fmt.Sprintf("delayed %s", d)
+	case <-ctx.Done():
+		result.Status = "cancelled"
+		result.Error = "cancelled during delay"
+	}
+}
+
+// runNotifyStep sends a notification message.
+func (e *workflowExecutor) runNotifyStep(step *WorkflowStep,
+	result *StepRunResult, wCtx *WorkflowContext) {
+
+	// Expand {{var}} in the notification message.
+	msg := resolveTemplate(step.NotifyMsg, wCtx)
+
+	// Log the notification (fallback if no notification channel available).
+	logInfo("workflow notify", "workflow", e.workflow.Name, "step", step.ID,
+		"to", step.NotifyTo, "message", truncateStr(msg, 200))
+
+	// Publish as SSE event so external consumers can act on it.
+	if e.broker != nil {
+		e.broker.Publish("_triggers", SSEEvent{
+			Type:   "workflow_notify",
+			TaskID: e.run.ID,
+			Data: map[string]any{
+				"workflow": e.workflow.Name,
+				"step":     step.ID,
+				"message":  msg,
+				"channel":  step.NotifyTo,
+			},
+		})
+	}
+
+	result.Status = "success"
+	result.Output = msg
 }
 
 // --- Dry-Run Step Implementations ---

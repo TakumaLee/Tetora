@@ -55,6 +55,13 @@ type WorkflowStep struct {
 	RetryMax   int    `json:"retryMax,omitempty"`   // max retries on failure
 	RetryDelay string `json:"retryDelay,omitempty"` // delay between retries
 	OnError    string `json:"onError,omitempty"`    // "stop" (default), "skip", "retry"
+
+	// --- P18.3: Workflow Triggers --- New step types.
+	ToolName  string            `json:"toolName,omitempty"`  // for type="tool_call"
+	ToolInput map[string]string `json:"toolInput,omitempty"` // tool input params (supports {{var}} expansion)
+	Delay     string            `json:"delay,omitempty"`     // for type="delay" (e.g. "30s", "5m")
+	NotifyMsg string            `json:"notifyMsg,omitempty"` // for type="notify"
+	NotifyTo  string            `json:"notifyTo,omitempty"`  // notification channel hint
 }
 
 // workflowDir returns the workflows directory under baseDir.
@@ -249,8 +256,23 @@ func validateStep(s WorkflowStep, allIDs map[string]bool) []string {
 		for _, sub := range s.Parallel {
 			errs = append(errs, validateStep(sub, subIDs)...)
 		}
+	// --- P18.3: Workflow Triggers --- New step types.
+	case "tool_call":
+		if s.ToolName == "" {
+			errs = append(errs, fmt.Sprintf("step %q: tool_call step requires a toolName", s.ID))
+		}
+	case "delay":
+		if s.Delay == "" {
+			errs = append(errs, fmt.Sprintf("step %q: delay step requires a delay duration", s.ID))
+		} else if _, err := time.ParseDuration(s.Delay); err != nil {
+			errs = append(errs, fmt.Sprintf("step %q: invalid delay %q: %v", s.ID, s.Delay, err))
+		}
+	case "notify":
+		if s.NotifyMsg == "" {
+			errs = append(errs, fmt.Sprintf("step %q: notify step requires a notifyMsg", s.ID))
+		}
 	default:
-		errs = append(errs, fmt.Sprintf("step %q: unknown type %q (use dispatch, skill, condition, parallel, handoff)", s.ID, stepType))
+		errs = append(errs, fmt.Sprintf("step %q: unknown type %q (use dispatch, skill, condition, parallel, handoff, tool_call, delay, notify)", s.ID, stepType))
 	}
 
 	// Validate dependency references.

@@ -903,6 +903,42 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <div id="trend-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px"></div>
   </div>
 
+  <!-- P18.1: Cost Dashboard -->
+  <div class="section" id="cost-dashboard-section">
+    <div class="section-header">
+      <span class="section-title">Cost Dashboard</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn" onclick="loadCostDashboard('today')" id="cost-btn-today">Today</button>
+        <button class="btn" onclick="loadCostDashboard('week')" id="cost-btn-week">Week</button>
+        <button class="btn" onclick="loadCostDashboard('month')" id="cost-btn-month">Month</button>
+      </div>
+    </div>
+    <div id="cost-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="cost-breakdown-grid">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Model</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Model</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-model-body"></tbody></table>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Role</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Role</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-role-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">Top Expensive Sessions</div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Role</th><th>Title</th><th>Messages</th><th>Tokens</th><th>Cost</th><th>Created</th></tr></thead>
+        <tbody id="cost-sessions-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
   <!-- Dispatch -->
   <div class="section" id="dispatch-section" style="display:none">
     <div class="section-header">
@@ -4044,7 +4080,83 @@ async function resetCircuit(provider) {
   } catch(e) { alert('Reset failed: ' + e.message); }
 }
 
+// --- P18.1: Cost Dashboard ---
+
+var costPeriod = 'today';
+
+async function loadCostDashboard(period) {
+  if (period) costPeriod = period;
+  // Update button styles.
+  ['today','week','month'].forEach(function(p) {
+    var btn = document.getElementById('cost-btn-' + p);
+    if (btn) btn.style.fontWeight = (p === costPeriod) ? '700' : '400';
+  });
+
+  try {
+    var [summary, models, roles, sessions] = await Promise.all([
+      fetchJSON('/api/usage/summary?period=' + costPeriod).catch(function() { return {}; }),
+      fetchJSON('/api/usage/breakdown?by=model&days=30').catch(function() { return []; }),
+      fetchJSON('/api/usage/breakdown?by=role&days=30').catch(function() { return []; }),
+      fetchJSON('/api/usage/sessions?limit=5&days=30').catch(function() { return []; }),
+    ]);
+
+    // Summary cards.
+    var sumEl = document.getElementById('cost-summary');
+    var budgetBar = '';
+    if (summary.budgetLimit > 0) {
+      var pct = Math.min((summary.totalCostUsd / summary.budgetLimit) * 100, 100);
+      var barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--yellow)' : 'var(--green)';
+      budgetBar = '<div style="margin-top:6px;height:4px;background:var(--border);border-radius:2px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:2px"></div></div><div style="font-size:10px;color:var(--muted);margin-top:2px">limit: ' + costFmt(summary.budgetLimit) + ' (' + pct.toFixed(1) + '%)</div>';
+    }
+    sumEl.innerHTML = [
+      { label: 'Cost (' + costPeriod + ')', value: costFmt(summary.totalCostUsd || 0), extra: budgetBar },
+      { label: 'Tasks', value: summary.totalTasks || 0 },
+      { label: 'Tokens In', value: (summary.totalTokensIn || 0).toLocaleString() },
+      { label: 'Tokens Out', value: (summary.totalTokensOut || 0).toLocaleString() },
+    ].map(function(s) {
+      return '<div class="stat"><div class="stat-label">' + s.label + '</div><div class="stat-value cost">' + s.value + '</div>' + (s.extra || '') + '</div>';
+    }).join('');
+
+    // Model breakdown.
+    var modelBody = document.getElementById('cost-model-body');
+    if (models.length === 0) {
+      modelBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      modelBody.innerHTML = models.map(function(m) {
+        return '<tr><td>' + esc(m.model) + '</td><td>' + m.tasks + '</td><td>' + costFmt(m.costUsd) + '</td><td>' + m.pct.toFixed(1) + '%</td></tr>';
+      }).join('');
+    }
+
+    // Role breakdown.
+    var roleBody = document.getElementById('cost-role-body');
+    if (roles.length === 0) {
+      roleBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      roleBody.innerHTML = roles.map(function(r) {
+        return '<tr><td>' + esc(r.role) + '</td><td>' + r.tasks + '</td><td>' + costFmt(r.costUsd) + '</td><td>' + r.pct.toFixed(1) + '%</td></tr>';
+      }).join('');
+    }
+
+    // Expensive sessions.
+    var sessBody = document.getElementById('cost-sessions-body');
+    if (sessions.length === 0) {
+      sessBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      sessBody.innerHTML = sessions.map(function(s) {
+        var title = s.title || '(untitled)';
+        if (title.length > 40) title = title.substring(0, 40) + '...';
+        var tokens = (s.tokensIn || 0).toLocaleString() + ' / ' + (s.tokensOut || 0).toLocaleString();
+        var created = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '';
+        return '<tr><td>' + esc(s.role) + '</td><td title="' + esc(s.title || '') + '">' + esc(title) + '</td><td>' + s.messages + '</td><td style="font-size:12px">' + tokens + '</td><td>' + costFmt(s.totalCostUsd) + '</td><td style="font-size:12px">' + created + '</td></tr>';
+      }).join('');
+    }
+  } catch(e) {
+    console.error('Cost dashboard error:', e);
+  }
+}
+
 // Init
+loadCostDashboard('today');
 refresh();
 refreshPrompts();
 refreshMCP();

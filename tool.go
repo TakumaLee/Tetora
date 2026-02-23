@@ -437,6 +437,28 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 		})
 	}
 
+	// --- P18.4: Self-Improving Skills ---
+	if enabled("create_skill") {
+		r.Register(&ToolDef{
+			Name:        "create_skill",
+			Description: "Create a new reusable skill (shell script or Python script) that can be used in future tasks. The skill will need approval before it can execute unless autoApprove is enabled.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Skill name (alphanumeric and hyphens only, max 64 chars)"},
+					"description": {"type": "string", "description": "What the skill does"},
+					"script": {"type": "string", "description": "The script content (bash or python)"},
+					"language": {"type": "string", "enum": ["bash", "python"], "description": "Script language (default: bash)"},
+					"matcher": {"type": "object", "properties": {"roles": {"type": "array", "items": {"type": "string"}}, "keywords": {"type": "array", "items": {"type": "string"}}}, "description": "Conditions for auto-injecting this skill"}
+				},
+				"required": ["name", "description", "script"]
+			}`),
+			Handler:     createSkillToolHandler,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
 	// --- P13.4: Image Analysis ---
 	if enabled("image_analyze") && cfg.Tools.Vision.Provider != "" {
 		r.Register(&ToolDef{
@@ -453,6 +475,612 @@ func (r *ToolRegistry) registerBuiltins(cfg *Config) {
 			}`),
 			Handler: toolImageAnalyze,
 			Builtin: true,
+		})
+	}
+
+	// --- P18.2: OAuth 2.0 Framework ---
+	if enabled("oauth_status") {
+		r.Register(&ToolDef{
+			Name:        "oauth_status",
+			Description: "List connected OAuth services and their status (scopes, expiry). No secrets are returned.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+			Handler: toolOAuthStatus,
+			Builtin: true,
+		})
+	}
+
+	if enabled("oauth_request") {
+		r.Register(&ToolDef{
+			Name:        "oauth_request",
+			Description: "Make an authenticated HTTP request using a connected OAuth service. The token is auto-refreshed if needed.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"service": {"type": "string", "description": "OAuth service name (e.g. google, github)"},
+					"method": {"type": "string", "description": "HTTP method (default: GET)"},
+					"url": {"type": "string", "description": "Request URL"},
+					"body": {"type": "string", "description": "Request body (optional)"}
+				},
+				"required": ["service", "url"]
+			}`),
+			Handler:     toolOAuthRequest,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("oauth_authorize") {
+		r.Register(&ToolDef{
+			Name:        "oauth_authorize",
+			Description: "Get the authorization URL for an OAuth service so the user can connect it",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"service": {"type": "string", "description": "OAuth service name (e.g. google, github)"}
+				},
+				"required": ["service"]
+			}`),
+			Handler: toolOAuthAuthorize,
+			Builtin: true,
+		})
+	}
+
+	// --- P19.3: Smart Reminders ---
+	if enabled("reminder_set") {
+		r.Register(&ToolDef{
+			Name:        "reminder_set",
+			Description: "Set a new reminder with natural language time. Supports Japanese (5分後, 明日3時), English (in 5 min, tomorrow 3pm), Chinese (5分鐘後, 明天下午3點), and absolute times (2025-01-15 14:00, 15:30).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text": {"type": "string", "description": "Reminder text / what to remind about"},
+					"time": {"type": "string", "description": "When to fire (natural language: '5分後', 'in 1 hour', 'tomorrow 3pm', '明天下午3點')"},
+					"recurring": {"type": "string", "description": "Cron expression for recurring reminders (e.g. '0 9 * * *' for daily 9am). Optional."},
+					"channel": {"type": "string", "description": "Source channel (telegram, slack, api, etc.)"},
+					"user_id": {"type": "string", "description": "User ID for the reminder owner"}
+				},
+				"required": ["text", "time"]
+			}`),
+			Handler: toolReminderSet,
+			Builtin: true,
+		})
+	}
+
+	if enabled("reminder_list") {
+		r.Register(&ToolDef{
+			Name:        "reminder_list",
+			Description: "List active (pending) reminders. Optionally filter by user_id.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"user_id": {"type": "string", "description": "Filter by user ID (optional)"}
+				}
+			}`),
+			Handler: toolReminderList,
+			Builtin: true,
+		})
+	}
+
+	if enabled("reminder_cancel") {
+		r.Register(&ToolDef{
+			Name:        "reminder_cancel",
+			Description: "Cancel an active reminder by ID.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "Reminder ID to cancel"},
+					"user_id": {"type": "string", "description": "User ID for ownership verification (optional)"}
+				},
+				"required": ["id"]
+			}`),
+			Handler: toolReminderCancel,
+			Builtin: true,
+		})
+	}
+
+	// --- P19.4: Notes/Obsidian Integration ---
+	if enabled("note_create") && cfg.Notes.Enabled {
+		r.Register(&ToolDef{
+			Name:        "note_create",
+			Description: "Create a new note in the Obsidian vault. Supports nested paths (e.g. 'daily/2024-01-15'). Auto-appends .md if no extension given.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Note name or path (e.g. 'meeting-notes', 'project/ideas')"},
+					"content": {"type": "string", "description": "Note content (markdown)"}
+				},
+				"required": ["name", "content"]
+			}`),
+			Handler: toolNoteCreate,
+			Builtin: true,
+		})
+	}
+
+	if enabled("note_read") && cfg.Notes.Enabled {
+		r.Register(&ToolDef{
+			Name:        "note_read",
+			Description: "Read a note from the Obsidian vault. Returns content, tags, and wikilinks.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Note name or path"}
+				},
+				"required": ["name"]
+			}`),
+			Handler: toolNoteRead,
+			Builtin: true,
+		})
+	}
+
+	if enabled("note_append") && cfg.Notes.Enabled {
+		r.Register(&ToolDef{
+			Name:        "note_append",
+			Description: "Append content to an existing note (creates if not exists).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Note name or path"},
+					"content": {"type": "string", "description": "Content to append"}
+				},
+				"required": ["name", "content"]
+			}`),
+			Handler: toolNoteAppend,
+			Builtin: true,
+		})
+	}
+
+	if enabled("note_list") && cfg.Notes.Enabled {
+		r.Register(&ToolDef{
+			Name:        "note_list",
+			Description: "List notes in the vault. Optionally filter by path prefix.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"prefix": {"type": "string", "description": "Path prefix to filter (e.g. 'daily/', 'project/')"}
+				}
+			}`),
+			Handler: toolNoteList,
+			Builtin: true,
+		})
+	}
+
+	// --- P20.1: Home Assistant ---
+	if enabled("ha_list_entities") && cfg.HomeAssistant.Enabled {
+		r.Register(&ToolDef{
+			Name:        "ha_list_entities",
+			Description: "List Home Assistant entities, optionally filtered by domain (light, switch, sensor, climate, etc.)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"domain": {"type": "string", "description": "Entity domain filter (e.g. 'light', 'switch', 'sensor'). Optional — omit to list all."}
+				}
+			}`),
+			Handler: toolHAListEntities,
+			Builtin: true,
+		})
+	}
+
+	if enabled("ha_get_state") && cfg.HomeAssistant.Enabled {
+		r.Register(&ToolDef{
+			Name:        "ha_get_state",
+			Description: "Get the current state and attributes of a single Home Assistant entity",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"entity_id": {"type": "string", "description": "Entity ID (e.g. 'light.living_room', 'sensor.temperature')"}
+				},
+				"required": ["entity_id"]
+			}`),
+			Handler: toolHAGetState,
+			Builtin: true,
+		})
+	}
+
+	if enabled("ha_call_service") && cfg.HomeAssistant.Enabled {
+		r.Register(&ToolDef{
+			Name:        "ha_call_service",
+			Description: "Call a Home Assistant service (e.g. turn on a light, set thermostat temperature, lock a door)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"domain": {"type": "string", "description": "Service domain (e.g. 'light', 'switch', 'climate')"},
+					"service": {"type": "string", "description": "Service name (e.g. 'turn_on', 'turn_off', 'set_temperature')"},
+					"data": {"type": "object", "description": "Service data (e.g. {\"entity_id\": \"light.living_room\", \"brightness\": 128})"}
+				},
+				"required": ["domain", "service"]
+			}`),
+			Handler:     toolHACallService,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("ha_set_state") && cfg.HomeAssistant.Enabled {
+		r.Register(&ToolDef{
+			Name:        "ha_set_state",
+			Description: "Directly set the state of a Home Assistant entity (for virtual/custom sensors)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"entity_id": {"type": "string", "description": "Entity ID to update"},
+					"state": {"type": "string", "description": "New state value"},
+					"attributes": {"type": "object", "description": "Optional attributes to set"}
+				},
+				"required": ["entity_id", "state"]
+			}`),
+			Handler:     toolHASetState,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("note_search") && cfg.Notes.Enabled {
+		r.Register(&ToolDef{
+			Name:        "note_search",
+			Description: "Search notes using TF-IDF full-text search. Returns ranked results with snippets.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query"},
+					"max_results": {"type": "number", "description": "Maximum results to return (default 5)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolNoteSearch,
+			Builtin: true,
+		})
+	}
+
+	// --- P20.4: Device Actions ---
+	registerDeviceTools(r, cfg)
+
+	// --- P20.2: iMessage via BlueBubbles ---
+	if enabled("imessage_send") && cfg.IMessage.Enabled {
+		r.Register(&ToolDef{
+			Name:        "imessage_send",
+			Description: "Send an iMessage to a specific chat via BlueBubbles",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"chat_guid": {"type": "string", "description": "Chat GUID (e.g. 'iMessage;-;+1234567890')"},
+					"text": {"type": "string", "description": "Message text to send"}
+				},
+				"required": ["chat_guid", "text"]
+			}`),
+			Handler: toolIMessageSend,
+			Builtin: true,
+		})
+	}
+
+	if enabled("imessage_search") && cfg.IMessage.Enabled {
+		r.Register(&ToolDef{
+			Name:        "imessage_search",
+			Description: "Search iMessage messages via BlueBubbles",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query"},
+					"limit": {"type": "number", "description": "Maximum results (default 10)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolIMessageSearch,
+			Builtin: true,
+		})
+	}
+
+	if enabled("imessage_read") && cfg.IMessage.Enabled {
+		r.Register(&ToolDef{
+			Name:        "imessage_read",
+			Description: "Read recent iMessage messages from a chat via BlueBubbles",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"chat_guid": {"type": "string", "description": "Chat GUID to read messages from"},
+					"limit": {"type": "number", "description": "Number of recent messages to retrieve (default 20)"}
+				},
+				"required": ["chat_guid"]
+			}`),
+			Handler: toolIMessageRead,
+			Builtin: true,
+		})
+	}
+
+	// --- P19.1: Gmail Integration ---
+	if enabled("email_list") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_list",
+			Description: "List recent emails from Gmail with optional search query",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Gmail search query (e.g. 'from:alice subject:meeting')"},
+					"maxResults": {"type": "number", "description": "Maximum number of results (default 20)"}
+				}
+			}`),
+			Handler: toolEmailList,
+			Builtin: true,
+		})
+	}
+
+	if enabled("email_read") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_read",
+			Description: "Read a specific email message by ID, returning full headers and body",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"message_id": {"type": "string", "description": "Gmail message ID"}
+				},
+				"required": ["message_id"]
+			}`),
+			Handler: toolEmailRead,
+			Builtin: true,
+		})
+	}
+
+	if enabled("email_send") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_send",
+			Description: "Send an email via Gmail",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"to": {"type": "string", "description": "Recipient email address"},
+					"subject": {"type": "string", "description": "Email subject"},
+					"body": {"type": "string", "description": "Email body (plain text)"},
+					"cc": {"type": "array", "items": {"type": "string"}, "description": "CC recipients"},
+					"bcc": {"type": "array", "items": {"type": "string"}, "description": "BCC recipients"}
+				},
+				"required": ["to", "subject", "body"]
+			}`),
+			Handler:     toolEmailSend,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("email_draft") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_draft",
+			Description: "Create an email draft in Gmail",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"to": {"type": "string", "description": "Recipient email address"},
+					"subject": {"type": "string", "description": "Email subject"},
+					"body": {"type": "string", "description": "Email body (plain text)"}
+				},
+				"required": ["to", "subject"]
+			}`),
+			Handler: toolEmailDraft,
+			Builtin: true,
+		})
+	}
+
+	if enabled("email_search") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_search",
+			Description: "Search emails using advanced Gmail search syntax (from:, to:, subject:, has:attachment, after:, before:, etc.)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Gmail search query using advanced syntax"},
+					"maxResults": {"type": "number", "description": "Maximum number of results (default 20)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolEmailSearch,
+			Builtin: true,
+		})
+	}
+
+	if enabled("email_label") && cfg.Gmail.Enabled {
+		r.Register(&ToolDef{
+			Name:        "email_label",
+			Description: "Add or remove labels on a Gmail message (e.g. INBOX, UNREAD, STARRED, IMPORTANT, SPAM, TRASH)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"message_id": {"type": "string", "description": "Gmail message ID"},
+					"add_labels": {"type": "array", "items": {"type": "string"}, "description": "Label IDs to add"},
+					"remove_labels": {"type": "array", "items": {"type": "string"}, "description": "Label IDs to remove"}
+				},
+				"required": ["message_id"]
+			}`),
+			Handler: toolEmailLabel,
+			Builtin: true,
+		})
+	}
+
+	// --- P19.2: Google Calendar Integration ---
+	if enabled("calendar_list") && cfg.Calendar.Enabled {
+		r.Register(&ToolDef{
+			Name:        "calendar_list",
+			Description: "List upcoming Google Calendar events within a time range",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"timeMin": {"type": "string", "description": "Start of time range (RFC3339, default: now)"},
+					"timeMax": {"type": "string", "description": "End of time range (RFC3339, default: 7 days from now)"},
+					"maxResults": {"type": "number", "description": "Maximum number of events to return (default 10)"},
+					"days": {"type": "number", "description": "Convenience: list events for next N days (default 7)"}
+				}
+			}`),
+			Handler: toolCalendarList,
+			Builtin: true,
+		})
+	}
+
+	if enabled("calendar_create") && cfg.Calendar.Enabled {
+		r.Register(&ToolDef{
+			Name:        "calendar_create",
+			Description: "Create a Google Calendar event. Accepts structured input or natural language (Japanese/English/Chinese)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"summary": {"type": "string", "description": "Event title"},
+					"description": {"type": "string", "description": "Event description"},
+					"location": {"type": "string", "description": "Event location"},
+					"start": {"type": "string", "description": "Start time (RFC3339 or date YYYY-MM-DD)"},
+					"end": {"type": "string", "description": "End time (RFC3339 or date; default: 1 hour after start)"},
+					"timeZone": {"type": "string", "description": "Time zone (e.g. Asia/Tokyo)"},
+					"attendees": {"type": "array", "items": {"type": "string"}, "description": "Attendee email addresses"},
+					"allDay": {"type": "boolean", "description": "Create as all-day event"},
+					"text": {"type": "string", "description": "Natural language schedule (e.g. '明日2時の会議', 'meeting tomorrow at 2pm')"}
+				}
+			}`),
+			Handler: toolCalendarCreate,
+			Builtin: true,
+		})
+	}
+
+	if enabled("calendar_update") && cfg.Calendar.Enabled {
+		r.Register(&ToolDef{
+			Name:        "calendar_update",
+			Description: "Update an existing Google Calendar event",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"eventId": {"type": "string", "description": "Event ID to update"},
+					"summary": {"type": "string", "description": "New event title"},
+					"description": {"type": "string", "description": "New description"},
+					"location": {"type": "string", "description": "New location"},
+					"start": {"type": "string", "description": "New start time (RFC3339)"},
+					"end": {"type": "string", "description": "New end time (RFC3339)"},
+					"timeZone": {"type": "string", "description": "Time zone"},
+					"attendees": {"type": "array", "items": {"type": "string"}, "description": "Updated attendee emails"},
+					"allDay": {"type": "boolean", "description": "All-day event flag"}
+				},
+				"required": ["eventId"]
+			}`),
+			Handler: toolCalendarUpdate,
+			Builtin: true,
+		})
+	}
+
+	if enabled("calendar_delete") && cfg.Calendar.Enabled {
+		r.Register(&ToolDef{
+			Name:        "calendar_delete",
+			Description: "Delete a Google Calendar event by ID",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"eventId": {"type": "string", "description": "Event ID to delete"}
+				},
+				"required": ["eventId"]
+			}`),
+			Handler:     toolCalendarDelete,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("calendar_search") && cfg.Calendar.Enabled {
+		r.Register(&ToolDef{
+			Name:        "calendar_search",
+			Description: "Search Google Calendar events by text query",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query (full-text)"},
+					"timeMin": {"type": "string", "description": "Start of time range (RFC3339, default: 30 days ago)"},
+					"timeMax": {"type": "string", "description": "End of time range (RFC3339, default: 90 days from now)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolCalendarSearch,
+			Builtin: true,
+		})
+	}
+
+	// --- P20.3: Twitter/X Integration ---
+	if enabled("tweet_post") && cfg.Twitter.Enabled {
+		r.Register(&ToolDef{
+			Name:        "tweet_post",
+			Description: "Post a tweet on Twitter/X. Optionally reply to an existing tweet.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text": {"type": "string", "description": "Tweet text content"},
+					"reply_to": {"type": "string", "description": "Tweet ID to reply to (optional)"}
+				},
+				"required": ["text"]
+			}`),
+			Handler:     toolTweetPost,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("tweet_read_timeline") && cfg.Twitter.Enabled {
+		r.Register(&ToolDef{
+			Name:        "tweet_read_timeline",
+			Description: "Read the authenticated user's home timeline (reverse chronological)",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"max_results": {"type": "number", "description": "Maximum number of tweets to return (default 10, max 100)"}
+				}
+			}`),
+			Handler: toolTweetTimeline,
+			Builtin: true,
+		})
+	}
+
+	if enabled("tweet_search") && cfg.Twitter.Enabled {
+		r.Register(&ToolDef{
+			Name:        "tweet_search",
+			Description: "Search recent tweets on Twitter/X matching a query",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query (supports Twitter search operators)"},
+					"max_results": {"type": "number", "description": "Maximum number of tweets to return (default 10, max 100)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: toolTweetSearch,
+			Builtin: true,
+		})
+	}
+
+	if enabled("tweet_reply") && cfg.Twitter.Enabled {
+		r.Register(&ToolDef{
+			Name:        "tweet_reply",
+			Description: "Reply to a specific tweet on Twitter/X",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"tweet_id": {"type": "string", "description": "ID of the tweet to reply to"},
+					"text": {"type": "string", "description": "Reply text content"}
+				},
+				"required": ["tweet_id", "text"]
+			}`),
+			Handler:     toolTweetReply,
+			Builtin:     true,
+			RequireAuth: true,
+		})
+	}
+
+	if enabled("tweet_dm") && cfg.Twitter.Enabled {
+		r.Register(&ToolDef{
+			Name:        "tweet_dm",
+			Description: "Send a direct message to a Twitter/X user",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"recipient_id": {"type": "string", "description": "Twitter user ID of the recipient"},
+					"text": {"type": "string", "description": "Message text"}
+				},
+				"required": ["recipient_id", "text"]
+			}`),
+			Handler:     toolTweetDM,
+			Builtin:     true,
+			RequireAuth: true,
 		})
 	}
 }

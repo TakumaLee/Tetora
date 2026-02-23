@@ -75,6 +75,9 @@ func main() {
 		case "budget":
 			cmdBudget(os.Args[2:])
 			return
+		case "usage":
+			cmdUsage(os.Args[2:])
+			return
 		case "trust":
 			cmdTrust(os.Args[2:])
 			return
@@ -95,6 +98,9 @@ func main() {
 			return
 		case "data":
 			cmdData(os.Args[2:])
+			return
+		case "oauth": // --- P18.2: OAuth 2.0 Framework ---
+			cmdOAuth(os.Args[2:])
 			return
 		case "plugin": // --- P13.1: Plugin System ---
 			cmdPlugin(os.Args[2:])
@@ -211,6 +217,14 @@ func main() {
 			// Init agent communication table.
 			if err := initAgentCommDB(cfg.HistoryDB); err != nil {
 				logWarn("init agent_messages failed", "error", err)
+			}
+			// --- P18.4: Self-Improving Skills --- Init skill usage table.
+			if err := initSkillUsageTable(cfg.HistoryDB); err != nil {
+				logWarn("init skill_usage failed", "error", err)
+			}
+			// --- P18.2: OAuth 2.0 Framework --- Init OAuth tokens table.
+			if err := initOAuthTable(cfg.HistoryDB); err != nil {
+				logWarn("init oauth_tokens failed", "error", err)
 			}
 		}
 
@@ -506,8 +520,104 @@ func main() {
 			}
 		}
 
+		// --- P18.3: Workflow Triggers --- Initialize trigger engine.
+		var triggerEngine *WorkflowTriggerEngine
+		if len(cfg.WorkflowTriggers) > 0 {
+			triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, state.broker)
+			triggerEngine.Start(ctx)
+		}
+
+		// --- P19.3: Smart Reminders --- Initialize reminder engine.
+		var reminderEngine *ReminderEngine
+		if cfg.Reminders.Enabled && cfg.HistoryDB != "" {
+			if err := initReminderDB(cfg.HistoryDB); err != nil {
+				logWarn("init reminders table failed", "error", err)
+			} else {
+				reminderEngine = newReminderEngine(cfg, notifyFn)
+				reminderEngine.Start(ctx)
+				globalReminderEngine = reminderEngine
+				logInfo("reminder engine started", "checkInterval", cfg.Reminders.checkIntervalOrDefault().String(), "maxPerUser", cfg.Reminders.maxPerUserOrDefault())
+			}
+		}
+
+		// --- P19.4: Notes/Obsidian Integration --- Initialize notes service.
+		if cfg.Notes.Enabled {
+			notesSvc := newNotesService(cfg)
+			setGlobalNotesService(notesSvc)
+			logInfo("notes service initialized", "vault", cfg.Notes.vaultPathResolved(cfg.baseDir))
+		}
+
+		// --- P19.5: Unified Presence/Typing Indicators --- Initialize presence manager.
+		// Note: Telegram bot is registered after creation below.
+		globalPresence = newPresenceManager()
+		if slackBot != nil {
+			globalPresence.RegisterSetter("slack", slackBot)
+		}
+		if discordBot != nil {
+			globalPresence.RegisterSetter("discord", discordBot)
+		}
+		if whatsappBot != nil {
+			globalPresence.RegisterSetter("whatsapp", whatsappBot)
+		}
+		if lineBot != nil {
+			globalPresence.RegisterSetter("line", lineBot)
+		}
+		if teamsBot != nil {
+			globalPresence.RegisterSetter("teams", teamsBot)
+		}
+		if signalBot != nil {
+			globalPresence.RegisterSetter("signal", signalBot)
+		}
+		if gchatBot != nil {
+			globalPresence.RegisterSetter("gchat", gchatBot)
+		}
+		logInfo("presence manager initialized", "setters", len(globalPresence.setters))
+
+		// --- P20.1: Home Assistant --- Initialize HA service.
+		if cfg.HomeAssistant.Enabled && cfg.HomeAssistant.BaseURL != "" {
+			globalHAService = newHAService(cfg.HomeAssistant)
+			if cfg.HomeAssistant.WebSocket {
+				go globalHAService.StartEventListener(ctx, state.broker)
+			}
+			logInfo("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
+		}
+
+		// --- P20.4: Device Actions --- Ensure output dir exists.
+		if cfg.Device.Enabled {
+			ensureDeviceOutputDir(cfg)
+		}
+
+		// --- P19.1: Gmail Integration ---
+		if cfg.Gmail.Enabled {
+			globalGmailService = &GmailService{cfg: cfg}
+			logInfo("gmail integration enabled")
+		}
+
+		// --- P19.2: Google Calendar Integration ---
+		if cfg.Calendar.Enabled {
+			globalCalendarService = &CalendarService{cfg: cfg}
+			logInfo("calendar integration enabled")
+		}
+
+		// --- P20.3: Twitter/X Integration ---
+		if cfg.Twitter.Enabled {
+			globalTwitterService = newTwitterService(cfg)
+			logInfo("twitter integration enabled")
+		}
+
+		// --- P20.2: iMessage via BlueBubbles --- Initialize iMessage bot.
+		var imessageBot *IMessageBot
+		if cfg.IMessage.Enabled && cfg.IMessage.ServerURL != "" {
+			imessageBot = newIMessageBot(cfg, state, sem)
+			globalIMessageBot = imessageBot
+			logInfo("imessage bot enabled", "endpoint", cfg.IMessage.webhookPathOrDefault())
+			if globalPresence != nil {
+				globalPresence.RegisterSetter("imessage", imessageBot)
+			}
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot, gchatBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot, gchatBot, imessageBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -515,6 +625,10 @@ func main() {
 			// Wire up keyboard notification for approval gate.
 			cron.notifyKeyboardFn = func(text string, keyboard [][]tgInlineButton) {
 				bot.replyWithKeyboard(bot.chatID, text, keyboard)
+			}
+			// Register Telegram bot for presence/typing indicators.
+			if globalPresence != nil {
+				globalPresence.RegisterSetter("telegram", bot)
 			}
 			go bot.pollLoop(ctx)
 		} else {
@@ -559,6 +673,16 @@ func main() {
 		// Cancel global context (stops accepting new work).
 		cancel()
 
+		// --- P18.3: Workflow Triggers --- Stop trigger engine.
+		if triggerEngine != nil {
+			triggerEngine.Stop()
+		}
+
+		// --- P19.3: Smart Reminders --- Stop reminder engine.
+		if reminderEngine != nil {
+			reminderEngine.Stop()
+		}
+
 		// Stop cron scheduler (waits for running jobs up to 30s).
 		cron.stop()
 
@@ -602,7 +726,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {

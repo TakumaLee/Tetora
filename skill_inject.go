@@ -16,17 +16,28 @@ type SkillMatcher struct {
 // selectSkills filters skills based on task context (role, keywords, channel).
 // Returns only the skills that match the current task's context.
 // This reduces token usage by avoiding injection of all skills into every prompt.
+// Includes both config-based and learned file-based skills.
 func selectSkills(cfg *Config, task Task) []SkillConfig {
-	if len(cfg.Skills) == 0 {
-		return nil
-	}
-
 	var selected []SkillConfig
+	seen := make(map[string]bool)
+
+	// Config-based skills.
 	for _, skill := range cfg.Skills {
 		if shouldInjectSkill(skill, task) {
 			selected = append(selected, skill)
+			seen[skill.Name] = true
 		}
 	}
+
+	// Also include learned skills from file store.
+	learned := autoInjectLearnedSkills(cfg, task)
+	for _, skill := range learned {
+		if !seen[skill.Name] {
+			selected = append(selected, skill)
+			seen[skill.Name] = true
+		}
+	}
+
 	return selected
 }
 

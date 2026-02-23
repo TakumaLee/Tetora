@@ -548,6 +548,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	roleName := task.Role
 
+	// --- P19.5: Unified Presence/Typing Indicators --- Start typing in source channel.
+	if globalPresence != nil && task.Source != "" {
+		globalPresence.StartTyping(ctx, task.Source)
+		defer globalPresence.StopTyping(task.Source)
+	}
+
 	// --- P16.3: Prompt Injection Defense v2 --- Apply before execution.
 	if err := applyInjectionDefense(ctx, cfg, &task); err != nil {
 		return TaskResult{
