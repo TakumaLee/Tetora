@@ -492,8 +492,20 @@ func main() {
 			}
 		}
 
+		// --- P15.5: Google Chat Channel --- Initialize Google Chat bot.
+		var gchatBot *GoogleChatBot
+		if cfg.GoogleChat.Enabled && cfg.GoogleChat.ServiceAccountKey != "" {
+			var err error
+			gchatBot, err = newGoogleChatBot(cfg, state, sem)
+			if err != nil {
+				logError("failed to initialize google chat bot", "error", err)
+			} else {
+				logInfo("google chat bot enabled", "endpoint", cfg.GoogleChat.webhookPathOrDefault())
+			}
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot, gchatBot)
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -588,7 +600,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 		// Handle signals — cancel dispatch.
 		go func() {
