@@ -1,0 +1,68 @@
+{
+  "claudePath": "/usr/local/bin/claude",
+  "maxConcurrent": 3,
+  "defaultModel": "sonnet",
+  "defaultTimeout": "15m",
+  "defaultBudget": 2.0,
+  "defaultPermissionMode": "acceptEdits",
+  "defaultWorkdir": "~/workspace",
+  "listenAddr": "127.0.0.1:8991",
+  "jobsFile": "jobs.json",
+  "log": true,
+  "telegram": {
+    "enabled": false,
+    "botToken": "",
+    "chatID": 0,
+    "pollTimeout": 30
+  },
+  "mcpConfigs": {
+    "playwright": {
+      "mcpServers": {
+        "playwright": {
+          "command": "npx",
+          "args": ["@playwright/mcp@latest"]
+        }
+      }
+    }
+  },
+  "roles": {
+    "coordinator": {
+      "soulFile": "SOUL.md",
+      "model": "sonnet",
+      "description": "Coordinator and general-purpose agent. Handles planning, research, and coordination.",
+      "keywords": ["plan", "research", "coordinate", "summarize"]
+    },
+    "engineer": {
+      "soulFile": "team/engineer/SOUL.md",
+      "model": "sonnet",
+      "description": "Engineer. Handles coding, debugging, testing, and infrastructure.",
+      "keywords": ["code", "debug", "test", "deploy", "build"]
+    },
+    "creator": {
+      "soulFile": "team/creator/SOUL.md",
+      "model": "sonnet",
+      "description": "Creator. Handles writing, documentation, design, and content creation.",
+      "keywords": ["write", "create", "design", "content", "translate"]
+    }
+  },
+  "smartDispatch": {
+    "enabled": false,
+    "coordinator": "coordinator",
+    "defaultRole": "coordinator",
+    "classifyBudget": 0.1,
+    "classifyTimeout": "30s",
+    "review": false,
+    "rules": [
+      {
+        "role": "engineer",
+        "keywords": ["bug", "error", "deploy", "CI/CD", "docker", "security review", "unit test", "pull request"],
+        "patterns": ["(?:fix|resolve)\\s+(?:bug|issue|error)", "(?:write|add)\\s+(?:test|spec)"]
+      },
+      {
+        "role": "creator",
+        "keywords": ["blog post", "documentation", "README", "translation", "copywriting"],
+        "patterns": ["(?:write|draft|create)\\s+(?:blog|article|doc|readme)"]
+      }
+    ]
+  }
+}

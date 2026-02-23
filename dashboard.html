@@ -1,0 +1,4833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/dashboard/manifest.json">
+<meta name="theme-color" content="#a78bfa">
+<link rel="icon" href="/dashboard/icon.svg" type="image/svg+xml">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tetora">
+<link rel="apple-touch-icon" href="/dashboard/icon.svg">
+<title>Tetora</title>
+<style>
+:root {
+  --bg: #08080d;
+  --surface: #111118;
+  --border: #1e1e2e;
+  --text: #e0e0e8;
+  --muted: #6b6b80;
+  --accent: #a78bfa;
+  --accent2: #60a5fa;
+  --green: #34d399;
+  --red: #f87171;
+  --yellow: #fbbf24;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+/* Header */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.logo span { font-size: 13px; font-weight: 400; opacity: 0.6; -webkit-text-fill-color: var(--muted); margin-left: 8px; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.badge {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-ok { background: #064e3b; color: var(--green); }
+.badge-err { background: #450a0a; color: var(--red); }
+.updated { font-size: 11px; color: var(--muted); }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 28px; }
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+.stat-value { font-size: 26px; font-weight: 700; margin-top: 2px; }
+.stat-value.cost { font-family: 'SF Mono', 'Fira Code', monospace; }
+
+/* Section */
+.section { margin-bottom: 32px; }
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.section-title { font-size: 15px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.section-meta { font-size: 12px; color: var(--muted); }
+
+/* Table */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.01);
+}
+td {
+  padding: 9px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+tr:last-child td { border-bottom: none; }
+tr:hover { background: rgba(255,255,255,0.02); }
+.job-name { font-weight: 500; }
+.job-schedule { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: var(--muted); }
+.job-role { font-size: 12px; }
+.job-next { font-size: 12px; color: var(--muted); }
+
+/* Toggle */
+.toggle { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .slider {
+  position: absolute; inset: 0;
+  background: #333;
+  border-radius: 20px;
+  transition: .2s;
+}
+.toggle .slider::before {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  left: 3px; bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: .2s;
+}
+.toggle input:checked + .slider { background: var(--accent); }
+.toggle input:checked + .slider::before { transform: translateX(16px); }
+
+/* Buttons */
+.btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  transition: .15s;
+}
+.btn:hover { background: var(--border); color: var(--text); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn-run { border-color: var(--accent); color: var(--accent); }
+.btn-run:hover { background: var(--accent); color: white; }
+.btn-add { border-color: var(--green); color: var(--green); }
+.btn-add:hover { background: var(--green); color: #000; }
+.btn-edit { border-color: var(--accent2); color: var(--accent2); }
+.btn-edit:hover { background: var(--accent2); color: #000; }
+.btn-del { border-color: var(--red); color: var(--red); }
+.btn-del:hover { background: var(--red); color: white; }
+
+/* Status dots */
+.dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.dot-red { background: var(--red); }
+.dot-gray { background: #444; }
+
+/* Task stats grid */
+.task-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
+.task-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  text-align: center;
+}
+.task-stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.task-stat-value { font-size: 22px; font-weight: 700; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: .3s;
+  pointer-events: none;
+  z-index: 100;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* Dispatch section */
+.dispatch-tasks { margin-top: 8px; }
+.dispatch-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+/* Modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 460px;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+}
+.modal h3 {
+  font-size: 16px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+}
+.modal-close:hover { color: var(--text); }
+.form-row {
+  margin-bottom: 12px;
+}
+.form-row label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.form-row input, .form-row textarea, .form-row select {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.form-row input:focus, .form-row textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.form-row textarea { resize: vertical; min-height: 60px; }
+.form-row-inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.form-actions .btn { padding: 8px 18px; font-size: 13px; }
+.form-actions .btn-primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.form-actions .btn-primary:hover { opacity: 0.9; }
+
+/* Output modal */
+.output-modal {
+  min-width: 600px;
+  max-width: 800px;
+}
+.output-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 50vh;
+  overflow-y: auto;
+  color: var(--text);
+}
+.output-meta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.output-meta span { display: flex; align-items: center; gap: 4px; }
+
+/* History table rows */
+.history-row { cursor: pointer; }
+.history-row:hover { background: rgba(167,139,250,0.05) !important; }
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-success { background: #064e3b; color: var(--green); }
+.status-error { background: #450a0a; color: var(--red); }
+.status-timeout { background: #451a03; color: var(--yellow); }
+.status-cancelled { background: #1e1e2e; color: var(--muted); }
+
+/* Running Tasks */
+.running-task {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 8px;
+}
+.running-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.running-task-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.running-task-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.running-task-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.timeout-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.timeout-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1s linear;
+}
+.timeout-bar-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+.pid-alive { color: var(--green); }
+.pid-dead { color: var(--red); }
+.running-prompt {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Live Output */
+.live-output {
+  margin-top: 8px;
+  background: #06060b;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a0a0b0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.live-output .chunk { color: var(--text); }
+.live-output .ev-started { color: var(--green); font-weight: 600; }
+.live-output .ev-completed { color: var(--green); font-weight: 600; }
+.live-output .ev-error { color: var(--red); font-weight: 600; }
+.btn-live {
+  font-size: 10px;
+  padding: 2px 10px;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-live:hover { background: rgba(167,139,250,0.1); }
+.btn-live.active { background: var(--accent); color: var(--bg); }
+
+/* Markdown rendered output */
+.md-rendered {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.md-rendered h1 { font-size: 20px; font-weight: 700; margin: 16px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.md-rendered h2 { font-size: 17px; font-weight: 600; margin: 14px 0 6px; }
+.md-rendered h3 { font-size: 15px; font-weight: 600; margin: 12px 0 4px; }
+.md-rendered h4, .md-rendered h5, .md-rendered h6 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; color: var(--muted); }
+.md-rendered p { margin: 8px 0; }
+.md-rendered code {
+  background: rgba(167,139,250,0.1);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+.md-rendered pre {
+  background: #0d0d14;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.md-rendered pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.md-rendered ul, .md-rendered ol { padding-left: 20px; margin: 6px 0; }
+.md-rendered li { margin: 3px 0; }
+.md-rendered a { color: var(--accent2); text-decoration: none; }
+.md-rendered a:hover { text-decoration: underline; }
+.md-rendered blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--muted);
+}
+.md-rendered strong { font-weight: 600; }
+.md-rendered em { font-style: italic; }
+.md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+/* Output mode toggle */
+.output-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+}
+.output-mode-toggle button {
+  padding: 3px 10px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: .15s;
+}
+.output-mode-toggle button.active {
+  background: var(--accent);
+  color: white;
+}
+.output-mode-toggle button:hover:not(.active) {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* Dispatch modal loading */
+.dispatch-loading {
+  text-align: center;
+  padding: 32px;
+  color: var(--muted);
+}
+.dispatch-loading .spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Trend chart */
+.trend-bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; gap: 4px; }
+.trend-bars { display: flex; flex-direction: column; justify-content: flex-end; height: 80px; width: 100%; gap: 1px; }
+.trend-bar { border-radius: 2px; min-height: 1px; }
+.trend-label { font-size: 10px; color: var(--muted); }
+.trend-cost { font-size: 10px; color: var(--muted); font-family: 'SF Mono', 'Fira Code', monospace; }
+
+/* Workflow DAG */
+.wf-dag-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; overflow-x: auto; min-height: 200px; position: relative; }
+.wf-node { cursor: pointer; transition: opacity 0.2s; }
+.wf-node:hover { opacity: 0.85; }
+.wf-node.pending rect { fill: #1e1e2e; stroke: #6b6b80; stroke-width: 2; }
+.wf-node.running rect { fill: #172554; stroke: #60a5fa; stroke-width: 2; }
+.wf-node.success rect { fill: #064e3b; stroke: #34d399; stroke-width: 2; }
+.wf-node.error rect { fill: #450a0a; stroke: #f87171; stroke-width: 2; }
+.wf-node.skipped rect { fill: #422006; stroke: #fbbf24; stroke-width: 2; }
+.wf-node.timeout rect { fill: #450a0a; stroke: #fb923c; stroke-width: 2; }
+.wf-node.cancelled rect { fill: #1e1e2e; stroke: #a1a1aa; stroke-width: 2; }
+.wf-node rect { rx: 8; ry: 8; }
+.wf-node text { fill: var(--text); font-size: 11px; font-family: inherit; }
+.wf-edge { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+.wf-edge.handoff { stroke: var(--accent); stroke-dasharray: 6,3; }
+
+/* Workflow Timeline */
+.wf-timeline { display: flex; gap: 1px; height: 28px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px; padding: 2px; }
+.wf-timeline-bar { height: 100%; border-radius: 4px; position: relative; min-width: 4px; transition: width 0.3s; }
+.wf-timeline-bar.success { background: #34d399; }
+.wf-timeline-bar.error { background: #f87171; }
+.wf-timeline-bar.running { background: #60a5fa; animation: pulse 1.5s infinite; }
+.wf-timeline-bar.skipped { background: #fbbf24; opacity: 0.5; }
+.wf-timeline-bar.pending { background: #4b5563; opacity: 0.3; }
+.wf-timeline-bar.timeout { background: #fb923c; }
+.wf-timeline-bar.cancelled { background: #a1a1aa; opacity: 0.3; }
+
+/* Workflow Node detail panel */
+.wf-node-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 16px; }
+.wf-node-detail h4 { margin: 0 0 12px 0; color: var(--accent); }
+.wf-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.wf-detail-item { background: var(--bg); padding: 8px 12px; border-radius: 8px; }
+.wf-detail-item .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.wf-detail-item .value { font-size: 14px; color: var(--text); margin-top: 2px; }
+.wf-detail-output { background: var(--bg); padding: 12px; border-radius: 8px; font-size: 12px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; color: #a1a1aa; }
+
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* Workflow runs table */
+.wf-runs-table tr { cursor: pointer; }
+.wf-runs-table tr:hover { background: rgba(167,139,250,0.05) !important; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .modal { min-width: auto; margin: 16px; }
+  .output-modal { min-width: auto; }
+}
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.tab-nav button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 20px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-nav button:hover { color: var(--text); }
+.tab-nav button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Chat Container */
+.chat-container {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: calc(100vh - 140px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Chat Sidebar */
+.chat-sidebar {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+.chat-sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+.chat-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.chat-session-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.chat-session-item:hover { background: rgba(255,255,255,0.03); }
+.chat-session-item.active {
+  background: rgba(167,139,250,0.06);
+  border-color: rgba(167,139,250,0.25);
+}
+.chat-session-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-session-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.chat-session-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Chat Main */
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.chat-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.chat-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Chat Bubbles */
+.chat-bubble {
+  max-width: 80%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  line-height: 1.5;
+}
+.chat-bubble-user {
+  align-self: flex-end;
+  background: #1a1a3a;
+  border: 1px solid rgba(96,165,250,0.2);
+  border-bottom-right-radius: 4px;
+}
+.chat-bubble-agent {
+  align-self: flex-start;
+  background: #0d1a1a;
+  border: 1px solid rgba(52,211,153,0.2);
+  border-bottom-left-radius: 4px;
+}
+.chat-bubble-system {
+  align-self: center;
+  background: #1a1a1a;
+  color: var(--muted);
+  max-width: 90%;
+  font-size: 13px;
+}
+.chat-bubble-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.chat-bubble-meta {
+  font-size: 10px;
+  color: var(--muted);
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.chat-bubble .md-rendered { font-size: 14px; }
+.chat-bubble .md-rendered pre { margin: 8px 0; }
+.chat-bubble .md-rendered p { margin: 4px 0; }
+
+/* Streaming cursor */
+@keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+.chat-bubble-streaming::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 16px;
+  background: var(--accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+/* Cost Estimate Badge */
+.cost-estimate-badge {
+  display: block;
+  padding: 2px 10px;
+  margin: 2px 0 4px auto;
+  font-size: 11px;
+  color: #888;
+  background: #1e1e2e;
+  border: 1px solid #333;
+  border-radius: 10px;
+  text-align: right;
+  width: fit-content;
+}
+
+/* Chat Input Area */
+.chat-input-area {
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border);
+}
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chat-input-row textarea {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: none;
+  max-height: 120px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.chat-input-row textarea:focus { border-color: var(--accent); }
+.chat-send-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+}
+.chat-send-btn:hover { opacity: 0.9; }
+.chat-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Chat Role Select */
+.chat-role-select {
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  display: none;
+  padding: 4px 20px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.typing-indicator.visible { display: block; }
+
+/* Responsive Chat */
+@media (max-width: 768px) {
+  .chat-container {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 140px);
+  }
+  .chat-sidebar { display: none; }
+  .chat-bubble { max-width: 95%; }
+}
+
+/* PWA standalone mode */
+@media (display-mode: standalone) {
+  body { padding-top: env(safe-area-inset-top); }
+  .container { padding-top: 12px; }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+  .container { padding: 12px; }
+  header { flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; }
+  .logo { font-size: 18px; }
+  .header-right { width: 100%; justify-content: flex-end; }
+  .stat-value { font-size: 20px; }
+  .tab-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab-nav button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+  th, td { padding: 6px 8px; }
+  .modal { min-width: auto; margin: 8px; padding: 16px; }
+  .form-row-inline { grid-template-columns: 1fr; }
+}
+
+/* Touch-friendly */
+@media (hover: none) and (pointer: coarse) {
+  .btn { min-height: 36px; min-width: 36px; }
+  .toggle { width: 44px; height: 24px; }
+  .toggle .slider::before { width: 18px; height: 18px; }
+  .toggle input:checked + .slider::before { transform: translateX(20px); }
+  .chat-input { font-size: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">Tetora <span id="version"></span></div>
+    <div class="header-right">
+      <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
+      <button class="btn btn-run" onclick="openDispatchModal()" style="padding:6px 14px;font-size:12px">Quick Dispatch</button>
+      <span class="updated" id="updated"></span>
+      <span class="badge badge-ok" id="conn-badge">Connected</span>
+    </div>
+  </header>
+
+  <div class="tab-nav">
+    <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
+    <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
+    <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
+    <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <div id="dashboard-content">
+  <!-- Cost + Stats -->
+  <div class="stats" id="stats"></div>
+
+  <!-- Trend Chart -->
+  <div class="section" id="trend-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">7-Day Trend</span>
+    </div>
+    <div id="trend-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px"></div>
+  </div>
+
+  <!-- P18.1: Cost Dashboard -->
+  <div class="section" id="cost-dashboard-section">
+    <div class="section-header">
+      <span class="section-title">Cost Dashboard</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn" onclick="loadCostDashboard('today')" id="cost-btn-today">Today</button>
+        <button class="btn" onclick="loadCostDashboard('week')" id="cost-btn-week">Week</button>
+        <button class="btn" onclick="loadCostDashboard('month')" id="cost-btn-month">Month</button>
+      </div>
+    </div>
+    <div id="cost-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="cost-breakdown-grid">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Model</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Model</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-model-body"></tbody></table>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Role</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Role</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-role-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">Top Expensive Sessions</div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Role</th><th>Title</th><th>Messages</th><th>Tokens</th><th>Cost</th><th>Created</th></tr></thead>
+        <tbody id="cost-sessions-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dispatch -->
+  <div class="section" id="dispatch-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Dispatch</span>
+      <button class="btn" onclick="cancelDispatch()">Cancel</button>
+    </div>
+    <div class="dispatch-tasks" id="dispatch-tasks"></div>
+  </div>
+
+  <!-- Running Tasks -->
+  <div class="section" id="running-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Running Tasks</span>
+      <span class="section-meta" id="running-meta"></span>
+    </div>
+    <div id="running-tasks"></div>
+  </div>
+
+  <!-- Provider Health -->
+  <div class="section" id="circuits-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Provider Health</span>
+      <span class="section-meta" id="circuits-meta"></span>
+    </div>
+    <div id="circuits-list" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Trust Gradient -->
+  <div class="section" id="trust-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Trust Gradient</span>
+      <span class="section-meta" id="trust-meta"></span>
+    </div>
+    <div id="trust-cards" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Version History -->
+  <div class="section" id="version-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Version History</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="version-type-filter" onchange="refreshVersions()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All Types</option>
+          <option value="config">Config</option>
+          <option value="workflow">Workflow</option>
+          <option value="prompt">Prompt</option>
+        </select>
+        <button class="btn btn-add" onclick="snapshotConfig()">Snapshot Config</button>
+        <span class="section-meta" id="version-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Version</th><th>Type</th><th>Name</th><th>Changes</th><th>By</th><th>Date</th><th style="width:100px"></th>
+        </tr></thead>
+        <tbody id="version-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Version Diff Modal -->
+  <div id="version-diff-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;padding:40px;overflow:auto" onclick="if(event.target===this)this.style.display='none'">
+    <div style="max-width:800px;margin:0 auto;background:var(--card);border-radius:8px;padding:20px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0;font-size:16px" id="diff-title">Version Diff</h3>
+        <button class="btn" onclick="document.getElementById('version-diff-modal').style.display='none'">Close</button>
+      </div>
+      <div id="diff-content" style="font-family:monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:60vh;overflow:auto;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)"></div>
+    </div>
+  </div>
+
+  <!-- Agent SLA -->
+  <div class="section" id="sla-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent SLA</span>
+      <span class="section-meta" id="sla-meta"></span>
+    </div>
+    <div id="sla-cards" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Agent Sessions -->
+  <div class="section" id="sessions-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Sessions</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="session-role-filter" onchange="refreshSessions()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All Roles</option>
+        </select>
+        <span class="section-meta" id="sessions-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Role</th><th>Title</th><th>Status</th><th>Msgs</th><th>Cost</th><th>Updated</th><th style="width:60px"></th>
+        </tr></thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Session Detail Modal -->
+  <div class="modal-overlay" id="session-modal" style="display:none" onclick="if(event.target===this){this.style.display='none';disconnectSessionStream()}">
+    <div class="modal" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 id="session-modal-title" style="color:var(--accent)"></h3>
+        <button onclick="document.getElementById('session-modal').style.display='none';disconnectSessionStream()" class="btn" style="font-size:12px">Close</button>
+      </div>
+      <div id="session-modal-meta" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>
+      <div id="session-modal-messages" style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- Agent Communication (Handoffs & Messages) -->
+  <div class="section" id="agent-comm-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Communication</span>
+      <span class="section-meta" id="agent-comm-meta"></span>
+    </div>
+    <div id="agent-comm-body" style="display:flex;flex-direction:column;gap:8px;padding:0 8px 8px 8px"></div>
+  </div>
+
+  <!-- Cron Jobs -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Cron Jobs</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="cron-meta"></span>
+        <button class="btn btn-add" onclick="openJobModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50px"></th>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Role</th>
+            <th>Chain</th>
+            <th>Last Run</th>
+            <th>Last Cost</th>
+            <th>Avg Cost</th>
+            <th>Next Run</th>
+            <th>Status</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody id="jobs-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Roles -->
+  <div class="section" id="roles-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Roles</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="roles-meta"></span>
+        <button class="btn btn-add" onclick="openRoleModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Model</th>
+            <th>Permission</th>
+            <th>Soul File</th>
+            <th>Description</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="roles-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Prompts -->
+  <div class="section" id="prompts-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Prompts</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="prompts-meta"></span>
+        <button class="btn btn-add" onclick="openPromptModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Preview</th>
+            <th style="width:100px"></th>
+          </tr>
+        </thead>
+        <tbody id="prompts-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MCP Servers -->
+  <div class="section" id="mcp-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">MCP Servers</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="mcp-meta"></span>
+        <button class="btn btn-add" onclick="openMCPModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Command</th>
+            <th>Args</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody id="mcp-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Agent Memory -->
+  <div class="section" id="memory-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Memory</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="memory-role-filter" onchange="refreshMemory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All roles</option>
+        </select>
+        <span class="section-meta" id="memory-meta"></span>
+        <button class="btn btn-add" onclick="openMemoryModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Key</th>
+            <th>Value</th>
+            <th>Updated</th>
+            <th style="width:100px"></th>
+          </tr>
+        </thead>
+        <tbody id="memory-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Routing -->
+  <div class="section" id="routing-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Routing</span>
+      <span class="section-meta" id="routing-meta"></span>
+    </div>
+    <div class="stats" id="routing-stats" style="margin-bottom:16px"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Prompt</th>
+            <th>Role</th>
+            <th>Method</th>
+            <th>Confidence</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="routing-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="section" id="history-section">
+    <div class="section-header">
+      <span class="section-title">Recent Runs</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="history-status-filter" onchange="historyPage=1;refreshHistory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All status</option>
+          <option value="success">success</option>
+          <option value="error">error</option>
+          <option value="timeout">timeout</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+        <select id="history-job-filter" onchange="historyPage=1;refreshHistory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All jobs</option>
+        </select>
+        <span class="section-meta" id="history-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Cost</th>
+            <th>Model</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px" id="history-pagination">
+      <button class="btn" id="history-prev" onclick="historyPrev()" disabled>Prev</button>
+      <span style="font-size:12px;color:var(--muted)" id="history-page-info"></span>
+      <button class="btn" id="history-next" onclick="historyNext()" disabled>Next</button>
+    </div>
+  </div>
+
+  <!-- Dashboard Tasks -->
+  <div class="section" id="tasks-section">
+    <div class="section-header">
+      <span class="section-title">Dashboard Tasks</span>
+    </div>
+    <div class="task-stats" id="task-stats"></div>
+  </div>
+  </div><!-- /dashboard-content -->
+
+  <div id="chat-content" style="display:none">
+    <div class="chat-container">
+      <div class="chat-sidebar">
+        <div class="chat-sidebar-header">
+          <button class="btn btn-add" onclick="openNewChatModal()" style="flex:1">+ New Chat</button>
+        </div>
+        <div style="padding:4px 12px">
+          <select id="chat-role-filter" onchange="refreshChatSidebar()" class="chat-role-select" style="width:100%">
+            <option value="">All Roles</option>
+          </select>
+        </div>
+        <div class="chat-sidebar-list" id="chat-sidebar-list"></div>
+      </div>
+      <div class="chat-main">
+        <div class="chat-header" id="chat-header" style="display:none">
+          <div>
+            <span id="chat-header-role" style="font-weight:600"></span>
+            <span id="chat-header-meta" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+          </div>
+          <button class="btn btn-del" onclick="archiveChat()" style="font-size:11px">Archive</button>
+        </div>
+        <div class="chat-empty" id="chat-empty">Select a session or start a new chat</div>
+        <div class="chat-messages" id="chat-messages" style="display:none"></div>
+        <div class="typing-indicator" id="chat-typing">Agent is thinking...</div>
+        <div class="chat-input-area" id="chat-input-area" style="display:none">
+          <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Type a message... (Enter to send, Shift+Enter for newline)" rows="1" onkeydown="chatKeydown(event)" oninput="autoResizeInput(this)"></textarea>
+            <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /chat-content -->
+
+  <div id="workflows-content" style="display:none">
+    <!-- Workflow Runs List -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Workflow Runs</span>
+        <button class="btn" onclick="refreshWorkflowRuns()">Refresh</button>
+      </div>
+      <div id="wf-runs-list"></div>
+    </div>
+
+    <!-- DAG Visualization -->
+    <div class="section" id="wf-dag-section" style="display:none">
+      <div class="section-header">
+        <span class="section-title" id="wf-dag-title">Run Details</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge" id="wf-dag-status"></span>
+          <button class="btn" onclick="closeWfDag()">Close</button>
+        </div>
+      </div>
+      <div id="wf-timeline" class="wf-timeline"></div>
+      <div class="wf-dag-container">
+        <svg id="wf-dag-svg" width="100%" height="300"></svg>
+      </div>
+      <div id="wf-node-detail" class="wf-node-detail" style="display:none"></div>
+    </div>
+  </div><!-- /workflows-content -->
+
+  <div id="integrations-content" style="display:none">
+    <!-- Channel Status -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Channel Status</span>
+        <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+      </div>
+      <div id="integration-channels"></div>
+    </div>
+
+    <!-- OAuth Connections -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">OAuth Connections</span></div>
+      <div id="integration-oauth"></div>
+    </div>
+
+    <!-- Reminders -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Reminders</span>
+        <button class="btn" onclick="refreshReminders()">Refresh</button>
+      </div>
+      <div id="integration-reminders"></div>
+    </div>
+
+    <!-- Workflow Triggers -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+      <div id="integration-triggers"></div>
+    </div>
+
+    <!-- Knowledge Pipeline -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
+      <div id="integration-knowledge"></div>
+    </div>
+
+    <!-- Smart Home -->
+    <div class="section" id="integration-ha-section" style="display:none">
+      <div class="section-header"><span class="section-title">Smart Home</span></div>
+      <div id="integration-ha"></div>
+    </div>
+  </div><!-- /integrations-content -->
+
+  <div id="settings-content" style="display:none">
+    <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
+    <div id="settings-container" style="display:none">
+      <!-- General -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">General</span></div>
+        <div id="settings-general"></div>
+      </div>
+      <!-- Channels -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Channels</span></div>
+        <div id="settings-channels"></div>
+      </div>
+      <!-- Integrations -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Integrations</span></div>
+        <div id="settings-integrations"></div>
+      </div>
+      <!-- Tools -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Tools</span></div>
+        <div id="settings-tools"></div>
+      </div>
+      <!-- Budgets -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Budgets</span></div>
+        <div id="settings-budgets"></div>
+      </div>
+      <!-- Security -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Security</span></div>
+        <div id="settings-security"></div>
+      </div>
+    </div>
+  </div><!-- /settings-content -->
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Job Modal -->
+<div class="modal-overlay" id="job-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeJobModal()">&times;</button>
+    <h3 id="job-modal-title">Add Job</h3>
+    <form id="job-form" onsubmit="return submitJob(event)">
+      <input type="hidden" id="jf-mode" value="add">
+      <input type="hidden" id="jf-original-id" value="">
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>ID</label>
+          <input type="text" id="jf-id" required placeholder="daily-report">
+        </div>
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="jf-name" required placeholder="Daily Report">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Schedule (cron)</label>
+          <input type="text" id="jf-schedule" required placeholder="0 9 * * *">
+        </div>
+        <div class="form-row">
+          <label>Timezone</label>
+          <input type="text" id="jf-tz" value="Asia/Taipei" placeholder="Asia/Taipei">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Prompt</label>
+        <textarea id="jf-prompt" required placeholder="What should the agent do?"></textarea>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Variables: <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{date}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{datetime}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{weekday}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{last_output}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{last_status}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{env.KEY}}</code></div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="jf-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Role (optional)</label>
+          <input type="text" id="jf-role" placeholder="">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Timeout</label>
+          <input type="text" id="jf-timeout" value="5m" placeholder="5m">
+        </div>
+        <div class="form-row">
+          <label>Budget (USD)</label>
+          <input type="number" id="jf-budget" value="2.00" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir (optional)</label>
+          <input type="text" id="jf-workdir" placeholder="~/projects/myapp">
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="jf-permission">
+            <option value="">default</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="plan">plan</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>On Success (chain)</label>
+        <input type="text" id="jf-onsuccess" placeholder="job-id-1, job-id-2">
+      </div>
+      <div class="form-row">
+        <label>On Failure (chain)</label>
+        <input type="text" id="jf-onfailure" placeholder="job-id-1, job-id-2">
+      </div>
+      <div class="form-row" style="display:flex;align-items:center;gap:8px">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="jf-notify">
+          <span class="slider"></span>
+        </label>
+        <span style="font-size:13px">Notify on complete</span>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeJobModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="jf-submit">Add Job</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Output Modal -->
+<div class="modal-overlay" id="output-modal">
+  <div class="modal output-modal">
+    <button class="modal-close" onclick="closeOutputModal()">&times;</button>
+    <h3 id="output-title">Run Details</h3>
+    <div class="output-meta" id="output-meta"></div>
+    <div id="output-tabs" style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+      <button class="btn" onclick="showOutputTab('output')" id="tab-output" style="font-weight:600">Output</button>
+      <button class="btn" onclick="showOutputTab('error')" id="tab-error">Error</button>
+      <button class="btn btn-run" onclick="loadFullOutput()" id="tab-full" style="display:none">Full Output</button>
+      <div class="output-mode-toggle" id="output-mode-toggle" style="margin-left:8px">
+        <button onclick="setOutputMode('rendered')" id="mode-rendered" class="active">Rendered</button>
+        <button onclick="setOutputMode('raw')" id="mode-raw">Raw</button>
+      </div>
+      <button class="btn" onclick="copyOutput()" id="btn-copy" style="margin-left:auto">Copy</button>
+    </div>
+    <pre class="output-pre" id="output-content"></pre>
+    <div class="md-rendered" id="output-rendered" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Soul Preview Modal -->
+<div class="modal-overlay" id="soul-modal">
+  <div class="modal output-modal">
+    <button class="modal-close" onclick="closeSoulModal()">&times;</button>
+    <h3 id="soul-title">Soul Preview</h3>
+    <div class="output-meta" id="soul-meta"></div>
+    <pre class="output-pre" id="soul-content"></pre>
+  </div>
+</div>
+
+<!-- Role Modal -->
+<div class="modal-overlay" id="role-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeRoleModal()">&times;</button>
+    <h3 id="role-modal-title">Add Role</h3>
+    <form id="role-form" onsubmit="return submitRole(event)">
+      <input type="hidden" id="rf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="rf-name" required placeholder="my-researcher">
+      </div>
+      <div class="form-row">
+        <label>Template</label>
+        <select id="rf-archetype" onchange="applyArchetype()">
+          <option value="">— blank —</option>
+        </select>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="rf-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="rf-permission">
+            <option value="">default</option>
+            <option value="plan">plan</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="autoEdit">autoEdit</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <input type="text" id="rf-desc" placeholder="What does this role do?">
+      </div>
+      <div class="form-row">
+        <label>Soul File</label>
+        <input type="text" id="rf-soulfile" placeholder="SOUL-myagent.md">
+      </div>
+      <div class="form-row">
+        <label>Soul Content</label>
+        <textarea id="rf-soul" style="min-height:150px;font-family:'SF Mono','Fira Code',monospace;font-size:12px" placeholder="# Agent Name — Soul File&#10;&#10;## Identity&#10;..."></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeRoleModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="rf-submit">Add Role</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Quick Dispatch Modal -->
+<div class="modal-overlay" id="dispatch-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeDispatchModal()">&times;</button>
+    <h3>Quick Dispatch</h3>
+    <form id="dispatch-form" onsubmit="return submitDispatch(event)">
+      <div class="form-row">
+        <label>Prompt</label>
+        <textarea id="df-prompt" required placeholder="What should the agent do?" style="min-height:80px"></textarea>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="df-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Role (optional)</label>
+          <select id="df-role">
+            <option value="">— none —</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Timeout</label>
+          <input type="text" id="df-timeout" value="5m" placeholder="5m">
+        </div>
+        <div class="form-row">
+          <label>Budget (USD)</label>
+          <input type="number" id="df-budget" value="2.00" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir (optional)</label>
+          <input type="text" id="df-workdir" placeholder="~/projects/myapp">
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="df-permission">
+            <option value="">default</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="plan">plan</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions" id="df-actions">
+        <button type="button" class="btn" onclick="closeDispatchModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="df-submit">Dispatch</button>
+      </div>
+    </form>
+    <div class="dispatch-loading" id="df-loading" style="display:none">
+      <div class="spinner"></div>
+      <div>Running task...</div>
+      <div style="font-size:11px;margin-top:4px" id="df-elapsed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt Modal -->
+<div class="modal-overlay" id="prompt-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePromptModal()">&times;</button>
+    <h3 id="prompt-modal-title">Add Prompt</h3>
+    <form id="prompt-form" onsubmit="return submitPrompt(event)">
+      <input type="hidden" id="pf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="pf-name" required placeholder="code-review" pattern="[a-zA-Z0-9_-]+">
+      </div>
+      <div class="form-row">
+        <label>Content</label>
+        <textarea id="pf-content" required placeholder="Write your prompt template here..." style="min-height:200px;font-family:'SF Mono','Fira Code',monospace;font-size:12px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closePromptModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pf-submit">Add Prompt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="mcp-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMCPModal()">&times;</button>
+    <h3 id="mcp-modal-title">Add MCP Server</h3>
+    <form id="mcp-form" onsubmit="return submitMCP(event)">
+      <input type="hidden" id="mcpf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="mcpf-name" required placeholder="playwright" pattern="[a-zA-Z0-9_-]+">
+      </div>
+      <div class="form-row">
+        <label>Config JSON</label>
+        <textarea id="mcpf-config" required placeholder='{"mcpServers":{"name":{"command":"npx","args":["..."]}}}' style="min-height:200px;font-family:'SF Mono','Fira Code',monospace;font-size:12px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeMCPModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="mcpf-submit">Add Server</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="memory-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMemoryModal()">&times;</button>
+    <h3 id="memory-modal-title">Add Memory</h3>
+    <form id="memory-form" onsubmit="return submitMemory(event)">
+      <input type="hidden" id="mem-mode" value="add">
+      <div class="form-row">
+        <label>Role</label>
+        <input type="text" id="mem-role" required placeholder="role name">
+      </div>
+      <div class="form-row">
+        <label>Key</label>
+        <input type="text" id="mem-key" required placeholder="key name" pattern="[a-zA-Z_][a-zA-Z0-9_]*">
+      </div>
+      <div class="form-row">
+        <label>Value</label>
+        <textarea id="mem-value" required placeholder="Memory value..." style="min-height:100px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeMemoryModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="mem-submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- New Chat Modal -->
+<div class="modal-overlay" id="new-chat-modal" onclick="if(event.target===this)closeNewChatModal()">
+  <div class="modal" style="min-width:340px;max-width:400px">
+    <button class="modal-close" onclick="closeNewChatModal()">&times;</button>
+    <h3>New Chat</h3>
+    <div class="form-row">
+      <label>Agent</label>
+      <select id="new-chat-role" class="chat-role-select" style="width:100%;padding:10px"></select>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeNewChatModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createNewChat()">Start Chat</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let pollTimer;
+let cachedJobs = [];
+let cachedRoles = [];
+let cachedArchetypes = [];
+let historyPage = 1;
+let historyTotal = 0;
+const historyLimit = 20;
+
+async function fetchJSON(url, opts) {
+  const resp = await fetch(API + url, opts);
+  return resp.json();
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function timeStr(iso) {
+  if (!iso || iso.startsWith('0001')) return '-';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function dateTimeStr(iso) {
+  if (!iso || iso.startsWith('0001')) return '-';
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function costFmt(v) {
+  if (v === 0) return '$0.00';
+  if (v < 0.01) return '$' + v.toFixed(4);
+  return '$' + v.toFixed(2);
+}
+
+function statusBadge(s) {
+  const cls = s === 'success' ? 'status-success' : s === 'error' ? 'status-error' : s === 'timeout' ? 'status-timeout' : 'status-cancelled';
+  return `<span class="status-badge ${cls}">${esc(s)}</span>`;
+}
+
+async function refresh() {
+  try {
+    const [health, jobs, cost, tasks, roles] = await Promise.all([
+      fetchJSON('/healthz'),
+      fetchJSON('/cron').catch(() => []),
+      fetchJSON('/stats/cost').catch(() => ({ today: 0, week: 0, month: 0 })),
+      fetchJSON('/tasks').catch(() => null),
+      fetchJSON('/roles').catch(() => []),
+    ]);
+
+    // Connection badge
+    const badge = document.getElementById('conn-badge');
+    badge.textContent = 'Connected';
+    badge.className = 'badge badge-ok';
+
+    // Version
+    document.getElementById('version').textContent = 'v' + (health.version || '?');
+
+    // Updated time
+    document.getElementById('updated').textContent = new Date().toLocaleTimeString('en-GB');
+
+    // Stats (cost + system)
+    const cron = health.cron || {};
+    const dispatch = health.dispatch || {};
+    const dailyLimit = cost.dailyLimit || 0;
+    const weeklyLimit = cost.weeklyLimit || 0;
+    const statsHTML = [
+      { label: 'Today', value: costFmt(cost.today || 0), cls: 'cost', limit: dailyLimit, current: cost.today || 0 },
+      { label: 'This Week', value: costFmt(cost.week || 0), cls: 'cost', limit: weeklyLimit, current: cost.week || 0 },
+      { label: 'This Month', value: costFmt(cost.month || 0), cls: 'cost' },
+      { label: 'Jobs', value: `${cron.enabled || 0} / ${cron.jobs || 0}` },
+      { label: 'Running', value: cron.running || 0, color: (cron.running || 0) > 0 ? 'var(--yellow)' : '' },
+      { label: 'Dispatch', value: dispatch.status || 'idle' },
+    ].map(s => {
+      let bar = '';
+      if (s.limit > 0) {
+        const pct = Math.min((s.current / s.limit) * 100, 100);
+        const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--yellow)' : 'var(--green)';
+        bar = `<div style="margin-top:6px;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">limit: ${costFmt(s.limit)}</div>`;
+      }
+      return `<div class="stat"><div class="stat-label">${s.label}</div><div class="stat-value ${s.cls || ''}" ${s.color ? `style="color:${s.color}"` : ''}>${s.value}</div>${bar}</div>`;
+    }).join('');
+    document.getElementById('stats').innerHTML = statsHTML;
+
+    // Dispatch section
+    const dSec = document.getElementById('dispatch-section');
+    if (dispatch.status === 'dispatching' && dispatch.tasks) {
+      dSec.style.display = '';
+      const dHTML = dispatch.tasks.map(t => {
+        const dot = t.status === 'running' ? 'dot-yellow' : t.status === 'success' ? 'dot-green' : 'dot-red';
+        const info = t.elapsed || t.duration || '';
+        return `<div class="dispatch-task"><span class="dot ${dot}"></span>${t.name} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
+      }).join('');
+      document.getElementById('dispatch-tasks').innerHTML = dHTML;
+    } else {
+      dSec.style.display = 'none';
+    }
+
+    // Running tasks
+    await refreshRunning();
+
+    // Sessions (Mission Control) — skip heavy poll when on Chat tab
+    window._cachedRoles = {};
+    if (Array.isArray(roles)) roles.forEach(r => { window._cachedRoles[r.name] = r; });
+    if (currentTab === 'dashboard') {
+      await refreshSessions();
+    }
+
+    // Trend chart
+    await refreshTrend();
+
+    // Cache jobs for edit modal
+    cachedJobs = Array.isArray(jobs) ? jobs : [];
+
+    // Jobs table
+    if (Array.isArray(jobs)) {
+      const enabled = jobs.filter(j => j.enabled).length;
+      const running = jobs.filter(j => j.running).length;
+      document.getElementById('cron-meta').textContent = `${enabled} enabled / ${running} running`;
+
+      const tbody = document.getElementById('jobs-body');
+      tbody.innerHTML = jobs.map(j => {
+        const dotClass = j.running ? 'dot-yellow' : j.enabled ? 'dot-green' : 'dot-gray';
+        const statusText = j.running ? 'Running' :
+          j.errors > 0 ? `Err x${j.errors}` : j.enabled ? 'Ready' : 'Off';
+        const statusColor = j.running ? 'var(--yellow)' :
+          j.errors > 0 ? 'var(--red)' : j.enabled ? '' : 'var(--muted)';
+        return `<tr>
+          <td>
+            <label class="toggle">
+              <input type="checkbox" ${j.enabled ? 'checked' : ''} onchange="toggleJob('${esc(j.id)}', this.checked)" ${j.running ? 'disabled' : ''}>
+              <span class="slider"></span>
+            </label>
+          </td>
+          <td class="job-name"><span class="dot ${dotClass}"></span>${esc(j.name)}</td>
+          <td class="job-schedule">${esc(j.schedule)}</td>
+          <td class="job-role">${esc(j.role || '-')}</td>
+          <td style="font-size:11px;color:var(--muted)">${formatChain(j)}</td>
+          <td class="job-next">${j.lastRun && !j.lastRun.startsWith('0001') ?
+            (j.lastErr ? '<span style="color:var(--red)" title="' + esc(j.lastErr) + '">! </span>' : '') + dateTimeStr(j.lastRun)
+            : '-'}</td>
+          <td style="font-size:12px;font-family:monospace">${j.lastCost > 0 ? costFmt(j.lastCost) : '-'}</td>
+          <td style="font-size:12px;font-family:monospace">${j.avgCost > 0 ? costFmt(j.avgCost) : '-'}</td>
+          <td class="job-next">${timeStr(j.nextRun)}</td>
+          <td style="font-size:12px;color:${statusColor}">${statusText}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-run" onclick="triggerJob('${esc(j.id)}')" ${j.running ? 'disabled' : ''}>Run</button>
+            <button class="btn btn-edit" onclick="editJob('${esc(j.id)}')" ${j.running ? 'disabled' : ''}>Edit</button>
+            <button class="btn btn-del" onclick="deleteJob('${esc(j.id)}')" ${j.running ? 'disabled' : ''}>Del</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    // Populate job filter dropdown
+    if (Array.isArray(jobs) && jobs.length > 0) {
+      const jobFilter = document.getElementById('history-job-filter');
+      const currentVal = jobFilter.value;
+      const uniqueJobs = [...new Set(jobs.map(j => j.id))];
+      jobFilter.innerHTML = '<option value="">All jobs</option>' +
+        uniqueJobs.map(id => {
+          const j = jobs.find(x => x.id === id);
+          return `<option value="${esc(id)}"${id === currentVal ? ' selected' : ''}>${esc(j ? j.name : id)}</option>`;
+        }).join('');
+    }
+
+    // History is refreshed separately
+    await refreshHistory();
+
+    // Routing stats refreshed separately
+    await refreshRouting();
+
+    // Roles table
+    if (Array.isArray(roles) && roles.length > 0) {
+      document.getElementById('roles-section').style.display = '';
+      document.getElementById('roles-meta').textContent = `${roles.length} roles`;
+      const rbody = document.getElementById('roles-body');
+      rbody.innerHTML = roles.map(r => `<tr>
+        <td class="job-name">${esc(r.name)}</td>
+        <td style="font-size:12px">${esc(r.model || 'default')}</td>
+        <td style="font-size:12px">${esc(r.permissionMode || '-')}</td>
+        <td style="font-size:12px;color:var(--muted)">${esc(r.soulFile || '-')}</td>
+        <td style="font-size:12px">${esc(r.description || '-')}</td>
+        <td style="white-space:nowrap">
+          <button class="btn" onclick="viewSoul('${esc(r.name)}')">Show</button>
+          <button class="btn btn-edit" onclick="editRole('${esc(r.name)}')">Edit</button>
+          <button class="btn btn-del" onclick="deleteRole('${esc(r.name)}')">Del</button>
+        </td>
+      </tr>`).join('');
+      cachedRoles = roles;
+    } else {
+      document.getElementById('roles-section').style.display = 'none';
+    }
+
+    // Task stats
+    if (tasks && typeof tasks === 'object' && tasks.total !== undefined) {
+      const tsHTML = [
+        { label: 'Todo', value: tasks.todo || 0 },
+        { label: 'Running', value: tasks.running || 0 },
+        { label: 'Review', value: tasks.review || 0 },
+        { label: 'Done', value: tasks.done || 0 },
+        { label: 'Failed', value: tasks.failed || 0, color: (tasks.failed || 0) > 0 ? 'var(--red)' : '' },
+        { label: 'Total', value: tasks.total || 0 },
+      ].map(s => `<div class="task-stat"><div class="task-stat-label">${s.label}</div><div class="task-stat-value" ${s.color ? `style="color:${s.color}"` : ''}>${s.value}</div></div>`).join('');
+      document.getElementById('task-stats').innerHTML = tsHTML;
+      document.getElementById('tasks-section').style.display = '';
+    } else {
+      document.getElementById('tasks-section').style.display = 'none';
+    }
+
+  } catch (e) {
+    const badge = document.getElementById('conn-badge');
+    badge.textContent = 'Disconnected';
+    badge.className = 'badge badge-err';
+  }
+}
+
+function formatChain(j) {
+  const parts = [];
+  if (j.onSuccess && j.onSuccess.length > 0) parts.push('OK\u2192' + j.onSuccess.join(','));
+  if (j.onFailure && j.onFailure.length > 0) parts.push('ERR\u2192' + j.onFailure.join(','));
+  return parts.length > 0 ? parts.join(' ') : '-';
+}
+
+function esc(s) {
+  if (!s) return '';
+  const el = document.createElement('span');
+  el.textContent = s;
+  return el.innerHTML;
+}
+
+function parseDuration(s) {
+  // Parse Go duration string like "5m30s", "1h2m3s", "45s" to seconds
+  if (!s) return 0;
+  let total = 0;
+  const h = s.match(/(\d+)h/);
+  const m = s.match(/(\d+)m/);
+  const sec = s.match(/(\d+)s/);
+  if (h) total += parseInt(h[1]) * 3600;
+  if (m) total += parseInt(m[1]) * 60;
+  if (sec) total += parseInt(sec[1]);
+  return total;
+}
+
+function parseTimeout(s) {
+  // Parse timeout string like "15m", "1h", "30s" to seconds
+  if (!s) return 900; // default 15m
+  let total = 0;
+  const h = s.match(/(\d+)h/);
+  const m = s.match(/(\d+)m/);
+  const sec = s.match(/(\d+)s/);
+  if (h) total += parseInt(h[1]) * 3600;
+  if (m) total += parseInt(m[1]) * 60;
+  if (sec) total += parseInt(sec[1]);
+  return total || 900;
+}
+
+async function refreshRunning() {
+  try {
+    const tasks = await fetchJSON('/tasks/running');
+    const section = document.getElementById('running-section');
+    const container = document.getElementById('running-tasks');
+
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    document.getElementById('running-meta').textContent = `${tasks.length} running`;
+
+    container.innerHTML = tasks.map(t => {
+      const elapsedSec = parseDuration(t.elapsed);
+      const timeoutSec = parseTimeout(t.timeout);
+      const pct = Math.min((elapsedSec / timeoutSec) * 100, 100);
+      const barColor = pct >= 90 ? 'var(--red)' : pct >= 70 ? 'var(--yellow)' : 'var(--accent)';
+
+      const remaining = timeoutSec - elapsedSec;
+      const remainStr = remaining > 0
+        ? (remaining >= 60 ? Math.floor(remaining/60) + 'm ' + (remaining%60) + 's left' : remaining + 's left')
+        : 'overtime!';
+
+      const pidInfo = t.pid > 0
+        ? `<span class="${t.pidAlive ? 'pid-alive' : 'pid-dead'}">PID ${t.pid} ${t.pidAlive ? 'alive' : 'dead!'}</span>`
+        : '';
+
+      return `<div class="running-task" id="task-${esc(t.id)}">
+        <div class="running-task-header">
+          <span class="running-task-name"><span class="dot dot-yellow"></span>${esc(t.name)}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:12px;color:var(--muted)">${esc(t.source)}</span>
+            <button class="btn-live" id="live-btn-${esc(t.id)}" onclick="toggleLive('${esc(t.id)}')">Live</button>
+            <button class="btn btn-del" onclick="cancelTask('${esc(t.id)}')" style="font-size:10px;padding:2px 8px">Cancel</button>
+          </div>
+        </div>
+        <div class="running-task-meta">
+          <span>Model: ${esc(t.model || '?')}</span>
+          <span>Elapsed: ${esc(t.elapsed)}</span>
+          <span>Timeout: ${esc(t.timeout || '15m')}</span>
+          ${pidInfo}
+        </div>
+        <div class="timeout-bar">
+          <div class="timeout-bar-fill" style="width:${pct}%;background:${barColor}"></div>
+        </div>
+        <div class="timeout-bar-info">
+          <span>${Math.round(pct)}%</span>
+          <span>${remainStr}</span>
+        </div>
+        ${t.prompt ? `<div class="running-prompt">${esc(t.prompt)}</div>` : ''}
+        <div class="live-output" id="live-${esc(t.id)}" style="display:none"></div>
+      </div>`;
+    }).join('');
+    cleanupLiveStreams();
+  } catch(e) {
+    document.getElementById('running-section').style.display = 'none';
+  }
+}
+
+async function refreshTrend() {
+  try {
+    const stats = await fetchJSON('/stats/trend?days=7');
+    const section = document.getElementById('trend-section');
+    if (!Array.isArray(stats) || stats.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+
+    const maxTotal = Math.max(...stats.map(s => s.total), 1);
+    const chartEl = document.getElementById('trend-chart');
+
+    chartEl.innerHTML = '<div style="display:flex;gap:4px;align-items:flex-end">' +
+      stats.map(s => {
+        const successH = Math.round((s.success / maxTotal) * 80);
+        const failH = Math.round((s.fail / maxTotal) * 80);
+        const dateLabel = s.date ? s.date.slice(5) : '?'; // "MM-DD"
+        return `<div class="trend-bar-group">
+          <div class="trend-cost">${costFmt(s.cost)}</div>
+          <div class="trend-bars">
+            ${s.fail > 0 ? `<div class="trend-bar" style="height:${failH}px;background:var(--red)"></div>` : ''}
+            ${s.success > 0 ? `<div class="trend-bar" style="height:${successH}px;background:var(--green)"></div>` : ''}
+          </div>
+          <div class="trend-label">${esc(dateLabel)}</div>
+          <div class="trend-label">${s.total}</div>
+        </div>`;
+      }).join('') + '</div>';
+  } catch(e) {
+    document.getElementById('trend-section').style.display = 'none';
+  }
+}
+
+// --- Job Actions ---
+
+async function toggleJob(id, enabled) {
+  try {
+    await fetch(`/cron/${id}/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    toast(`${id} ${enabled ? 'enabled' : 'disabled'}`);
+    setTimeout(refresh, 300);
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function triggerJob(id) {
+  try {
+    await fetch(`/cron/${id}/run`, { method: 'POST' });
+    toast(`${id} triggered`);
+    setTimeout(refresh, 500);
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function deleteJob(id) {
+  if (!confirm(`Delete job "${id}"?`)) return;
+  try {
+    const resp = await fetch(`/cron/${id}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`${id} deleted`);
+      setTimeout(refresh, 300);
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function cancelTask(id) {
+  if (!confirm(`Cancel task "${id}"?`)) return;
+  try {
+    const resp = await fetch(`/cancel/${id}`, { method: 'POST' });
+    if (resp.ok) {
+      toast(`Cancelling ${id}...`);
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+    setTimeout(refresh, 500);
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function cancelDispatch() {
+  try {
+    await fetch('/cancel', { method: 'POST' });
+    toast('Cancelling...');
+    setTimeout(refresh, 500);
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+// --- Job Modal ---
+
+async function openJobModal(editId) {
+  const modal = document.getElementById('job-modal');
+  const form = document.getElementById('job-form');
+  form.reset();
+
+  if (editId) {
+    document.getElementById('job-modal-title').textContent = 'Edit Job';
+    document.getElementById('jf-mode').value = 'edit';
+    document.getElementById('jf-original-id').value = editId;
+    document.getElementById('jf-submit').textContent = 'Save Changes';
+    document.getElementById('jf-id').readOnly = true;
+
+    // Fetch full job config from API
+    try {
+      const j = await fetchJSON(`/cron/${editId}`);
+      document.getElementById('jf-id').value = j.id;
+      document.getElementById('jf-name').value = j.name;
+      document.getElementById('jf-schedule').value = j.schedule;
+      document.getElementById('jf-tz').value = j.tz || 'Asia/Taipei';
+      document.getElementById('jf-role').value = j.role || '';
+      document.getElementById('jf-prompt').value = (j.task && j.task.prompt) || '';
+      document.getElementById('jf-model').value = (j.task && j.task.model) || 'sonnet';
+      document.getElementById('jf-timeout').value = (j.task && j.task.timeout) || '5m';
+      document.getElementById('jf-budget').value = (j.task && j.task.budget) || 2.0;
+      document.getElementById('jf-workdir').value = (j.task && j.task.workdir) || '';
+      document.getElementById('jf-permission').value = (j.task && j.task.permissionMode) || '';
+      document.getElementById('jf-onsuccess').value = (j.onSuccess || []).join(', ');
+      document.getElementById('jf-onfailure').value = (j.onFailure || []).join(', ');
+      document.getElementById('jf-notify').checked = j.notify || false;
+    } catch (e) {
+      toast('Error loading job: ' + e.message);
+      return;
+    }
+  } else {
+    document.getElementById('job-modal-title').textContent = 'Add Job';
+    document.getElementById('jf-mode').value = 'add';
+    document.getElementById('jf-original-id').value = '';
+    document.getElementById('jf-submit').textContent = 'Add Job';
+    document.getElementById('jf-id').readOnly = false;
+  }
+
+  modal.classList.add('open');
+}
+
+function editJob(id) {
+  openJobModal(id);
+}
+
+function closeJobModal() {
+  document.getElementById('job-modal').classList.remove('open');
+}
+
+async function submitJob(e) {
+  e.preventDefault();
+  const mode = document.getElementById('jf-mode').value;
+  const id = document.getElementById('jf-id').value.trim();
+
+  const payload = {
+    id: id,
+    name: document.getElementById('jf-name').value.trim(),
+    enabled: true,
+    schedule: document.getElementById('jf-schedule').value.trim(),
+    tz: document.getElementById('jf-tz').value.trim() || 'Asia/Taipei',
+    role: document.getElementById('jf-role').value.trim(),
+    task: {
+      prompt: document.getElementById('jf-prompt').value.trim(),
+      model: document.getElementById('jf-model').value.trim() || 'sonnet',
+      timeout: document.getElementById('jf-timeout').value.trim() || '5m',
+      budget: parseFloat(document.getElementById('jf-budget').value) || 2.0,
+      workdir: document.getElementById('jf-workdir').value.trim(),
+      permissionMode: document.getElementById('jf-permission').value,
+    },
+    notify: document.getElementById('jf-notify').checked,
+    onSuccess: document.getElementById('jf-onsuccess').value.split(',').map(s => s.trim()).filter(Boolean),
+    onFailure: document.getElementById('jf-onfailure').value.split(',').map(s => s.trim()).filter(Boolean),
+  };
+
+  try {
+    let resp;
+    if (mode === 'edit') {
+      const origId = document.getElementById('jf-original-id').value;
+      resp = await fetch(`/cron/${origId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      resp = await fetch('/cron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    if (resp.ok) {
+      toast(mode === 'edit' ? `${id} updated` : `${id} created`);
+      closeJobModal();
+      setTimeout(refresh, 300);
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+  return false;
+}
+
+// --- Output Modal ---
+
+let currentRunData = null;
+
+let fullOutputCache = null;
+
+async function viewRun(runId) {
+  try {
+    const run = await fetchJSON(`/history/${runId}`);
+    currentRunData = run;
+    fullOutputCache = null;
+
+    document.getElementById('output-title').textContent = run.name;
+    document.getElementById('output-meta').innerHTML = [
+      `<span>${statusBadge(run.status)}</span>`,
+      `<span>Cost: ${costFmt(run.costUsd)}</span>`,
+      `<span>Model: ${esc(run.model)}</span>`,
+      `<span>${dateTimeStr(run.startedAt)}</span>`,
+    ].join('');
+
+    // Show "Full Output" button if output file exists.
+    const tabFull = document.getElementById('tab-full');
+    tabFull.style.display = run.outputFile ? '' : 'none';
+
+    showOutputTab('output');
+    document.getElementById('output-modal').classList.add('open');
+  } catch (e) {
+    toast('Error loading run: ' + e.message);
+  }
+}
+
+function showOutputTab(tab) {
+  if (!currentRunData) return;
+  const content = document.getElementById('output-content');
+  const tabOut = document.getElementById('tab-output');
+  const tabErr = document.getElementById('tab-error');
+  const tabFull = document.getElementById('tab-full');
+
+  tabOut.style.fontWeight = '400';
+  tabErr.style.fontWeight = '400';
+  tabFull.style.fontWeight = '400';
+
+  if (tab === 'error') {
+    content.textContent = currentRunData.error || '(no error)';
+    tabErr.style.fontWeight = '600';
+  } else if (tab === 'full') {
+    if (fullOutputCache) {
+      try {
+        const parsed = JSON.parse(fullOutputCache);
+        content.textContent = parsed.result || JSON.stringify(parsed, null, 2);
+      } catch {
+        content.textContent = fullOutputCache;
+      }
+    } else {
+      content.textContent = '(loading...)';
+    }
+    tabFull.style.fontWeight = '600';
+  } else {
+    content.textContent = currentRunData.outputSummary || '(no output)';
+    tabOut.style.fontWeight = '600';
+  }
+
+  updateOutputDisplay();
+}
+
+async function loadFullOutput() {
+  if (!currentRunData || !currentRunData.outputFile) return;
+
+  if (fullOutputCache) {
+    showOutputTab('full');
+    return;
+  }
+
+  try {
+    document.getElementById('output-content').textContent = '(loading full output...)';
+    updateOutputDisplay();
+    const resp = await fetch(`/outputs/${currentRunData.outputFile}`);
+    if (!resp.ok) {
+      toast('Error loading output file');
+      return;
+    }
+    fullOutputCache = await resp.text();
+    showOutputTab('full');
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function copyOutput() {
+  const content = document.getElementById('output-content').textContent;
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+    toast('Copied to clipboard');
+  } catch {
+    // Fallback for older browsers.
+    const ta = document.createElement('textarea');
+    ta.value = content;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('Copied to clipboard');
+  }
+}
+
+function closeOutputModal() {
+  document.getElementById('output-modal').classList.remove('open');
+  currentRunData = null;
+  fullOutputCache = null;
+}
+
+// --- Soul Modal ---
+
+function viewSoul(name) {
+  const r = cachedRoles.find(x => x.name === name);
+  if (!r) return;
+
+  document.getElementById('soul-title').textContent = name;
+  document.getElementById('soul-meta').innerHTML = [
+    `<span>Model: ${esc(r.model || 'default')}</span>`,
+    r.permissionMode ? `<span>Permission: ${esc(r.permissionMode)}</span>` : '',
+    `<span>File: ${esc(r.soulFile || '-')}</span>`,
+    r.description ? `<span>${esc(r.description)}</span>` : '',
+  ].filter(Boolean).join('');
+  document.getElementById('soul-content').textContent = r.soulPreview || '(no soul file content)';
+  document.getElementById('soul-modal').classList.add('open');
+}
+
+function closeSoulModal() {
+  document.getElementById('soul-modal').classList.remove('open');
+}
+
+// --- Role Modal ---
+
+async function loadArchetypes() {
+  try {
+    cachedArchetypes = await fetchJSON('/roles/archetypes');
+    const sel = document.getElementById('rf-archetype');
+    sel.innerHTML = '<option value="">— blank —</option>' +
+      cachedArchetypes.map(a => `<option value="${esc(a.name)}">${esc(a.name)} — ${esc(a.description)}</option>`).join('');
+  } catch(e) {}
+}
+
+function applyArchetype() {
+  const name = document.getElementById('rf-archetype').value;
+  const a = cachedArchetypes.find(x => x.name === name);
+  if (a) {
+    document.getElementById('rf-model').value = a.model;
+    document.getElementById('rf-permission').value = a.permissionMode;
+    const roleName = document.getElementById('rf-name').value || name;
+    document.getElementById('rf-soul').value = a.soulTemplate.replace(/\{\{\.RoleName\}\}/g, roleName);
+    if (!document.getElementById('rf-soulfile').value) {
+      document.getElementById('rf-soulfile').value = 'SOUL-' + roleName + '.md';
+    }
+  }
+}
+
+function openRoleModal(editName) {
+  const modal = document.getElementById('role-modal');
+  const form = document.getElementById('role-form');
+  form.reset();
+
+  if (editName) {
+    document.getElementById('role-modal-title').textContent = 'Edit Role';
+    document.getElementById('rf-mode').value = 'edit';
+    document.getElementById('rf-submit').textContent = 'Save Changes';
+    document.getElementById('rf-name').value = editName;
+    document.getElementById('rf-name').readOnly = true;
+
+    // Fetch full role info.
+    fetchJSON(`/roles/${editName}`).then(r => {
+      document.getElementById('rf-model').value = r.model || '';
+      document.getElementById('rf-permission').value = r.permissionMode || '';
+      document.getElementById('rf-desc').value = r.description || '';
+      document.getElementById('rf-soulfile').value = r.soulFile || '';
+      document.getElementById('rf-soul').value = r.soulContent || '';
+    }).catch(e => toast('Error loading role: ' + e.message));
+  } else {
+    document.getElementById('role-modal-title').textContent = 'Add Role';
+    document.getElementById('rf-mode').value = 'add';
+    document.getElementById('rf-submit').textContent = 'Add Role';
+    document.getElementById('rf-name').readOnly = false;
+  }
+
+  modal.classList.add('open');
+}
+
+function editRole(name) { openRoleModal(name); }
+
+function closeRoleModal() {
+  document.getElementById('role-modal').classList.remove('open');
+}
+
+async function submitRole(e) {
+  e.preventDefault();
+  const mode = document.getElementById('rf-mode').value;
+  const name = document.getElementById('rf-name').value.trim();
+
+  const payload = {
+    name: name,
+    model: document.getElementById('rf-model').value.trim(),
+    permissionMode: document.getElementById('rf-permission').value,
+    description: document.getElementById('rf-desc').value.trim(),
+    soulFile: document.getElementById('rf-soulfile').value.trim(),
+    soulContent: document.getElementById('rf-soul').value,
+  };
+
+  try {
+    let resp;
+    if (mode === 'edit') {
+      resp = await fetch(`/roles/${name}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      resp = await fetch('/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    if (resp.ok) {
+      toast(mode === 'edit' ? `${name} updated` : `${name} created`);
+      closeRoleModal();
+      setTimeout(refresh, 300);
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+  return false;
+}
+
+async function deleteRole(name) {
+  if (!confirm(`Delete role "${name}"?`)) return;
+  try {
+    const resp = await fetch(`/roles/${name}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`${name} deleted`);
+      setTimeout(refresh, 300);
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+// --- History Pagination ---
+
+async function refreshHistory() {
+  try {
+    const statusFilter = document.getElementById('history-status-filter').value;
+    const jobFilter = document.getElementById('history-job-filter').value;
+    let url = `/history?limit=${historyLimit}&page=${historyPage}`;
+    if (statusFilter) url += `&status=${statusFilter}`;
+    if (jobFilter) url += `&job_id=${jobFilter}`;
+
+    const data = await fetchJSON(url);
+    const runs = data.runs || [];
+    historyTotal = data.total || 0;
+
+    document.getElementById('history-section').style.display = '';
+    document.getElementById('history-meta').textContent = `${historyTotal} total`;
+
+    const hbody = document.getElementById('history-body');
+    if (runs.length > 0) {
+      hbody.innerHTML = runs.map(h => `<tr class="history-row" onclick="viewRun(${h.id})">
+        <td class="job-name">${esc(h.name)}</td>
+        <td style="font-size:12px">${esc(h.source)}</td>
+        <td>${statusBadge(h.status)}</td>
+        <td style="font-size:12px;font-family:monospace">${costFmt(h.costUsd)}</td>
+        <td style="font-size:12px">${esc(h.model)}</td>
+        <td class="job-next">${dateTimeStr(h.startedAt)}</td>
+      </tr>`).join('');
+    } else {
+      hbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No records found</td></tr>';
+    }
+
+    // Pagination controls.
+    const totalPages = Math.ceil(historyTotal / historyLimit) || 1;
+    document.getElementById('history-prev').disabled = historyPage <= 1;
+    document.getElementById('history-next').disabled = historyPage >= totalPages;
+    document.getElementById('history-page-info').textContent = `Page ${historyPage} of ${totalPages}`;
+  } catch(e) {
+    document.getElementById('history-section').style.display = 'none';
+  }
+}
+
+function historyPrev() {
+  if (historyPage > 1) { historyPage--; refreshHistory(); }
+}
+
+function historyNext() {
+  const totalPages = Math.ceil(historyTotal / historyLimit) || 1;
+  if (historyPage < totalPages) { historyPage++; refreshHistory(); }
+}
+
+// Close modals on overlay click
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.remove('open');
+  }
+});
+
+// Close modals on Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  }
+});
+
+// --- Quick Dispatch Modal ---
+
+let dispatchTimer = null;
+
+function openDispatchModal() {
+  const modal = document.getElementById('dispatch-modal');
+  document.getElementById('dispatch-form').reset();
+  document.getElementById('dispatch-form').style.display = '';
+  document.getElementById('df-loading').style.display = 'none';
+  document.getElementById('df-actions').style.display = 'flex';
+
+  // Populate role dropdown from cached roles.
+  const roleSel = document.getElementById('df-role');
+  roleSel.innerHTML = '<option value="">— none —</option>' +
+    cachedRoles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
+
+  modal.classList.add('open');
+}
+
+function closeDispatchModal() {
+  document.getElementById('dispatch-modal').classList.remove('open');
+  if (dispatchTimer) { clearInterval(dispatchTimer); dispatchTimer = null; }
+}
+
+async function submitDispatch(e) {
+  e.preventDefault();
+
+  const prompt = document.getElementById('df-prompt').value.trim();
+  if (!prompt) return false;
+
+  const task = {
+    prompt: prompt,
+    model: document.getElementById('df-model').value.trim() || 'sonnet',
+    timeout: document.getElementById('df-timeout').value.trim() || '5m',
+    budget: parseFloat(document.getElementById('df-budget').value) || 2.0,
+    workdir: document.getElementById('df-workdir').value.trim(),
+    permissionMode: document.getElementById('df-permission').value,
+  };
+
+  // If role selected, inject as systemPrompt from role name.
+  const role = document.getElementById('df-role').value;
+  if (role) {
+    try {
+      const roleData = await fetchJSON(`/roles/${role}`);
+      if (roleData.soulContent) {
+        task.systemPrompt = roleData.soulContent;
+      }
+      if (roleData.model && !document.getElementById('df-model').value.trim()) {
+        task.model = roleData.model;
+      }
+    } catch(e) {}
+  }
+
+  // Show loading state.
+  document.getElementById('df-actions').style.display = 'none';
+  document.getElementById('df-loading').style.display = '';
+  const startTime = Date.now();
+  dispatchTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(elapsed / 60);
+    const s = elapsed % 60;
+    document.getElementById('df-elapsed').textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }, 1000);
+
+  try {
+    const result = await fetchJSON('/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([task]),
+    });
+
+    if (dispatchTimer) { clearInterval(dispatchTimer); dispatchTimer = null; }
+    closeDispatchModal();
+
+    // Show result in output modal.
+    if (result && result.tasks && result.tasks.length > 0) {
+      const t = result.tasks[0];
+      currentRunData = {
+        name: t.name || 'Quick Dispatch',
+        status: t.status,
+        costUsd: t.costUsd || 0,
+        model: t.model,
+        outputSummary: t.output || '',
+        error: t.error || '',
+        outputFile: t.outputFile || '',
+        startedAt: result.startedAt,
+      };
+      fullOutputCache = null;
+
+      document.getElementById('output-title').textContent = 'Quick Dispatch Result';
+      document.getElementById('output-meta').innerHTML = [
+        `<span>${statusBadge(t.status)}</span>`,
+        `<span>Cost: ${costFmt(t.costUsd || 0)}</span>`,
+        `<span>Model: ${esc(t.model)}</span>`,
+        `<span>${Math.round((result.durationMs || 0) / 1000)}s</span>`,
+      ].join('');
+
+      const tabFull = document.getElementById('tab-full');
+      tabFull.style.display = t.outputFile ? '' : 'none';
+
+      showOutputTab('output');
+      document.getElementById('output-modal').classList.add('open');
+    }
+
+    toast(result.summary || 'Dispatch complete');
+    setTimeout(refresh, 500);
+
+  } catch (e) {
+    if (dispatchTimer) { clearInterval(dispatchTimer); dispatchTimer = null; }
+    closeDispatchModal();
+    toast('Dispatch error: ' + e.message);
+  }
+
+  return false;
+}
+
+// --- Markdown Renderer ---
+
+let outputMode = 'rendered';
+
+function renderMarkdown(text) {
+  if (!text) return '';
+
+  // Escape HTML first.
+  const escHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Extract code blocks first to protect them.
+  const codeBlocks = [];
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(`<pre><code class="lang-${escHtml(lang || 'text')}">${escHtml(code.replace(/\n$/, ''))}</code></pre>`);
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
+
+  // Process line by line.
+  const lines = text.split('\n');
+  const result = [];
+  let inList = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Code block placeholder.
+    if (line.match(/^\x00CODEBLOCK\d+\x00$/)) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      const idx = parseInt(line.match(/\d+/)[0]);
+      result.push(codeBlocks[idx]);
+      continue;
+    }
+
+    // Escape HTML in regular lines.
+    line = escHtml(line);
+
+    // Headings.
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      const level = headingMatch[1].length;
+      result.push(`<h${level}>${inlineFormat(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Horizontal rule.
+    if (/^---+$/.test(line.trim()) || /^\*\*\*+$/.test(line.trim())) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      result.push('<hr>');
+      continue;
+    }
+
+    // List items.
+    const listMatch = line.match(/^[\s]*[-*]\s+(.+)$/);
+    if (listMatch) {
+      if (!inList) { result.push('<ul>'); inList = true; }
+      result.push(`<li>${inlineFormat(listMatch[1])}</li>`);
+      continue;
+    }
+
+    // Numbered list items.
+    const numMatch = line.match(/^[\s]*\d+\.\s+(.+)$/);
+    if (numMatch) {
+      if (!inList) { result.push('<ul>'); inList = true; }
+      result.push(`<li>${inlineFormat(numMatch[1])}</li>`);
+      continue;
+    }
+
+    // Blockquote.
+    const bqMatch = line.match(/^&gt;\s?(.*)$/);
+    if (bqMatch) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      result.push(`<blockquote>${inlineFormat(bqMatch[1])}</blockquote>`);
+      continue;
+    }
+
+    // Close list if needed.
+    if (inList) { result.push('</ul>'); inList = false; }
+
+    // Empty line = paragraph break.
+    if (line.trim() === '') {
+      result.push('<br>');
+      continue;
+    }
+
+    // Regular paragraph.
+    result.push(`<p>${inlineFormat(line)}</p>`);
+  }
+
+  if (inList) result.push('</ul>');
+  return result.join('\n');
+}
+
+function inlineFormat(text) {
+  // Inline code (before other formatting to avoid conflicts).
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold.
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic.
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Links.
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return text;
+}
+
+function setOutputMode(mode) {
+  outputMode = mode;
+  document.getElementById('mode-rendered').classList.toggle('active', mode === 'rendered');
+  document.getElementById('mode-raw').classList.toggle('active', mode === 'raw');
+  updateOutputDisplay();
+}
+
+function updateOutputDisplay() {
+  const rawEl = document.getElementById('output-content');
+  const renderedEl = document.getElementById('output-rendered');
+  const text = rawEl.textContent || '';
+
+  if (outputMode === 'rendered' && text && text !== '(no output)' && text !== '(no error)' && text !== '(loading...)') {
+    rawEl.style.display = 'none';
+    renderedEl.style.display = '';
+    renderedEl.innerHTML = renderMarkdown(text);
+  } else {
+    rawEl.style.display = '';
+    renderedEl.style.display = 'none';
+  }
+}
+
+// --- Prompts ---
+
+let cachedPrompts = [];
+
+async function refreshPrompts() {
+  try {
+    const prompts = await fetchJSON('/prompts');
+    cachedPrompts = Array.isArray(prompts) ? prompts : [];
+    const section = document.getElementById('prompts-section');
+
+    if (cachedPrompts.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    document.getElementById('prompts-meta').textContent = `${cachedPrompts.length} prompts`;
+
+    const tbody = document.getElementById('prompts-body');
+    tbody.innerHTML = cachedPrompts.map(p => `<tr>
+      <td class="job-name">${esc(p.name)}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.preview || '')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" onclick="viewPrompt('${esc(p.name)}')">View</button>
+        <button class="btn btn-edit" onclick="editPrompt('${esc(p.name)}')">Edit</button>
+        <button class="btn btn-del" onclick="deletePromptUI('${esc(p.name)}')">Del</button>
+      </td>
+    </tr>`).join('');
+  } catch(e) {
+    document.getElementById('prompts-section').style.display = 'none';
+  }
+}
+
+async function viewPrompt(name) {
+  try {
+    const data = await fetchJSON(`/prompts/${name}`);
+    currentRunData = {
+      name: name,
+      status: 'success',
+      costUsd: 0,
+      model: '',
+      outputSummary: data.content || '',
+      error: '',
+    };
+    fullOutputCache = null;
+    document.getElementById('output-title').textContent = 'Prompt: ' + name;
+    document.getElementById('output-meta').innerHTML = '';
+    document.getElementById('tab-full').style.display = 'none';
+    showOutputTab('output');
+    document.getElementById('output-modal').classList.add('open');
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+function openPromptModal(editName) {
+  const modal = document.getElementById('prompt-modal');
+  document.getElementById('prompt-form').reset();
+
+  if (editName) {
+    document.getElementById('prompt-modal-title').textContent = 'Edit Prompt';
+    document.getElementById('pf-mode').value = 'edit';
+    document.getElementById('pf-submit').textContent = 'Save';
+    document.getElementById('pf-name').value = editName;
+    document.getElementById('pf-name').readOnly = true;
+
+    fetchJSON(`/prompts/${editName}`).then(data => {
+      document.getElementById('pf-content').value = data.content || '';
+    }).catch(e => toast('Error: ' + e.message));
+  } else {
+    document.getElementById('prompt-modal-title').textContent = 'Add Prompt';
+    document.getElementById('pf-mode').value = 'add';
+    document.getElementById('pf-submit').textContent = 'Add Prompt';
+    document.getElementById('pf-name').readOnly = false;
+  }
+
+  modal.classList.add('open');
+}
+
+function editPrompt(name) { openPromptModal(name); }
+
+function closePromptModal() {
+  document.getElementById('prompt-modal').classList.remove('open');
+}
+
+async function submitPrompt(e) {
+  e.preventDefault();
+  const name = document.getElementById('pf-name').value.trim();
+  const content = document.getElementById('pf-content').value;
+
+  try {
+    const resp = await fetch('/prompts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content }),
+    });
+    if (resp.ok) {
+      toast(`Prompt "${name}" saved`);
+      closePromptModal();
+      refreshPrompts();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+  return false;
+}
+
+async function deletePromptUI(name) {
+  if (!confirm(`Delete prompt "${name}"?`)) return;
+  try {
+    const resp = await fetch(`/prompts/${name}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`"${name}" deleted`);
+      refreshPrompts();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+// --- MCP Servers ---
+
+let cachedMCPs = [];
+
+async function refreshMCP() {
+  try {
+    const mcps = await fetchJSON('/mcp');
+    cachedMCPs = Array.isArray(mcps) ? mcps : [];
+    const section = document.getElementById('mcp-section');
+
+    if (cachedMCPs.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    document.getElementById('mcp-meta').textContent = `${cachedMCPs.length} servers`;
+
+    const tbody = document.getElementById('mcp-body');
+    tbody.innerHTML = cachedMCPs.map(m => `<tr>
+      <td class="job-name">${esc(m.name)}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(m.command || '-')}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.args || '')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" onclick="viewMCPConfig('${esc(m.name)}')">View</button>
+        <button class="btn btn-run" onclick="testMCPServer('${esc(m.name)}')">Test</button>
+        <button class="btn btn-edit" onclick="editMCP('${esc(m.name)}')">Edit</button>
+        <button class="btn btn-del" onclick="deleteMCPUI('${esc(m.name)}')">Del</button>
+      </td>
+    </tr>`).join('');
+  } catch(e) {
+    document.getElementById('mcp-section').style.display = 'none';
+  }
+}
+
+async function viewMCPConfig(name) {
+  try {
+    const data = await fetchJSON(`/mcp/${name}`);
+    const configStr = JSON.stringify(data.config, null, 2);
+    currentRunData = {
+      name: name, status: 'success', costUsd: 0, model: '',
+      outputSummary: configStr, error: '',
+    };
+    fullOutputCache = null;
+    document.getElementById('output-title').textContent = 'MCP Config: ' + name;
+    document.getElementById('output-meta').innerHTML = '';
+    document.getElementById('tab-full').style.display = 'none';
+    showOutputTab('output');
+    document.getElementById('output-modal').classList.add('open');
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+async function testMCPServer(name) {
+  try {
+    toast('Testing ' + name + '...');
+    const resp = await fetch(`/mcp/${name}/test`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      toast('OK: ' + (data.output || 'server reachable'));
+    } else {
+      toast('FAIL: ' + (data.output || 'unknown error'));
+    }
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+function openMCPModal(editName) {
+  const modal = document.getElementById('mcp-modal');
+  document.getElementById('mcp-form').reset();
+  if (editName) {
+    document.getElementById('mcp-modal-title').textContent = 'Edit MCP Server';
+    document.getElementById('mcpf-mode').value = 'edit';
+    document.getElementById('mcpf-submit').textContent = 'Save';
+    document.getElementById('mcpf-name').value = editName;
+    document.getElementById('mcpf-name').readOnly = true;
+    fetchJSON(`/mcp/${editName}`).then(data => {
+      document.getElementById('mcpf-config').value = JSON.stringify(data.config, null, 2);
+    }).catch(e => toast('Error: ' + e.message));
+  } else {
+    document.getElementById('mcp-modal-title').textContent = 'Add MCP Server';
+    document.getElementById('mcpf-mode').value = 'add';
+    document.getElementById('mcpf-submit').textContent = 'Add Server';
+    document.getElementById('mcpf-name').readOnly = false;
+  }
+  modal.classList.add('open');
+}
+
+function editMCP(name) { openMCPModal(name); }
+function closeMCPModal() { document.getElementById('mcp-modal').classList.remove('open'); }
+
+async function submitMCP(e) {
+  e.preventDefault();
+  const name = document.getElementById('mcpf-name').value.trim();
+  const configStr = document.getElementById('mcpf-config').value;
+  let config;
+  try {
+    config = JSON.parse(configStr);
+  } catch(e) {
+    toast('Invalid JSON: ' + e.message);
+    return false;
+  }
+  try {
+    const resp = await fetch('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, config }),
+    });
+    if (resp.ok) {
+      toast(`MCP "${name}" saved`);
+      closeMCPModal();
+      refreshMCP();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) { toast('Error: ' + e.message); }
+  return false;
+}
+
+async function deleteMCPUI(name) {
+  if (!confirm(`Delete MCP config "${name}"?`)) return;
+  try {
+    const resp = await fetch(`/mcp/${name}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`"${name}" deleted`);
+      refreshMCP();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+// --- Agent Memory ---
+
+let cachedMemory = [];
+
+async function refreshMemory() {
+  try {
+    const role = document.getElementById('memory-role-filter').value;
+    const url = role ? `/memory?role=${encodeURIComponent(role)}` : '/memory';
+    const entries = await fetchJSON(url);
+    cachedMemory = Array.isArray(entries) ? entries : [];
+    const section = document.getElementById('memory-section');
+
+    // Always show section (even if empty, user can add)
+    section.style.display = '';
+    document.getElementById('memory-meta').textContent = `${cachedMemory.length} entries`;
+
+    // Populate role filter
+    const filter = document.getElementById('memory-role-filter');
+    const currentRole = filter.value;
+    const memRoles = cachedMemory.map(m => m.role);
+    const cfgRoles = cachedRoles.map(r => r.name || '');
+    const uniqueRoles = [...new Set([...memRoles, ...cfgRoles])].filter(Boolean).sort();
+    filter.innerHTML = '<option value="">All roles</option>' +
+      uniqueRoles.map(r => `<option value="${esc(r)}"${r===currentRole?' selected':''}>${esc(r)}</option>`).join('');
+
+    const tbody = document.getElementById('memory-body');
+    if (cachedMemory.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No memory entries</td></tr>';
+      return;
+    }
+    tbody.innerHTML = cachedMemory.map(m => {
+      let val = m.value || '';
+      if (val.length > 80) val = val.substring(0, 80) + '...';
+      val = val.replace(/\n/g, ' ');
+      return `<tr>
+      <td style="font-size:12px">${esc(m.role)}</td>
+      <td class="job-name">${esc(m.key)}</td>
+      <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(val)}</td>
+      <td style="font-size:11px;color:var(--muted)">${m.updatedAt ? timeStr(m.updatedAt) : ''}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-edit" onclick="editMemory('${esc(m.role)}','${esc(m.key)}')">Edit</button>
+        <button class="btn btn-del" onclick="deleteMemoryUI('${esc(m.role)}','${esc(m.key)}')">Del</button>
+      </td>
+    </tr>`;
+    }).join('');
+  } catch(e) {
+    // Silently hide if memory API not available
+    document.getElementById('memory-section').style.display = 'none';
+  }
+}
+
+function openMemoryModal(editRole, editKey) {
+  const modal = document.getElementById('memory-modal');
+  document.getElementById('memory-form').reset();
+  if (editRole && editKey) {
+    document.getElementById('memory-modal-title').textContent = 'Edit Memory';
+    document.getElementById('mem-mode').value = 'edit';
+    document.getElementById('mem-role').value = editRole;
+    document.getElementById('mem-role').readOnly = true;
+    document.getElementById('mem-key').value = editKey;
+    document.getElementById('mem-key').readOnly = true;
+    fetchJSON(`/memory/${editRole}/${editKey}`).then(data => {
+      document.getElementById('mem-value').value = data.value || '';
+    }).catch(e => toast('Error: ' + e.message));
+  } else {
+    document.getElementById('memory-modal-title').textContent = 'Add Memory';
+    document.getElementById('mem-mode').value = 'add';
+    document.getElementById('mem-role').readOnly = false;
+    document.getElementById('mem-key').readOnly = false;
+  }
+  modal.classList.add('open');
+}
+
+function editMemory(role, key) { openMemoryModal(role, key); }
+function closeMemoryModal() { document.getElementById('memory-modal').classList.remove('open'); }
+
+async function submitMemory(e) {
+  e.preventDefault();
+  const role = document.getElementById('mem-role').value.trim();
+  const key = document.getElementById('mem-key').value.trim();
+  const value = document.getElementById('mem-value').value;
+  try {
+    const resp = await fetch('/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, key, value }),
+    });
+    if (resp.ok) {
+      toast(`Memory "${role}.${key}" saved`);
+      closeMemoryModal();
+      refreshMemory();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+  return false;
+}
+
+async function deleteMemoryUI(role, key) {
+  if (!confirm(`Delete memory "${role}.${key}"?`)) return;
+  try {
+    const resp = await fetch(`/memory/${role}/${key}`, { method: 'DELETE' });
+    if (resp.ok) {
+      toast(`"${role}.${key}" deleted`);
+      refreshMemory();
+    } else {
+      const data = await resp.json();
+      toast('Error: ' + (data.error || 'unknown'));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+// --- Routing ---
+
+async function refreshRouting() {
+  try {
+    const data = await fetchJSON('/stats/routing?limit=50');
+    const section = document.getElementById('routing-section');
+    const history = data.history || [];
+    const byRole = data.byRole || {};
+    const roleNames = Object.keys(byRole).sort();
+
+    if (history.length === 0 && roleNames.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    document.getElementById('routing-meta').textContent = `${history.length} recent routes`;
+
+    // Role stats cards
+    const totalRoutes = history.length;
+    const statsHTML = roleNames.map(name => {
+      const s = byRole[name];
+      const pct = totalRoutes > 0 ? Math.round((s.total / totalRoutes) * 100) : 0;
+      return `<div class="stat">
+        <div class="stat-label">${esc(name)}</div>
+        <div class="stat-value">${s.total}</div>
+        <div style="margin-top:4px;height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${pct}% of routes</div>
+      </div>`;
+    }).join('');
+    document.getElementById('routing-stats').innerHTML = statsHTML;
+
+    // History table
+    const tbody = document.getElementById('routing-body');
+    if (history.length > 0) {
+      tbody.innerHTML = history.map(h => {
+        const confColor = h.confidence === 'high' ? 'var(--green)' :
+          h.confidence === 'medium' ? 'var(--yellow)' : 'var(--red)';
+        let prompt = h.prompt || '';
+        if (prompt.length > 60) prompt = prompt.substring(0, 60) + '...';
+        return `<tr>
+          <td class="job-next">${dateTimeStr(h.timestamp)}</td>
+          <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(h.prompt)}">${esc(prompt)}</td>
+          <td class="job-name">${esc(h.role)}</td>
+          <td style="font-size:12px">${esc(h.method)}</td>
+          <td style="font-size:12px;color:${confColor}">${esc(h.confidence)}</td>
+          <td style="font-size:12px;color:var(--muted)">${esc(h.source)}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No routing history</td></tr>';
+    }
+  } catch(e) {
+    document.getElementById('routing-section').style.display = 'none';
+  }
+}
+
+// --- Sessions ---
+let sessionRolesPopulated = false;
+async function refreshSessions() {
+  try {
+    const roleFilter = document.getElementById('session-role-filter').value;
+    let url = '/sessions?limit=20';
+    if (roleFilter) url += '&role=' + encodeURIComponent(roleFilter);
+
+    const data = await fetchJSON(url).catch(() => ({ sessions: [], total: 0 }));
+    const sessions = data.sessions || [];
+    const total = data.total || 0;
+
+    const section = document.getElementById('sessions-section');
+    section.style.display = (total > 0 || roleFilter) ? '' : 'none';
+
+    document.getElementById('sessions-meta').textContent = total > 0 ? `${sessions.length} of ${total}` : '';
+
+    // Populate role filter (once).
+    if (!sessionRolesPopulated && Array.isArray(cachedJobs)) {
+      const select = document.getElementById('session-role-filter');
+      const roleSet = new Set();
+      sessions.forEach(s => { if (s.role) roleSet.add(s.role); });
+      for (const [name] of Object.entries(window._cachedRoles || {})) roleSet.add(name);
+      roleSet.forEach(r => {
+        if ([...select.options].some(o => o.value === r)) return;
+        const opt = document.createElement('option');
+        opt.value = r; opt.textContent = r;
+        select.appendChild(opt);
+      });
+      sessionRolesPopulated = roleSet.size > 0;
+    }
+
+    document.getElementById('sessions-body').innerHTML = sessions.map(s => {
+      const dot = s.status === 'active' ? 'dot-green' : s.status === 'completed' ? 'dot-gray' : 'dot-red';
+      const title = esc((s.title || '(untitled)').substring(0, 60));
+      const shortId = s.id.length > 12 ? s.id.substring(0, 12) : s.id;
+      return `<tr>
+        <td><span style="color:var(--accent)">${esc(s.role || '-')}</span></td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.title)}">${title}</td>
+        <td><span class="dot ${dot}"></span>${esc(s.status)}</td>
+        <td>${s.messageCount || 0}</td>
+        <td style="font-family:monospace;font-size:12px">${costFmt(s.totalCost)}</td>
+        <td style="font-size:12px;color:var(--muted)">${dateTimeStr(s.updatedAt)}</td>
+        <td><button class="btn btn-sm" onclick="viewSessionWithStream('${esc(shortId)}','${esc(s.id)}','${esc(s.status)}')">View</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('refreshSessions:', e); }
+}
+
+async function viewSession(shortId, fullId) {
+  try {
+    const data = await fetchJSON('/sessions/' + fullId);
+    if (!data || !data.session) return;
+
+    const s = data.session;
+    document.getElementById('session-modal-title').textContent = s.role ? `${s.role} Session` : 'Session';
+    document.getElementById('session-modal-meta').innerHTML =
+      `ID: ${esc(s.id)}<br>Source: ${esc(s.source)} | Status: ${esc(s.status)} | ` +
+      `Messages: ${s.messageCount} | Cost: ${costFmt(s.totalCost)} | ` +
+      `Tokens: ${(s.totalTokensIn||0)}/${(s.totalTokensOut||0)} | Updated: ${dateTimeStr(s.updatedAt)}`;
+
+    const msgs = data.messages || [];
+    document.getElementById('session-modal-messages').innerHTML = msgs.map(m => {
+      const isUser = m.role === 'user';
+      const isSys = m.role === 'system';
+      const bgColor = isUser ? '#1a1a3a' : isSys ? '#1a1a1a' : '#0d1a1a';
+      const label = isUser ? 'USER' : isSys ? 'SYSTEM' : (s.role || 'AGENT');
+      const labelColor = isUser ? '#60a5fa' : isSys ? 'var(--muted)' : 'var(--green)';
+      const costInfo = m.costUsd > 0 ? ` | ${costFmt(m.costUsd)}` : '';
+      const modelInfo = m.model ? ` | ${esc(m.model)}` : '';
+      return `<div style="background:${bgColor};border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:600;color:${labelColor}">${label}</span>
+          <span style="font-size:10px;color:var(--muted)">${dateTimeStr(m.createdAt)}${costInfo}${modelInfo}</span>
+        </div>
+        <div style="font-size:13px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto">${esc(m.content)}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('session-modal').style.display = 'flex';
+  } catch(e) { console.error('viewSession:', e); }
+}
+
+// --- SSE Live Streaming ---
+const liveStreams = {}; // taskId -> EventSource
+
+function toggleLive(taskId) {
+  if (liveStreams[taskId]) {
+    closeLive(taskId);
+  } else {
+    openLive(taskId);
+  }
+}
+
+function openLive(taskId) {
+  const output = document.getElementById('live-' + taskId);
+  const btn = document.getElementById('live-btn-' + taskId);
+  if (!output || !btn) return;
+
+  output.style.display = '';
+  output.innerHTML = '<span class="ev-started">Connecting...</span>\n';
+  btn.classList.add('active');
+  btn.textContent = 'Stop';
+
+  const url = '/dispatch/' + encodeURIComponent(taskId) + '/stream';
+  const es = new EventSource(url);
+  liveStreams[taskId] = es;
+
+  es.addEventListener('started', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      output.innerHTML += '<span class="ev-started">[started] ' + esc(d.data?.name || taskId) + ' (' + esc(d.data?.model || '') + ')</span>\n';
+      scrollLive(output);
+    } catch(err) {}
+  });
+
+  es.addEventListener('output_chunk', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      const chunk = d.data?.chunk || '';
+      if (chunk) {
+        output.innerHTML += '<span class="chunk">' + esc(chunk) + '</span>\n';
+        scrollLive(output);
+      }
+    } catch(err) {}
+  });
+
+  es.addEventListener('completed', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      const cost = d.data?.costUsd ? ' $' + Number(d.data.costUsd).toFixed(4) : '';
+      const dur = d.data?.durationMs ? ' ' + (d.data.durationMs / 1000).toFixed(1) + 's' : '';
+      output.innerHTML += '<span class="ev-completed">[completed]' + cost + dur + '</span>\n';
+      scrollLive(output);
+    } catch(err) {}
+    closeLive(taskId);
+  });
+
+  es.addEventListener('error', function(e) {
+    if (e.data) {
+      try {
+        const d = JSON.parse(e.data);
+        output.innerHTML += '<span class="ev-error">[error] ' + esc(d.data?.error || 'unknown') + '</span>\n';
+        scrollLive(output);
+      } catch(err) {}
+    }
+    closeLive(taskId);
+  });
+
+  es.onerror = function() {
+    // EventSource will auto-reconnect; if task is done, connection closes cleanly.
+    closeLive(taskId);
+  };
+}
+
+function closeLive(taskId) {
+  if (liveStreams[taskId]) {
+    liveStreams[taskId].close();
+    delete liveStreams[taskId];
+  }
+  const btn = document.getElementById('live-btn-' + taskId);
+  if (btn) {
+    btn.classList.remove('active');
+    btn.textContent = 'Live';
+  }
+}
+
+function scrollLive(el) {
+  el.scrollTop = el.scrollHeight;
+}
+
+// Close all live streams when tasks are no longer running.
+function cleanupLiveStreams() {
+  for (const taskId in liveStreams) {
+    if (!document.getElementById('task-' + taskId)) {
+      closeLive(taskId);
+    }
+  }
+}
+
+// --- Session Live Streaming ---
+let sessionSSE = null;
+
+function viewSessionWithStream(shortId, fullId, status) {
+  viewSession(shortId, fullId);
+  // If session is active, connect SSE stream.
+  if (status === 'active') {
+    connectSessionStream(fullId);
+  }
+}
+
+function connectSessionStream(sessionId) {
+  disconnectSessionStream();
+  const url = '/sessions/' + encodeURIComponent(sessionId) + '/stream';
+  sessionSSE = new EventSource(url);
+
+  sessionSSE.addEventListener('output_chunk', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      const chunk = d.data?.chunk || '';
+      if (chunk) {
+        // Append chunk to the last message in the modal, or create a streaming area.
+        let streamEl = document.getElementById('session-stream-output');
+        if (!streamEl) {
+          const container = document.getElementById('session-modal-messages');
+          const div = document.createElement('div');
+          div.id = 'session-stream-output';
+          div.className = 'live-output';
+          div.style.display = '';
+          container.appendChild(div);
+        }
+        streamEl = document.getElementById('session-stream-output');
+        streamEl.innerHTML += '<span class="chunk">' + esc(chunk) + '</span>';
+        streamEl.scrollTop = streamEl.scrollHeight;
+      }
+    } catch(err) {}
+  });
+
+  sessionSSE.addEventListener('completed', function(e) {
+    disconnectSessionStream();
+    // Refresh session detail to show final result.
+    const modal = document.getElementById('session-modal');
+    if (modal.style.display === 'flex') {
+      // Re-fetch session data.
+      viewSession('', sessionId);
+    }
+  });
+
+  sessionSSE.addEventListener('error', function() {
+    disconnectSessionStream();
+  });
+
+  sessionSSE.onerror = function() {
+    disconnectSessionStream();
+  };
+}
+
+function disconnectSessionStream() {
+  if (sessionSSE) {
+    sessionSSE.close();
+    sessionSSE = null;
+  }
+  const streamEl = document.getElementById('session-stream-output');
+  if (streamEl) streamEl.remove();
+}
+
+// --- Chat Tab ---
+var currentTab = 'dashboard';
+var chatSessionId = null;
+var chatSSE = null;
+var chatSending = false;
+var chatSessionRole = '';
+
+function switchTab(tab) {
+  currentTab = tab;
+  ['dashboard','chat','workflows','integrations','settings'].forEach(function(t) {
+    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
+    document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
+  });
+  if (tab === 'chat') {
+    refreshChatSidebar();
+    populateChatRoleFilter();
+  }
+  if (tab === 'workflows') {
+    refreshWorkflowRuns();
+  }
+  if (tab === 'integrations') {
+    refreshIntegrations();
+  }
+  if (tab === 'settings') {
+    refreshSettings();
+  }
+}
+
+function populateChatRoleFilter() {
+  var select = document.getElementById('chat-role-filter');
+  if (select.options.length > 1) return;
+  try {
+    fetch('/roles').then(function(r) { return r.json(); }).then(function(roles) {
+      (Array.isArray(roles) ? roles : []).forEach(function(r) {
+        var opt = document.createElement('option');
+        opt.value = r.name; opt.textContent = r.name;
+        select.appendChild(opt);
+      });
+    });
+  } catch(e) {}
+}
+
+var chatRoleColors = { '\u7460\u7483': 'var(--accent)', '\u7fe1\u7fe0': 'var(--accent2)', '\u9ed2\u66dc': 'var(--red)', '\u7425\u73c0': 'var(--yellow)' };
+function chatRoleColor(role) { return chatRoleColors[role] || 'var(--green)'; }
+
+async function refreshChatSidebar() {
+  try {
+    var roleFilter = document.getElementById('chat-role-filter').value;
+    var url = '/sessions?limit=50';
+    if (roleFilter) url += '&role=' + encodeURIComponent(roleFilter);
+    var data = await fetch(url).then(function(r) { return r.json(); }).catch(function() { return { sessions: [] }; });
+    var sessions = data.sessions || [];
+
+    var list = document.getElementById('chat-sidebar-list');
+    if (sessions.length === 0) {
+      list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No sessions yet</div>';
+      return;
+    }
+
+    list.innerHTML = sessions.map(function(s) {
+      var isActive = s.id === chatSessionId;
+      var dotCls = s.status === 'active' ? 'dot-green' : 'dot-gray';
+      var title = (s.title || '(untitled)').substring(0, 50);
+      var color = chatRoleColor(s.role);
+      return '<div class="chat-session-item' + (isActive ? ' active' : '') + '" onclick="openChatSession(\'' + esc(s.id) + '\')">' +
+        '<div class="chat-session-role" style="color:' + color + '"><span class="dot ' + dotCls + '"></span>' + esc(s.role || 'unknown') + '</div>' +
+        '<div class="chat-session-title">' + esc(title) + '</div>' +
+        '<div class="chat-session-meta">' + (s.messageCount || 0) + ' msgs &middot; ' + costFmt(s.totalCost || 0) + ' &middot; ' + dateTimeStr(s.updatedAt) + '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) { console.error('refreshChatSidebar:', e); }
+}
+
+async function openChatSession(sessionId) {
+  disconnectChatSSE();
+  chatSessionId = sessionId;
+
+  document.getElementById('chat-empty').style.display = 'none';
+  document.getElementById('chat-messages').style.display = 'flex';
+  document.getElementById('chat-input-area').style.display = '';
+  document.getElementById('chat-header').style.display = '';
+
+  refreshChatSidebar();
+
+  try {
+    var data = await fetch('/sessions/' + encodeURIComponent(sessionId)).then(function(r) { return r.json(); });
+    if (!data || !data.session) return;
+
+    var s = data.session;
+    chatSessionRole = s.role || 'Agent';
+    document.getElementById('chat-header-role').textContent = chatSessionRole;
+    document.getElementById('chat-header-role').style.color = chatRoleColor(chatSessionRole);
+    document.getElementById('chat-header-meta').textContent =
+      (s.messageCount || 0) + ' msgs \u00b7 ' + costFmt(s.totalCost || 0) + ' \u00b7 ' + (s.status || '');
+
+    renderChatMessages(data.messages || []);
+    connectChatSSE(sessionId);
+    document.getElementById('chat-input').focus();
+  } catch(e) { console.error('openChatSession:', e); }
+}
+
+function renderChatMessages(messages) {
+  var container = document.getElementById('chat-messages');
+  container.innerHTML = messages.map(function(m) { return renderChatBubble(m); }).join('');
+  requestAnimationFrame(function() { container.scrollTop = container.scrollHeight; });
+}
+
+function renderChatBubble(m) {
+  var isUser = m.role === 'user';
+  var isSys = m.role === 'system';
+  var bubbleCls = isUser ? 'chat-bubble-user' : isSys ? 'chat-bubble-system' : 'chat-bubble-agent';
+  var label = isUser ? 'You' : isSys ? 'System' : chatSessionRole;
+  var labelColor = isUser ? '#60a5fa' : isSys ? 'var(--muted)' : chatRoleColor(chatSessionRole);
+  var contentHTML = isUser
+    ? '<div style="white-space:pre-wrap;word-break:break-word">' + esc(m.content || '') + '</div>'
+    : '<div class="md-rendered">' + renderMarkdown(m.content || '') + '</div>';
+  var metaParts = [];
+  if (m.createdAt) metaParts.push(dateTimeStr(m.createdAt));
+  if (m.costUsd > 0) metaParts.push(costFmt(m.costUsd));
+  if (m.model) metaParts.push(m.model);
+  if (m.tokensIn > 0 || m.tokensOut > 0) metaParts.push((m.tokensIn||0) + '/' + (m.tokensOut||0) + ' tok');
+  var metaHTML = metaParts.length > 0
+    ? '<div class="chat-bubble-meta">' + metaParts.map(function(p){ return '<span>' + esc(p) + '</span>'; }).join('') + '</div>'
+    : '';
+  return '<div class="chat-bubble ' + bubbleCls + '">' +
+    '<div class="chat-bubble-label" style="color:' + labelColor + '">' + esc(label) + '</div>' +
+    contentHTML + metaHTML + '</div>';
+}
+
+// --- Cost Estimate Helper ---
+async function getChatEstimate(prompt, role) {
+  try {
+    var task = { prompt: prompt };
+    if (role) task.role = role;
+    var resp = await fetch('/dispatch/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([task])
+    });
+    return await resp.json();
+  } catch(e) { return null; }
+}
+
+// --- Send Message with SSE Streaming ---
+async function sendChatMessage() {
+  if (chatSending || !chatSessionId) return;
+  var input = document.getElementById('chat-input');
+  var message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  autoResizeInput(input);
+  chatSending = true;
+  document.getElementById('chat-send-btn').disabled = true;
+  document.getElementById('chat-typing').classList.add('visible');
+
+  var container = document.getElementById('chat-messages');
+  container.insertAdjacentHTML('beforeend', renderChatBubble({
+    role: 'user', content: message, createdAt: new Date().toISOString()
+  }));
+  container.scrollTop = container.scrollHeight;
+
+  // Show cost estimate badge.
+  var costEst = await getChatEstimate(message, chatSessionRole);
+  if (costEst && costEst.totalEstimatedCostUsd > 0) {
+    var breakdown = costEst.tasks && costEst.tasks[0] ? costEst.tasks[0].breakdown : '';
+    container.insertAdjacentHTML('beforeend',
+      '<div class="cost-estimate-badge" title="' + esc(breakdown) + '">~$' +
+      costEst.totalEstimatedCostUsd.toFixed(4) + '</div>');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  var streamId = 'stream-' + Date.now();
+  container.insertAdjacentHTML('beforeend',
+    '<div id="' + streamId + '" class="chat-bubble chat-bubble-agent chat-bubble-streaming">' +
+    '<div class="chat-bubble-label" style="color:' + chatRoleColor(chatSessionRole) + '">' + esc(chatSessionRole) + '</div>' +
+    '<div id="' + streamId + '-content" class="md-rendered"></div>' +
+    '</div>');
+  container.scrollTop = container.scrollHeight;
+
+  window._chatStream = { id: streamId, text: '' };
+
+  try {
+    var resp = await fetch('/sessions/' + encodeURIComponent(chatSessionId) + '/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: message, async: true })
+    }).then(function(r) { return r.json(); });
+
+    if (!resp || !resp.taskId) throw new Error(resp.error || 'No task ID');
+    window._chatStream.taskId = resp.taskId;
+  } catch(e) {
+    var el = document.getElementById(streamId);
+    if (el) el.remove();
+    container.insertAdjacentHTML('beforeend', renderChatBubble({
+      role: 'system', content: '[error] ' + e.message, createdAt: new Date().toISOString()
+    }));
+    container.scrollTop = container.scrollHeight;
+    unlockChatInput();
+  }
+}
+
+function unlockChatInput() {
+  chatSending = false;
+  document.getElementById('chat-send-btn').disabled = false;
+  document.getElementById('chat-typing').classList.remove('visible');
+  document.querySelectorAll('.chat-bubble-streaming').forEach(function(el) {
+    el.classList.remove('chat-bubble-streaming');
+  });
+}
+
+// --- Chat SSE ---
+function connectChatSSE(sessionId) {
+  disconnectChatSSE();
+  var url = '/sessions/' + encodeURIComponent(sessionId) + '/stream';
+  chatSSE = new EventSource(url);
+
+  chatSSE.addEventListener('output_chunk', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      var chunk = (d.data && d.data.chunk) || '';
+      if (!chunk || !window._chatStream) return;
+      window._chatStream.text += chunk;
+      var contentEl = document.getElementById(window._chatStream.id + '-content');
+      if (contentEl) contentEl.textContent = window._chatStream.text;
+      var container = document.getElementById('chat-messages');
+      if (container) container.scrollTop = container.scrollHeight;
+    } catch(err) {}
+  });
+
+  chatSSE.addEventListener('completed', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      finalizeChatBubble(d.data);
+    } catch(err) {}
+    unlockChatInput();
+    refreshChatSidebar();
+    setTimeout(function() { if (chatSessionId) connectChatSSE(chatSessionId); }, 100);
+  });
+
+  chatSSE.addEventListener('error', function(e) {
+    try {
+      if (e.data) {
+        var d = JSON.parse(e.data);
+        finalizeChatBubble(d.data, true);
+      }
+    } catch(err) {}
+    if (chatSending) unlockChatInput();
+  });
+
+  chatSSE.onerror = function() {
+    if (chatSending) {
+      if (window._chatStream && !document.getElementById(window._chatStream.id)) {
+        unlockChatInput();
+      }
+    }
+  };
+}
+
+function disconnectChatSSE() {
+  if (chatSSE) { chatSSE.close(); chatSSE = null; }
+  window._chatStream = null;
+}
+
+function finalizeChatBubble(data, isError) {
+  var stream = window._chatStream;
+  if (!stream) return;
+  var el = document.getElementById(stream.id);
+  if (!el) return;
+
+  el.classList.remove('chat-bubble-streaming');
+  var contentEl = document.getElementById(stream.id + '-content');
+  if (contentEl && stream.text) {
+    contentEl.innerHTML = renderMarkdown(stream.text);
+  }
+
+  var metaParts = [];
+  if (data) {
+    if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
+    if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+    if (data.tokensIn || data.tokensOut) metaParts.push((data.tokensIn||0) + '/' + (data.tokensOut||0) + ' tok');
+    if (isError && data.error) metaParts.push('Error: ' + data.error);
+  }
+  if (metaParts.length > 0) {
+    el.insertAdjacentHTML('beforeend',
+      '<div class="chat-bubble-meta">' + metaParts.map(function(p){ return '<span>' + esc(p) + '</span>'; }).join('') + '</div>');
+  }
+  window._chatStream = null;
+  var container = document.getElementById('chat-messages');
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+// --- Chat Input Handling ---
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+}
+
+function autoResizeInput(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// --- New Chat Modal ---
+function openNewChatModal() {
+  var select = document.getElementById('new-chat-role');
+  if (select.options.length === 0) {
+    fetch('/roles').then(function(r) { return r.json(); }).then(function(roles) {
+      (Array.isArray(roles) ? roles : []).forEach(function(r) {
+        var opt = document.createElement('option');
+        opt.value = r.name; opt.textContent = r.name;
+        select.appendChild(opt);
+      });
+    });
+  }
+  document.getElementById('new-chat-modal').classList.add('open');
+}
+function closeNewChatModal() { document.getElementById('new-chat-modal').classList.remove('open'); }
+
+async function createNewChat() {
+  var role = document.getElementById('new-chat-role').value;
+  if (!role) { toast('Select a role'); return; }
+  try {
+    var sess = await fetch('/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: role })
+    }).then(function(r) { return r.json(); });
+    if (sess && sess.id) {
+      closeNewChatModal();
+      await refreshChatSidebar();
+      openChatSession(sess.id);
+      toast('New chat with ' + role);
+    }
+  } catch(e) { toast('Failed: ' + e.message); }
+}
+
+// --- Archive Chat ---
+function archiveChat() {
+  if (!chatSessionId || !confirm('Archive this session?')) return;
+  fetch('/sessions/' + encodeURIComponent(chatSessionId), { method: 'DELETE' })
+    .then(function() {
+      toast('Session archived');
+      disconnectChatSSE();
+      chatSessionId = null;
+      chatSessionRole = '';
+      document.getElementById('chat-empty').style.display = '';
+      document.getElementById('chat-messages').style.display = 'none';
+      document.getElementById('chat-input-area').style.display = 'none';
+      document.getElementById('chat-header').style.display = 'none';
+      refreshChatSidebar();
+    })
+    .catch(function(e) { toast('Archive failed: ' + e.message); });
+}
+
+// --- Agent Communication ---
+async function refreshAgentComm() {
+  try {
+    const [handoffs, messages] = await Promise.all([
+      fetchJSON('/handoffs').catch(() => []),
+      fetchJSON('/agent-messages?limit=20').catch(() => [])
+    ]);
+
+    const section = document.getElementById('agent-comm-section');
+    const total = (handoffs || []).length + (messages || []).length;
+    section.style.display = total > 0 ? '' : 'none';
+    document.getElementById('agent-comm-meta').textContent = total > 0 ?
+      `${(handoffs||[]).length} handoffs, ${(messages||[]).length} messages` : '';
+
+    const body = document.getElementById('agent-comm-body');
+    let html = '';
+
+    // Render handoffs.
+    if (handoffs && handoffs.length > 0) {
+      html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-top:4px">Handoffs</div>';
+      handoffs.forEach(function(h) {
+        const statusColor = h.status === 'completed' ? 'var(--green)' :
+          h.status === 'active' ? 'var(--accent)' :
+          h.status === 'error' ? '#f87171' : 'var(--muted)';
+        const shortId = h.id.length > 8 ? h.id.substring(0, 8) : h.id;
+        const inst = (h.instruction || '').substring(0, 80);
+        html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:12px">' +
+          '<span style="color:var(--accent)">' + esc(h.fromRole) + '</span>' +
+          ' <span style="color:var(--muted)">\u2192</span> ' +
+          '<span style="color:var(--green)">' + esc(h.toRole) + '</span>' +
+          ' <span style="color:' + statusColor + ';font-size:11px;margin-left:8px">[' + esc(h.status) + ']</span>' +
+          ' <span style="color:var(--muted);font-size:11px;margin-left:8px">' + esc(shortId) + '</span>' +
+          (inst ? '<div style="color:var(--muted);margin-top:4px;font-size:11px">' + esc(inst) + '</div>' : '') +
+          '</div>';
+      });
+    }
+
+    // Render recent messages.
+    if (messages && messages.length > 0) {
+      html += '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-top:8px">Recent Messages</div>';
+      messages.forEach(function(m) {
+        const typeColor = m.type === 'handoff' ? 'var(--accent)' :
+          m.type === 'response' ? 'var(--green)' :
+          m.type === 'request' ? '#fbbf24' : 'var(--muted)';
+        const content = (m.content || '').substring(0, 120);
+        const ts = (m.createdAt || '').substring(0, 19);
+        html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px">' +
+          '<span style="color:' + typeColor + '">[' + esc(m.type) + ']</span> ' +
+          '<span style="color:var(--accent)">' + esc(m.fromRole) + '</span>' +
+          ' \u2192 ' +
+          '<span style="color:var(--green)">' + esc(m.toRole) + '</span>' +
+          '<span style="color:var(--muted);float:right">' + esc(ts) + '</span>' +
+          '<div style="color:var(--text);margin-top:2px">' + esc(content) + '</div>' +
+          '</div>';
+      });
+    }
+
+    body.innerHTML = html;
+  } catch(e) { console.error('refreshAgentComm:', e); }
+}
+
+// --- Version History ---
+async function refreshVersions() {
+  try {
+    var filter = document.getElementById('version-type-filter').value;
+    var url = '/versions?limit=30';
+    if (filter) url += '&type=' + filter;
+    const res = await fetchAPI(url);
+    const versions = await res.json();
+    const section = document.getElementById('version-section');
+    const body = document.getElementById('version-body');
+    const meta = document.getElementById('version-meta');
+
+    section.style.display = '';
+    meta.textContent = versions.length + ' version' + (versions.length !== 1 ? 's' : '');
+
+    if (versions.length === 0) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px">No version history</td></tr>';
+      return;
+    }
+
+    var html = '';
+    versions.forEach(function(v) {
+      var ts = v.createdAt || '';
+      if (ts.length > 19) ts = ts.substring(0, 19);
+      var diff = v.diffSummary || '';
+      if (diff.length > 60) diff = diff.substring(0, 60) + '...';
+      var typeColor = v.entityType === 'config' ? '#3b82f6' : (v.entityType === 'workflow' ? '#8b5cf6' : '#eab308');
+
+      html += '<tr>' +
+        '<td><code style="font-size:11px">' + esc(v.versionId) + '</code></td>' +
+        '<td><span style="background:' + typeColor + ';color:#fff;padding:1px 6px;border-radius:8px;font-size:10px">' + esc(v.entityType) + '</span></td>' +
+        '<td>' + esc(v.entityName) + '</td>' +
+        '<td style="font-size:12px;color:var(--muted)">' + esc(diff) + '</td>' +
+        '<td>' + esc(v.changedBy) + '</td>' +
+        '<td style="font-size:12px">' + esc(ts) + '</td>' +
+        '<td><button class="btn" style="font-size:11px;padding:2px 6px" onclick="showVersion(\'' + esc(v.versionId) + '\')">View</button>';
+      if (v.entityType === 'config') {
+        html += ' <button class="btn" style="font-size:11px;padding:2px 6px" onclick="restoreVersion(\'' + esc(v.versionId) + '\')">Restore</button>';
+      }
+      html += '</td></tr>';
+    });
+    body.innerHTML = html;
+  } catch(e) { console.error('refreshVersions:', e); }
+}
+
+async function snapshotConfig() {
+  try {
+    await fetchAPI('/config/versions', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'manual snapshot'})});
+    refreshVersions();
+  } catch(e) { alert('Snapshot failed: ' + e.message); }
+}
+
+async function showVersion(vid) {
+  try {
+    const res = await fetchAPI('/config/versions/' + vid);
+    const ver = await res.json();
+    var modal = document.getElementById('version-diff-modal');
+    var title = document.getElementById('diff-title');
+    var content = document.getElementById('diff-content');
+    title.textContent = 'Version ' + ver.versionId + ' (' + ver.entityType + '/' + ver.entityName + ')';
+    try {
+      var parsed = JSON.parse(ver.contentJson);
+      content.textContent = JSON.stringify(parsed, null, 2);
+    } catch(e) {
+      content.textContent = ver.contentJson;
+    }
+    modal.style.display = '';
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function restoreVersion(vid) {
+  if (!confirm('Restore config to version ' + vid + '? The daemon will need a restart.')) return;
+  try {
+    await fetchAPI('/config/versions/' + vid + '/restore', {method:'POST'});
+    alert('Config restored. Restart the daemon for changes to take effect.');
+    refreshVersions();
+  } catch(e) { alert('Restore failed: ' + e.message); }
+}
+
+// --- Trust Gradient ---
+async function refreshTrust() {
+  try {
+    const res = await fetchAPI('/trust');
+    const statuses = await res.json();
+    const section = document.getElementById('trust-section');
+    const cards = document.getElementById('trust-cards');
+    const meta = document.getElementById('trust-meta');
+
+    if (!statuses || statuses.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    meta.textContent = statuses.length + ' agent' + (statuses.length !== 1 ? 's' : '');
+
+    var html = '';
+    statuses.forEach(function(s) {
+      var color, bg, icon;
+      if (s.level === 'observe') { color = '#3b82f6'; bg = 'rgba(59,130,246,0.1)'; icon = 'O'; }
+      else if (s.level === 'suggest') { color = '#eab308'; bg = 'rgba(234,179,8,0.1)'; icon = 'S'; }
+      else { color = '#22c55e'; bg = 'rgba(34,211,153,0.06)'; icon = 'A'; }
+
+      html += '<div style="background:' + bg + ';border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:180px;flex:1;max-width:240px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<strong style="color:var(--text)">' + esc(s.role) + '</strong>' +
+          '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + icon + ' ' + s.level + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px">' +
+          '<div><span style="color:var(--muted)">Streak:</span> ' + s.consecutiveSuccess + '</div>' +
+          '<div><span style="color:var(--muted)">Tasks:</span> ' + s.totalTasks + '</div>';
+      if (s.promoteReady) {
+        html += '<div style="margin-top:4px;color:#22c55e;font-weight:600">Ready: ' + s.level + ' -> ' + s.nextLevel + '</div>';
+      }
+      html += '</div></div>';
+    });
+    cards.innerHTML = html;
+  } catch(e) { console.error('refreshTrust:', e); }
+}
+
+// --- Agent SLA ---
+async function refreshSLA() {
+  try {
+    const res = await fetchAPI('/stats/sla');
+    const data = await res.json();
+    const statuses = data.statuses || [];
+    const section = document.getElementById('sla-section');
+    const cards = document.getElementById('sla-cards');
+    const meta = document.getElementById('sla-meta');
+
+    if (statuses.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    var violations = statuses.filter(function(s) { return s.status === 'violation'; }).length;
+    var warnings = statuses.filter(function(s) { return s.status === 'warning'; }).length;
+    var parts = [statuses.length + ' role' + (statuses.length !== 1 ? 's' : '')];
+    if (violations > 0) parts.push(violations + ' violation' + (violations !== 1 ? 's' : ''));
+    if (warnings > 0) parts.push(warnings + ' warning' + (warnings !== 1 ? 's' : ''));
+    meta.textContent = parts.join(', ');
+
+    var html = '';
+    statuses.forEach(function(s) {
+      var color, label, bg;
+      if (s.status === 'violation') { color = '#ef4444'; label = 'Violation'; bg = 'rgba(239,68,68,0.1)'; }
+      else if (s.status === 'warning') { color = '#eab308'; label = 'Warning'; bg = 'rgba(234,179,8,0.1)'; }
+      else { color = '#22c55e'; label = 'OK'; bg = 'rgba(34,211,153,0.06)'; }
+
+      var rate = s.total > 0 ? (s.successRate * 100).toFixed(1) + '%' : 'N/A';
+      var latency = s.avgLatencyMs > 0 ? (s.avgLatencyMs / 1000).toFixed(1) + 's' : 'N/A';
+      var p95 = s.p95LatencyMs > 0 ? (s.p95LatencyMs / 1000).toFixed(1) + 's' : 'N/A';
+      var cost = s.totalCost > 0 ? '$' + s.totalCost.toFixed(2) : '$0';
+
+      html += '<div style="background:' + bg + ';border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:200px;flex:1;max-width:280px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<strong style="color:var(--text)">' + esc(s.role) + '</strong>' +
+          '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + label + '</span>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px">' +
+          '<div><span style="color:var(--muted)">Success:</span> <span style="color:' + (s.successRate >= 0.95 ? 'var(--green)' : s.successRate >= 0.9 ? 'var(--yellow)' : 'var(--red)') + '">' + rate + '</span></div>' +
+          '<div><span style="color:var(--muted)">Tasks:</span> ' + s.total + ' (' + s.success + '/' + s.fail + ')</div>' +
+          '<div><span style="color:var(--muted)">Avg:</span> ' + latency + '</div>' +
+          '<div><span style="color:var(--muted)">P95:</span> ' + p95 + '</div>' +
+          '<div style="grid-column:span 2"><span style="color:var(--muted)">Cost:</span> ' + cost + '</div>' +
+        '</div>';
+      if (s.violation) {
+        html += '<div style="margin-top:6px;font-size:11px;color:' + color + '">' + esc(s.violation) + '</div>';
+      }
+      html += '</div>';
+    });
+    cards.innerHTML = html;
+  } catch(e) { console.error('refreshSLA:', e); }
+}
+
+// --- Provider Health (Circuit Breakers) ---
+async function refreshCircuits() {
+  try {
+    const res = await fetchAPI('/circuits');
+    const data = await res.json();
+    const providers = Object.keys(data);
+    const section = document.getElementById('circuits-section');
+    const list = document.getElementById('circuits-list');
+    const meta = document.getElementById('circuits-meta');
+
+    if (providers.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    const openCount = providers.filter(p => data[p].state === 'open').length;
+    meta.textContent = providers.length + ' provider' + (providers.length !== 1 ? 's' : '') +
+      (openCount > 0 ? ' (' + openCount + ' open)' : '');
+
+    let html = '';
+    providers.sort().forEach(function(name) {
+      const info = data[name];
+      const st = info.state || 'closed';
+      let color = '#22c55e'; // green for closed
+      let label = 'Healthy';
+      if (st === 'open') { color = '#ef4444'; label = 'Open'; }
+      else if (st === 'half-open') { color = '#eab308'; label = 'Recovering'; }
+
+      html += '<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:180px;display:flex;flex-direction:column;gap:4px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<strong style="color:var(--text)">' + esc(name) + '</strong>' +
+          '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + label + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted)">' +
+          'Failures: ' + (info.failures || 0) +
+          (info.lastFailure ? ' &middot; Last: ' + info.lastFailure.replace('T',' ').slice(0,19) : '') +
+        '</div>';
+
+      if (st !== 'closed') {
+        html += '<button onclick="resetCircuit(\'' + esc(name) + '\')" style="margin-top:4px;padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;align-self:flex-start">Reset</button>';
+      }
+      html += '</div>';
+    });
+    list.innerHTML = html;
+  } catch(e) { console.error('refreshCircuits:', e); }
+}
+
+async function resetCircuit(provider) {
+  try {
+    await fetchAPI('/circuits/' + encodeURIComponent(provider) + '/reset', { method: 'POST' });
+    refreshCircuits();
+  } catch(e) { alert('Reset failed: ' + e.message); }
+}
+
+// --- P18.1: Cost Dashboard ---
+
+var costPeriod = 'today';
+
+async function loadCostDashboard(period) {
+  if (period) costPeriod = period;
+  // Update button styles.
+  ['today','week','month'].forEach(function(p) {
+    var btn = document.getElementById('cost-btn-' + p);
+    if (btn) btn.style.fontWeight = (p === costPeriod) ? '700' : '400';
+  });
+
+  try {
+    var [summary, models, roles, sessions] = await Promise.all([
+      fetchJSON('/api/usage/summary?period=' + costPeriod).catch(function() { return {}; }),
+      fetchJSON('/api/usage/breakdown?by=model&days=30').catch(function() { return []; }),
+      fetchJSON('/api/usage/breakdown?by=role&days=30').catch(function() { return []; }),
+      fetchJSON('/api/usage/sessions?limit=5&days=30').catch(function() { return []; }),
+    ]);
+
+    // Summary cards.
+    var sumEl = document.getElementById('cost-summary');
+    var budgetBar = '';
+    if (summary.budgetLimit > 0) {
+      var pct = Math.min((summary.totalCostUsd / summary.budgetLimit) * 100, 100);
+      var barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--yellow)' : 'var(--green)';
+      budgetBar = '<div style="margin-top:6px;height:4px;background:var(--border);border-radius:2px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:2px"></div></div><div style="font-size:10px;color:var(--muted);margin-top:2px">limit: ' + costFmt(summary.budgetLimit) + ' (' + pct.toFixed(1) + '%)</div>';
+    }
+    sumEl.innerHTML = [
+      { label: 'Cost (' + costPeriod + ')', value: costFmt(summary.totalCostUsd || 0), extra: budgetBar },
+      { label: 'Tasks', value: summary.totalTasks || 0 },
+      { label: 'Tokens In', value: (summary.totalTokensIn || 0).toLocaleString() },
+      { label: 'Tokens Out', value: (summary.totalTokensOut || 0).toLocaleString() },
+    ].map(function(s) {
+      return '<div class="stat"><div class="stat-label">' + s.label + '</div><div class="stat-value cost">' + s.value + '</div>' + (s.extra || '') + '</div>';
+    }).join('');
+
+    // Model breakdown.
+    var modelBody = document.getElementById('cost-model-body');
+    if (models.length === 0) {
+      modelBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      modelBody.innerHTML = models.map(function(m) {
+        return '<tr><td>' + esc(m.model) + '</td><td>' + m.tasks + '</td><td>' + costFmt(m.costUsd) + '</td><td>' + m.pct.toFixed(1) + '%</td></tr>';
+      }).join('');
+    }
+
+    // Role breakdown.
+    var roleBody = document.getElementById('cost-role-body');
+    if (roles.length === 0) {
+      roleBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      roleBody.innerHTML = roles.map(function(r) {
+        return '<tr><td>' + esc(r.role) + '</td><td>' + r.tasks + '</td><td>' + costFmt(r.costUsd) + '</td><td>' + r.pct.toFixed(1) + '%</td></tr>';
+      }).join('');
+    }
+
+    // Expensive sessions.
+    var sessBody = document.getElementById('cost-sessions-body');
+    if (sessions.length === 0) {
+      sessBody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center">No data</td></tr>';
+    } else {
+      sessBody.innerHTML = sessions.map(function(s) {
+        var title = s.title || '(untitled)';
+        if (title.length > 40) title = title.substring(0, 40) + '...';
+        var tokens = (s.tokensIn || 0).toLocaleString() + ' / ' + (s.tokensOut || 0).toLocaleString();
+        var created = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '';
+        return '<tr><td>' + esc(s.role) + '</td><td title="' + esc(s.title || '') + '">' + esc(title) + '</td><td>' + s.messages + '</td><td style="font-size:12px">' + tokens + '</td><td>' + costFmt(s.totalCostUsd) + '</td><td style="font-size:12px">' + created + '</td></tr>';
+      }).join('');
+    }
+  } catch(e) {
+    console.error('Cost dashboard error:', e);
+  }
+}
+
+// Init
+loadCostDashboard('today');
+refresh();
+refreshPrompts();
+refreshMCP();
+refreshMemory();
+refreshRouting();
+refreshCircuits();
+refreshTrust();
+refreshVersions();
+refreshSLA();
+refreshSessions();
+refreshAgentComm();
+loadArchetypes();
+
+// --- Workflow Visualization ---
+
+var currentWfRun = null;
+var currentWfRunData = null;
+var wfSSE = null;
+
+function refreshWorkflowRuns() {
+  fetch('/workflow-runs', {credentials:'same-origin'}).then(function(resp) {
+    return resp.json();
+  }).then(function(runs) {
+    renderWfRunsList(runs || []);
+  }).catch(function() {
+    document.getElementById('wf-runs-list').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">Failed to load workflow runs</div>';
+  });
+}
+
+function renderWfRunsList(runs) {
+  var el = document.getElementById('wf-runs-list');
+  if (!runs.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No workflow runs yet</div>';
+    return;
+  }
+  var html = '<div class="table-wrap"><table class="wf-runs-table"><thead><tr><th>ID</th><th>Workflow</th><th>Status</th><th>Duration</th><th>Cost</th><th>Started</th></tr></thead><tbody>';
+  runs.forEach(function(r) {
+    var id = (r.id || '').substring(0, 8);
+    var dur = r.durationMs ? (r.durationMs / 1000).toFixed(1) + 's' : '-';
+    var cost = r.totalCostUsd != null ? '$' + r.totalCostUsd.toFixed(4) : '-';
+    var started = r.startedAt ? r.startedAt.substring(0, 19).replace('T', ' ') : '-';
+    var statusCls = r.status === 'success' ? 'badge-ok' : (r.status === 'error' || r.status === 'timeout') ? 'badge-err' : 'badge-warn';
+    html += '<tr onclick="openWfRun(\'' + escAttr(r.id) + '\')"><td><code style="font-size:11px">' + esc(id) + '</code></td><td>' + esc(r.workflowName || '') + '</td><td><span class="badge ' + statusCls + '">' + esc(r.status || '') + '</span></td><td>' + dur + '</td><td><span class="stat-value cost" style="font-size:13px">' + cost + '</span></td><td style="font-size:12px;color:var(--muted)">' + started + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function openWfRun(runId) {
+  currentWfRun = runId;
+  fetch('/workflow-runs/' + runId, {credentials:'same-origin'}).then(function(resp) {
+    return resp.json();
+  }).then(function(data) {
+    currentWfRunData = data;
+    return fetch('/workflows/' + encodeURIComponent(data.workflowName), {credentials:'same-origin'}).then(function(r) {
+      return r.json();
+    }).catch(function() { return null; }).then(function(wfDef) {
+      document.getElementById('wf-dag-section').style.display = '';
+      document.getElementById('wf-dag-title').textContent = data.workflowName + ' / ' + runId.substring(0, 8);
+      var statusCls = data.status === 'success' ? 'badge-ok' : (data.status === 'error' || data.status === 'timeout') ? 'badge-err' : 'badge-warn';
+      document.getElementById('wf-dag-status').textContent = data.status;
+      document.getElementById('wf-dag-status').className = 'badge ' + statusCls;
+
+      renderWfTimeline(data);
+      renderWfDAG(data, wfDef);
+
+      // Subscribe to SSE if running
+      if (data.status === 'running') {
+        subscribeWfSSE(runId);
+      } else if (wfSSE) {
+        wfSSE.close();
+        wfSSE = null;
+      }
+
+      // Scroll to DAG section
+      document.getElementById('wf-dag-section').scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
+  }).catch(function(e) {
+    console.error('openWfRun error:', e);
+  });
+}
+
+function closeWfDag() {
+  document.getElementById('wf-dag-section').style.display = 'none';
+  document.getElementById('wf-node-detail').style.display = 'none';
+  currentWfRun = null;
+  currentWfRunData = null;
+  if (wfSSE) { wfSSE.close(); wfSSE = null; }
+}
+
+// DAG Layout Algorithm (layered graph)
+function layoutDAG(stepResults, wfDef) {
+  var steps = [];
+  var depMap = {};
+
+  // Build from workflow definition if available
+  if (wfDef && wfDef.steps) {
+    wfDef.steps.forEach(function(s) {
+      depMap[s.id] = s.dependsOn || [];
+      steps.push({id: s.id, type: s.type || 'dispatch', role: s.role || '', deps: s.dependsOn || [], handoffFrom: s.handoffFrom || ''});
+    });
+  } else {
+    // Fallback: infer from stepResults keys (no dependency info)
+    Object.keys(stepResults).forEach(function(id) {
+      depMap[id] = [];
+      steps.push({id: id, type: 'dispatch', role: '', deps: [], handoffFrom: ''});
+    });
+  }
+
+  // Assign layers using longest path from sources
+  var layers = {};
+  var visited = {};
+  function getLayer(id) {
+    if (visited[id]) return layers[id] || 0;
+    visited[id] = true;
+    var deps = depMap[id] || [];
+    var maxDepLayer = -1;
+    deps.forEach(function(d) { maxDepLayer = Math.max(maxDepLayer, getLayer(d)); });
+    layers[id] = maxDepLayer + 1;
+    return layers[id];
+  }
+  steps.forEach(function(s) { getLayer(s.id); });
+
+  // Group by layer
+  var layerGroups = {};
+  var maxLayer = 0;
+  steps.forEach(function(s) {
+    var l = layers[s.id] || 0;
+    if (!layerGroups[l]) layerGroups[l] = [];
+    layerGroups[l].push(s);
+    maxLayer = Math.max(maxLayer, l);
+  });
+
+  // Position nodes
+  var nodeW = 140, nodeH = 50, gapX = 60, gapY = 30, padX = 40, padY = 30;
+  var nodes = {};
+  for (var l = 0; l <= maxLayer; l++) {
+    var group = layerGroups[l] || [];
+    for (var i = 0; i < group.length; i++) {
+      nodes[group[i].id] = {
+        x: padX + l * (nodeW + gapX),
+        y: padY + i * (nodeH + gapY),
+        w: nodeW, h: nodeH,
+        step: group[i]
+      };
+    }
+  }
+
+  // Build edges
+  var edges = [];
+  var handoffSet = {};
+  steps.forEach(function(s) {
+    if (s.handoffFrom && nodes[s.handoffFrom] && nodes[s.id]) {
+      handoffSet[s.handoffFrom + '->' + s.id] = true;
+    }
+    (s.deps || []).forEach(function(dep) {
+      if (nodes[dep] && nodes[s.id]) {
+        edges.push({from: dep, to: s.id, isHandoff: handoffSet[dep + '->' + s.id] || (s.handoffFrom === dep)});
+      }
+    });
+  });
+
+  // Calculate SVG size
+  var svgW = padX * 2 + (maxLayer + 1) * (nodeW + gapX);
+  var maxNodesInLayer = 0;
+  for (var ll = 0; ll <= maxLayer; ll++) {
+    maxNodesInLayer = Math.max(maxNodesInLayer, (layerGroups[ll] || []).length);
+  }
+  var svgH = padY * 2 + maxNodesInLayer * (nodeH + gapY);
+
+  return {nodes: nodes, edges: edges, width: Math.max(svgW, 300), height: Math.max(svgH, 150)};
+}
+
+// Render DAG as SVG
+function renderWfDAG(run, wfDef) {
+  var svg = document.getElementById('wf-dag-svg');
+  var layout = layoutDAG(run.stepResults || {}, wfDef);
+
+  svg.setAttribute('width', layout.width);
+  svg.setAttribute('height', layout.height);
+  svg.setAttribute('viewBox', '0 0 ' + layout.width + ' ' + layout.height);
+
+  var html = '<defs>';
+  html += '<marker id="wf-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#4b5563"/></marker>';
+  html += '<marker id="wf-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/></marker>';
+  html += '</defs>';
+
+  // Draw edges first (behind nodes)
+  layout.edges.forEach(function(e) {
+    var from = layout.nodes[e.from];
+    var to = layout.nodes[e.to];
+    if (!from || !to) return;
+    var x1 = from.x + from.w;
+    var y1 = from.y + from.h / 2;
+    var x2 = to.x;
+    var y2 = to.y + to.h / 2;
+    var cx = (x1 + x2) / 2;
+    var cls = 'wf-edge' + (e.isHandoff ? ' handoff' : '');
+    var marker = e.isHandoff ? 'url(#wf-arrow-accent)' : 'url(#wf-arrow)';
+    html += '<path class="' + cls + '" d="M' + x1 + ' ' + y1 + ' C' + cx + ' ' + y1 + ' ' + cx + ' ' + y2 + ' ' + x2 + ' ' + y2 + '" marker-end="' + marker + '"/>';
+  });
+
+  // Draw nodes
+  var nodeIds = Object.keys(layout.nodes);
+  nodeIds.forEach(function(id) {
+    var n = layout.nodes[id];
+    var sr = (run.stepResults || {})[id] || {};
+    var status = sr.status || 'pending';
+    var label = id.length > 16 ? id.substring(0, 14) + '..' : id;
+    var role = n.step.role || '';
+    var roleLabel = role.length > 14 ? role.substring(0, 12) + '..' : role;
+
+    html += '<g class="wf-node ' + status + '" onclick="showWfNodeDetail(\'' + escAttr(id) + '\')" id="wf-node-' + escAttr(id) + '">';
+    html += '<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '"/>';
+    html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + (roleLabel ? 20 : 28)) + '" text-anchor="middle" font-weight="600">' + esc(label) + '</text>';
+    if (roleLabel) {
+      html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + 35) + '" text-anchor="middle" font-size="9" fill="#a1a1aa">' + esc(roleLabel) + '</text>';
+    }
+    html += '</g>';
+  });
+
+  svg.innerHTML = html;
+}
+
+// Render timeline bar
+function renderWfTimeline(run) {
+  var el = document.getElementById('wf-timeline');
+  if (!run.stepResults) { el.innerHTML = ''; return; }
+
+  var steps = [];
+  var keys = Object.keys(run.stepResults);
+  keys.forEach(function(k) { steps.push(run.stepResults[k]); });
+  if (steps.length === 0) { el.innerHTML = ''; return; }
+
+  var totalDur = run.durationMs || 1;
+  var html = '';
+  steps.forEach(function(sr) {
+    var pct = Math.max(2, ((sr.durationMs || 1) / totalDur) * 100);
+    var status = sr.status || 'pending';
+    var title = (sr.stepId || '') + ': ' + status + ' (' + (sr.durationMs || 0) + 'ms)';
+    html += '<div class="wf-timeline-bar ' + status + '" style="width:' + pct + '%" title="' + escAttr(title) + '"></div>';
+  });
+  el.innerHTML = html;
+}
+
+// Show node detail panel
+function showWfNodeDetail(stepId) {
+  var panel = document.getElementById('wf-node-detail');
+  if (!currentWfRunData || !currentWfRunData.stepResults) { panel.style.display = 'none'; return; }
+  var sr = currentWfRunData.stepResults[stepId];
+  if (!sr) { panel.style.display = 'none'; return; }
+
+  var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : 'badge-warn';
+  var html = '<h4>' + esc(stepId) + ' <span class="badge ' + statusCls + '">' + esc(sr.status || '') + '</span></h4>';
+  html += '<div class="wf-detail-grid">';
+  html += '<div class="wf-detail-item"><div class="label">Duration</div><div class="value">' + (sr.durationMs || 0) + 'ms</div></div>';
+  html += '<div class="wf-detail-item"><div class="label">Cost</div><div class="value">$' + (sr.costUsd != null ? sr.costUsd.toFixed(4) : '0.0000') + '</div></div>';
+  if (sr.startedAt) html += '<div class="wf-detail-item"><div class="label">Started</div><div class="value" style="font-size:11px">' + esc(sr.startedAt.substring(0, 19).replace('T', ' ')) + '</div></div>';
+  if (sr.finishedAt) html += '<div class="wf-detail-item"><div class="label">Finished</div><div class="value" style="font-size:11px">' + esc(sr.finishedAt.substring(0, 19).replace('T', ' ')) + '</div></div>';
+  if (sr.retries) html += '<div class="wf-detail-item"><div class="label">Retries</div><div class="value">' + sr.retries + '</div></div>';
+  if (sr.taskId) html += '<div class="wf-detail-item"><div class="label">Task ID</div><div class="value" style="font-size:11px"><code>' + esc(sr.taskId.substring(0, 8)) + '</code></div></div>';
+  if (sr.sessionId) html += '<div class="wf-detail-item"><div class="label">Session</div><div class="value" style="font-size:11px"><code>' + esc(sr.sessionId.substring(0, 8)) + '</code></div></div>';
+  html += '</div>';
+  if (sr.error) html += '<div class="wf-detail-output" style="color:#f87171;margin-bottom:8px"><strong>Error:</strong> ' + esc(sr.error) + '</div>';
+  if (sr.output) {
+    var output = sr.output.length > 2000 ? sr.output.substring(0, 2000) + '...' : sr.output;
+    html += '<div class="wf-detail-output">' + esc(output) + '</div>';
+  }
+
+  panel.innerHTML = html;
+  panel.style.display = '';
+  panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+// SSE subscription for live workflow updates
+function subscribeWfSSE(runId) {
+  if (wfSSE) { wfSSE.close(); }
+  var url = '/dispatch/workflow:' + runId + '/stream';
+  wfSSE = new EventSource(url);
+  wfSSE.onmessage = function(e) {
+    try {
+      var ev = JSON.parse(e.data);
+      if (ev.type === 'step_started' && ev.data) {
+        updateWfNodeStatus(ev.data.stepId, 'running');
+      }
+      if (ev.type === 'step_completed' && ev.data) {
+        updateWfNodeStatus(ev.data.stepId, ev.data.status);
+      }
+      if (ev.type === 'workflow_completed') {
+        if (wfSSE) { wfSSE.close(); wfSSE = null; }
+        // Refresh after a short delay to let DB settle
+        setTimeout(function() {
+          refreshWorkflowRuns();
+          if (currentWfRun === runId) openWfRun(runId);
+        }, 500);
+      }
+    } catch(err) { /* ignore parse errors */ }
+  };
+  wfSSE.onerror = function() {
+    if (wfSSE) { wfSSE.close(); wfSSE = null; }
+  };
+}
+
+function updateWfNodeStatus(stepId, status) {
+  var node = document.getElementById('wf-node-' + stepId);
+  if (node) {
+    node.setAttribute('class', 'wf-node ' + status);
+  }
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// --- End Workflow Visualization ---
+
+pollTimer = setInterval(refresh, 5000);
+document.addEventListener('visibilitychange', function() {
+  if (document.hidden) {
+    clearInterval(pollTimer);
+  } else {
+    refresh();
+    pollTimer = setInterval(refresh, 5000);
+  }
+});
+
+// --- PWA ---
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/dashboard/sw.js', { scope: '/' })
+    .then(function(reg) {
+      reg.addEventListener('updatefound', function() {
+        var nw = reg.installing;
+        nw.addEventListener('statechange', function() {
+          if (nw.state === 'activated') toast('App updated — refresh for latest version');
+        });
+      });
+    })
+    .catch(function() {});
+}
+
+var deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  var btn = document.getElementById('pwa-install-btn');
+  if (btn) btn.style.display = 'inline-block';
+});
+window.addEventListener('appinstalled', function() {
+  deferredInstallPrompt = null;
+  var btn = document.getElementById('pwa-install-btn');
+  if (btn) btn.style.display = 'none';
+  toast('App installed successfully');
+});
+function pwaInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(function() {
+    deferredInstallPrompt = null;
+    var btn = document.getElementById('pwa-install-btn');
+    if (btn) btn.style.display = 'none';
+  });
+}
+
+// --- P22.4: Integrations ---
+
+function refreshIntegrations() {
+  fetch('/api/integrations/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      renderChannelStatus(data.channels || []);
+      renderOAuthStatus(data.oauthServices || []);
+      renderKnowledgeStatus(data.knowledgeDocs);
+      renderBrowserRelayStatus(data.browserRelay);
+      if (data.homeAssistant !== 'not_configured') {
+        document.getElementById('integration-ha-section').style.display = '';
+        renderHAStatus(data.homeAssistant);
+      }
+    })
+    .catch(function(e) { toast('Failed to load integrations: ' + e); });
+
+  // Also load reminders and triggers.
+  refreshReminders();
+  refreshTriggers();
+}
+
+function renderChannelStatus(channels) {
+  var el = document.getElementById('integration-channels');
+  if (!channels.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No channels configured</div>'; return; }
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+  channels.forEach(function(ch) {
+    var color = ch.status === 'connected' ? 'var(--green)' : ch.status === 'not_configured' ? 'var(--muted)' : 'var(--red)';
+    var icon = ch.status === 'connected' ? '&#9679;' : ch.status === 'not_configured' ? '&#9675;' : '&#9888;';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<span style="font-weight:600;text-transform:capitalize">' + ch.name + '</span>';
+    html += '<span style="color:' + color + ';font-size:12px">' + icon + ' ' + ch.status.replace('_',' ') + '</span>';
+    html += '</div></div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderOAuthStatus(services) {
+  var el = document.getElementById('integration-oauth');
+  if (!services || !services.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No OAuth services configured</div>'; return; }
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+  services.forEach(function(svc) {
+    var connected = svc.connected;
+    var color = connected ? 'var(--green)' : 'var(--yellow)';
+    var status = connected ? 'Connected' : 'Not Connected';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">';
+    html += '<div style="font-weight:600;text-transform:capitalize">' + svc.name + '</div>';
+    html += '<div style="font-size:12px;color:' + color + ';margin-top:4px">' + status + '</div>';
+    if (svc.scopes) html += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + svc.scopes + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function refreshReminders() {
+  fetch('/api/reminders')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var el = document.getElementById('integration-reminders');
+      var reminders = Array.isArray(data) ? data : (data.reminders || []);
+      if (!reminders.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No active reminders</div>'; return; }
+      var html = '<div class="table-wrap"><table><thead><tr><th>Message</th><th>Due</th><th>Repeat</th><th>Channel</th><th>Actions</th></tr></thead><tbody>';
+      reminders.forEach(function(r) {
+        html += '<tr>';
+        html += '<td>' + (r.message || r.text || '').substring(0, 50) + '</td>';
+        html += '<td style="font-size:12px">' + (r.dueTime || r.dueAt || '') + '</td>';
+        html += '<td style="font-size:12px">' + (r.recurring || 'once') + '</td>';
+        html += '<td style="font-size:12px">' + (r.channel || 'any') + '</td>';
+        html += '<td><button class="btn" style="font-size:11px;padding:2px 8px" onclick="cancelReminder(\'' + r.id + '\')">Cancel</button></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('integration-reminders').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load reminders</div>';
+    });
+}
+
+function cancelReminder(id) {
+  if (!confirm('Cancel this reminder?')) return;
+  fetch('/api/reminders/' + id, {method: 'DELETE'})
+    .then(function() { toast('Reminder cancelled'); refreshReminders(); })
+    .catch(function(e) { toast('Error: ' + e); });
+}
+
+function refreshTriggers() {
+  fetch('/api/triggers')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var el = document.getElementById('integration-triggers');
+      var triggers = Array.isArray(data) ? data : (data.triggers || []);
+      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured</div>'; return; }
+      var html = '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Condition</th><th>Target</th><th>Status</th></tr></thead><tbody>';
+      triggers.forEach(function(t) {
+        var statusColor = t.enabled ? 'var(--green)' : 'var(--muted)';
+        html += '<tr>';
+        html += '<td>' + (t.event || t.type || '') + '</td>';
+        html += '<td style="font-size:12px">' + (t.condition || 'always') + '</td>';
+        html += '<td style="font-size:12px">' + (t.workflow || t.target || '') + '</td>';
+        html += '<td><span style="color:' + statusColor + '">' + (t.enabled ? 'Active' : 'Disabled') + '</span></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
+    });
+}
+
+function renderKnowledgeStatus(count) {
+  var el = document.getElementById('integration-knowledge');
+  el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
+    '<div class="stat-label">INDEXED DOCUMENTS</div>' +
+    '<div class="stat-value">' + (count || 0) + '</div></div>';
+}
+
+function renderBrowserRelayStatus(status) {
+  // Included in channel status area
+}
+
+function renderHAStatus(status) {
+  var el = document.getElementById('integration-ha');
+  var color = status === 'connected' ? 'var(--green)' : 'var(--muted)';
+  el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+    '<span class="stat-label">HOME ASSISTANT</span>' +
+    '<span style="color:' + color + ';font-size:12px">&#9679; ' + status + '</span>' +
+    '</div></div>';
+}
+
+// --- P22.5: Settings ---
+
+function refreshSettings() {
+  document.getElementById('settings-loading').style.display = '';
+  document.getElementById('settings-container').style.display = 'none';
+
+  fetch('/api/config/summary')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('settings-loading').style.display = 'none';
+      document.getElementById('settings-container').style.display = '';
+      renderSettingsGeneral(data.general || {});
+      renderSettingsChannels(data.channels || {});
+      renderSettingsIntegrations(data.integrations || {});
+      renderSettingsTools(data.tools || {});
+      renderSettingsBudgets(data.budgets || {});
+      renderSettingsSecurity(data.security || {});
+    })
+    .catch(function(e) {
+      document.getElementById('settings-loading').innerHTML = '<span style="color:var(--red)">Failed to load: ' + e + '</span>';
+    });
+}
+
+function renderSettingsKV(el, items) {
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:8px;overflow:hidden">';
+  items.forEach(function(item) {
+    html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;color:var(--muted)">' + item.label + '</div>';
+    html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;font-family:monospace">' + item.value + '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderSettingsGeneral(data) {
+  renderSettingsKV(document.getElementById('settings-general'), [
+    {label: 'Listen Address', value: data.listenAddr || 'default'},
+    {label: 'Max Concurrent', value: data.maxConcurrent || 3},
+    {label: 'Default Model', value: data.defaultModel || 'sonnet'},
+    {label: 'Default Timeout', value: data.defaultTimeout || '15m'},
+    {label: 'API Token', value: data.apiToken || 'not set'},
+    {label: 'TLS Enabled', value: data.tlsEnabled ? 'Yes' : 'No'}
+  ]);
+}
+
+function renderSettingsChannels(data) {
+  var items = [];
+  Object.keys(data).forEach(function(k) {
+    items.push({label: k.charAt(0).toUpperCase() + k.slice(1), value: data[k] ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+  });
+  renderSettingsKV(document.getElementById('settings-channels'), items);
+}
+
+function renderSettingsIntegrations(data) {
+  var items = [];
+  Object.keys(data).forEach(function(k) {
+    var v = data[k];
+    if (typeof v === 'object') {
+      items.push({label: k, value: v.enabled ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+    } else {
+      items.push({label: k, value: v ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+    }
+  });
+  renderSettingsKV(document.getElementById('settings-integrations'), items);
+}
+
+function renderSettingsTools(data) {
+  renderSettingsKV(document.getElementById('settings-tools'), [
+    {label: 'Total Registered', value: data.totalRegistered || 0}
+  ]);
+}
+
+function renderSettingsBudgets(data) {
+  renderSettingsKV(document.getElementById('settings-budgets'), [
+    {label: 'Daily Limit', value: data.dailyLimit ? '$' + data.dailyLimit.toFixed(2) : 'None'},
+    {label: 'Weekly Limit', value: data.weeklyLimit ? '$' + data.weeklyLimit.toFixed(2) : 'None'},
+    {label: 'Action', value: data.action || 'warn'}
+  ]);
+}
+
+function renderSettingsSecurity(data) {
+  renderSettingsKV(document.getElementById('settings-security'), [
+    {label: 'TLS', value: data.tlsEnabled ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'},
+    {label: 'Rate Limiting', value: data.rateLimit ? '<span style="color:var(--green)">Enabled</span> (' + data.rateLimitMax + '/min)' : '<span style="color:var(--muted)">Disabled</span>'},
+    {label: 'IP Allowlist', value: data.ipAllowlist > 0 ? data.ipAllowlist + ' entries' : 'None'},
+    {label: 'Dashboard Auth', value: data.dashboardAuth ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'}
+  ]);
+}
+</script>
+</body>
+</html>

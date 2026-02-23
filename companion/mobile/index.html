@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#6c5ce7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Tetora</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body>
+  <div class="header">
+    <div class="status-dot" id="statusDot"></div>
+    <h1>Tetora</h1>
+  </div>
+  <div class="main">
+    <div class="card">
+      <h2>Dispatch</h2>
+      <textarea class="dispatch-input" id="promptInput" placeholder="Enter your prompt..."></textarea>
+      <button class="btn btn-primary btn-block" id="dispatchBtn">Send</button>
+    </div>
+    <div class="card">
+      <h2>Quick Actions</h2>
+      <div class="quick-actions" id="quickActions"></div>
+    </div>
+    <div class="card">
+      <h2>Recent</h2>
+      <div class="history" id="history"></div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

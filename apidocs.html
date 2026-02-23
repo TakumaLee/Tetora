@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tetora API Documentation</title>
+<style>
+:root {
+  --bg: #08080d;
+  --surface: #111118;
+  --surface2: #181822;
+  --border: #1e1e2e;
+  --text: #e4e4e7;
+  --muted: #6b6b80;
+  --accent: #a78bfa;
+  --accent2: #60a5fa;
+  --green: #34d399;
+  --blue: #60a5fa;
+  --red: #f87171;
+  --orange: #fbbf24;
+  --cyan: #22d3ee;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* Layout */
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.sidebar-header {
+  padding: 0 16px 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.sidebar-logo {
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.sidebar-version {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.sidebar-section {
+  padding: 4px 16px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.sidebar-link {
+  display: block;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sidebar-link:hover { background: var(--surface2); }
+.sidebar-link.active {
+  color: var(--accent);
+  background: rgba(167, 139, 250, 0.08);
+  border-right: 2px solid var(--accent);
+}
+.sidebar-count {
+  float: right;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+/* Main */
+.main {
+  padding: 32px 40px;
+  max-width: 960px;
+}
+.main-header {
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.main-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.main-header p {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.server-url {
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--accent2);
+  background: var(--surface);
+  padding: 4px 10px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-top: 8px;
+}
+
+/* Tag group */
+.tag-group {
+  margin-bottom: 32px;
+}
+.tag-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.tag-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Endpoint card */
+.endpoint {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.endpoint:hover { border-color: #2a2a3e; }
+.endpoint-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.method-badge {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  padding: 3px 8px;
+  border-radius: 4px;
+  min-width: 56px;
+  text-align: center;
+  text-transform: uppercase;
+}
+.method-get { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.method-post { background: rgba(96, 165, 250, 0.15); color: var(--blue); }
+.method-put { background: rgba(251, 191, 36, 0.15); color: var(--orange); }
+.method-delete { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.endpoint-path {
+  font-size: 13px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--text);
+  flex: 1;
+}
+.endpoint-summary {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+.endpoint-expand {
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+.endpoint.open .endpoint-expand { transform: rotate(90deg); }
+
+/* Endpoint details */
+.endpoint-details {
+  display: none;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+.endpoint.open .endpoint-details { display: block; }
+.detail-desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 0;
+}
+
+/* Parameters table */
+.params-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin: 12px 0 6px;
+}
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.params-table th {
+  text-align: left;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.params-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(30, 30, 46, 0.5);
+  vertical-align: top;
+}
+.param-name {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  color: var(--cyan);
+}
+.param-type {
+  color: var(--orange);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 11px;
+}
+.param-required {
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 600;
+}
+.param-desc { color: var(--muted); }
+
+/* Schema display */
+.schema-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  line-height: 1.7;
+  overflow-x: auto;
+  margin-bottom: 8px;
+}
+.schema-key { color: var(--cyan); }
+.schema-type { color: var(--orange); }
+.schema-desc { color: var(--muted); font-style: italic; }
+.schema-ref { color: var(--accent); cursor: pointer; text-decoration: underline; }
+.schema-ref:hover { color: var(--accent2); }
+
+/* Response badges */
+.response-codes {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.response-code {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.response-code.c2xx { color: var(--green); border-color: rgba(52, 211, 153, 0.3); }
+.response-code.c4xx { color: var(--red); border-color: rgba(248, 113, 113, 0.3); }
+
+/* Loading */
+.loading {
+  text-align: center;
+  padding: 60px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar {
+    position: relative;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .main { padding: 20px 16px; }
+  .endpoint-summary { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">Tetora API</div>
+      <div class="sidebar-version" id="api-version">Loading...</div>
+    </div>
+    <div id="sidebar-nav"></div>
+  </nav>
+  <main class="main" id="main">
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <div>Loading API specification...</div>
+    </div>
+  </main>
+</div>
+<script>
+(function() {
+  'use strict';
+
+  var spec = null;
+
+  function loadSpec() {
+    fetch('/api/spec')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        spec = data;
+        renderSpec(data);
+      })
+      .catch(function(err) {
+        document.getElementById('main').innerHTML =
+          '<div class="loading">Failed to load API spec: ' + escapeHtml(err.message) + '</div>';
+      });
+  }
+
+  function renderSpec(s) {
+    document.getElementById('api-version').textContent = 'v' + (s.info && s.info.version || '?');
+
+    // Group paths by tag.
+    var groups = {};
+    var tagOrder = [];
+    var tagDescriptions = {};
+
+    if (s.tags) {
+      for (var i = 0; i < s.tags.length; i++) {
+        var t = s.tags[i];
+        tagOrder.push(t.name);
+        tagDescriptions[t.name] = t.description || '';
+        groups[t.name] = [];
+      }
+    }
+
+    var paths = s.paths || {};
+    var pathKeys = Object.keys(paths);
+    for (var p = 0; p < pathKeys.length; p++) {
+      var path = pathKeys[p];
+      var methods = paths[path];
+      var methodKeys = Object.keys(methods);
+      for (var m = 0; m < methodKeys.length; m++) {
+        var method = methodKeys[m];
+        var op = methods[method];
+        var tags = op.tags || ['Other'];
+        for (var ti = 0; ti < tags.length; ti++) {
+          var tag = tags[ti];
+          if (!groups[tag]) {
+            groups[tag] = [];
+            tagOrder.push(tag);
+          }
+          groups[tag].push({ method: method, path: path, op: op });
+        }
+      }
+    }
+
+    // Render sidebar.
+    var navHtml = '';
+    for (var g = 0; g < tagOrder.length; g++) {
+      var tagName = tagOrder[g];
+      var items = groups[tagName] || [];
+      if (items.length === 0) continue;
+      navHtml += '<div class="sidebar-section">' + escapeHtml(tagName) + '</div>';
+      navHtml += '<a class="sidebar-link" href="#tag-' + tagName + '">' +
+        escapeHtml(tagName) +
+        '<span class="sidebar-count">' + items.length + '</span></a>';
+    }
+    document.getElementById('sidebar-nav').innerHTML = navHtml;
+
+    // Render main content.
+    var mainHtml = '<div class="main-header">' +
+      '<h1>' + escapeHtml(s.info.title || 'API') + '</h1>' +
+      '<p>' + escapeHtml(s.info.description || '') + '</p>';
+    if (s.servers && s.servers.length > 0) {
+      mainHtml += '<div class="server-url">' + escapeHtml(s.servers[0].url) + '</div>';
+    }
+    if (s.security) {
+      mainHtml += '<p style="margin-top:8px;font-size:12px;color:var(--orange)">Authentication: Bearer token required</p>';
+    }
+    mainHtml += '</div>';
+
+    for (var g2 = 0; g2 < tagOrder.length; g2++) {
+      var tag2 = tagOrder[g2];
+      var items2 = groups[tag2] || [];
+      if (items2.length === 0) continue;
+
+      mainHtml += '<div class="tag-group" id="tag-' + tag2 + '">';
+      mainHtml += '<h2 class="tag-title">' + escapeHtml(tag2) + '</h2>';
+      if (tagDescriptions[tag2]) {
+        mainHtml += '<div class="tag-desc">' + escapeHtml(tagDescriptions[tag2]) + '</div>';
+      }
+
+      for (var e = 0; e < items2.length; e++) {
+        mainHtml += renderEndpoint(items2[e].method, items2[e].path, items2[e].op);
+      }
+      mainHtml += '</div>';
+    }
+
+    document.getElementById('main').innerHTML = mainHtml;
+
+    // Attach toggle handlers.
+    var cards = document.querySelectorAll('.endpoint-header');
+    for (var c = 0; c < cards.length; c++) {
+      cards[c].addEventListener('click', toggleEndpoint);
+    }
+
+    // Sidebar active tracking.
+    var sidebarLinks = document.querySelectorAll('.sidebar-link');
+    for (var sl = 0; sl < sidebarLinks.length; sl++) {
+      sidebarLinks[sl].addEventListener('click', function(ev) {
+        for (var x = 0; x < sidebarLinks.length; x++) sidebarLinks[x].classList.remove('active');
+        ev.currentTarget.classList.add('active');
+      });
+    }
+  }
+
+  function renderEndpoint(method, path, op) {
+    var methodClass = 'method-' + method.toLowerCase();
+    var html = '<div class="endpoint">' +
+      '<div class="endpoint-header">' +
+      '<span class="method-badge ' + methodClass + '">' + method.toUpperCase() + '</span>' +
+      '<span class="endpoint-path">' + escapeHtml(path) + '</span>' +
+      '<span class="endpoint-summary">' + escapeHtml(op.summary || '') + '</span>' +
+      '<span class="endpoint-expand">&#9654;</span>' +
+      '</div>';
+
+    html += '<div class="endpoint-details">';
+    if (op.description) {
+      html += '<div class="detail-desc">' + escapeHtml(op.description) + '</div>';
+    }
+
+    // Parameters.
+    var params = op.parameters || [];
+    if (params.length > 0) {
+      html += '<div class="params-title">Parameters</div>';
+      html += '<table class="params-table"><thead><tr>' +
+        '<th>Name</th><th>In</th><th>Type</th><th>Description</th>' +
+        '</tr></thead><tbody>';
+      for (var i = 0; i < params.length; i++) {
+        var pm = params[i];
+        var pType = pm.schema ? pm.schema.type || '' : '';
+        html += '<tr>' +
+          '<td><span class="param-name">' + escapeHtml(pm.name) + '</span>' +
+          (pm.required ? ' <span class="param-required">*</span>' : '') + '</td>' +
+          '<td>' + escapeHtml(pm.in) + '</td>' +
+          '<td><span class="param-type">' + escapeHtml(pType) + '</span></td>' +
+          '<td class="param-desc">' + escapeHtml(pm.description || '') + '</td>' +
+          '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // Request body.
+    if (op.requestBody && op.requestBody.content) {
+      var bodySchema = null;
+      var ct = op.requestBody.content;
+      if (ct['application/json'] && ct['application/json'].schema) {
+        bodySchema = ct['application/json'].schema;
+      }
+      if (bodySchema) {
+        html += '<div class="params-title">Request Body</div>';
+        html += '<div class="schema-box">' + renderSchema(bodySchema, 0) + '</div>';
+      }
+    }
+
+    // Responses.
+    if (op.responses) {
+      html += '<div class="params-title">Responses</div>';
+      var codes = Object.keys(op.responses);
+      html += '<div class="response-codes">';
+      for (var r = 0; r < codes.length; r++) {
+        var code = codes[r];
+        var cls = code.charAt(0) === '2' ? 'c2xx' : 'c4xx';
+        var desc = op.responses[code].description || '';
+        html += '<span class="response-code ' + cls + '" title="' + escapeHtml(desc) + '">' + code + ' ' + escapeHtml(desc) + '</span>';
+      }
+      html += '</div>';
+
+      // Show 200 response schema.
+      if (op.responses['200'] && op.responses['200'].content) {
+        var respSchema = null;
+        var rc = op.responses['200'].content;
+        if (rc['application/json'] && rc['application/json'].schema) {
+          respSchema = rc['application/json'].schema;
+        }
+        if (respSchema) {
+          html += '<div class="params-title" style="margin-top:10px">Response Schema (200)</div>';
+          html += '<div class="schema-box">' + renderSchema(respSchema, 0) + '</div>';
+        }
+      }
+    }
+
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderSchema(schema, depth) {
+    if (!schema) return '';
+    if (depth > 6) return '<span class="schema-type">...</span>';
+
+    // Resolve $ref.
+    if (schema['$ref']) {
+      var refName = schema['$ref'].replace('#/components/schemas/', '');
+      var resolved = resolveRef(schema['$ref']);
+      if (resolved) {
+        return '<span class="schema-ref" onclick="document.getElementById(\'schema-' + refName + '\') && document.getElementById(\'schema-' + refName + '\').scrollIntoView({behavior:\'smooth\'})">' +
+          escapeHtml(refName) + '</span> {\n' + renderSchemaProps(resolved, depth + 1) + indent(depth) + '}';
+      }
+      return '<span class="schema-ref">' + escapeHtml(refName) + '</span>';
+    }
+
+    if (schema.type === 'array') {
+      if (schema.items) {
+        return '[' + renderSchema(schema.items, depth) + ']';
+      }
+      return '<span class="schema-type">array</span>';
+    }
+
+    if (schema.type === 'object' || schema.properties) {
+      var hasProps = schema.properties && Object.keys(schema.properties).length > 0;
+      if (hasProps) {
+        return '{\n' + renderSchemaProps(schema, depth + 1) + indent(depth) + '}';
+      }
+      if (schema.additionalProperties) {
+        return '{ [key: string]: ' + renderSchema(schema.additionalProperties, depth + 1) + ' }';
+      }
+      return '<span class="schema-type">object</span>';
+    }
+
+    var typeName = schema.type || 'any';
+    var result = '<span class="schema-type">' + escapeHtml(typeName) + '</span>';
+    if (schema.format) {
+      result += '<span class="schema-desc"> (' + escapeHtml(schema.format) + ')</span>';
+    }
+    return result;
+  }
+
+  function renderSchemaProps(schema, depth) {
+    if (!schema || !schema.properties) return '';
+    var required = schema.required || [];
+    var keys = Object.keys(schema.properties);
+    var html = '';
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var val = schema.properties[key];
+      var isReq = required.indexOf(key) >= 0;
+      html += indent(depth) + '<span class="schema-key">' + escapeHtml(key) + '</span>' +
+        (isReq ? '<span class="param-required">*</span>' : '') +
+        ': ' + renderSchema(val, depth);
+      if (val.description && !val['$ref']) {
+        html += '  <span class="schema-desc">// ' + escapeHtml(val.description) + '</span>';
+      }
+      html += '\n';
+    }
+    return html;
+  }
+
+  function resolveRef(refPath) {
+    if (!spec || !refPath) return null;
+    var parts = refPath.replace('#/', '').split('/');
+    var current = spec;
+    for (var i = 0; i < parts.length; i++) {
+      if (!current[parts[i]]) return null;
+      current = current[parts[i]];
+    }
+    return current;
+  }
+
+  function indent(depth) {
+    var s = '';
+    for (var i = 0; i < depth; i++) s += '  ';
+    return s;
+  }
+
+  function toggleEndpoint(ev) {
+    var card = ev.currentTarget.parentElement;
+    card.classList.toggle('open');
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  loadSpec();
+})();
+</script>
+</body>
+</html>
