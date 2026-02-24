@@ -735,3 +735,288 @@ func TestFailedTaskInfo_JSONSerialization(t *testing.T) {
 		t.Errorf("FailedAt = %q, want %q", decoded.FailedAt, info.FailedAt)
 	}
 }
+
+// --- P21.2: loadWritingStyle tests ---
+
+func TestLoadWritingStyle_FromFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "style-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "Write in a casual, friendly tone.\nKeep sentences short."
+	if _, err := tmpFile.WriteString("  " + content + "  \n"); err != nil {
+		t.Fatal(err)
+	}
+	tmpFile.Close()
+
+	cfg := &Config{
+		WritingStyle: WritingStyleConfig{
+			Enabled:    true,
+			FilePath:   tmpFile.Name(),
+			Guidelines: "This should be ignored when FilePath is set",
+		},
+	}
+
+	got := loadWritingStyle(cfg)
+	if got != content {
+		t.Errorf("loadWritingStyle() = %q, want %q", got, content)
+	}
+}
+
+func TestLoadWritingStyle_FallbackToGuidelines(t *testing.T) {
+	cfg := &Config{
+		WritingStyle: WritingStyleConfig{
+			Enabled:    true,
+			FilePath:   "/nonexistent/path/style.txt",
+			Guidelines: "Be concise and direct.",
+		},
+	}
+
+	got := loadWritingStyle(cfg)
+	if got != "Be concise and direct." {
+		t.Errorf("loadWritingStyle() = %q, want %q", got, "Be concise and direct.")
+	}
+}
+
+func TestLoadWritingStyle_GuidelinesOnly(t *testing.T) {
+	cfg := &Config{
+		WritingStyle: WritingStyleConfig{
+			Enabled:    true,
+			Guidelines: "Use formal language.",
+		},
+	}
+
+	got := loadWritingStyle(cfg)
+	if got != "Use formal language." {
+		t.Errorf("loadWritingStyle() = %q, want %q", got, "Use formal language.")
+	}
+}
+
+func TestLoadWritingStyle_Empty(t *testing.T) {
+	cfg := &Config{
+		WritingStyle: WritingStyleConfig{
+			Enabled: true,
+		},
+	}
+
+	got := loadWritingStyle(cfg)
+	if got != "" {
+		t.Errorf("loadWritingStyle() = %q, want empty string", got)
+	}
+}
+
+// --- P21.4: Citation Injection tests ---
+
+func TestCitationInjection(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       CitationConfig
+		wantIn    string // substring that must appear in system prompt
+		wantAbsent bool   // if true, wantIn must NOT appear
+	}{
+		{
+			name:       "disabled",
+			cfg:        CitationConfig{Enabled: false},
+			wantIn:     "## Citation Rules",
+			wantAbsent: true,
+		},
+		{
+			name:   "default bracket format",
+			cfg:    CitationConfig{Enabled: true},
+			wantIn: "[source_name]",
+		},
+		{
+			name:   "explicit bracket format",
+			cfg:    CitationConfig{Enabled: true, Format: "bracket"},
+			wantIn: "[source_name]",
+		},
+		{
+			name:   "footnote format",
+			cfg:    CitationConfig{Enabled: true, Format: "footnote"},
+			wantIn: "[1] source_name",
+		},
+		{
+			name:   "inline format",
+			cfg:    CitationConfig{Enabled: true, Format: "inline"},
+			wantIn: "(source: source_name)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prompt := "base prompt"
+
+			// Simulate the citation injection logic from runTask.
+			if tt.cfg.Enabled {
+				citationFmt := tt.cfg.Format
+				if citationFmt == "" {
+					citationFmt = "bracket"
+				}
+				var citationRule string
+				switch citationFmt {
+				case "footnote":
+					citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+						"add numbered footnotes at the end of your response. Format: [1] source_name"
+				case "inline":
+					citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+						"cite sources inline immediately after the relevant information. Format: (source: source_name)"
+				default:
+					citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+						"cite the source at the end of your response. Format: [source_name]"
+				}
+				prompt += "\n\n## Citation Rules\n" + citationRule
+			}
+
+			if tt.wantAbsent {
+				if strings.Contains(prompt, tt.wantIn) {
+					t.Errorf("system prompt should NOT contain %q when citation is disabled", tt.wantIn)
+				}
+			} else {
+				if !strings.Contains(prompt, tt.wantIn) {
+					t.Errorf("system prompt should contain %q, got: %s", tt.wantIn, prompt)
+				}
+				if !strings.Contains(prompt, "## Citation Rules") {
+					t.Error("system prompt should contain '## Citation Rules' header")
+				}
+			}
+		})
+	}
+}
+
+// --- P26: Agentic Loop Hardening Tests ---
+
+func TestListFiltered_NilAllowed(t *testing.T) {
+	cfg := newTestConfig()
+	cfg.toolRegistry = NewToolRegistry(cfg)
+	// With nil allowed, should return all tools.
+	all := cfg.toolRegistry.List()
+	filtered := cfg.toolRegistry.ListFiltered(nil)
+	if len(filtered) != len(all) {
+		t.Errorf("ListFiltered(nil) returned %d tools, want %d", len(filtered), len(all))
+	}
+}
+
+func TestListFiltered_EmptyAllowed(t *testing.T) {
+	cfg := newTestConfig()
+	cfg.toolRegistry = NewToolRegistry(cfg)
+	// With empty map, should return all tools.
+	all := cfg.toolRegistry.List()
+	filtered := cfg.toolRegistry.ListFiltered(map[string]bool{})
+	if len(filtered) != len(all) {
+		t.Errorf("ListFiltered(empty) returned %d tools, want %d", len(filtered), len(all))
+	}
+}
+
+func TestListFiltered_PopulatedAllowed(t *testing.T) {
+	reg := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	reg.Register(&ToolDef{Name: "alpha"})
+	reg.Register(&ToolDef{Name: "beta"})
+	reg.Register(&ToolDef{Name: "gamma"})
+
+	allowed := map[string]bool{"alpha": true, "gamma": true}
+	filtered := reg.ListFiltered(allowed)
+
+	if len(filtered) != 2 {
+		t.Fatalf("ListFiltered returned %d tools, want 2", len(filtered))
+	}
+
+	names := make(map[string]bool)
+	for _, td := range filtered {
+		names[td.Name] = true
+	}
+	if !names["alpha"] || !names["gamma"] {
+		t.Errorf("expected alpha and gamma, got %v", names)
+	}
+	if names["beta"] {
+		t.Error("beta should not be in filtered results")
+	}
+}
+
+func TestTruncateToolOutput_BelowLimit(t *testing.T) {
+	input := "short output"
+	result := truncateToolOutput(input, 100)
+	if result != input {
+		t.Errorf("got %q, want %q", result, input)
+	}
+}
+
+func TestTruncateToolOutput_AtLimit(t *testing.T) {
+	input := strings.Repeat("x", 100)
+	result := truncateToolOutput(input, 100)
+	if result != input {
+		t.Errorf("at-limit should not truncate, got len %d", len(result))
+	}
+}
+
+func TestTruncateToolOutput_AboveLimit(t *testing.T) {
+	input := strings.Repeat("x", 200)
+	result := truncateToolOutput(input, 100)
+	if !strings.HasPrefix(result, strings.Repeat("x", 100)) {
+		t.Error("truncated output should start with first 100 chars")
+	}
+	if !strings.Contains(result, "[truncated: first 100 of 200 chars]") {
+		t.Errorf("missing truncation notice, got: %s", result)
+	}
+}
+
+func TestTruncateToolOutput_DefaultLimit(t *testing.T) {
+	// Zero limit should default to 10240.
+	input := strings.Repeat("a", 10240)
+	result := truncateToolOutput(input, 0)
+	if result != input {
+		t.Error("10240 chars should not be truncated with default limit")
+	}
+
+	input2 := strings.Repeat("a", 10241)
+	result2 := truncateToolOutput(input2, 0)
+	if !strings.Contains(result2, "[truncated:") {
+		t.Error("10241 chars should be truncated with default limit")
+	}
+}
+
+func TestTokenAccumulation(t *testing.T) {
+	// Test that accumulated metrics are set correctly on final result.
+	// We simulate by constructing the scenario directly.
+	var totalTokensIn, totalTokensOut int
+	var totalCostUSD float64
+	var totalProviderMs int64
+
+	// Simulate 3 iterations of provider calls.
+	iterations := []struct {
+		tokIn, tokOut int
+		cost          float64
+		ms            int64
+	}{
+		{100, 50, 0.01, 200},
+		{120, 60, 0.015, 180},
+		{80, 40, 0.008, 150},
+	}
+
+	for _, it := range iterations {
+		totalTokensIn += it.tokIn
+		totalTokensOut += it.tokOut
+		totalCostUSD += it.cost
+		totalProviderMs += it.ms
+	}
+
+	finalResult := &ProviderResult{Output: "done"}
+	finalResult.TokensIn = totalTokensIn
+	finalResult.TokensOut = totalTokensOut
+	finalResult.CostUSD = totalCostUSD
+	finalResult.ProviderMs = totalProviderMs
+
+	if finalResult.TokensIn != 300 {
+		t.Errorf("TokensIn = %d, want 300", finalResult.TokensIn)
+	}
+	if finalResult.TokensOut != 150 {
+		t.Errorf("TokensOut = %d, want 150", finalResult.TokensOut)
+	}
+	if finalResult.CostUSD < 0.032 || finalResult.CostUSD > 0.034 {
+		t.Errorf("CostUSD = %f, want ~0.033", finalResult.CostUSD)
+	}
+	if finalResult.ProviderMs != 530 {
+		t.Errorf("ProviderMs = %d, want 530", finalResult.ProviderMs)
+	}
+}

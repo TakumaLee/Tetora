@@ -108,10 +108,11 @@ type Bot struct {
 	pendingEstimates map[string]*pendingEstimate
 	pendingSuggests  map[string]*pendingSuggest
 	pendingMu        sync.Mutex
+	approvalGate     *tgApprovalGate // P28.0: approval gate for this bot
 }
 
 func newBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *Bot {
-	return &Bot{
+	b := &Bot{
 		token:            cfg.Telegram.BotToken,
 		chatID:           cfg.Telegram.ChatID,
 		pollTimeout:      cfg.Telegram.PollTimeout,
@@ -123,6 +124,11 @@ func newBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngi
 		pendingEstimates: make(map[string]*pendingEstimate),
 		pendingSuggests:  make(map[string]*pendingSuggest),
 	}
+	// P28.0: Create approval gate if enabled.
+	if cfg.ApprovalGates.Enabled {
+		b.approvalGate = newTGApprovalGate(b, cfg.Telegram.ChatID)
+	}
+	return b
 }
 
 // maybeCostConfirm checks if the estimated cost exceeds the threshold.
@@ -781,6 +787,10 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 		if sess != nil {
 			task.SessionID = sess.ID
 		}
+		// P28.0: Attach approval gate.
+		if b.approvalGate != nil {
+			task.approvalGate = b.approvalGate
+		}
 
 		result := runSingleTask(ctx, b.cfg, task, b.sem, "")
 
@@ -918,6 +928,16 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 
 		// Expand template variables.
 		task.Prompt = expandPrompt(task.Prompt, "", b.cfg.HistoryDB, route.Role, b.cfg.KnowledgeDir, b.cfg)
+
+		// P27.3: Attach channel notifier for streaming status.
+		if b.cfg.StreamToChannels {
+			task.channelNotifier = &tgChannelNotifier{bot: b, chatID: msg.Chat.ID}
+		}
+
+		// P28.0: Attach approval gate for pre-execution confirmation.
+		if b.approvalGate != nil {
+			task.approvalGate = b.approvalGate
+		}
 
 		taskStart := time.Now()
 		result := runSingleTask(ctx, b.cfg, task, b.sem, route.Role)
@@ -1245,6 +1265,20 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgCallbackQuery) {
 		b.answerCallback(cq.ID, "Rejected")
 		b.reply(cq.Message.Chat.ID, fmt.Sprintf("Rejected [%s] output. No action taken.", ps.role))
 		return
+
+	// P28.0: Approval gate callbacks.
+	case "gate_approve":
+		b.answerCallback(cq.ID, "Approved")
+		if b.approvalGate != nil {
+			b.approvalGate.handleGateCallback(id, true)
+		}
+		return
+	case "gate_reject":
+		b.answerCallback(cq.ID, "Rejected")
+		if b.approvalGate != nil {
+			b.approvalGate.handleGateCallback(id, false)
+		}
+		return
 	}
 
 	// Cron-related actions require cron engine.
@@ -1440,6 +1474,83 @@ func (b *Bot) sendTypingAction(chatID int64) {
 		return // best effort
 	}
 	resp.Body.Close()
+}
+
+// --- P27.3: Telegram Channel Notifier ---
+
+// tgChannelNotifier implements ChannelNotifier for Telegram.
+type tgChannelNotifier struct {
+	bot    *Bot
+	chatID int64
+}
+
+func (n *tgChannelNotifier) SendTyping(ctx context.Context) error {
+	n.bot.sendTypingAction(n.chatID)
+	return nil
+}
+
+func (n *tgChannelNotifier) SendStatus(ctx context.Context, msg string) error {
+	// Just send typing — avoid spamming the channel with status text.
+	n.bot.sendTypingAction(n.chatID)
+	return nil
+}
+
+// --- P28.0: Telegram Approval Gate ---
+
+// tgApprovalGate implements ApprovalGate via Telegram inline keyboards.
+type tgApprovalGate struct {
+	bot     *Bot
+	chatID  int64
+	mu      sync.Mutex
+	pending map[string]chan bool // requestID → response channel
+}
+
+func newTGApprovalGate(bot *Bot, chatID int64) *tgApprovalGate {
+	return &tgApprovalGate{
+		bot:     bot,
+		chatID:  chatID,
+		pending: make(map[string]chan bool),
+	}
+}
+
+func (g *tgApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
+	ch := make(chan bool, 1)
+	g.mu.Lock()
+	g.pending[req.ID] = ch
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		delete(g.pending, req.ID)
+		g.mu.Unlock()
+	}()
+
+	// Send message with approve/reject buttons.
+	text := fmt.Sprintf("Approval needed\n\nTool: %s\n%s", req.Tool, req.Summary)
+	keyboard := [][]tgInlineButton{{
+		{Text: "Approve", CallbackData: "gate_approve:" + req.ID},
+		{Text: "Reject", CallbackData: "gate_reject:" + req.ID},
+	}}
+	g.bot.replyWithKeyboard(g.chatID, text, keyboard)
+
+	select {
+	case approved := <-ch:
+		return approved, nil
+	case <-ctx.Done():
+		return false, fmt.Errorf("approval timed out: %v", ctx.Err())
+	}
+}
+
+// handleGateCallback processes gate_approve/gate_reject callbacks.
+func (g *tgApprovalGate) handleGateCallback(reqID string, approved bool) {
+	g.mu.Lock()
+	ch, ok := g.pending[reqID]
+	g.mu.Unlock()
+	if ok {
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
 }
 
 // --- Telegram HTTP ---

@@ -19,6 +19,7 @@ func cmdDoctor() {
 	fmt.Println()
 
 	ok := true
+	var suggestions []string
 
 	// 1. Config
 	if _, err := os.Stat(configPath); err != nil {
@@ -30,20 +31,35 @@ func cmdDoctor() {
 	cfg := loadConfig(configPath)
 
 	// 2. Claude CLI
-	if _, err := os.Stat(cfg.ClaudePath); err != nil {
-		check(false, "Claude CLI", fmt.Sprintf("%s not found", cfg.ClaudePath))
-		ok = false
-	} else {
-		out, err := exec.Command(cfg.ClaudePath, "--version").CombinedOutput()
-		if err != nil {
-			check(false, "Claude CLI", fmt.Sprintf("error: %v", err))
+	if cfg.ClaudePath != "" {
+		if _, err := os.Stat(cfg.ClaudePath); err != nil {
+			check(false, "Claude CLI", fmt.Sprintf("%s not found", cfg.ClaudePath))
 			ok = false
 		} else {
-			check(true, "Claude CLI", strings.TrimSpace(string(out)))
+			out, err := exec.Command(cfg.ClaudePath, "--version").CombinedOutput()
+			if err != nil {
+				check(false, "Claude CLI", fmt.Sprintf("error: %v", err))
+				ok = false
+			} else {
+				check(true, "Claude CLI", strings.TrimSpace(string(out)))
+			}
 		}
 	}
 
-	// 3. Port availability
+	// 3. Provider check
+	hasProvider := cfg.ClaudePath != "" || cfg.DefaultProvider != "" || len(cfg.Providers) > 0
+	if !hasProvider {
+		suggest(false, "Provider", "no AI provider configured")
+		suggestions = append(suggestions, "Add a provider: set claudePath, or configure providers in config.json")
+	} else {
+		if cfg.DefaultProvider != "" {
+			check(true, "Provider", cfg.DefaultProvider)
+		} else if cfg.ClaudePath != "" {
+			check(true, "Provider", "Claude CLI")
+		}
+	}
+
+	// 4. Port availability
 	ln, err := net.DialTimeout("tcp", cfg.ListenAddr, time.Second)
 	if err != nil {
 		check(true, "Port", fmt.Sprintf("%s available", cfg.ListenAddr))
@@ -52,19 +68,31 @@ func cmdDoctor() {
 		check(true, "Port", fmt.Sprintf("%s in use (daemon running)", cfg.ListenAddr))
 	}
 
-	// 4. Telegram
+	// 5. Channels
+	hasChannel := false
 	if cfg.Telegram.Enabled {
 		if cfg.Telegram.BotToken != "" {
 			check(true, "Telegram", fmt.Sprintf("enabled (chatID=%d)", cfg.Telegram.ChatID))
+			hasChannel = true
 		} else {
 			check(false, "Telegram", "enabled but no bot token")
 			ok = false
 		}
-	} else {
-		check(true, "Telegram", "disabled")
+	}
+	if cfg.Discord.Enabled {
+		check(true, "Discord", "enabled")
+		hasChannel = true
+	}
+	if cfg.Slack.Enabled {
+		check(true, "Slack", "enabled")
+		hasChannel = true
+	}
+	if !hasChannel {
+		suggest(false, "Channel", "no messaging channel enabled")
+		suggestions = append(suggestions, "Enable a channel: telegram, discord, or slack in config.json")
 	}
 
-	// 5. Jobs file
+	// 6. Jobs file
 	if _, err := os.Stat(cfg.JobsFile); err != nil {
 		check(false, "Jobs", fmt.Sprintf("not found: %s", cfg.JobsFile))
 		ok = false
@@ -83,7 +111,7 @@ func cmdDoctor() {
 		}
 	}
 
-	// 6. Dashboard DB
+	// 7. Dashboard DB
 	if cfg.DashboardDB != "" {
 		if _, err := os.Stat(cfg.DashboardDB); err != nil {
 			check(false, "Dashboard DB", "not found")
@@ -97,7 +125,7 @@ func cmdDoctor() {
 		}
 	}
 
-	// 7. Workdir
+	// 8. Workdir
 	if cfg.DefaultWorkdir != "" {
 		if _, err := os.Stat(cfg.DefaultWorkdir); err != nil {
 			check(false, "Workdir", fmt.Sprintf("not found: %s", cfg.DefaultWorkdir))
@@ -107,7 +135,7 @@ func cmdDoctor() {
 		}
 	}
 
-	// 8. Roles
+	// 9. Roles
 	for name, rc := range cfg.Roles {
 		path := rc.SoulFile
 		if !filepath.IsAbs(path) {
@@ -124,16 +152,52 @@ func cmdDoctor() {
 		}
 	}
 
-	// 9. Binary location
+	// 10. Binary location
 	if exe, err := os.Executable(); err == nil {
 		check(true, "Binary", exe)
 	}
 
+	// 11. Encryption key
+	if resolveEncryptionKey(cfg) == "" {
+		suggestions = append(suggestions, "Set encryptionKey in config.json to encrypt sensitive DB fields")
+	} else {
+		check(true, "Encryption", "key configured")
+	}
+
+	// 12. ffmpeg (for audio_normalize)
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		suggestions = append(suggestions, "Install ffmpeg for audio_normalize tool: brew install ffmpeg")
+	} else {
+		check(true, "ffmpeg", "available")
+	}
+
+	// 13. sqlite3
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		check(false, "sqlite3", "not found — required for DB operations")
+		ok = false
+	} else {
+		check(true, "sqlite3", "available")
+	}
+
 	fmt.Println()
-	if ok {
+	if ok && len(suggestions) == 0 {
 		fmt.Println("All checks passed.")
+	} else if ok {
+		fmt.Println("All checks passed.")
+		fmt.Println()
+		fmt.Println("Suggestions:")
+		for _, s := range suggestions {
+			fmt.Printf("  -> %s\n", s)
+		}
 	} else {
 		fmt.Println("Some checks failed — see above.")
+		if len(suggestions) > 0 {
+			fmt.Println()
+			fmt.Println("Suggestions:")
+			for _, s := range suggestions {
+				fmt.Printf("  -> %s\n", s)
+			}
+		}
 		os.Exit(1)
 	}
 }
@@ -142,6 +206,14 @@ func check(ok bool, label, detail string) {
 	icon := "\033[32m✓\033[0m"
 	if !ok {
 		icon = "\033[31m✗\033[0m"
+	}
+	fmt.Printf("  %s %-16s %s\n", icon, label, detail)
+}
+
+func suggest(ok bool, label, detail string) {
+	icon := "\033[33m~\033[0m"
+	if ok {
+		icon = "\033[32m✓\033[0m"
 	}
 	fmt.Printf("  %s %-16s %s\n", icon, label, detail)
 }

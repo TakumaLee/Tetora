@@ -129,12 +129,19 @@ func createSession(dbPath string, s Session) error {
 }
 
 func addSessionMessage(dbPath string, msg SessionMessage) error {
+	// P27.2: Encrypt message content if encryption key is configured.
+	content := msg.Content
+	if k := globalEncryptionKey(); k != "" {
+		if enc, err := encrypt(content, k); err == nil {
+			content = enc
+		}
+	}
 	sql := fmt.Sprintf(
 		`INSERT INTO session_messages (session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at)
 		 VALUES ('%s','%s','%s',%f,%d,%d,'%s','%s','%s')`,
 		escapeSQLite(msg.SessionID),
 		escapeSQLite(msg.Role),
-		escapeSQLite(msg.Content),
+		escapeSQLite(content),
 		msg.CostUSD,
 		msg.TokensIn,
 		msg.TokensOut,
@@ -363,11 +370,18 @@ func sessionFromRow(row map[string]any) Session {
 }
 
 func sessionMessageFromRow(row map[string]any) SessionMessage {
+	content := jsonStr(row["content"])
+	// P27.2: Decrypt message content if encryption key is configured.
+	if k := globalEncryptionKey(); k != "" {
+		if dec, err := decrypt(content, k); err == nil {
+			content = dec
+		}
+	}
 	return SessionMessage{
 		ID:        jsonInt(row["id"]),
 		SessionID: jsonStr(row["session_id"]),
 		Role:      jsonStr(row["role"]),
-		Content:   jsonStr(row["content"]),
+		Content:   content,
 		CostUSD:   jsonFloat(row["cost_usd"]),
 		TokensIn:  jsonInt(row["tokens_in"]),
 		TokensOut: jsonInt(row["tokens_out"]),
@@ -537,9 +551,6 @@ Conversation (%d messages):
 
 	// Run summary via coordinator.
 	coordinator := cfg.SmartDispatch.Coordinator
-	if coordinator == "" {
-		coordinator = "琉璃"
-	}
 	task := Task{
 		Prompt:  summaryPrompt,
 		Timeout: "60s",

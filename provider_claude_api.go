@@ -97,6 +97,18 @@ type claudeStreamChunk struct {
 // --- Provider Execute ---
 
 func (p *ClaudeAPIProvider) Execute(ctx context.Context, req ProviderRequest) (*ProviderResult, error) {
+	return p.executeInternal(ctx, req)
+}
+
+// ExecuteWithTools implements ToolCapableProvider for multi-turn tool conversations.
+func (p *ClaudeAPIProvider) ExecuteWithTools(ctx context.Context, req ProviderRequest) (*ProviderResult, error) {
+	return p.executeInternal(ctx, req)
+}
+
+// executeInternal is the shared implementation for Execute and ExecuteWithTools.
+// It builds the message list from req.Prompt and req.Messages, includes tools,
+// and dispatches the HTTP call.
+func (p *ClaudeAPIProvider) executeInternal(ctx context.Context, req ProviderRequest) (*ProviderResult, error) {
 	model := req.Model
 	if model == "" {
 		model = p.model
@@ -110,9 +122,22 @@ func (p *ClaudeAPIProvider) Execute(ctx context.Context, req ProviderRequest) (*
 		maxTokens = 8192
 	}
 
-	// Build messages from prompt.
-	messages := []claudeMessage{
-		{Role: "user", Content: req.Prompt},
+	// Build messages: initial prompt + multi-turn conversation history.
+	var messages []claudeMessage
+	if len(req.Messages) == 0 {
+		// Simple single-turn: just the user prompt.
+		messages = []claudeMessage{
+			{Role: "user", Content: req.Prompt},
+		}
+	} else {
+		// Multi-turn: user prompt first, then accumulated tool conversation messages.
+		messages = []claudeMessage{
+			{Role: "user", Content: req.Prompt},
+		}
+		for _, m := range req.Messages {
+			content := convertMessageContent(m.Content)
+			messages = append(messages, claudeMessage{Role: m.Role, Content: content})
+		}
 	}
 
 	// Build tools array if provided.
@@ -179,6 +204,30 @@ func (p *ClaudeAPIProvider) Execute(ctx context.Context, req ProviderRequest) (*
 	return p.handleNonStreaming(ctx, resp, start, model)
 }
 
+// convertMessageContent converts json.RawMessage content to a suitable type
+// for the Claude API. It tries to parse as an array of content blocks first,
+// then falls back to a plain string.
+func convertMessageContent(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Try as array of content blocks (tool_use, tool_result, text blocks).
+	var blocks []claudeContent
+	if err := json.Unmarshal(raw, &blocks); err == nil && len(blocks) > 0 {
+		return blocks
+	}
+
+	// Try as plain string.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+
+	// Fallback: use raw bytes as string.
+	return string(raw)
+}
+
 // handleNonStreaming processes a non-streaming response.
 func (p *ClaudeAPIProvider) handleNonStreaming(ctx context.Context, resp *http.Response, start time.Time, model string) (*ProviderResult, error) {
 	var apiResp claudeAPIResponse
@@ -221,6 +270,7 @@ func (p *ClaudeAPIProvider) handleNonStreaming(ctx context.Context, resp *http.R
 		TokensIn:   apiResp.Usage.InputTokens,
 		TokensOut:  apiResp.Usage.OutputTokens,
 		ToolCalls:  toolCalls,
+		StopReason: apiResp.StopReason,
 	}, nil
 }
 
@@ -234,6 +284,7 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 	var inputTokens, outputTokens int
 	var currentToolCall *ToolCall
 	var toolInputBuffer strings.Builder
+	var stopReason string
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -297,6 +348,7 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 
 		case "message_delta":
 			if chunk.Delta != nil && chunk.Delta.StopReason != "" {
+				stopReason = chunk.Delta.StopReason
 				logDebug("claude-api: stop reason", "reason", chunk.Delta.StopReason)
 			}
 			if chunk.Message != nil {
@@ -325,6 +377,7 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 		TokensIn:   inputTokens,
 		TokensOut:  outputTokens,
 		ToolCalls:  toolCalls,
+		StopReason: stopReason,
 	}, nil
 }
 

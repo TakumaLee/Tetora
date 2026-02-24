@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -151,7 +152,7 @@ func isToolAllowed(cfg *Config, roleName, toolName string) bool {
 // --- Trust-Level Tool Filtering ---
 
 // getToolTrustLevel returns the effective trust level for a tool call.
-// Priority: tool-specific override → role trust level → default "auto"
+// Priority: tool-specific override → role trust level → RequireAuth check → default "auto"
 func getToolTrustLevel(cfg *Config, roleName, toolName string) string {
 	// Check tool-specific trust override in config.
 	if cfg.Tools.TrustOverride != nil {
@@ -164,6 +165,13 @@ func getToolTrustLevel(cfg *Config, roleName, toolName string) string {
 	if rc, ok := cfg.Roles[roleName]; ok {
 		if rc.TrustLevel != "" && isValidTrustLevel(rc.TrustLevel) {
 			return rc.TrustLevel
+		}
+	}
+
+	// If tool has RequireAuth flag and no explicit trust config, default to "suggest" instead of "auto".
+	if cfg.toolRegistry != nil {
+		if td, ok := cfg.toolRegistry.Get(toolName); ok && td.RequireAuth {
+			return TrustSuggest
 		}
 	}
 
@@ -397,6 +405,90 @@ func listAvailableProfiles(cfg *Config) []string {
 	}
 
 	return profiles
+}
+
+// --- P28.0: Approval Gates ---
+
+// ApprovalGate requests user confirmation before executing a tool.
+type ApprovalGate interface {
+	// RequestApproval blocks until user approves/rejects or context expires.
+	// Returns true if approved, false if rejected or timed out.
+	RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error)
+}
+
+// ApprovalRequest describes a tool call pending user approval.
+type ApprovalRequest struct {
+	ID      string          `json:"id"`
+	Tool    string          `json:"tool"`
+	Input   json.RawMessage `json:"input"`
+	Summary string          `json:"summary"` // human-readable description
+	TaskID  string          `json:"taskId"`
+	Role    string          `json:"role"`
+}
+
+// needsApproval checks if a tool requires approval gate confirmation.
+func needsApproval(cfg *Config, toolName string) bool {
+	if !cfg.ApprovalGates.Enabled {
+		return false
+	}
+	for _, t := range cfg.ApprovalGates.Tools {
+		if t == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+// requestToolApproval sends approval request and blocks until response.
+func requestToolApproval(ctx context.Context, cfg *Config, task Task, tc ToolCall) (bool, error) {
+	timeout := cfg.ApprovalGates.Timeout
+	if timeout <= 0 {
+		timeout = 120
+	}
+	gateCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	req := ApprovalRequest{
+		ID:      newTraceID("gate"),
+		Tool:    tc.Name,
+		Input:   tc.Input,
+		Summary: summarizeToolCall(tc),
+		TaskID:  task.ID,
+		Role:    task.Role,
+	}
+
+	return task.approvalGate.RequestApproval(gateCtx, req)
+}
+
+// summarizeToolCall creates a human-readable summary of what the tool will do.
+func summarizeToolCall(tc ToolCall) string {
+	var args map[string]any
+	json.Unmarshal(tc.Input, &args)
+	switch tc.Name {
+	case "exec":
+		return fmt.Sprintf("Run command: %s", jsonStr(args["command"]))
+	case "write":
+		return fmt.Sprintf("Write file: %s", jsonStr(args["path"]))
+	case "email_send":
+		return fmt.Sprintf("Send email to: %s", jsonStr(args["to"]))
+	case "tweet_post":
+		return fmt.Sprintf("Post tweet: %s", truncateJSON(tc.Input, 80))
+	case "delete":
+		return fmt.Sprintf("Delete: %s", jsonStr(args["path"]))
+	default:
+		return fmt.Sprintf("Execute %s with %s", tc.Name, truncateJSON(tc.Input, 100))
+	}
+}
+
+// gateReason returns a human-readable reason for gate rejection.
+func gateReason(err error, approved bool) string {
+	if err != nil {
+		return err.Error()
+	}
+	if !approved {
+		return "rejected by user"
+	}
+	return "approved"
 }
 
 // getToolPolicySummary returns a human-readable summary of a role's tool policy.

@@ -236,6 +236,26 @@ func storeReflection(dbPath string, ref *ReflectionResult) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("store reflection: %s: %w", string(out), err)
 	}
+
+	// --- P23.0: Dual-write to unified memory ---
+	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
+		umValue := ref.Feedback
+		if ref.Improvement != "" {
+			umValue += "\n---\n" + ref.Improvement
+		}
+		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
+			Namespace: UMNSReflection,
+			Scope:     ref.Role,
+			Key:       "reflect:" + ref.TaskID,
+			Value:     umValue,
+			Source:    "reflection",
+			SourceRef: ref.TaskID,
+		})
+		if umErr != nil {
+			logWarn("unified memory reflection dual-write failed", "taskId", ref.TaskID, "error", umErr)
+		}
+	}
+
 	return nil
 }
 

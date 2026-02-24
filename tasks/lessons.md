@@ -1,6 +1,6 @@
-# Lessons Learned
+# Lessons Learned — Tetora Specific
 
-> Patterns from corrections and mistakes. Reviewed at session start to prevent repeats.
+> Go and Tetora-specific patterns. For universal lessons see `~/.claude/lessons.md`.
 
 ## Go / Tetora Specific
 
@@ -10,11 +10,13 @@
 - Both calls to `startHTTPServer` in `main.go` must be updated together
 - Binary conflicts during rebase — always `git checkout --theirs` for compiled binaries
 
-## Workflow
-
-- Bash-type subagent cannot write files — use `ruri-dev-team` or write manually
-- Duplicate type declarations can appear after rebase — check before committing
-
-## General
+## Context Management (CRITICAL)
+- At **75% context usage**, MUST stop and save progress:
+  1. Write detailed status to `tasks/todo.md` (checkboxes for each subtask)
+  2. Update `memory/MEMORY.md` Quick Resume section
+  3. Run `go build ./...` and record build status
+  4. Tell user to start new session
+- Task system (Claude Code internal tasks) alone is NOT enough — they're session-scoped
+- Always write progress to persistent files on disk
 
 _New lessons added here after each correction._

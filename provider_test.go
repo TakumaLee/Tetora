@@ -131,6 +131,41 @@ func TestParseOpenAIResponse_Success(t *testing.T) {
 	if result.CostUSD <= 0 {
 		t.Error("expected positive cost estimate")
 	}
+	if result.StopReason != "end_turn" {
+		t.Errorf("expected StopReason=end_turn, got %s", result.StopReason)
+	}
+}
+
+func TestParseOpenAIResponse_ToolCalls(t *testing.T) {
+	data := []byte(`{
+		"id": "chatcmpl-tc",
+		"choices": [{
+			"message": {
+				"content": "Checking.",
+				"tool_calls": [
+					{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\":\"/tmp\"}"}}
+				]
+			},
+			"finish_reason": "tool_calls"
+		}],
+		"usage": {"prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80}
+	}`)
+	result := parseOpenAIResponse(data, 200)
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Error)
+	}
+	if result.StopReason != "tool_use" {
+		t.Errorf("StopReason = %q, want tool_use", result.StopReason)
+	}
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("len(ToolCalls) = %d, want 1", len(result.ToolCalls))
+	}
+	if result.ToolCalls[0].ID != "call_1" {
+		t.Errorf("ToolCalls[0].ID = %q, want call_1", result.ToolCalls[0].ID)
+	}
+	if result.ToolCalls[0].Name != "read_file" {
+		t.Errorf("ToolCalls[0].Name = %q, want read_file", result.ToolCalls[0].Name)
+	}
 }
 
 func TestParseOpenAIResponse_APIError(t *testing.T) {

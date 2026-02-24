@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -122,78 +119,16 @@ func initOAuthTable(dbPath string) error {
 }
 
 // --- Token Encryption (AES-256-GCM) ---
+// Delegates to generalized encrypt/decrypt in crypto.go (P27.2).
 
 // encryptOAuthToken encrypts plaintext using AES-256-GCM.
-// Key is derived from SHA-256 of the encryption key string.
-// Nonce (12 bytes) is prepended to ciphertext. Output is hex-encoded.
 func encryptOAuthToken(plaintext, key string) (string, error) {
-	if plaintext == "" {
-		return "", nil
-	}
-	if key == "" {
-		return plaintext, nil // no encryption key — store as plaintext
-	}
-
-	// Derive 32-byte key via SHA-256.
-	keyHash := sha256.Sum256([]byte(key))
-	block, err := aes.NewCipher(keyHash[:])
-	if err != nil {
-		return "", fmt.Errorf("aes cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("gcm: %w", err)
-	}
-
-	// Generate random 12-byte nonce.
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("nonce: %w", err)
-	}
-
-	// Encrypt and prepend nonce.
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return hex.EncodeToString(ciphertext), nil
+	return encrypt(plaintext, key)
 }
 
 // decryptOAuthToken decrypts a hex-encoded AES-256-GCM ciphertext.
 func decryptOAuthToken(ciphertextHex, key string) (string, error) {
-	if ciphertextHex == "" {
-		return "", nil
-	}
-	if key == "" {
-		return ciphertextHex, nil // no key — stored as plaintext
-	}
-
-	data, err := hex.DecodeString(ciphertextHex)
-	if err != nil {
-		return "", fmt.Errorf("hex decode: %w", err)
-	}
-
-	keyHash := sha256.Sum256([]byte(key))
-	block, err := aes.NewCipher(keyHash[:])
-	if err != nil {
-		return "", fmt.Errorf("aes cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("gcm: %w", err)
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-
-	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
-	}
-
-	return string(plaintext), nil
+	return decrypt(ciphertextHex, key)
 }
 
 // --- Token Storage ---

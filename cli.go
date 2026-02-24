@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const tetoraVersion = "2.0.0"
+var tetoraVersion = "dev"
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `tetora v%s — AI Agent Orchestrator

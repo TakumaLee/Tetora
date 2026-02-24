@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -183,6 +184,19 @@ func isThreadChannel(channelType int) bool {
 
 // --- /focus and /unfocus Command Handlers ---
 
+// availableRoleNames returns sorted role names from config.
+func (db *DiscordBot) availableRoleNames() []string {
+	if db == nil || db.cfg == nil || db.cfg.Roles == nil {
+		return nil
+	}
+	names := make([]string, 0, len(db.cfg.Roles))
+	for r := range db.cfg.Roles {
+		names = append(names, r)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // handleFocusCommand processes the /focus <role> command to bind a thread to an agent.
 func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channelType int) bool {
 	if !isThreadChannel(channelType) {
@@ -192,22 +206,15 @@ func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channe
 
 	role := strings.TrimSpace(strings.ToLower(args))
 	if role == "" {
-		db.sendMessage(msg.ChannelID, "Usage: `/focus <role>` — Available roles: ruri, hisui, kokuyou, kohaku")
+		available := db.availableRoleNames()
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Usage: `/focus <role>` — Available roles: %s", strings.Join(available, ", ")))
 		return true
 	}
 
-	// Validate role exists.
-	validRoles := map[string]bool{"ruri": true, "hisui": true, "kokuyou": true, "kohaku": true}
-	if db.cfg.Roles != nil {
-		for r := range db.cfg.Roles {
-			validRoles[r] = true
-		}
-	}
-	if !validRoles[role] {
-		available := make([]string, 0, len(validRoles))
-		for r := range validRoles {
-			available = append(available, r)
-		}
+	// Validate role exists in config.
+	_, roleExists := db.cfg.Roles[role]
+	if db.cfg.Roles == nil || !roleExists {
+		available := db.availableRoleNames()
 		db.sendMessage(msg.ChannelID, fmt.Sprintf("Unknown role `%s`. Available: %s", role, strings.Join(available, ", ")))
 		return true
 	}

@@ -1,4 +1,4 @@
-module github.com/user/tetora-companion-desktop
+module github.com/TakumaLee/Tetora/companion/desktop
 
 go 1.25
 

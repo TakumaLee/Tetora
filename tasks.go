@@ -148,6 +148,24 @@ func updateTaskStatus(dbPath string, id, status, errMsg string) error {
 	return nil
 }
 
+// pragmaDB sets recommended SQLite pragmas for reliability.
+// WAL mode enables concurrent reads during writes.
+// busy_timeout prevents "database is locked" under contention.
+func pragmaDB(dbPath string) error {
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL;",
+		"PRAGMA busy_timeout=5000;",
+		"PRAGMA synchronous=NORMAL;",
+	}
+	for _, p := range pragmas {
+		cmd := exec.Command("sqlite3", dbPath, p)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("pragma %q: %s: %w", p, string(out), err)
+		}
+	}
+	return nil
+}
+
 // escapeSQLite sanitizes a string for safe SQLite interpolation.
 // Handles single quotes, null bytes, and control characters.
 func escapeSQLite(s string) string {

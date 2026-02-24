@@ -11,7 +11,7 @@ import (
 
 func cmdSkill(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora skill <list|run|test|store|approve|reject> [name]")
+		fmt.Println("Usage: tetora skill <list|run|test|store|approve|reject|install|search|scan> [name]")
 		fmt.Println()
 		fmt.Println("Commands:")
 		fmt.Println("  list                                   List all skills (config + file-based)")
@@ -20,6 +20,9 @@ func cmdSkill(args []string) {
 		fmt.Println("  store                                  List file-based skills (store)")
 		fmt.Println("  approve <name>                         Approve a pending skill")
 		fmt.Println("  reject  <name>                         Reject (delete) a pending skill")
+		fmt.Println("  install <url>                          Install a skill from URL")
+		fmt.Println("  search  <query>                        Search skill registry")
+		fmt.Println("  scan    <name>                         Security scan a skill")
 		return
 	}
 	switch args[0] {
@@ -51,9 +54,100 @@ func cmdSkill(args []string) {
 			os.Exit(1)
 		}
 		skillRejectCmd(args[1])
+	case "install":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora skill install <url>")
+			os.Exit(1)
+		}
+		skillInstallCmd(args[1])
+	case "search":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora skill search <query>")
+			os.Exit(1)
+		}
+		skillSearchCmd(strings.Join(args[1:], " "))
+	case "scan":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora skill scan <name>")
+			os.Exit(1)
+		}
+		skillScanCmd(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown skill action: %s\n", args[0])
 		os.Exit(1)
+	}
+}
+
+// --- P27.1: CLI wrappers ---
+
+func skillInstallCmd(url string) {
+	cfg := loadConfig(findConfigPath())
+	input, _ := json.Marshal(map[string]any{"url": url, "auto_approve": false})
+	result, err := toolSkillInstall(context.Background(), cfg, input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(result)
+}
+
+func skillSearchCmd(query string) {
+	cfg := loadConfig(findConfigPath())
+	input, _ := json.Marshal(map[string]any{"query": query})
+	result, err := toolSkillSearch(context.Background(), cfg, input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Pretty print results.
+	var entries []map[string]any
+	if json.Unmarshal([]byte(result), &entries) == nil && len(entries) > 0 {
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tDESCRIPTION\tURL")
+		for _, e := range entries {
+			name, _ := e["name"].(string)
+			desc, _ := e["description"].(string)
+			url, _ := e["url"].(string)
+			if len(desc) > 50 {
+				desc = desc[:50] + "..."
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\n", name, desc, url)
+		}
+		w.Flush()
+	} else {
+		fmt.Println(result)
+	}
+}
+
+func skillScanCmd(name string) {
+	cfg := loadConfig(findConfigPath())
+	input, _ := json.Marshal(map[string]any{"name": name})
+	result, err := toolSentoriScan(context.Background(), cfg, input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Pretty print report.
+	var report SentoriReport
+	if json.Unmarshal([]byte(result), &report) == nil {
+		fmt.Printf("Skill: %s\n", report.SkillName)
+		fmt.Printf("Risk:  %s (score: %d)\n", report.OverallRisk, report.Score)
+		if len(report.Findings) > 0 {
+			fmt.Println("Findings:")
+			for _, f := range report.Findings {
+				line := ""
+				if f.Line > 0 {
+					line = fmt.Sprintf(" (line %d)", f.Line)
+				}
+				fmt.Printf("  [%s] %s: %s%s\n", f.Severity, f.Category, f.Description, line)
+			}
+		} else {
+			fmt.Println("No findings.")
+		}
+	} else {
+		fmt.Println(result)
 	}
 }
 

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 )
 
 // TestProfileResolution tests tool profile resolution.
@@ -344,4 +347,123 @@ func containsStringHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// --- P28.0: Approval Gate Tests ---
+
+func TestNeedsApproval(t *testing.T) {
+	tests := []struct {
+		name     string
+		enabled  bool
+		tools    []string
+		toolName string
+		want     bool
+	}{
+		{"disabled", false, []string{"exec"}, "exec", false},
+		{"enabled, tool in list", true, []string{"exec", "write"}, "exec", true},
+		{"enabled, tool not in list", true, []string{"exec", "write"}, "read", false},
+		{"enabled, empty list", true, nil, "exec", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				ApprovalGates: ApprovalGateConfig{
+					Enabled: tt.enabled,
+					Tools:   tt.tools,
+				},
+			}
+			got := needsApproval(cfg, tt.toolName)
+			if got != tt.want {
+				t.Errorf("needsApproval() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSummarizeToolCall(t *testing.T) {
+	tests := []struct {
+		name       string
+		tc         ToolCall
+		wantSubstr string
+	}{
+		{
+			"exec",
+			ToolCall{Name: "exec", Input: json.RawMessage(`{"command":"ls -la"}`)},
+			"Run command: ls -la",
+		},
+		{
+			"write",
+			ToolCall{Name: "write", Input: json.RawMessage(`{"path":"/tmp/test.txt"}`)},
+			"Write file: /tmp/test.txt",
+		},
+		{
+			"email_send",
+			ToolCall{Name: "email_send", Input: json.RawMessage(`{"to":"user@example.com"}`)},
+			"Send email to: user@example.com",
+		},
+		{
+			"generic",
+			ToolCall{Name: "custom_tool", Input: json.RawMessage(`{"key":"value"}`)},
+			"Execute custom_tool",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := summarizeToolCall(tt.tc)
+			if !containsString(got, tt.wantSubstr) {
+				t.Errorf("summarizeToolCall() = %q, want to contain %q", got, tt.wantSubstr)
+			}
+		})
+	}
+}
+
+// mockApprovalGate is a test implementation of ApprovalGate.
+type mockApprovalGate struct {
+	respondWith bool
+	respondErr  error
+	delay       time.Duration
+}
+
+func (m *mockApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
+	if m.delay > 0 {
+		select {
+		case <-time.After(m.delay):
+		case <-ctx.Done():
+			return false, ctx.Err()
+		}
+	}
+	return m.respondWith, m.respondErr
+}
+
+func TestApprovalGateTimeout(t *testing.T) {
+	gate := &mockApprovalGate{delay: 5 * time.Second}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	approved, err := gate.RequestApproval(ctx, ApprovalRequest{
+		ID:   "test-1",
+		Tool: "exec",
+	})
+
+	if approved {
+		t.Error("should not be approved on timeout")
+	}
+	if err == nil {
+		t.Error("should return error on timeout")
+	}
+}
+
+func TestGateReason(t *testing.T) {
+	if r := gateReason(nil, false); r != "rejected by user" {
+		t.Errorf("got %q, want %q", r, "rejected by user")
+	}
+	if r := gateReason(fmt.Errorf("timeout"), false); r != "timeout" {
+		t.Errorf("got %q, want %q", r, "timeout")
+	}
+	if r := gateReason(nil, true); r != "approved" {
+		t.Errorf("got %q, want %q", r, "approved")
+	}
 }

@@ -12,8 +12,15 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 )
+
+// --- P27.3: Channel Notifier Interface ---
+
+// ChannelNotifier sends typing indicators and status updates to a messaging channel.
+type ChannelNotifier interface {
+	SendTyping(ctx context.Context) error
+	SendStatus(ctx context.Context, msg string) error
+}
 
 // --- Task Types ---
 
@@ -37,6 +44,8 @@ type Task struct {
 	TraceID        string   `json:"traceId,omitempty"` // trace ID for request correlation
 	Depth          int      `json:"depth,omitempty"`    // --- P13.3: Nested Sub-Agents --- nesting depth (0 = top-level)
 	ParentID       string   `json:"parentId,omitempty"` // --- P13.3: Nested Sub-Agents --- parent task ID
+	channelNotifier ChannelNotifier                     // P27.3: unexported, not serialized
+	approvalGate    ApprovalGate                        // P28.0: unexported, not serialized
 }
 
 type TaskResult struct {
@@ -257,6 +266,20 @@ func sanitizePrompt(input string, maxLen int) string {
 	}
 
 	return result
+}
+
+// --- P21.2: Writing Style ---
+
+// loadWritingStyle resolves writing style guidelines from config.
+func loadWritingStyle(cfg *Config) string {
+	if cfg.WritingStyle.FilePath != "" {
+		data, err := os.ReadFile(cfg.WritingStyle.FilePath)
+		if err == nil {
+			return strings.TrimSpace(string(data))
+		}
+		logWarn("failed to load writing style file", "path", cfg.WritingStyle.FilePath, "error", err)
+	}
+	return cfg.WritingStyle.Guidelines
 }
 
 // --- Directory Validation ---
@@ -608,6 +631,35 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		if refCtx := buildReflectionContext(cfg.HistoryDB, roleName, 3); refCtx != "" {
 			task.SystemPrompt = task.SystemPrompt + "\n\n" + refCtx
 		}
+	}
+
+	// --- P21.2: Writing Style Guidelines ---
+	if cfg.WritingStyle.Enabled {
+		style := loadWritingStyle(cfg)
+		if style != "" {
+			task.SystemPrompt += "\n\n## Writing Style\n\n" + style
+		}
+	}
+
+	// --- P21.4: Source Citation ---
+	if cfg.Citation.Enabled {
+		citationFmt := cfg.Citation.Format
+		if citationFmt == "" {
+			citationFmt = "bracket"
+		}
+		var citationRule string
+		switch citationFmt {
+		case "footnote":
+			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+				"add numbered footnotes at the end of your response. Format: [1] source_name"
+		case "inline":
+			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+				"cite sources inline immediately after the relevant information. Format: (source: source_name)"
+		default: // "bracket"
+			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
+				"cite the source at the end of your response. Format: [source_name]"
+		}
+		task.SystemPrompt += "\n\n## Citation Rules\n" + citationRule
 	}
 
 	// Validate directories before running.
@@ -1026,7 +1078,30 @@ func buildSummary(dr *DispatchResult) string {
 		ok, len(dr.Tasks), dr.TotalCost, dur.Round(time.Second))
 }
 
+// safeToolExec wraps tool execution with panic recovery.
+func safeToolExec(ctx context.Context, cfg *Config, tool *ToolDef, input json.RawMessage) (output string, err error) {
+	defer func() {
+		if rv := recover(); rv != nil {
+			err = fmt.Errorf("tool %q panicked: %v", tool.Name, rv)
+			logError("tool panic recovered", "tool", tool.Name, "panic", fmt.Sprintf("%v", rv))
+		}
+	}()
+	return tool.Handler(ctx, cfg, input)
+}
+
 // --- Agentic Loop ---
+
+// truncateToolOutput truncates tool output to the given limit.
+// If limit <= 0, defaults to 10240 chars.
+func truncateToolOutput(output string, limit int) string {
+	if limit <= 0 {
+		limit = 10240
+	}
+	if len(output) <= limit {
+		return output
+	}
+	return output[:limit] + fmt.Sprintf("\n[truncated: first %d of %d chars]", limit, len(output))
+}
 
 // executeWithProviderAndTools runs a task with tool support via agentic loop.
 // If the provider supports tools and the tool registry has tools, it will:
@@ -1056,8 +1131,12 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
 	}
 
-	// Get available tools.
-	tools := cfg.toolRegistry.List()
+	// Get available tools (filtered by role policy if set).
+	var allowed map[string]bool
+	if task.Role != "" {
+		allowed = resolveAllowedTools(cfg, task.Role)
+	}
+	tools := cfg.toolRegistry.ListFiltered(allowed)
 	if len(tools) == 0 {
 		// No tools available, use regular execution.
 		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
@@ -1065,7 +1144,12 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 
 	// Build initial request.
 	req := buildProviderRequest(cfg, task, roleName, providerName, eventCh)
-	req.Tools = *(*[]ToolDef)(unsafe.Pointer(&tools)) // Convert []*ToolDef to []ToolDef
+	// Convert []*ToolDef to []ToolDef for the provider request.
+	toolDefs := make([]ToolDef, len(tools))
+	for i, t := range tools {
+		toolDefs[i] = *t
+	}
+	req.Tools = toolDefs
 
 	// Initialize enhanced loop detector.
 	detector := NewLoopDetector()
@@ -1079,8 +1163,18 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	var messages []Message
 	var finalResult *ProviderResult
 
+	// Token/cost accumulators across iterations.
+	var totalTokensIn, totalTokensOut int
+	var totalCostUSD float64
+	var totalProviderMs int64
+
 	for i := 0; i < maxIter; i++ {
 		req.Messages = messages
+
+		// P27.3: Send typing indicator at iteration start.
+		if cfg.StreamToChannels && task.channelNotifier != nil {
+			go task.channelNotifier.SendTyping(ctx)
+		}
 
 		// Call provider.
 		result, execErr := toolProvider.ExecuteWithTools(ctx, req)
@@ -1090,6 +1184,12 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		if result.IsError {
 			return result
 		}
+
+		// Accumulate metrics.
+		totalTokensIn += result.TokensIn
+		totalTokensOut += result.TokensOut
+		totalCostUSD += result.CostUSD
+		totalProviderMs += result.ProviderMs
 
 		// Check stop reason.
 		if result.StopReason != "tool_use" || len(result.ToolCalls) == 0 {
@@ -1162,6 +1262,19 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 				continue
 			}
 
+			// P28.0: Pre-execution approval gate.
+			if needsApproval(cfg, tc.Name) && task.approvalGate != nil {
+				approved, gateErr := requestToolApproval(ctx, cfg, task, tc)
+				if gateErr != nil || !approved {
+					toolResults = append(toolResults, ToolResult{
+						ToolUseID: tc.ID,
+						Content:   fmt.Sprintf("[REJECTED: tool %s requires approval — %s]", tc.Name, gateReason(gateErr, approved)),
+						IsError:   true,
+					})
+					continue
+				}
+			}
+
 			// Get tool handler.
 			tool, ok := cfg.toolRegistry.Get(tc.Name)
 			if !ok {
@@ -1173,19 +1286,34 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 				continue
 			}
 
-			// Execute tool.
+			// Execute tool (with panic recovery + per-tool timeout).
+			toolTimeout := time.Duration(cfg.Tools.ToolTimeout) * time.Second
+			if toolTimeout <= 0 {
+				toolTimeout = 30 * time.Second
+			}
+			toolCtx, toolCancel := context.WithTimeout(ctx, toolTimeout)
 			toolStart := time.Now()
-			output, err := tool.Handler(ctx, cfg, tc.Input)
+			output, err := safeToolExec(toolCtx, cfg, tool, tc.Input)
+			toolCancel()
 			toolDuration := time.Since(toolStart)
+			if toolCtx.Err() == context.DeadlineExceeded && err == nil {
+				err = fmt.Errorf("tool %q timed out after %v", tc.Name, toolTimeout)
+			}
 
 			tr := ToolResult{ToolUseID: tc.ID}
 			if err != nil {
 				tr.Content = fmt.Sprintf("error: %v", err)
 				tr.IsError = true
 			} else {
-				tr.Content = output
+				tr.Content = truncateToolOutput(output, cfg.Tools.ToolOutputLimit)
 			}
 			toolResults = append(toolResults, tr)
+
+			// P27.3: Send tool status to channel.
+			if cfg.StreamToChannels && task.channelNotifier != nil {
+				statusMsg := fmt.Sprintf("%s: done (%dms)", tc.Name, toolDuration.Milliseconds())
+				go task.channelNotifier.SendStatus(ctx, statusMsg)
+			}
 
 			// Publish SSE event for tool result.
 			if broker != nil {
@@ -1240,6 +1368,39 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			Role:    "user",
 			Content: userMsg,
 		})
+
+		// --- Mid-loop budget + context checks ---
+
+		// Per-task budget guard.
+		if task.Budget > 0 && totalCostUSD >= task.Budget {
+			logWarnCtx(ctx, "task budget exceeded mid-loop", "budget", task.Budget, "spent", totalCostUSD)
+			finalResult = &ProviderResult{
+				Output: result.Output + "\n[stopped: task budget exceeded]",
+			}
+			break
+		}
+
+		// Global budget check.
+		if br := checkBudget(cfg, roleName, "", 0); br != nil && !br.Allowed {
+			logWarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
+			finalResult = &ProviderResult{
+				Output: result.Output + "\n[stopped: global budget exceeded]",
+			}
+			break
+		}
+
+		// Context window estimation (heuristic: 1 token ~ 4 bytes, 80% of 200k).
+		var msgBytes int
+		for _, m := range messages {
+			msgBytes += len(m.Content)
+		}
+		if msgBytes/4 > 200000*80/100 {
+			logWarnCtx(ctx, "context window nearing limit", "estimatedTokens", msgBytes/4)
+			finalResult = &ProviderResult{
+				Output: result.Output + "\n[stopped: context limit]",
+			}
+			break
+		}
 	}
 
 	if finalResult == nil {
@@ -1249,6 +1410,12 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			Error:   fmt.Sprintf("max tool iterations (%d) reached", maxIter),
 		}
 	}
+
+	// Set accumulated totals on final result.
+	finalResult.TokensIn = totalTokensIn
+	finalResult.TokensOut = totalTokensOut
+	finalResult.CostUSD = totalCostUSD
+	finalResult.ProviderMs = totalProviderMs
 
 	return finalResult
 }

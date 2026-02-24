@@ -578,3 +578,63 @@ func TestCleanupRouteResults_KeepsRunning(t *testing.T) {
 	delete(routeResults, "running-id")
 	routeResultsMu.Unlock()
 }
+
+// ---------------------------------------------------------------------------
+// recoveryMiddleware
+// ---------------------------------------------------------------------------
+
+func TestRecoveryMiddleware_CatchesPanic(t *testing.T) {
+	panicky := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("test panic")
+	})
+	handler := recoveryMiddleware(panicky)
+	req, _ := http.NewRequest("GET", "/boom", nil)
+	rr := &httpResponseRecorder{code: 200, header: http.Header{}}
+	handler.ServeHTTP(rr, req)
+	if rr.code != http.StatusInternalServerError {
+		t.Errorf("recoveryMiddleware status = %d, want 500", rr.code)
+	}
+}
+
+func TestRecoveryMiddleware_PassesThrough(t *testing.T) {
+	normal := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	handler := recoveryMiddleware(normal)
+	req, _ := http.NewRequest("GET", "/ok", nil)
+	rr := &httpResponseRecorder{code: 200, header: http.Header{}}
+	handler.ServeHTTP(rr, req)
+	if rr.code != http.StatusOK {
+		t.Errorf("recoveryMiddleware normal status = %d, want 200", rr.code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bodySizeMiddleware
+// ---------------------------------------------------------------------------
+
+func TestBodySizeMiddleware_AllowsSmallBody(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := bodySizeMiddleware(inner)
+	body := strings.NewReader("small body")
+	req, _ := http.NewRequest("POST", "/test", body)
+	rr := &httpResponseRecorder{code: 200, header: http.Header{}}
+	handler.ServeHTTP(rr, req)
+	if rr.code != http.StatusOK {
+		t.Errorf("bodySizeMiddleware small body status = %d, want 200", rr.code)
+	}
+}
+
+// httpResponseRecorder is a minimal http.ResponseWriter for tests.
+type httpResponseRecorder struct {
+	code   int
+	header http.Header
+	body   []byte
+}
+
+func (r *httpResponseRecorder) Header() http.Header         { return r.header }
+func (r *httpResponseRecorder) Write(b []byte) (int, error)  { r.body = append(r.body, b...); return len(b), nil }
+func (r *httpResponseRecorder) WriteHeader(code int)          { r.code = code }

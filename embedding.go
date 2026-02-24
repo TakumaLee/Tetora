@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,9 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -63,13 +67,28 @@ CREATE TABLE IF NOT EXISTS embeddings (
     content TEXT NOT NULL,
     embedding BLOB NOT NULL,
     metadata TEXT DEFAULT '{}',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    content_hash TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_embeddings_source ON embeddings(source);
 CREATE INDEX IF NOT EXISTS idx_embeddings_source_id ON embeddings(source, source_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash);
 `
 	_, err := queryDB(dbPath, schema)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add content_hash column if missing (tolerate "duplicate column" error).
+	if _, err := queryDB(dbPath, `ALTER TABLE embeddings ADD COLUMN content_hash TEXT DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			logWarn("embedding migration: add content_hash", "error", err)
+		}
+	}
+	// Migration: add dedup index if missing.
+	if _, err := queryDB(dbPath, `CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash)`); err != nil {
+		logWarn("embedding migration: add dedup index", "error", err)
+	}
+	return nil
 }
 
 // --- Embedding Provider (OpenAI-compatible) ---
@@ -244,6 +263,7 @@ func deserializeVecFromHex(hexStr string) []float32 {
 }
 
 // storeEmbedding saves an embedding to the database.
+// Uses INSERT OR REPLACE with content_hash for dedup.
 func storeEmbedding(dbPath string, source, sourceID, content string, vec []float32, metadata map[string]interface{}) error {
 	metaJSON := "{}"
 	if metadata != nil {
@@ -251,16 +271,45 @@ func storeEmbedding(dbPath string, source, sourceID, content string, vec []float
 		metaJSON = string(b)
 	}
 
+	// Compute content hash for dedup.
+	contentHash := contentHashSHA256(content)
+
 	blob := serializeVec(vec)
 	blobHex := fmt.Sprintf("X'%x'", blob)
 
-	query := fmt.Sprintf(`INSERT INTO embeddings (source, source_id, content, embedding, metadata, created_at)
-VALUES (%s, %s, %s, %s, %s, %s)`,
+	query := fmt.Sprintf(`INSERT OR REPLACE INTO embeddings (source, source_id, content, embedding, metadata, created_at, content_hash)
+VALUES ('%s', '%s', '%s', %s, '%s', '%s', '%s')`,
 		escapeSQLite(source), escapeSQLite(sourceID), escapeSQLite(content),
-		blobHex, escapeSQLite(metaJSON), escapeSQLite(time.Now().UTC().Format(time.RFC3339)))
+		blobHex, escapeSQLite(metaJSON), escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
+		escapeSQLite(contentHash))
 
 	_, err := queryDB(dbPath, query)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// --- P23.0: Dual-write to unified memory ---
+	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
+		umKey := "emb:" + source + ":" + sourceID
+		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
+			Namespace: UMNSFact,
+			Key:       umKey,
+			Value:     content,
+			Source:    "embedding",
+			SourceRef: sourceID,
+		})
+		if umErr != nil {
+			logWarn("unified memory embedding dual-write failed", "key", umKey, "error", umErr)
+		}
+	}
+
+	return nil
+}
+
+// contentHashSHA256 returns the first 16 bytes of SHA-256 as hex.
+func contentHashSHA256(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:16])
 }
 
 // embeddingRecord represents a row from the embeddings table.
@@ -278,7 +327,7 @@ type embeddingRecord struct {
 func loadEmbeddings(dbPath, source string) ([]embeddingRecord, error) {
 	query := `SELECT id, source, source_id, content, embedding, metadata, created_at FROM embeddings`
 	if source != "" {
-		query += ` WHERE source = ` + escapeSQLite(source)
+		query += ` WHERE source = '` + escapeSQLite(source) + `'`
 	}
 
 	rows, err := queryDB(dbPath, query)
@@ -391,15 +440,28 @@ func hybridSearch(ctx context.Context, cfg *Config, query string, source string,
 	dbPath := cfg.HistoryDB
 
 	// 1. TF-IDF results (from knowledge_search.go).
-	// We'll convert knowledge search results to embedding search results.
+	// Build a knowledge index and search it, converting results to EmbeddingSearchResult.
 	var tfidfResults []EmbeddingSearchResult
+	if cfg.KnowledgeDir != "" {
+		idx, idxErr := buildKnowledgeIndex(cfg.KnowledgeDir)
+		if idxErr == nil && idx != nil {
+			kResults := idx.search(query, topK*2)
+			for _, kr := range kResults {
+				tfidfResults = append(tfidfResults, EmbeddingSearchResult{
+					Source:   "knowledge",
+					SourceID: kr.Filename,
+					Content:  kr.Snippet,
+					Score:    kr.Score,
+				})
+			}
+		}
+	}
 
-	// Try to get TF-IDF results if knowledge index is available
-	// For now, we'll skip TF-IDF if not available and just use vector search
-	// In a full implementation, we'd integrate with knowledge_search.go's tfidfSearch
-
-	// 2. If embedding is not enabled, return empty or TF-IDF only.
+	// 2. If embedding is not enabled, return TF-IDF results only.
 	if !cfg.Embedding.Enabled {
+		if len(tfidfResults) > topK {
+			tfidfResults = tfidfResults[:topK]
+		}
 		return tfidfResults, nil
 	}
 
@@ -531,27 +593,133 @@ func rrfMerge(listA, listB []EmbeddingSearchResult, k int) []EmbeddingSearchResu
 
 // mmrRerank re-ranks results using Maximal Marginal Relevance to promote diversity.
 // lambda controls relevance vs diversity tradeoff (0.0 = max diversity, 1.0 = max relevance).
+// If embeddings are not available for candidates, the function falls back to score-based selection.
 func mmrRerank(results []EmbeddingSearchResult, queryVec []float32, lambda float64, topK int) []EmbeddingSearchResult {
 	if len(results) <= topK {
 		return results
 	}
-
-	// We need embeddings for MMR, but we don't have them in results.
-	// For simplicity, we'll skip actual MMR and just return top results.
-	// A full implementation would need to store embeddings in EmbeddingSearchResult or reload them.
-
-	// TODO: Full MMR implementation would:
-	// 1. Start with highest scoring result
-	// 2. For each remaining slot:
-	//    - For each remaining candidate:
-	//      - Score = lambda * similarity(query, candidate) - (1-lambda) * max(similarity(candidate, selected))
-	//    - Pick highest scoring candidate
-
-	// For now, just return top-K by score.
-	if topK > len(results) {
-		topK = len(results)
+	if topK <= 0 {
+		return nil
 	}
-	return results[:topK]
+
+	// Build a map of content -> embedding vector from results.
+	// We use content-derived pseudo-vectors: hash the content into a consistent
+	// vector space for diversity comparison. If queryVec is available we can also
+	// use the original score as a proxy for query-relevance.
+	type candidate struct {
+		result EmbeddingSearchResult
+		vec    []float32
+	}
+
+	// Generate pseudo-embeddings from content for diversity computation.
+	// This is a lightweight approach that avoids DB round-trips.
+	candidates := make([]candidate, len(results))
+	for i, r := range results {
+		candidates[i] = candidate{
+			result: r,
+			vec:    contentToVec(r.Content, len(queryVec)),
+		}
+	}
+
+	// Greedy MMR selection.
+	selected := make([]int, 0, topK)
+	remaining := make(map[int]bool)
+	for i := range candidates {
+		remaining[i] = true
+	}
+
+	// Step 1: Pick the highest-scoring candidate first.
+	bestIdx := 0
+	bestScore := -math.MaxFloat64
+	for i := range candidates {
+		if candidates[i].result.Score > bestScore {
+			bestScore = candidates[i].result.Score
+			bestIdx = i
+		}
+	}
+	selected = append(selected, bestIdx)
+	delete(remaining, bestIdx)
+
+	// Step 2: For each remaining slot, pick the candidate maximizing MMR.
+	for len(selected) < topK && len(remaining) > 0 {
+		bestMMR := -math.MaxFloat64
+		bestCand := -1
+
+		for i := range remaining {
+			// Relevance: similarity to query (use normalized score).
+			relevance := candidates[i].result.Score
+
+			// Diversity: max similarity to any already-selected result.
+			maxSim := -math.MaxFloat64
+			candVec := candidates[i].vec
+			for _, si := range selected {
+				sim := float64(cosineSimilarity(candVec, candidates[si].vec))
+				if sim > maxSim {
+					maxSim = sim
+				}
+			}
+			if maxSim == -math.MaxFloat64 {
+				maxSim = 0
+			}
+
+			mmrScore := lambda*relevance - (1-lambda)*maxSim
+			if mmrScore > bestMMR {
+				bestMMR = mmrScore
+				bestCand = i
+			}
+		}
+
+		if bestCand < 0 {
+			break
+		}
+		selected = append(selected, bestCand)
+		delete(remaining, bestCand)
+	}
+
+	out := make([]EmbeddingSearchResult, len(selected))
+	for i, si := range selected {
+		out[i] = candidates[si].result
+	}
+	return out
+}
+
+// contentToVec generates a deterministic pseudo-embedding vector from text content.
+// This is used for MMR diversity computation when real embeddings are not available.
+// It produces a consistent vector using character-level hashing into buckets.
+func contentToVec(content string, dims int) []float32 {
+	if dims <= 0 {
+		dims = 64 // default small dimension for pseudo-vectors
+	}
+	vec := make([]float32, dims)
+	if content == "" {
+		return vec
+	}
+
+	// Hash each token into a bucket and accumulate.
+	tokens := strings.Fields(strings.ToLower(content))
+	for _, tok := range tokens {
+		h := sha256.Sum256([]byte(tok))
+		// Use first 4 bytes as bucket index, next 4 as sign/magnitude.
+		bucket := int(binary.LittleEndian.Uint32(h[0:4])) % dims
+		sign := float32(1.0)
+		if h[4]&1 == 1 {
+			sign = -1.0
+		}
+		vec[bucket] += sign
+	}
+
+	// L2-normalize.
+	var norm float32
+	for _, v := range vec {
+		norm += v * v
+	}
+	if norm > 0 {
+		norm = float32(math.Sqrt(float64(norm)))
+		for i := range vec {
+			vec[i] /= norm
+		}
+	}
+	return vec
 }
 
 // temporalDecay applies exponential temporal decay to a score based on age.
@@ -573,28 +741,168 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 
 	dbPath := cfg.HistoryDB
 
-	// Clear existing embeddings
+	// Clear existing embeddings.
 	_, err := queryDB(dbPath, "DELETE FROM embeddings")
 	if err != nil {
 		return fmt.Errorf("clear embeddings: %w", err)
 	}
 
-	// Index knowledge entries
-	// (This would scan cfg.KnowledgeDir and embed each file)
-	// For now, we'll leave this as a placeholder.
-	// Full implementation would:
-	// 1. Scan knowledge directory
-	// 2. Read files
-	// 3. Chunk if needed
-	// 4. Call getEmbeddings in batches
-	// 5. storeEmbedding for each chunk
+	batchSize := cfg.Embedding.BatchSize
+	if batchSize <= 0 {
+		batchSize = 20
+	}
 
-	// Index memory entries from history.db
-	// (This would query recent conversations and embed them)
-	// For now, placeholder.
+	var totalIndexed int
 
-	logInfo("embedding reindex complete")
+	// 1. Index unified memory entries.
+	entries, err := umList(dbPath, "", "", 10000)
+	if err != nil {
+		logWarn("reindex: failed to list unified memory", "error", err)
+	} else {
+		var batch []string
+		var batchMeta []struct{ source, sourceID string }
+		for _, e := range entries {
+			text := e.Key + ": " + e.Value
+			batch = append(batch, text)
+			batchMeta = append(batchMeta, struct{ source, sourceID string }{"unified_memory", e.ID})
+			if len(batch) >= batchSize {
+				vecs, bErr := getEmbeddings(ctx, cfg, batch)
+				if bErr != nil {
+					logWarn("reindex um batch failed", "error", bErr)
+					batch = batch[:0]
+					batchMeta = batchMeta[:0]
+					continue
+				}
+				for i, vec := range vecs {
+					if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
+						logWarn("reindex store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+					} else {
+						totalIndexed++
+					}
+				}
+				batch = batch[:0]
+				batchMeta = batchMeta[:0]
+			}
+		}
+		// Flush remaining batch.
+		if len(batch) > 0 {
+			vecs, bErr := getEmbeddings(ctx, cfg, batch)
+			if bErr == nil {
+				for i, vec := range vecs {
+					if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
+						logWarn("reindex store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+					} else {
+						totalIndexed++
+					}
+				}
+			} else {
+				logWarn("reindex um flush batch failed", "error", bErr)
+			}
+		}
+		logInfo("reindex: unified memory complete", "count", len(entries))
+	}
+
+	// 2. Index knowledge files.
+	knowledgeDir := cfg.KnowledgeDir
+	if knowledgeDir != "" {
+		dirEntries, rErr := os.ReadDir(knowledgeDir)
+		if rErr != nil && !os.IsNotExist(rErr) {
+			logWarn("reindex: failed to read knowledge dir", "error", rErr)
+		} else if rErr == nil {
+			var batch []string
+			var batchMeta []struct{ source, sourceID string }
+			for _, de := range dirEntries {
+				if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+					continue
+				}
+				fPath := filepath.Join(knowledgeDir, de.Name())
+				data, fErr := os.ReadFile(fPath)
+				if fErr != nil {
+					logWarn("reindex: failed to read knowledge file", "file", de.Name(), "error", fErr)
+					continue
+				}
+				content := string(data)
+				// Chunk large files (>4000 chars) into overlapping segments.
+				chunks := chunkText(content, 2000, 200)
+				for ci, chunk := range chunks {
+					sourceID := de.Name()
+					if len(chunks) > 1 {
+						sourceID = fmt.Sprintf("%s#chunk%d", de.Name(), ci)
+					}
+					batch = append(batch, chunk)
+					batchMeta = append(batchMeta, struct{ source, sourceID string }{"knowledge", sourceID})
+					if len(batch) >= batchSize {
+						vecs, bErr := getEmbeddings(ctx, cfg, batch)
+						if bErr != nil {
+							logWarn("reindex knowledge batch failed", "error", bErr)
+							batch = batch[:0]
+							batchMeta = batchMeta[:0]
+							continue
+						}
+						for i, vec := range vecs {
+							if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
+								logWarn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+							} else {
+								totalIndexed++
+							}
+						}
+						batch = batch[:0]
+						batchMeta = batchMeta[:0]
+					}
+				}
+			}
+			// Flush remaining.
+			if len(batch) > 0 {
+				vecs, bErr := getEmbeddings(ctx, cfg, batch)
+				if bErr == nil {
+					for i, vec := range vecs {
+						if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
+							logWarn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+						} else {
+							totalIndexed++
+						}
+					}
+				} else {
+					logWarn("reindex knowledge flush batch failed", "error", bErr)
+				}
+			}
+			logInfo("reindex: knowledge files complete", "fileCount", len(dirEntries))
+		}
+	}
+
+	logInfo("embedding reindex complete", "totalIndexed", totalIndexed)
 	return nil
+}
+
+// chunkText splits text into chunks of approximately maxChars, with overlap.
+// If the text is shorter than maxChars, it is returned as a single chunk.
+func chunkText(text string, maxChars, overlap int) []string {
+	if len(text) <= maxChars {
+		return []string{text}
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= maxChars {
+		overlap = maxChars / 4
+	}
+
+	var chunks []string
+	step := maxChars - overlap
+	if step <= 0 {
+		step = maxChars
+	}
+	for start := 0; start < len(text); start += step {
+		end := start + maxChars
+		if end > len(text) {
+			end = len(text)
+		}
+		chunks = append(chunks, text[start:end])
+		if end == len(text) {
+			break
+		}
+	}
+	return chunks
 }
 
 // embeddingStatus returns statistics about the embedding index.

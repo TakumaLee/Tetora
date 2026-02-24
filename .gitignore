@@ -1,9 +1,39 @@
-# Compiled binaries
-bin/
+# Binary
 tetora
+bin/
+dist/
 
-# Runtime logs
+# Runtime data
+*.db
+*.db-wal
+*.db-shm
+config.json
+jobs.json
 logs/
+*.log
 
-# Claude Code local settings
+# Secrets
+.env
+.env.*
+
+# Generated
+mcp/
+sessions/
+vault/
+workspace/
+outputs/
+uploads/
+knowledge/
+backups/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+
+# Claude Code
 .claude/settings.local.json

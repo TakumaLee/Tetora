@@ -889,6 +889,8 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
     <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
     <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
+    <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
+    <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
   </div>
 
   <div id="dashboard-content">
@@ -1327,6 +1329,86 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div id="wf-node-detail" class="wf-node-detail" style="display:none"></div>
     </div>
   </div><!-- /workflows-content -->
+
+  <div id="integrations-content" style="display:none">
+    <!-- Channel Status -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Channel Status</span>
+        <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+      </div>
+      <div id="integration-channels"></div>
+    </div>
+
+    <!-- OAuth Connections -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">OAuth Connections</span></div>
+      <div id="integration-oauth"></div>
+    </div>
+
+    <!-- Reminders -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Reminders</span>
+        <button class="btn" onclick="refreshReminders()">Refresh</button>
+      </div>
+      <div id="integration-reminders"></div>
+    </div>
+
+    <!-- Workflow Triggers -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+      <div id="integration-triggers"></div>
+    </div>
+
+    <!-- Knowledge Pipeline -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
+      <div id="integration-knowledge"></div>
+    </div>
+
+    <!-- Smart Home -->
+    <div class="section" id="integration-ha-section" style="display:none">
+      <div class="section-header"><span class="section-title">Smart Home</span></div>
+      <div id="integration-ha"></div>
+    </div>
+  </div><!-- /integrations-content -->
+
+  <div id="settings-content" style="display:none">
+    <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
+    <div id="settings-container" style="display:none">
+      <!-- General -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">General</span></div>
+        <div id="settings-general"></div>
+      </div>
+      <!-- Channels -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Channels</span></div>
+        <div id="settings-channels"></div>
+      </div>
+      <!-- Integrations -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Integrations</span></div>
+        <div id="settings-integrations"></div>
+      </div>
+      <!-- Tools -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Tools</span></div>
+        <div id="settings-tools"></div>
+      </div>
+      <!-- Budgets -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Budgets</span></div>
+        <div id="settings-budgets"></div>
+      </div>
+      <!-- Security -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Security</span></div>
+        <div id="settings-security"></div>
+      </div>
+    </div>
+  </div><!-- /settings-content -->
 
 </div>
 
@@ -3447,18 +3529,22 @@ var chatSessionRole = '';
 
 function switchTab(tab) {
   currentTab = tab;
-  document.getElementById('tab-dashboard').classList.toggle('active', tab === 'dashboard');
-  document.getElementById('tab-chat').classList.toggle('active', tab === 'chat');
-  document.getElementById('tab-workflows').classList.toggle('active', tab === 'workflows');
-  document.getElementById('dashboard-content').style.display = tab === 'dashboard' ? '' : 'none';
-  document.getElementById('chat-content').style.display = tab === 'chat' ? '' : 'none';
-  document.getElementById('workflows-content').style.display = tab === 'workflows' ? '' : 'none';
+  ['dashboard','chat','workflows','integrations','settings'].forEach(function(t) {
+    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
+    document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
+  });
   if (tab === 'chat') {
     refreshChatSidebar();
     populateChatRoleFilter();
   }
   if (tab === 'workflows') {
     refreshWorkflowRuns();
+  }
+  if (tab === 'integrations') {
+    refreshIntegrations();
+  }
+  if (tab === 'settings') {
+    refreshSettings();
   }
 }
 
@@ -4518,6 +4604,229 @@ function pwaInstall() {
     var btn = document.getElementById('pwa-install-btn');
     if (btn) btn.style.display = 'none';
   });
+}
+
+// --- P22.4: Integrations ---
+
+function refreshIntegrations() {
+  fetch('/api/integrations/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      renderChannelStatus(data.channels || []);
+      renderOAuthStatus(data.oauthServices || []);
+      renderKnowledgeStatus(data.knowledgeDocs);
+      renderBrowserRelayStatus(data.browserRelay);
+      if (data.homeAssistant !== 'not_configured') {
+        document.getElementById('integration-ha-section').style.display = '';
+        renderHAStatus(data.homeAssistant);
+      }
+    })
+    .catch(function(e) { toast('Failed to load integrations: ' + e); });
+
+  // Also load reminders and triggers.
+  refreshReminders();
+  refreshTriggers();
+}
+
+function renderChannelStatus(channels) {
+  var el = document.getElementById('integration-channels');
+  if (!channels.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No channels configured</div>'; return; }
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+  channels.forEach(function(ch) {
+    var color = ch.status === 'connected' ? 'var(--green)' : ch.status === 'not_configured' ? 'var(--muted)' : 'var(--red)';
+    var icon = ch.status === 'connected' ? '&#9679;' : ch.status === 'not_configured' ? '&#9675;' : '&#9888;';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<span style="font-weight:600;text-transform:capitalize">' + ch.name + '</span>';
+    html += '<span style="color:' + color + ';font-size:12px">' + icon + ' ' + ch.status.replace('_',' ') + '</span>';
+    html += '</div></div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderOAuthStatus(services) {
+  var el = document.getElementById('integration-oauth');
+  if (!services || !services.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No OAuth services configured</div>'; return; }
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">';
+  services.forEach(function(svc) {
+    var connected = svc.connected;
+    var color = connected ? 'var(--green)' : 'var(--yellow)';
+    var status = connected ? 'Connected' : 'Not Connected';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">';
+    html += '<div style="font-weight:600;text-transform:capitalize">' + svc.name + '</div>';
+    html += '<div style="font-size:12px;color:' + color + ';margin-top:4px">' + status + '</div>';
+    if (svc.scopes) html += '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + svc.scopes + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function refreshReminders() {
+  fetch('/api/reminders')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var el = document.getElementById('integration-reminders');
+      var reminders = Array.isArray(data) ? data : (data.reminders || []);
+      if (!reminders.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No active reminders</div>'; return; }
+      var html = '<div class="table-wrap"><table><thead><tr><th>Message</th><th>Due</th><th>Repeat</th><th>Channel</th><th>Actions</th></tr></thead><tbody>';
+      reminders.forEach(function(r) {
+        html += '<tr>';
+        html += '<td>' + (r.message || r.text || '').substring(0, 50) + '</td>';
+        html += '<td style="font-size:12px">' + (r.dueTime || r.dueAt || '') + '</td>';
+        html += '<td style="font-size:12px">' + (r.recurring || 'once') + '</td>';
+        html += '<td style="font-size:12px">' + (r.channel || 'any') + '</td>';
+        html += '<td><button class="btn" style="font-size:11px;padding:2px 8px" onclick="cancelReminder(\'' + r.id + '\')">Cancel</button></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('integration-reminders').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load reminders</div>';
+    });
+}
+
+function cancelReminder(id) {
+  if (!confirm('Cancel this reminder?')) return;
+  fetch('/api/reminders/' + id, {method: 'DELETE'})
+    .then(function() { toast('Reminder cancelled'); refreshReminders(); })
+    .catch(function(e) { toast('Error: ' + e); });
+}
+
+function refreshTriggers() {
+  fetch('/api/triggers')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var el = document.getElementById('integration-triggers');
+      var triggers = Array.isArray(data) ? data : (data.triggers || []);
+      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured</div>'; return; }
+      var html = '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Condition</th><th>Target</th><th>Status</th></tr></thead><tbody>';
+      triggers.forEach(function(t) {
+        var statusColor = t.enabled ? 'var(--green)' : 'var(--muted)';
+        html += '<tr>';
+        html += '<td>' + (t.event || t.type || '') + '</td>';
+        html += '<td style="font-size:12px">' + (t.condition || 'always') + '</td>';
+        html += '<td style="font-size:12px">' + (t.workflow || t.target || '') + '</td>';
+        html += '<td><span style="color:' + statusColor + '">' + (t.enabled ? 'Active' : 'Disabled') + '</span></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
+    });
+}
+
+function renderKnowledgeStatus(count) {
+  var el = document.getElementById('integration-knowledge');
+  el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
+    '<div class="stat-label">INDEXED DOCUMENTS</div>' +
+    '<div class="stat-value">' + (count || 0) + '</div></div>';
+}
+
+function renderBrowserRelayStatus(status) {
+  // Included in channel status area
+}
+
+function renderHAStatus(status) {
+  var el = document.getElementById('integration-ha');
+  var color = status === 'connected' ? 'var(--green)' : 'var(--muted)';
+  el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+    '<span class="stat-label">HOME ASSISTANT</span>' +
+    '<span style="color:' + color + ';font-size:12px">&#9679; ' + status + '</span>' +
+    '</div></div>';
+}
+
+// --- P22.5: Settings ---
+
+function refreshSettings() {
+  document.getElementById('settings-loading').style.display = '';
+  document.getElementById('settings-container').style.display = 'none';
+
+  fetch('/api/config/summary')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('settings-loading').style.display = 'none';
+      document.getElementById('settings-container').style.display = '';
+      renderSettingsGeneral(data.general || {});
+      renderSettingsChannels(data.channels || {});
+      renderSettingsIntegrations(data.integrations || {});
+      renderSettingsTools(data.tools || {});
+      renderSettingsBudgets(data.budgets || {});
+      renderSettingsSecurity(data.security || {});
+    })
+    .catch(function(e) {
+      document.getElementById('settings-loading').innerHTML = '<span style="color:var(--red)">Failed to load: ' + e + '</span>';
+    });
+}
+
+function renderSettingsKV(el, items) {
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:8px;overflow:hidden">';
+  items.forEach(function(item) {
+    html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;color:var(--muted)">' + item.label + '</div>';
+    html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;font-family:monospace">' + item.value + '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function renderSettingsGeneral(data) {
+  renderSettingsKV(document.getElementById('settings-general'), [
+    {label: 'Listen Address', value: data.listenAddr || 'default'},
+    {label: 'Max Concurrent', value: data.maxConcurrent || 3},
+    {label: 'Default Model', value: data.defaultModel || 'sonnet'},
+    {label: 'Default Timeout', value: data.defaultTimeout || '15m'},
+    {label: 'API Token', value: data.apiToken || 'not set'},
+    {label: 'TLS Enabled', value: data.tlsEnabled ? 'Yes' : 'No'}
+  ]);
+}
+
+function renderSettingsChannels(data) {
+  var items = [];
+  Object.keys(data).forEach(function(k) {
+    items.push({label: k.charAt(0).toUpperCase() + k.slice(1), value: data[k] ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+  });
+  renderSettingsKV(document.getElementById('settings-channels'), items);
+}
+
+function renderSettingsIntegrations(data) {
+  var items = [];
+  Object.keys(data).forEach(function(k) {
+    var v = data[k];
+    if (typeof v === 'object') {
+      items.push({label: k, value: v.enabled ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+    } else {
+      items.push({label: k, value: v ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'});
+    }
+  });
+  renderSettingsKV(document.getElementById('settings-integrations'), items);
+}
+
+function renderSettingsTools(data) {
+  renderSettingsKV(document.getElementById('settings-tools'), [
+    {label: 'Total Registered', value: data.totalRegistered || 0}
+  ]);
+}
+
+function renderSettingsBudgets(data) {
+  renderSettingsKV(document.getElementById('settings-budgets'), [
+    {label: 'Daily Limit', value: data.dailyLimit ? '$' + data.dailyLimit.toFixed(2) : 'None'},
+    {label: 'Weekly Limit', value: data.weeklyLimit ? '$' + data.weeklyLimit.toFixed(2) : 'None'},
+    {label: 'Action', value: data.action || 'warn'}
+  ]);
+}
+
+function renderSettingsSecurity(data) {
+  renderSettingsKV(document.getElementById('settings-security'), [
+    {label: 'TLS', value: data.tlsEnabled ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'},
+    {label: 'Rate Limiting', value: data.rateLimit ? '<span style="color:var(--green)">Enabled</span> (' + data.rateLimitMax + '/min)' : '<span style="color:var(--muted)">Disabled</span>'},
+    {label: 'IP Allowlist', value: data.ipAllowlist > 0 ? data.ipAllowlist + ' entries' : 'None'},
+    {label: 'Dashboard Auth', value: data.dashboardAuth ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'}
+  ]);
 }
 </script>
 </body>

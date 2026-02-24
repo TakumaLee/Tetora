@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { width: 280px; padding: 16px; font-family: system-ui, sans-serif; }
+  h3 { margin: 0 0 12px; color: #333; }
+  .status { padding: 8px; border-radius: 4px; margin-bottom: 12px; text-align: center; font-weight: bold; }
+  .connected { background: #E8F5E9; color: #2E7D32; }
+  .disconnected { background: #FFEBEE; color: #C62828; }
+  label { display: block; margin: 8px 0 4px; font-size: 13px; color: #666; }
+  input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; }
+  button { width: 100%; margin-top: 12px; padding: 8px; border: none; border-radius: 4px; color: white; font-weight: bold; cursor: pointer; }
+  .btn-on { background: #4CAF50; }
+  .btn-off { background: #F44336; }
+</style>
+</head>
+<body>
+  <h3>Tetora Relay</h3>
+  <div id="status" class="status disconnected">Disconnected</div>
+  <label>Port</label>
+  <input id="port" type="number" value="18792">
+  <label>Token</label>
+  <input id="token" type="password" placeholder="(optional)">
+  <button id="toggle" class="btn-on">Connect</button>
+  <script src="popup.js"></script>
+</body>
+</html>

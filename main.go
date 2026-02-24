@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -117,6 +118,16 @@ func main() {
 		case "dashboard":
 			cmdOpenDashboard()
 			return
+		case "migrate": // --- P21.8: OpenClaw Migration Tool + P27.2: Encrypt ---
+			if len(os.Args) > 2 && os.Args[2] == "openclaw" {
+				cmdMigrateOpenClaw(os.Args[3:])
+			} else if len(os.Args) > 2 && os.Args[2] == "encrypt" {
+				cmdMigrateEncrypt()
+			} else {
+				fmt.Fprintln(os.Stderr, "Usage: tetora migrate <openclaw|encrypt>")
+				os.Exit(1)
+			}
+			return
 		case "completion":
 			cmdCompletion(os.Args[2:])
 			return
@@ -143,6 +154,9 @@ func main() {
 
 	cfg := loadConfig(*configPath)
 
+	// P27.2: Set global encryption key for standalone functions.
+	setGlobalEncryptionKey(resolveEncryptionKey(cfg))
+
 	// Initialize structured logger from config.
 	// Backward compat: cfg.Log=true with no explicit level → debug.
 	if cfg.Log && cfg.Logging.Level == "" {
@@ -164,17 +178,29 @@ func main() {
 		// --- Daemon mode ---
 		logInfo("tetora v2 starting", "maxConcurrent", cfg.MaxConcurrent)
 
+		// Track degraded services for health reporting.
+		var degradedServices []string
+
 		// Init history DB.
 		if cfg.HistoryDB != "" {
 			if err := initHistoryDB(cfg.HistoryDB); err != nil {
 				logWarn("init history db failed", "error", err)
+				degradedServices = append(degradedServices, "historyDB")
 			} else {
 				logInfo("history db initialized", "path", cfg.HistoryDB)
+
+				// Set SQLite pragmas for reliability.
+				if err := pragmaDB(cfg.HistoryDB); err != nil {
+					logWarn("set db pragmas failed", "error", err)
+				} else {
+					logInfo("db pragmas set", "mode", "WAL")
+				}
 
 				// Init embedding DB if enabled.
 				if cfg.Embedding.Enabled {
 					if err := initEmbeddingDB(cfg.HistoryDB); err != nil {
 						logWarn("init embedding db failed", "error", err)
+						degradedServices = append(degradedServices, "embedding")
 					} else {
 						logInfo("embedding db initialized")
 					}
@@ -226,6 +252,187 @@ func main() {
 			if err := initOAuthTable(cfg.HistoryDB); err != nil {
 				logWarn("init oauth_tokens failed", "error", err)
 			}
+			// --- P23.0: Unified Memory Layer ---
+			if cfg.UnifiedMemory.Enabled {
+				if err := initUnifiedMemoryDB(cfg.HistoryDB); err != nil {
+					logWarn("init unified_memory failed", "error", err)
+				} else {
+					globalUnifiedMemoryEnabled = true
+					globalUnifiedMemoryDB = cfg.HistoryDB
+					logInfo("unified memory initialized")
+					// Auto-migrate legacy data if configured.
+					if cfg.UnifiedMemory.AutoMigrate {
+						vaultPath := ""
+						if cfg.Notes.Enabled {
+							vaultPath = cfg.Notes.vaultPathResolved(cfg.baseDir)
+						}
+						stats, err := umMigrateAll(cfg.HistoryDB, vaultPath)
+						if err != nil {
+							logWarn("unified memory migration failed", "error", err)
+						} else {
+							logInfo("unified memory migration complete",
+								"agentMemory", stats.AgentMemory,
+								"embeddings", stats.Embeddings,
+								"reflections", stats.Reflections,
+								"notes", stats.Notes,
+								"skipped", stats.Skipped,
+								"errors", stats.Errors)
+						}
+					}
+				}
+			}
+		}
+
+		// --- P23.1: User Profile & Emotional Memory ---
+		if cfg.UserProfile.Enabled && cfg.HistoryDB != "" {
+			if err := initUserProfileDB(cfg.HistoryDB); err != nil {
+				logWarn("init user_profiles failed", "error", err)
+			} else {
+				globalUserProfileService = newUserProfileService(cfg)
+				logInfo("user profile service initialized", "sentiment", cfg.UserProfile.SentimentEnabled)
+			}
+		}
+
+		// --- P23.7: Reliability & Operations --- Init tables.
+		if cfg.HistoryDB != "" {
+			if err := initOpsDB(cfg.HistoryDB); err != nil {
+				logWarn("init ops tables failed", "error", err)
+			}
+		}
+
+		// --- P23.4: Financial Tracking ---
+		if cfg.Finance.Enabled && cfg.HistoryDB != "" {
+			if err := initFinanceDB(cfg.HistoryDB); err != nil {
+				logWarn("init finance tables failed", "error", err)
+			} else {
+				globalFinanceService = newFinanceService(cfg)
+				logInfo("finance service initialized", "defaultCurrency", cfg.Finance.defaultCurrencyOrTWD())
+			}
+		}
+
+		// --- P23.2: Task Management ---
+		if cfg.TaskManager.Enabled && cfg.HistoryDB != "" {
+			if err := initTaskManagerDB(cfg.HistoryDB); err != nil {
+				logWarn("init task_manager tables failed", "error", err)
+			} else {
+				globalTaskManager = newTaskManagerService(cfg)
+				logInfo("task manager initialized", "defaultProject", cfg.TaskManager.defaultProjectOrInbox())
+			}
+		}
+
+		// --- P23.3: File & Document Processing ---
+		if cfg.FileManager.Enabled && cfg.HistoryDB != "" {
+			if err := initFileManagerDB(cfg.HistoryDB); err != nil {
+				logWarn("init file_manager tables failed", "error", err)
+			} else {
+				globalFileManager = newFileManagerService(cfg)
+				logInfo("file manager initialized", "storageDir", cfg.FileManager.storageDirOrDefault(cfg.baseDir))
+			}
+		}
+
+		// --- P23.5: Media Control ---
+		if cfg.Spotify.Enabled {
+			globalSpotifyService = newSpotifyService(cfg)
+			logInfo("spotify service initialized", "market", cfg.Spotify.marketOrDefault())
+		}
+		if cfg.Podcast.Enabled && cfg.HistoryDB != "" {
+			if err := initPodcastDB(cfg.HistoryDB); err != nil {
+				logWarn("init podcast tables failed", "error", err)
+			} else {
+				globalPodcastService = newPodcastService(cfg.HistoryDB)
+				logInfo("podcast service initialized")
+			}
+		}
+
+		// --- P23.6: Multi-User / Family Mode ---
+		if cfg.Family.Enabled && cfg.HistoryDB != "" {
+			if err := initFamilyDB(cfg.HistoryDB); err != nil {
+				logWarn("init family tables failed", "error", err)
+			} else {
+				svc, err := newFamilyService(cfg, cfg.Family)
+				if err != nil {
+					logWarn("init family service failed", "error", err)
+				} else {
+					globalFamilyService = svc
+					logInfo("family mode initialized", "maxUsers", cfg.Family.maxUsersOrDefault())
+				}
+			}
+		}
+
+		// --- P24.2: Contact & Social Graph ---
+		if cfg.HistoryDB != "" {
+			if err := initContactsDB(cfg.HistoryDB); err != nil {
+				logWarn("init contacts tables failed", "error", err)
+			} else {
+				globalContactsService = newContactsService(cfg)
+				logInfo("contacts service initialized")
+			}
+		}
+
+		// --- P24.3: Life Insights Engine ---
+		if cfg.HistoryDB != "" {
+			if err := initInsightsDB(cfg.HistoryDB); err != nil {
+				logWarn("init insights tables failed", "error", err)
+			} else {
+				globalInsightsEngine = newInsightsEngine(cfg)
+				logInfo("insights engine initialized")
+			}
+		}
+
+		// --- P24.4: Smart Scheduling ---
+		globalSchedulingService = newSchedulingService(cfg)
+		logInfo("scheduling service initialized")
+
+		// --- P24.5: Habit & Wellness Tracking ---
+		if cfg.HistoryDB != "" {
+			if err := initHabitsDB(cfg.HistoryDB); err != nil {
+				logWarn("init habits tables failed", "error", err)
+			} else {
+				globalHabitsService = newHabitsService(cfg)
+				logInfo("habits service initialized")
+			}
+		}
+
+		// --- P24.6: Goal Planning & Autonomy ---
+		if cfg.HistoryDB != "" {
+			if err := initGoalsDB(cfg.HistoryDB); err != nil {
+				logWarn("init goals tables failed", "error", err)
+			} else {
+				globalGoalsService = newGoalsService(cfg)
+				logInfo("goals service initialized")
+			}
+		}
+
+		// --- P29.2: Time Tracking ---
+		if cfg.TimeTracking.Enabled && cfg.HistoryDB != "" {
+			if err := initTimeTrackingDB(cfg.HistoryDB); err != nil {
+				logWarn("init time_entries failed", "error", err)
+			} else {
+				globalTimeTracking = newTimeTrackingService(cfg)
+				logInfo("time tracking initialized")
+			}
+		}
+
+		// --- P29.0: Lifecycle Automation ---
+		if cfg.Lifecycle.Enabled {
+			globalLifecycleEngine = newLifecycleEngine(cfg)
+			logInfo("lifecycle engine initialized",
+				"autoHabitSuggest", cfg.Lifecycle.AutoHabitSuggest,
+				"autoInsightAction", cfg.Lifecycle.AutoInsightAction,
+				"autoBirthdayRemind", cfg.Lifecycle.AutoBirthdayRemind)
+		}
+
+		// --- P24.7: Morning Briefing & Evening Wrap ---
+		if cfg.HistoryDB != "" {
+			globalBriefingService = newBriefingService(cfg)
+			logInfo("briefing service initialized")
+		}
+
+		// Warn about incoming webhooks without secrets.
+		for name, wh := range cfg.IncomingWebhooks {
+			if wh.Secret == "" {
+				logWarn("incoming webhook has no secret configured", "webhook", name)
+			}
 		}
 
 		// Init outputs directory + cleanup.
@@ -254,6 +461,28 @@ func main() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// --- P23.0: Unified Memory Consolidation Loop ---
+		if cfg.UnifiedMemory.Enabled && cfg.UnifiedMemory.Consolidation.Enabled && cfg.HistoryDB != "" {
+			startConsolidationLoop(ctx, cfg.HistoryDB,
+				cfg.UnifiedMemory.consolidationIntervalOrDefault(),
+				cfg.UnifiedMemory.consolidationMaxAgeOrDefault())
+			logInfo("unified memory consolidation started",
+				"intervalH", cfg.UnifiedMemory.consolidationIntervalOrDefault(),
+				"maxAgeDays", cfg.UnifiedMemory.consolidationMaxAgeOrDefault())
+		}
+
+		// --- P23.7: Reliability & Operations --- Start background services.
+		if cfg.Ops.MessageQueue.Enabled && cfg.HistoryDB != "" {
+			mqEngine := newMessageQueueEngine(cfg)
+			mqEngine.Start(ctx)
+			logInfo("message queue started")
+		}
+		if cfg.Ops.BackupSchedule != "" && cfg.HistoryDB != "" {
+			bsched := newBackupScheduler(cfg)
+			bsched.Start(ctx)
+			logInfo("backup scheduler started", "schedule", cfg.Ops.BackupSchedule, "retain", cfg.Ops.backupRetainOrDefault())
+		}
 
 		// Periodic cleanup (daily): uses retention config for all tables.
 		go func() {
@@ -605,6 +834,17 @@ func main() {
 			logInfo("twitter integration enabled")
 		}
 
+		// --- P21.6: Chrome Extension Relay ---
+		if cfg.BrowserRelay.Enabled {
+			globalBrowserRelay = newBrowserRelay(&cfg.BrowserRelay)
+			go func() {
+				if err := globalBrowserRelay.Start(ctx); err != nil && err != http.ErrServerClosed {
+					logWarn("browser relay stopped", "error", err)
+				}
+			}()
+			logInfo("browser relay enabled", "port", cfg.BrowserRelay.Port)
+		}
+
 		// --- P20.2: iMessage via BlueBubbles --- Initialize iMessage bot.
 		var imessageBot *IMessageBot
 		if cfg.IMessage.Enabled && cfg.IMessage.ServerURL != "" {
@@ -616,8 +856,82 @@ func main() {
 			}
 		}
 
+		// P28.1: Collect all services into App container.
+		app := &App{
+			Cfg:         cfg,
+			UserProfile: globalUserProfileService,
+			Finance:     globalFinanceService,
+			TaskManager: globalTaskManager,
+			FileManager: globalFileManager,
+			Spotify:     globalSpotifyService,
+			Podcast:     globalPodcastService,
+			Family:      globalFamilyService,
+			Contacts:    globalContactsService,
+			Insights:    globalInsightsEngine,
+			Scheduling:  globalSchedulingService,
+			Habits:      globalHabitsService,
+			Goals:       globalGoalsService,
+			Briefing:    globalBriefingService,
+			Lifecycle:   globalLifecycleEngine,
+			TimeTracking: globalTimeTracking,
+			OAuth:       globalOAuthManager,
+			Gmail:       globalGmailService,
+			Calendar:    globalCalendarService,
+			Twitter:     globalTwitterService,
+			HA:          globalHAService,
+			Drive:       globalDriveService,
+			Dropbox:     globalDropboxService,
+			Browser:     globalBrowserRelay,
+			IMessage:    globalIMessageBot,
+			SpawnTracker:        globalSpawnTracker,
+			JudgeCache:          globalJudgeCache,
+			ImageGenLimiter:     globalImageGenLimiter,
+			UnifiedMemoryEnabled: globalUnifiedMemoryEnabled,
+			UnifiedMemoryDB:     globalUnifiedMemoryDB,
+			Presence:    globalPresence,
+			Reminder:    reminderEngine,
+		}
+
 		// HTTP server.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, cron, secMon, mcpHost, proactiveEngine, groupChatEngine, voiceEngine, slackBot, whatsappBot, pluginHost, lineBot, teamsBot, signalBot, gchatBot, imessageBot)
+		srvInstance := &Server{
+			cfg: cfg, app: app, state: state, sem: sem, cron: cron, secMon: secMon, mcpHost: mcpHost,
+			proactiveEngine: proactiveEngine, groupChatEngine: groupChatEngine, voiceEngine: voiceEngine,
+			slackBot: slackBot, whatsappBot: whatsappBot, pluginHost: pluginHost,
+			lineBot: lineBot, teamsBot: teamsBot, signalBot: signalBot, gchatBot: gchatBot, imessageBot: imessageBot,
+			DegradedServices: degradedServices,
+		}
+		srv := startHTTPServer(srvInstance)
+
+		// Report degraded services.
+		if len(degradedServices) > 0 {
+			logWarn("starting in degraded mode", "failedServices", strings.Join(degradedServices, ", "))
+		}
+
+		// Config hot-reload on SIGHUP.
+		sighupCh := make(chan os.Signal, 1)
+		signal.Notify(sighupCh, syscall.SIGHUP)
+		go func() {
+			for range sighupCh {
+				logInfo("received SIGHUP, reloading config")
+				newCfg, err := tryLoadConfig(*configPath)
+				if err != nil {
+					logError("config reload failed", "error", err)
+					continue
+				}
+				// Preserve runtime-only field not set by tryLoadConfig.
+				srvInstance.cfgMu.RLock()
+				oldCfg := srvInstance.cfg
+				srvInstance.cfgMu.RUnlock()
+				newCfg.toolRegistry = oldCfg.toolRegistry
+
+				// Log config diff.
+				logConfigDiff(oldCfg, newCfg)
+
+				// Atomic swap.
+				srvInstance.ReloadConfig(newCfg)
+				logInfo("config reloaded successfully")
+			}
+		}()
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
@@ -726,7 +1040,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(cfg.ListenAddr, state, cfg, sem, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		srv := startHTTPServer(&Server{cfg: cfg, state: state, sem: sem})
 
 		// Handle signals — cancel dispatch.
 		go func() {
@@ -769,6 +1083,37 @@ func main() {
 				os.Exit(1)
 			}
 		}
+	}
+}
+
+// logConfigDiff logs which config fields changed between old and new config.
+func logConfigDiff(old, new *Config) {
+	var changes []string
+	if old.ListenAddr != new.ListenAddr {
+		changes = append(changes, fmt.Sprintf("listenAddr: %s → %s", old.ListenAddr, new.ListenAddr))
+	}
+	if old.DefaultModel != new.DefaultModel {
+		changes = append(changes, fmt.Sprintf("defaultModel: %s → %s", old.DefaultModel, new.DefaultModel))
+	}
+	if old.MaxConcurrent != new.MaxConcurrent {
+		changes = append(changes, fmt.Sprintf("maxConcurrent: %d → %d", old.MaxConcurrent, new.MaxConcurrent))
+	}
+	if old.DefaultTimeout != new.DefaultTimeout {
+		changes = append(changes, fmt.Sprintf("defaultTimeout: %s → %s", old.DefaultTimeout, new.DefaultTimeout))
+	}
+	if old.DefaultBudget != new.DefaultBudget {
+		changes = append(changes, fmt.Sprintf("defaultBudget: %.2f → %.2f", old.DefaultBudget, new.DefaultBudget))
+	}
+	if len(old.Roles) != len(new.Roles) {
+		changes = append(changes, fmt.Sprintf("roles: %d → %d", len(old.Roles), len(new.Roles)))
+	}
+	if old.Security.InjectionDefense.Level != new.Security.InjectionDefense.Level {
+		changes = append(changes, fmt.Sprintf("injectionDefense.level: %s → %s", old.Security.InjectionDefense.Level, new.Security.InjectionDefense.Level))
+	}
+	if len(changes) > 0 {
+		logInfo("config changes detected", "changes", strings.Join(changes, "; "))
+	} else {
+		logInfo("config reloaded, no significant changes detected")
 	}
 }
 

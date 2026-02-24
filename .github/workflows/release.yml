@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install sqlite3
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run tests
+        run: go test ./...
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "${VERSION}" > VERSION
+          echo "Building version: ${VERSION}"
+
+      - name: Cross-compile binaries
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          LDFLAGS: "-s -w -X main.tetoraVersion=${{ steps.version.outputs.VERSION }}"
+        run: |
+          mkdir -p dist
+
+          platforms=(
+            "darwin/amd64"
+            "darwin/arm64"
+            "linux/amd64"
+            "linux/arm64"
+            "windows/amd64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            os="${platform%/*}"
+            arch="${platform#*/}"
+            ext=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+
+            output="dist/tetora-${os}-${arch}${ext}"
+            echo "Building ${os}/${arch} -> ${output}"
+            GOOS="$os" GOARCH="$arch" go build -ldflags "$LDFLAGS" -o "$output" .
+          done
+
+          echo ""
+          echo "Built binaries:"
+          ls -lh dist/
+
+      # TODO: macOS .pkg generation requires pkgbuild which is only available
+      # on macOS runners. Add a separate macos job for .pkg installers in a
+      # future release.
+
+      - name: Build Linux .deb package (amd64)
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          DEB_DIR="dist/deb-staging"
+          mkdir -p "${DEB_DIR}/DEBIAN"
+          mkdir -p "${DEB_DIR}/usr/local/bin"
+
+          cp dist/tetora-linux-amd64 "${DEB_DIR}/usr/local/bin/tetora"
+          chmod 755 "${DEB_DIR}/usr/local/bin/tetora"
+
+          cat > "${DEB_DIR}/DEBIAN/control" <<CTRL
+          Package: tetora
+          Version: ${VERSION}
+          Architecture: amd64
+          Maintainer: Tetora <tetora@users.noreply.github.com>
+          Depends: sqlite3
+          Section: utils
+          Priority: optional
+          Description: Self-hosted AI assistant platform
+           Tetora is a self-hosted AI assistant that connects to multiple
+           chat platforms and provides intelligent automation.
+          CTRL
+
+          # Remove leading whitespace that heredoc indentation adds
+          sed -i 's/^          //' "${DEB_DIR}/DEBIAN/control"
+
+          dpkg-deb --build "${DEB_DIR}" "dist/tetora-linux-amd64.deb"
+          echo "Built .deb package:"
+          ls -lh dist/tetora-linux-amd64.deb
+
+      - name: Create Windows zip
+        run: |
+          cd dist
+          zip tetora-windows-amd64.zip tetora-windows-amd64.exe
+          echo "Built Windows zip:"
+          ls -lh tetora-windows-amd64.zip
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum \
+            tetora-darwin-amd64 \
+            tetora-darwin-arm64 \
+            tetora-linux-amd64 \
+            tetora-linux-arm64 \
+            tetora-windows-amd64.exe \
+            tetora-linux-amd64.deb \
+            tetora-windows-amd64.zip \
+            > checksums.txt
+          echo "Checksums:"
+          cat checksums.txt
+
+      - name: Copy installer scripts to dist
+        run: |
+          cp install.sh dist/install.sh
+          # install.ps1 is included if it exists
+          if [ -f install.ps1 ]; then
+            cp install.ps1 dist/install.ps1
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          make_latest: true
+          files: |
+            dist/tetora-darwin-amd64
+            dist/tetora-darwin-arm64
+            dist/tetora-linux-amd64
+            dist/tetora-linux-arm64
+            dist/tetora-windows-amd64.exe
+            dist/tetora-linux-amd64.deb
+            dist/tetora-windows-amd64.zip
+            dist/checksums.txt
+            dist/install.sh
+            dist/install.ps1

@@ -364,7 +364,7 @@ func (bot *GoogleChatBot) handleMessage(w http.ResponseWriter, event *gchatEvent
 	// Determine role.
 	role := bot.cfg.GoogleChat.DefaultRole
 	if role == "" {
-		role = "琉璃"
+		role = bot.cfg.SmartDispatch.DefaultRole
 	}
 
 	// Dispatch task.

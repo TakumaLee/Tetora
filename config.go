@@ -100,6 +100,30 @@ type Config struct {
 	Gmail                 GmailConfig                      `json:"gmail,omitempty"`         // --- P19.1: Gmail Integration ---
 	Calendar              CalendarConfig                   `json:"calendar,omitempty"`      // --- P19.2: Google Calendar ---
 	Twitter               TwitterConfig                    `json:"twitter,omitempty"`       // --- P20.3: Twitter/X Integration ---
+	WritingStyle          WritingStyleConfig               `json:"writingStyle,omitempty"`  // --- P21.2: Writing Style ---
+	Citation              CitationConfig                   `json:"citation,omitempty"`      // --- P21.4: Source Citation ---
+	BrowserRelay          BrowserRelayConfig               `json:"browserRelay,omitempty"`  // --- P21.6: Chrome Extension Relay ---
+	NotebookLM            NotebookLMConfig                 `json:"notebookLM,omitempty"`    // --- P21.7: NotebookLM Skill ---
+	ImageGen              ImageGenConfig                   `json:"imageGen,omitempty"`      // --- P22.3: Image Generation ---
+	Weather               WeatherConfig                    `json:"weather,omitempty"`       // --- P22.2: Weather Tools ---
+	Currency              CurrencyConfig                   `json:"currency,omitempty"`      // --- P22.2: Currency Tools ---
+	RSS                   RSSConfig                        `json:"rss,omitempty"`           // --- P22.2: RSS Tools ---
+	Translate             TranslateConfig                  `json:"translate,omitempty"`     // --- P22.2: Translate Tools ---
+	UnifiedMemory         UnifiedMemoryConfig              `json:"unifiedMemory,omitempty"` // --- P23.0: Unified Memory Layer ---
+	UserProfile           UserProfileConfig                `json:"userProfile,omitempty"`   // --- P23.1: User Profile & Emotional Memory ---
+	Ops                   OpsConfig                        `json:"ops,omitempty"`           // --- P23.7: Reliability & Operations ---
+	Finance               FinanceConfig                    `json:"finance,omitempty"`       // --- P23.4: Financial Tracking ---
+	TaskManager           TaskManagerConfig                `json:"taskManager,omitempty"`   // --- P23.2: Task Management ---
+	FileManager           FileManagerConfig                `json:"fileManager,omitempty"`   // --- P23.3: File & Document Processing ---
+	Spotify               SpotifyConfig                    `json:"spotify,omitempty"`       // --- P23.5: Media Control ---
+	YouTube               YouTubeConfig                    `json:"youtube,omitempty"`       // --- P23.5: Media Control ---
+	Podcast               PodcastConfig                    `json:"podcast,omitempty"`       // --- P23.5: Media Control ---
+	Family                FamilyConfig                     `json:"family,omitempty"`        // --- P23.6: Multi-User / Family Mode ---
+	EncryptionKey         string                           `json:"encryptionKey,omitempty"` // --- P27.2: Field-level encryption ($ENV_VAR supported) ---
+	StreamToChannels      bool                             `json:"streamToChannels,omitempty"` // --- P27.3: Stream status to messaging channels ---
+	ApprovalGates         ApprovalGateConfig               `json:"approvalGates,omitempty"`    // --- P28.0: Pre-execution approval gates ---
+	TimeTracking          TimeTrackingConfig               `json:"timeTracking,omitempty"`         // --- P29.2: Time Tracking ---
+	Lifecycle             LifecycleConfig                  `json:"lifecycle,omitempty"`             // --- P29.0: Lifecycle Automation ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -108,6 +132,207 @@ type Config struct {
 	registry     *providerRegistry
 	circuits     *circuitRegistry
 	toolRegistry *ToolRegistry
+}
+
+// --- P28.0: Approval Gates ---
+
+// ApprovalGateConfig configures pre-execution approval gates for high-risk tools.
+type ApprovalGateConfig struct {
+	Enabled bool     `json:"enabled,omitempty"`
+	Timeout int      `json:"timeout,omitempty"` // seconds, default 120
+	Tools   []string `json:"tools,omitempty"`   // tool names requiring approval
+}
+
+// --- P21.2: Writing Style Guidelines ---
+type WritingStyleConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Guidelines string `json:"guidelines,omitempty"`
+	FilePath   string `json:"filePath,omitempty"`
+}
+
+// BrowserRelayConfig configures the Chrome extension relay server.
+type BrowserRelayConfig struct {
+	Enabled bool   `json:"enabled"`
+	Port    int    `json:"port,omitempty"`  // default 18792
+	Token   string `json:"token,omitempty"` // auth token for extension
+}
+
+// NotebookLMConfig configures the NotebookLM skill.
+type NotebookLMConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// CitationConfig controls source citation in agent responses.
+type CitationConfig struct {
+	Enabled bool   `json:"enabled"`
+	Format  string `json:"format,omitempty"` // "bracket" (default), "footnote", "inline"
+}
+
+// ImageGenConfig for AI image generation (DALL-E).
+type ImageGenConfig struct {
+	Enabled    bool    `json:"enabled"`
+	Provider   string  `json:"provider,omitempty"`  // "openai" (default)
+	APIKey     string  `json:"apiKey,omitempty"`     // $OPENAI_API_KEY
+	Model      string  `json:"model,omitempty"`      // "dall-e-3"
+	DailyLimit int     `json:"dailyLimit,omitempty"` // default 10
+	MaxCostDay float64 `json:"maxCostDay,omitempty"` // default 1.00 USD
+	Quality    string  `json:"quality,omitempty"`     // "standard" | "hd"
+}
+
+// WeatherConfig for Open-Meteo weather tools.
+type WeatherConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Location string `json:"defaultLocation,omitempty"`
+}
+
+// CurrencyConfig for Frankfurter currency tools.
+type CurrencyConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
+// RSSConfig for RSS feed reader tools.
+type RSSConfig struct {
+	Enabled bool     `json:"enabled"`
+	Feeds   []string `json:"feeds,omitempty"`
+}
+
+// TranslateConfig for translation tools.
+type TranslateConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider,omitempty"` // "lingva" (default) | "deepl"
+	APIKey   string `json:"apiKey,omitempty"`   // DeepL free tier key ($DEEPL_KEY)
+}
+
+// --- P23.0: Unified Memory Layer ---
+
+// UnifiedMemoryConfig controls the unified memory layer.
+type UnifiedMemoryConfig struct {
+	Enabled       bool `json:"enabled"`
+	AutoMigrate   bool `json:"autoMigrate,omitempty"`
+	Consolidation struct {
+		Enabled   bool `json:"enabled"`
+		IntervalH int  `json:"intervalHours,omitempty"` // default 6
+		MaxAge    int  `json:"maxAgeDays,omitempty"`    // default 30
+	} `json:"consolidation,omitempty"`
+}
+
+func (c UnifiedMemoryConfig) consolidationIntervalOrDefault() int {
+	if c.Consolidation.IntervalH > 0 {
+		return c.Consolidation.IntervalH
+	}
+	return 6
+}
+
+func (c UnifiedMemoryConfig) consolidationMaxAgeOrDefault() int {
+	if c.Consolidation.MaxAge > 0 {
+		return c.Consolidation.MaxAge
+	}
+	return 30
+}
+
+// --- P23.1: User Profile & Emotional Memory ---
+
+// UserProfileConfig controls user profiling and emotional memory.
+type UserProfileConfig struct {
+	Enabled          bool `json:"enabled"`
+	SentimentEnabled bool `json:"sentiment,omitempty"`
+	AdaptPersonality bool `json:"adaptPersonality,omitempty"`
+}
+
+// --- P23.7: Reliability & Operations ---
+
+// OpsConfig controls reliability and operations features.
+type OpsConfig struct {
+	BackupSchedule string             `json:"backupSchedule,omitempty"` // cron expression
+	BackupRetain   int                `json:"backupRetain,omitempty"`   // default 7
+	BackupDir      string             `json:"backupDir,omitempty"`
+	HealthNotify   bool               `json:"healthNotify,omitempty"`
+	HealthCheckURL string             `json:"healthCheckUrl,omitempty"`
+	ExportEnabled  bool               `json:"exportEnabled,omitempty"`
+	MessageQueue   MessageQueueConfig `json:"messageQueue,omitempty"`
+}
+
+// MessageQueueConfig controls the message queue engine.
+type MessageQueueConfig struct {
+	Enabled       bool   `json:"enabled"`
+	RetryAttempts int    `json:"retryAttempts,omitempty"` // default 3
+	RetryBackoff  string `json:"retryBackoff,omitempty"`  // default "30s"
+	MaxQueueSize  int    `json:"maxQueueSize,omitempty"`  // default 1000
+}
+
+func (c OpsConfig) backupRetainOrDefault() int {
+	if c.BackupRetain > 0 {
+		return c.BackupRetain
+	}
+	return 7
+}
+
+func (c OpsConfig) backupDirResolved(baseDir string) string {
+	if c.BackupDir != "" {
+		return c.BackupDir
+	}
+	return filepath.Join(baseDir, "backups")
+}
+
+func (c MessageQueueConfig) retryAttemptsOrDefault() int {
+	if c.RetryAttempts > 0 {
+		return c.RetryAttempts
+	}
+	return 3
+}
+
+func (c MessageQueueConfig) maxQueueSizeOrDefault() int {
+	if c.MaxQueueSize > 0 {
+		return c.MaxQueueSize
+	}
+	return 1000
+}
+
+// --- P23.4: Financial Tracking ---
+
+// FinanceConfig controls expense tracking and budgets.
+type FinanceConfig struct {
+	Enabled         bool   `json:"enabled"`
+	DefaultCurrency string `json:"defaultCurrency,omitempty"` // default "TWD"
+	BudgetAlert     bool   `json:"budgetAlert,omitempty"`
+}
+
+func (c FinanceConfig) defaultCurrencyOrTWD() string {
+	if c.DefaultCurrency != "" {
+		return c.DefaultCurrency
+	}
+	return "TWD"
+}
+
+// --- P23.2: Task Management ---
+
+// TaskManagerConfig controls user-facing task management.
+type TaskManagerConfig struct {
+	Enabled        bool          `json:"enabled"`
+	DefaultProject string        `json:"defaultProject,omitempty"` // default "inbox"
+	ReviewSchedule string        `json:"reviewSchedule,omitempty"` // cron expression
+	Todoist        TodoistConfig `json:"todoist,omitempty"`
+	Notion         NotionConfig  `json:"notion,omitempty"`
+}
+
+// TodoistConfig configures Todoist integration.
+type TodoistConfig struct {
+	Enabled bool   `json:"enabled"`
+	APIKey  string `json:"apiKey,omitempty"` // $TODOIST_API_KEY
+}
+
+// NotionConfig configures Notion integration.
+type NotionConfig struct {
+	Enabled    bool   `json:"enabled"`
+	APIKey     string `json:"apiKey,omitempty"` // $NOTION_API_KEY
+	DatabaseID string `json:"databaseId,omitempty"`
+}
+
+func (c TaskManagerConfig) defaultProjectOrInbox() string {
+	if c.DefaultProject != "" {
+		return c.DefaultProject
+	}
+	return "inbox"
 }
 
 type WebhookConfig struct {
@@ -241,8 +466,10 @@ type ToolConfig struct {
 	Profiles       map[string]ToolProfile    `json:"profiles,omitempty"`       // custom profiles
 	DefaultProfile string                    `json:"defaultProfile,omitempty"` // default "standard"
 	TrustOverride  map[string]string         `json:"trustOverride,omitempty"`  // tool → trust level
-	WebSearch      WebSearchConfig           `json:"webSearch,omitempty"`      // web search configuration
-	Vision         VisionConfig              `json:"vision,omitempty"`         // vision/image analysis configuration
+	ToolOutputLimit int                       `json:"toolOutputLimit,omitempty"` // max chars per tool output, default 10240
+	ToolTimeout     int                       `json:"toolTimeout,omitempty"`     // per-tool timeout in seconds, default 30
+	WebSearch       WebSearchConfig           `json:"webSearch,omitempty"`       // web search configuration
+	Vision          VisionConfig              `json:"vision,omitempty"`          // vision/image analysis configuration
 }
 
 // WebSearchConfig configures the web search tool.
@@ -429,6 +656,18 @@ func (c SessionConfig) compactKeepOrDefault() int {
 // --- Config Loading ---
 
 func loadConfig(path string) *Config {
+	cfg, err := tryLoadConfig(path)
+	if err != nil {
+		logError("config load failed", "error", err)
+		os.Exit(1)
+	}
+	return cfg
+}
+
+// tryLoadConfig loads and validates the config file, returning an error instead
+// of calling os.Exit. Used by SIGHUP hot-reload so a bad config doesn't kill
+// the daemon.
+func tryLoadConfig(path string) (*Config, error) {
 	if path == "" {
 		// Binary at ~/.tetora/bin/tetora → config at ~/.tetora/config.json
 		if exe, err := os.Executable(); err == nil {
@@ -450,14 +689,12 @@ func loadConfig(path string) *Config {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		logError("read config failed", "path", path, "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("read config: %w", err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		logError("parse config failed", "path", path, "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
 	cfg.baseDir = filepath.Dir(path)
@@ -518,12 +755,18 @@ func loadConfig(path string) *Config {
 		}
 	}
 
-	// Smart dispatch defaults.
-	if cfg.SmartDispatch.Coordinator == "" {
-		cfg.SmartDispatch.Coordinator = "琉璃"
+	// Smart dispatch defaults — use first role from roles map, never hardcode.
+	if cfg.SmartDispatch.Coordinator == "" && len(cfg.Roles) > 0 {
+		for k := range cfg.Roles {
+			cfg.SmartDispatch.Coordinator = k
+			break
+		}
 	}
-	if cfg.SmartDispatch.DefaultRole == "" {
-		cfg.SmartDispatch.DefaultRole = "琉璃"
+	if cfg.SmartDispatch.DefaultRole == "" && len(cfg.Roles) > 0 {
+		for k := range cfg.Roles {
+			cfg.SmartDispatch.DefaultRole = k
+			break
+		}
 	}
 	if cfg.SmartDispatch.ClassifyBudget <= 0 {
 		cfg.SmartDispatch.ClassifyBudget = 0.1
@@ -583,7 +826,7 @@ func loadConfig(path string) *Config {
 	// Initialize circuit breaker registry.
 	cfg.circuits = newCircuitRegistry(cfg.CircuitBreaker)
 
-	return &cfg
+	return &cfg, nil
 }
 
 // validate checks config values and logs warnings for common mistakes.
@@ -857,6 +1100,13 @@ func (cfg *Config) resolveSecrets() {
 		svc.ClientID = resolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))
 		svc.ClientSecret = resolveEnvRef(svc.ClientSecret, fmt.Sprintf("oauth.services.%s.clientSecret", name))
 		cfg.OAuth.Services[name] = svc
+	}
+	// --- P23.2: Task Management --- Resolve Todoist/Notion API keys.
+	if cfg.TaskManager.Todoist.APIKey != "" {
+		cfg.TaskManager.Todoist.APIKey = resolveEnvRef(cfg.TaskManager.Todoist.APIKey, "taskManager.todoist.apiKey")
+	}
+	if cfg.TaskManager.Notion.APIKey != "" {
+		cfg.TaskManager.Notion.APIKey = resolveEnvRef(cfg.TaskManager.Notion.APIKey, "taskManager.notion.apiKey")
 	}
 }
 

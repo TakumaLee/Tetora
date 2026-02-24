@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -61,16 +62,22 @@ type SlackBot struct {
 	// Dedup: track recently processed event IDs to handle Slack retries.
 	processed     map[string]time.Time
 	processedSize int
+	approvalGate  *slackApprovalGate // P28.0: approval gate
 }
 
 func newSlackBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *SlackBot {
-	return &SlackBot{
+	sb := &SlackBot{
 		cfg:       cfg,
 		state:     state,
 		sem:       sem,
 		cron:      cron,
 		processed: make(map[string]time.Time),
 	}
+	// P28.0: Initialize approval gate.
+	if cfg.ApprovalGates.Enabled && cfg.Slack.DefaultChannel != "" {
+		sb.approvalGate = newSlackApprovalGate(sb, cfg.Slack.DefaultChannel)
+	}
+	return sb
 }
 
 // slackEventHandler handles incoming Slack Events API requests.
@@ -174,6 +181,22 @@ func (sb *SlackBot) handleSlackEvent(event slackEvent) {
 		text := stripSlackMentions(event.Text)
 		if text == "" {
 			return
+		}
+
+		// P28.0: Handle approval gate replies ("approve <id>" / "reject <id>").
+		if sb.approvalGate != nil {
+			if strings.HasPrefix(text, "approve ") {
+				reqID := strings.TrimPrefix(text, "approve ")
+				sb.approvalGate.handleGateCallback(strings.TrimSpace(reqID), true)
+				sb.slackReply(event.Channel, threadTS(event), "Approved.")
+				return
+			}
+			if strings.HasPrefix(text, "reject ") {
+				reqID := strings.TrimPrefix(text, "reject ")
+				sb.approvalGate.handleGateCallback(strings.TrimSpace(reqID), false)
+				sb.slackReply(event.Channel, threadTS(event), "Rejected.")
+				return
+			}
 		}
 
 		// Parse commands (use ! prefix to distinguish from plain text).
@@ -291,6 +314,11 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	}
 
 	task.Prompt = expandPrompt(task.Prompt, "", sb.cfg.HistoryDB, route.Role, sb.cfg.KnowledgeDir, sb.cfg)
+
+	// P28.0: Attach approval gate.
+	if sb.approvalGate != nil {
+		task.approvalGate = sb.approvalGate
+	}
 
 	taskStart := time.Now()
 	result := runSingleTask(ctx, sb.cfg, task, sb.sem, route.Role)
@@ -616,10 +644,76 @@ func (sb *SlackBot) slackUpdateMessage(channel, messageTS, text string) {
 	}
 }
 
+// --- P27.3: Slack Channel Notifier ---
+// Note: Slack typing indicators require RTM WebSocket, so we use no-op for typing.
+
+type slackChannelNotifier struct {
+	channelID string
+}
+
+func (n *slackChannelNotifier) SendTyping(ctx context.Context) error { return nil }
+func (n *slackChannelNotifier) SendStatus(ctx context.Context, msg string) error { return nil }
+
 // sendSlackNotify sends a standalone notification to the configured default channel.
 func (sb *SlackBot) sendSlackNotify(text string) {
 	if sb.cfg.Slack.DefaultChannel != "" {
 		sb.slackReply(sb.cfg.Slack.DefaultChannel, "", text)
+	}
+}
+
+// --- P28.0: Slack Approval Gate ---
+
+// slackApprovalGate implements ApprovalGate via Slack Block Kit buttons.
+// Note: Slack interactive payloads require a separate HTTP endpoint to handle.
+// This implementation sends a prompt and polls the user via a reaction-based
+// fallback (approve = message reply "yes", reject = "no" or timeout).
+type slackApprovalGate struct {
+	bot     *SlackBot
+	channel string
+	mu      sync.Mutex
+	pending map[string]chan bool
+}
+
+func newSlackApprovalGate(bot *SlackBot, channel string) *slackApprovalGate {
+	return &slackApprovalGate{
+		bot:     bot,
+		channel: channel,
+		pending: make(map[string]chan bool),
+	}
+}
+
+func (g *slackApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
+	ch := make(chan bool, 1)
+	g.mu.Lock()
+	g.pending[req.ID] = ch
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		delete(g.pending, req.ID)
+		g.mu.Unlock()
+	}()
+
+	text := fmt.Sprintf("*Approval needed*\n\nTool: `%s`\n%s\n\nReply `approve %s` or `reject %s`",
+		req.Tool, req.Summary, req.ID, req.ID)
+	g.bot.slackReply(g.channel, "", text)
+
+	select {
+	case approved := <-ch:
+		return approved, nil
+	case <-ctx.Done():
+		return false, fmt.Errorf("approval timed out: %v", ctx.Err())
+	}
+}
+
+func (g *slackApprovalGate) handleGateCallback(reqID string, approved bool) {
+	g.mu.Lock()
+	ch, ok := g.pending[reqID]
+	g.mu.Unlock()
+	if ok {
+		select {
+		case ch <- approved:
+		default:
+		}
 	}
 }
 

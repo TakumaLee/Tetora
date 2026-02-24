@@ -201,14 +201,11 @@ func (fb *discordForumBoard) handleAssign(threadID, guildID, role string) error 
 	}
 
 	// Validate role exists in config.
-	if fb.bot.cfg.Roles != nil {
-		if _, ok := fb.bot.cfg.Roles[role]; !ok {
-			// Also check hardcoded default roles.
-			defaults := map[string]bool{"ruri": true, "hisui": true, "kokuyou": true, "kohaku": true}
-			if !defaults[role] {
-				return fmt.Errorf("unknown role %q", role)
-			}
-		}
+	if fb.bot == nil || fb.bot.cfg == nil || fb.bot.cfg.Roles == nil {
+		return fmt.Errorf("unknown role %q (no roles configured)", role)
+	}
+	if _, ok := fb.bot.cfg.Roles[role]; !ok {
+		return fmt.Errorf("unknown role %q", role)
 	}
 
 	// Bind thread to agent via P14.2 thread binding store.
@@ -256,7 +253,8 @@ func (fb *discordForumBoard) handleCompletion(threadID string, success bool) {
 func (fb *discordForumBoard) handleAssignCommand(channelID, guildID, args string) string {
 	role := strings.TrimSpace(strings.ToLower(args))
 	if role == "" {
-		return "Usage: `/assign <role>` -- Available roles: ruri, hisui, kokuyou, kohaku"
+		available := fb.bot.availableRoleNames()
+		return fmt.Sprintf("Usage: `/assign <role>` -- Available roles: %s", strings.Join(available, ", "))
 	}
 
 	if err := fb.handleAssign(channelID, guildID, role); err != nil {

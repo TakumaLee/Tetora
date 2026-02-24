@@ -526,7 +526,7 @@ func parseZhDurationUnit(unit string, n int) time.Duration {
 func parseJapanese(input string, now time.Time) (time.Time, bool) {
 	// "明日" / "明日N時"
 	if strings.HasPrefix(input, "明日") {
-		tomorrow := now.AddDate(0, 0, 1)
+		tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 		h, m := 9, 0 // default 9:00 AM
 		rest := strings.TrimPrefix(input, "明日")
 		if rest != "" {
@@ -612,7 +612,7 @@ func parseJaDow(s string) int {
 func parseChinese(input string, now time.Time) (time.Time, bool) {
 	// "明天" / "明天下午N點"
 	if strings.HasPrefix(input, "明天") {
-		tomorrow := now.AddDate(0, 0, 1)
+		tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 		h, m := 9, 0
 		rest := strings.TrimPrefix(input, "明天")
 		if rest != "" {
@@ -698,7 +698,7 @@ func parseEnglish(input string, now time.Time) (time.Time, bool) {
 
 	// "tomorrow", "tomorrow 3pm", "tomorrow 15:00"
 	if strings.HasPrefix(lower, "tomorrow") {
-		tomorrow := now.AddDate(0, 0, 1)
+		tomorrow := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 		h, m := 9, 0
 		rest := strings.TrimSpace(strings.TrimPrefix(lower, "tomorrow"))
 		if rest != "" {

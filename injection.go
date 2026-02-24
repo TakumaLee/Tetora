@@ -23,6 +23,7 @@ type InjectionDefenseConfig struct {
 	CacheSize          int     `json:"cacheSize,omitempty"`          // max cached judge results (default 1000)
 	CacheTTL           string  `json:"cacheTTL,omitempty"`           // cache entry TTL (default "1h")
 	EnableFingerprint  bool    `json:"enableFingerprint,omitempty"`  // deduplicate identical inputs (default true)
+	FailOpen           bool    `json:"failOpen,omitempty"`           // if true, allow on judge failure (default false = fail-closed)
 }
 
 // levelOrDefault returns the configured defense level (default "basic").
@@ -428,9 +429,12 @@ func checkInjection(ctx context.Context, cfg *Config, prompt string, roleName st
 	if level == "llm" {
 		judgeResult, err := judgeInput(ctx, cfg, prompt)
 		if err != nil {
-			// If judge fails, log error but allow (fail open).
-			logWarnCtx(ctx, "L3 judge failed, allowing input", "error", err)
-			return true, prompt, "judge unavailable", nil
+			if cfg.Security.InjectionDefense.FailOpen {
+				logWarnCtx(ctx, "L3 judge failed, allowing input (fail-open)", "error", err)
+				return true, prompt, "judge unavailable", nil
+			}
+			logWarnCtx(ctx, "L3 judge failed, blocking input (fail-closed)", "error", err)
+			return false, "", fmt.Sprintf("injection judge unavailable: %v", err), nil
 		}
 
 		threshold := cfg.Security.InjectionDefense.llmJudgeThresholdOrDefault()

@@ -3,10 +3,16 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 )
 
 // --- Agent Memory Types ---
+
+// globalUnifiedMemoryEnabled is set to true when unified memory is initialized.
+// Used by setMemory/getMemory for dual-write routing.
+var globalUnifiedMemoryEnabled bool
+var globalUnifiedMemoryDB string
 
 // MemoryEntry represents a key-value memory entry scoped to a role.
 type MemoryEntry struct {
@@ -59,7 +65,37 @@ func setMemory(dbPath, role, key, value string) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("set memory: %s: %w", string(out), err)
 	}
+
+	// --- P23.0: Dual-write to unified memory ---
+	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
+		ns := UMNSFact
+		if isPreferenceKey(key) {
+			ns = UMNSPreference
+		}
+		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
+			Namespace: ns,
+			Scope:     role,
+			Key:       key,
+			Value:     value,
+			Source:    "agent_memory",
+		})
+		if umErr != nil {
+			logWarn("unified memory dual-write failed", "key", key, "error", umErr)
+		}
+	}
+
 	return nil
+}
+
+// isPreferenceKey heuristically detects preference-related keys.
+func isPreferenceKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, kw := range []string{"prefer", "setting", "config", "theme", "language", "timezone", "mode"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Get ---

@@ -37,10 +37,13 @@ func TestEncryptDecryptOAuthToken(t *testing.T) {
 		t.Fatalf("decrypted %q != original %q", decrypted, original)
 	}
 
-	// Wrong key should fail.
-	_, err = decryptOAuthToken(encrypted, "wrong-key")
-	if err == nil {
-		t.Fatal("should fail with wrong key")
+	// Wrong key should return garbled/original data (graceful fallback after P27.2 refactor).
+	wrongDec, err := decryptOAuthToken(encrypted, "wrong-key")
+	if err != nil {
+		t.Fatalf("wrong key should not error: %v", err)
+	}
+	if wrongDec == original {
+		t.Fatal("wrong key should not decrypt to original")
 	}
 
 	// Empty input should return empty.

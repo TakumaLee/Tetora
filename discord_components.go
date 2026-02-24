@@ -547,6 +547,32 @@ func handleModalSubmit(ctx context.Context, db *DiscordBot, w http.ResponseWrite
 func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInteractionData, userID string) discordInteractionResponse {
 	customID := data.CustomID
 
+	// P28.0: Approval gate callbacks.
+	if strings.HasPrefix(customID, "gate_approve:") {
+		reqID := strings.TrimPrefix(customID, "gate_approve:")
+		if db.approvalGate != nil {
+			db.approvalGate.handleGateCallback(reqID, true)
+		}
+		return discordInteractionResponse{
+			Type: interactionResponseUpdateMessage,
+			Data: &discordInteractionResponseData{
+				Content: fmt.Sprintf("Approved by <@%s>.", userID),
+			},
+		}
+	}
+	if strings.HasPrefix(customID, "gate_reject:") {
+		reqID := strings.TrimPrefix(customID, "gate_reject:")
+		if db.approvalGate != nil {
+			db.approvalGate.handleGateCallback(reqID, false)
+		}
+		return discordInteractionResponse{
+			Type: interactionResponseUpdateMessage,
+			Data: &discordInteractionResponseData{
+				Content: fmt.Sprintf("Rejected by <@%s>.", userID),
+			},
+		}
+	}
+
 	// Pattern: "approve:{taskID}" / "reject:{taskID}"
 	if strings.HasPrefix(customID, "approve:") {
 		taskID := strings.TrimPrefix(customID, "approve:")

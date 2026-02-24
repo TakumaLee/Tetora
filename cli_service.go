@@ -5,10 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
-
-const plistLabel = "com.tetora.daemon"
 
 func cmdService(args []string) {
 	if len(args) == 0 {
@@ -28,7 +27,11 @@ func cmdService(args []string) {
 	}
 }
 
-func serviceInstall() {
+// --- macOS launchd ---
+
+const plistLabel = "com.tetora.daemon"
+
+func launchdInstall() {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Cannot resolve executable: %v\n", err)
@@ -66,17 +69,11 @@ func serviceInstall() {
     <string>%s</string>
     <key>WorkingDirectory</key>
     <string>%s</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:%s/.local/bin:%s/.nvm/versions/node/v22.15.1/bin</string>
-    </dict>
 </dict>
 </plist>`, plistLabel, exe,
 		filepath.Join(logDir, "tetora.log"),
 		filepath.Join(logDir, "tetora.err"),
-		tetoraDir,
-		home, home)
+		tetoraDir)
 
 	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing plist: %v\n", err)
@@ -97,7 +94,7 @@ func serviceInstall() {
 	fmt.Println("  tetora service uninstall  Stop and remove")
 }
 
-func serviceUninstall() {
+func launchdUninstall() {
 	home, _ := os.UserHomeDir()
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", plistLabel+".plist")
 
@@ -111,7 +108,7 @@ func serviceUninstall() {
 	fmt.Println("Service stopped and removed.")
 }
 
-func serviceStatus() {
+func launchdStatus() {
 	out, err := exec.Command("launchctl", "list").CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "launchctl error: %v\n", err)
@@ -135,10 +132,140 @@ func serviceStatus() {
 		return
 	}
 
-	// Check plist exists.
 	home, _ := os.UserHomeDir()
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", plistLabel+".plist")
 	if _, err := os.Stat(plistPath); err == nil {
 		fmt.Printf("  Plist: %s\n", plistPath)
+	}
+}
+
+// --- Linux systemd ---
+
+const systemdUnit = "tetora.service"
+
+func systemdInstall() {
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot resolve executable: %v\n", err)
+		os.Exit(1)
+	}
+	exe, _ = filepath.Abs(exe)
+
+	home, _ := os.UserHomeDir()
+	tetoraDir := filepath.Join(home, ".tetora")
+	os.MkdirAll(tetoraDir, 0o755)
+
+	unitDir := filepath.Join(home, ".config", "systemd", "user")
+	os.MkdirAll(unitDir, 0o755)
+	unitPath := filepath.Join(unitDir, systemdUnit)
+
+	unit := fmt.Sprintf(`[Unit]
+Description=Tetora AI Assistant Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%s serve
+WorkingDirectory=%s
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+`, exe, tetoraDir)
+
+	if err := os.WriteFile(unitPath, []byte(unit), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing unit file: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmds := [][]string{
+		{"systemctl", "--user", "daemon-reload"},
+		{"systemctl", "--user", "enable", systemdUnit},
+		{"systemctl", "--user", "start", systemdUnit},
+	}
+	for _, c := range cmds {
+		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", strings.Join(c, " "), strings.TrimSpace(string(out)))
+			os.Exit(1)
+		}
+	}
+
+	fmt.Println("Service installed and started.")
+	fmt.Printf("  Unit: %s\n", unitPath)
+	fmt.Println("\nManage:")
+	fmt.Println("  tetora service status     Check status")
+	fmt.Println("  tetora service uninstall  Stop and remove")
+	fmt.Println("  journalctl --user -u tetora -f   View logs")
+}
+
+func systemdUninstall() {
+	home, _ := os.UserHomeDir()
+	unitPath := filepath.Join(home, ".config", "systemd", "user", systemdUnit)
+
+	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
+		fmt.Println("Service not installed.")
+		return
+	}
+
+	exec.Command("systemctl", "--user", "stop", systemdUnit).CombinedOutput()
+	exec.Command("systemctl", "--user", "disable", systemdUnit).CombinedOutput()
+	os.Remove(unitPath)
+	exec.Command("systemctl", "--user", "daemon-reload").CombinedOutput()
+	fmt.Println("Service stopped and removed.")
+}
+
+func systemdStatus() {
+	out, err := exec.Command("systemctl", "--user", "status", systemdUnit).CombinedOutput()
+	if err != nil {
+		// systemctl returns exit code 3 for inactive services.
+		if len(out) > 0 {
+			fmt.Println(string(out))
+			return
+		}
+		fmt.Println("Service not running.")
+		fmt.Println("Install with: tetora service install")
+		return
+	}
+	fmt.Println(string(out))
+}
+
+// --- Dispatcher ---
+
+func serviceInstall() {
+	switch runtime.GOOS {
+	case "darwin":
+		launchdInstall()
+	case "linux":
+		systemdInstall()
+	default:
+		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
+		fmt.Fprintln(os.Stderr, "Run 'tetora serve' manually instead.")
+		os.Exit(1)
+	}
+}
+
+func serviceUninstall() {
+	switch runtime.GOOS {
+	case "darwin":
+		launchdUninstall()
+	case "linux":
+		systemdUninstall()
+	default:
+		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
+		os.Exit(1)
+	}
+}
+
+func serviceStatus() {
+	switch runtime.GOOS {
+	case "darwin":
+		launchdStatus()
+	case "linux":
+		systemdStatus()
+	default:
+		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
+		os.Exit(1)
 	}
 }

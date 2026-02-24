@@ -374,6 +374,7 @@ type DiscordBot struct {
 	interactions *discordInteractionState // P14.1: tracks pending component interactions
 	threads      *threadBindingStore      // P14.2: per-thread agent bindings
 	reactions    *discordReactionManager  // P14.3: lifecycle reactions
+	approvalGate *discordApprovalGate     // P28.0: approval gate
 	forumBoard   *discordForumBoard       // P14.4: forum task board
 	voice        *discordVoiceManager     // P14.5: voice channel manager
 	gatewayConn  *wsConn                  // P14.5: active gateway connection for voice state updates
@@ -407,6 +408,11 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 	db.voice = newDiscordVoiceManager(db)
 	if cfg.Discord.Voice.Enabled {
 		logInfo("discord voice enabled", "auto_join_count", len(cfg.Discord.Voice.AutoJoin))
+	}
+
+	// P28.0: Initialize approval gate.
+	if cfg.ApprovalGates.Enabled && cfg.Discord.ChannelID != "" {
+		db.approvalGate = newDiscordApprovalGate(db, cfg.Discord.ChannelID)
 	}
 
 	return db
@@ -894,6 +900,11 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 	task.Prompt = expandPrompt(task.Prompt, "", db.cfg.HistoryDB, route.Role, db.cfg.KnowledgeDir, db.cfg)
 
+	// P28.0: Attach approval gate.
+	if db.approvalGate != nil {
+		task.approvalGate = db.approvalGate
+	}
+
 	// P14.3: Transition to thinking phase before task execution.
 	if db.reactions != nil {
 		db.reactions.reactThinking(msg.ChannelID, msg.ID)
@@ -1006,6 +1017,23 @@ func (db *DiscordBot) sendTyping(channelID string) {
 	}
 }
 
+// --- P27.3: Discord Channel Notifier ---
+
+type discordChannelNotifier struct {
+	bot       *DiscordBot
+	channelID string
+}
+
+func (n *discordChannelNotifier) SendTyping(ctx context.Context) error {
+	n.bot.sendTyping(n.channelID)
+	return nil
+}
+
+func (n *discordChannelNotifier) SendStatus(ctx context.Context, msg string) error {
+	n.bot.sendTyping(n.channelID)
+	return nil
+}
+
 func (db *DiscordBot) sendNotify(text string) {
 	if db.cfg.Discord.ChannelID == "" {
 		return
@@ -1053,4 +1081,63 @@ func (db *DiscordBot) sendEmbedWithComponents(channelID string, embed discordEmb
 		"embeds":     []discordEmbed{embed},
 		"components": components,
 	})
+}
+
+// --- P28.0: Discord Approval Gate ---
+
+// discordApprovalGate implements ApprovalGate via Discord button components.
+type discordApprovalGate struct {
+	bot       *DiscordBot
+	channelID string
+	mu        sync.Mutex
+	pending   map[string]chan bool
+}
+
+func newDiscordApprovalGate(bot *DiscordBot, channelID string) *discordApprovalGate {
+	return &discordApprovalGate{
+		bot:       bot,
+		channelID: channelID,
+		pending:   make(map[string]chan bool),
+	}
+}
+
+func (g *discordApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
+	ch := make(chan bool, 1)
+	g.mu.Lock()
+	g.pending[req.ID] = ch
+	g.mu.Unlock()
+	defer func() {
+		g.mu.Lock()
+		delete(g.pending, req.ID)
+		g.mu.Unlock()
+	}()
+
+	text := fmt.Sprintf("**Approval needed**\n\nTool: `%s`\n%s", req.Tool, req.Summary)
+	components := []discordComponent{{
+		Type: componentTypeActionRow,
+		Components: []discordComponent{
+			{Type: componentTypeButton, Style: buttonStyleSuccess, Label: "Approve", CustomID: "gate_approve:" + req.ID},
+			{Type: componentTypeButton, Style: buttonStyleDanger, Label: "Reject", CustomID: "gate_reject:" + req.ID},
+		},
+	}}
+	g.bot.sendMessageWithComponents(g.channelID, text, components)
+
+	select {
+	case approved := <-ch:
+		return approved, nil
+	case <-ctx.Done():
+		return false, fmt.Errorf("approval timed out: %v", ctx.Err())
+	}
+}
+
+func (g *discordApprovalGate) handleGateCallback(reqID string, approved bool) {
+	g.mu.Lock()
+	ch, ok := g.pending[reqID]
+	g.mu.Unlock()
+	if ok {
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
 }
