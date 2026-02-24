@@ -456,16 +456,23 @@ func cmdInit() {
 	_ = ocMigrated
 
 	// --- Optional: Create first role ---
-	// Skip if OpenClaw detected — `tetora import openclaw` will handle roles.
 	if ocMigrated {
 		fmt.Println()
-		fmt.Println("  Skipping role creation (use 'tetora import openclaw' to import roles)")
-		goto afterRole
+		fmt.Println("  OpenClaw roles can be imported later with: tetora import openclaw")
+		fmt.Print("  Create a new role now instead? [y/N]: ")
+		scanner.Scan()
+		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
+			goto afterRole
+		}
+	} else {
+		fmt.Println()
+		fmt.Print("  Create a first role? [Y/n]: ")
+		scanner.Scan()
+		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "n" {
+			goto afterRole
+		}
 	}
-	fmt.Println()
-	fmt.Print("  Create a first role? [Y/n]: ")
-	scanner.Scan()
-	if strings.ToLower(strings.TrimSpace(scanner.Text())) != "n" {
+	{
 		fmt.Println()
 		roleName := prompt("Role name", "default")
 
