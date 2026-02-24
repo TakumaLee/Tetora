@@ -6,6 +6,10 @@
   <strong>Self-hosted AI assistant platform with multi-agent architecture.</strong>
 </p>
 
+<p align="center">
+  <strong>English</strong> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.ko.md">한국어</a> | <a href="README.id.md">Bahasa Indonesia</a> | <a href="README.th.md">ภาษาไทย</a> | <a href="README.fil.md">Filipino</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.de.md">Deutsch</a>
+</p>
+
 Tetora runs as a single Go binary with zero external dependencies. It connects to the AI providers you already use, integrates with the messaging platforms your team lives on, and keeps all data on your own hardware.
 
 ---
