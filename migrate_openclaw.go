@@ -731,7 +731,8 @@ func migrateOpenClawCron(cfg *Config, ocDir string, dryRun bool, report *Migrati
 }
 
 // migrateOpenClawRoles finds SOUL files in OpenClaw workspace and creates
-// corresponding Tetora roles with soul files copied to ~/.tetora/workspace/.
+// corresponding Tetora roles with soul files in per-role workspaces.
+// Each role gets: ~/.tetora/workspaces/{role}/SOUL.md + memory/ + skills/
 func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
 	wsDir := filepath.Join(ocDir, "workspace")
 	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
@@ -739,7 +740,6 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 		return nil
 	}
 
-	tetoraWs := filepath.Join(cfg.baseDir, "workspace")
 	configPath := filepath.Join(cfg.baseDir, "config.json")
 	count := 0
 
@@ -788,16 +788,18 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 	}
 
 	for _, s := range souls {
-		dstFile := fmt.Sprintf("SOUL-%s.md", s.name)
-		if s.name == "default" {
-			dstFile = "SOUL.md"
-		}
-		dstPath := filepath.Join(tetoraWs, dstFile)
+		// Per-role workspace: ~/.tetora/workspaces/{roleName}/
+		roleWsDir := filepath.Join(cfg.baseDir, "workspaces", s.name)
+		dstPath := filepath.Join(roleWsDir, "SOUL.md")
 
 		if !dryRun {
-			if err := os.MkdirAll(tetoraWs, 0o755); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("creating workspace dir: %v", err))
-				continue
+			// Create per-role workspace with subdirectories.
+			for _, sub := range []string{"", "memory", "skills"} {
+				dir := filepath.Join(roleWsDir, sub)
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("creating workspace dir %s: %v", dir, err))
+					continue
+				}
 			}
 			if err := migCopyFile(s.srcPath, dstPath); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("copying %s: %v", filepath.Base(s.srcPath), err))
@@ -805,7 +807,7 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 			}
 
 			rc := RoleConfig{
-				SoulFile:       dstFile,
+				SoulFile:       "SOUL.md",
 				Model:          defaultModel,
 				Description:    fmt.Sprintf("Imported from OpenClaw (%s)", s.name),
 				PermissionMode: "acceptEdits",

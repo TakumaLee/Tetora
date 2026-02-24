@@ -551,20 +551,32 @@ func cmdInit() {
 			rolePerm = "acceptEdits"
 		}
 
-		var roleSoul string
+		// Per-role workspace: ~/.tetora/workspaces/{roleName}/
+		roleWsDir := filepath.Join(configDir, "workspaces", roleName)
+		for _, sub := range []string{"", "memory", "skills"} {
+			os.MkdirAll(filepath.Join(roleWsDir, sub), 0o755)
+		}
+
+		soulDst := filepath.Join(roleWsDir, "SOUL.md")
 		if archetype != nil {
-			roleSoul = fmt.Sprintf("SOUL-%s.md", roleName)
-			soulDst := filepath.Join(defaultWorkdir, roleSoul)
 			if _, err := os.Stat(soulDst); os.IsNotExist(err) {
 				content := generateSoulContent(archetype, roleName)
 				os.WriteFile(soulDst, []byte(content), 0o644)
 				fmt.Printf("  Created soul file: %s\n", soulDst)
 			}
 		} else {
-			roleSoul = prompt("Soul file path (relative to workdir, empty for template)", "")
-			if roleSoul == "" {
-				roleSoul = "SOUL.md"
-				soulDst := filepath.Join(defaultWorkdir, roleSoul)
+			customPath := prompt("Soul file path (empty for template)", "")
+			if customPath != "" {
+				// Copy custom soul file to workspace.
+				if data, err := os.ReadFile(customPath); err == nil {
+					os.WriteFile(soulDst, data, 0o644)
+					fmt.Printf("  Copied soul file to: %s\n", soulDst)
+				} else {
+					fmt.Printf("  Cannot read %s, creating template instead\n", customPath)
+					customPath = ""
+				}
+			}
+			if customPath == "" {
 				if _, err := os.Stat(soulDst); os.IsNotExist(err) {
 					content := generateSoulContent(&RoleArchetype{SoulTemplate: `# {{.RoleName}} — Soul File
 
@@ -594,7 +606,7 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 
 		// Add role to config.
 		rc := RoleConfig{
-			SoulFile:       roleSoul,
+			SoulFile:       "SOUL.md",
 			Model:          roleModel,
 			Description:    roleDesc,
 			PermissionMode: rolePerm,
