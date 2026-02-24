@@ -950,6 +950,10 @@ func migCopyFile(src, dst string) error {
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			// Skip files/dirs that vanished or are inaccessible (e.g. browser temp files).
+			if os.IsNotExist(err) || os.IsPermission(err) {
+				return nil
+			}
 			return err
 		}
 
@@ -963,6 +967,13 @@ func copyDir(src, dst string) error {
 			return os.MkdirAll(target, 0o755)
 		}
 
-		return migCopyFile(path, target)
+		if err := migCopyFile(path, target); err != nil {
+			// Skip individual file copy failures (broken symlinks, locked files).
+			if os.IsNotExist(err) || os.IsPermission(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
 	})
 }
