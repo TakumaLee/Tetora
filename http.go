@@ -48,6 +48,26 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 			return
 		}
 
+		// Allow requests with valid dashboard session cookie (same-origin API calls from dashboard).
+		if cookie, err := r.Cookie("tetora_session"); err == nil {
+			secret := cfg.DashboardAuth.Password
+			if secret == "" {
+				secret = cfg.DashboardAuth.Token
+			}
+			if secret != "" && validateDashboardCookie(cookie.Value, secret) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
+		// Allow same-origin requests from dashboard (Referer-based).
+		if ref := r.Header.Get("Referer"); ref != "" {
+			if strings.Contains(ref, "/dashboard") {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+
 		auth := r.Header.Get("Authorization")
 		if auth == "" || auth != "Bearer "+cfg.APIToken {
 			ip := clientIP(r)
