@@ -13,6 +13,137 @@ import (
 	"strings"
 )
 
+// --- Interactive menu helpers ---
+
+const (
+	menuKeyNone  = 0
+	menuKeyUp    = 1
+	menuKeyDown  = 2
+	menuKeyEnter = 3
+	menuKeyQuit  = 4
+)
+
+func menuSetRawMode() (string, error) {
+	cmd := exec.Command("stty", "-g")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	saved := strings.TrimSpace(string(out))
+	raw := exec.Command("stty", "raw", "-echo")
+	raw.Stdin = os.Stdin
+	if err := raw.Run(); err != nil {
+		return "", err
+	}
+	return saved, nil
+}
+
+func menuRestoreMode(saved string) {
+	cmd := exec.Command("stty", saved)
+	cmd.Stdin = os.Stdin
+	cmd.Run()
+}
+
+func menuReadKey() int {
+	buf := make([]byte, 4)
+	n, err := os.Stdin.Read(buf)
+	if err != nil || n == 0 {
+		return menuKeyQuit
+	}
+	if n == 1 {
+		switch buf[0] {
+		case 0x0d, 0x0a:
+			return menuKeyEnter
+		case 0x03:
+			return menuKeyQuit
+		case 'q':
+			return menuKeyQuit
+		case 'k':
+			return menuKeyUp
+		case 'j':
+			return menuKeyDown
+		}
+		return menuKeyNone
+	}
+	if buf[0] == 0x1b && n >= 3 && buf[1] == '[' {
+		switch buf[2] {
+		case 'A':
+			return menuKeyUp
+		case 'B':
+			return menuKeyDown
+		}
+	}
+	return menuKeyNone
+}
+
+// interactiveChoose displays an arrow-key navigable menu.
+// Returns the selected index, or -1 if interactive mode is unavailable.
+func interactiveChoose(options []string, defaultIdx int) int {
+	selected := defaultIdx
+	n := len(options)
+
+	// Hide cursor and print initial menu
+	fmt.Print("\033[?25l")
+	for i, o := range options {
+		if i == selected {
+			fmt.Printf("  \033[36m❯ %s\033[0m\n", o)
+		} else {
+			fmt.Printf("    %s\n", o)
+		}
+	}
+
+	saved, err := menuSetRawMode()
+	if err != nil {
+		// Clear menu and restore cursor for fallback
+		fmt.Printf("\033[%dA\033[J", n)
+		fmt.Print("\033[?25h")
+		return -1
+	}
+
+	for {
+		key := menuReadKey()
+		changed := false
+		switch key {
+		case menuKeyUp:
+			if selected > 0 {
+				selected--
+				changed = true
+			}
+		case menuKeyDown:
+			if selected < n-1 {
+				selected++
+				changed = true
+			}
+		case menuKeyEnter:
+			menuRestoreMode(saved)
+			fmt.Printf("\033[%dA\033[J", n)
+			fmt.Printf("  \033[36m✓ %s\033[0m\n", options[selected])
+			fmt.Print("\033[?25h")
+			return selected
+		case menuKeyQuit:
+			menuRestoreMode(saved)
+			fmt.Printf("\033[%dA\033[J", n)
+			fmt.Print("\033[?25h")
+			fmt.Println("Aborted.")
+			os.Exit(0)
+		}
+		if !changed {
+			continue
+		}
+
+		// Re-render menu
+		fmt.Fprintf(os.Stdout, "\033[%dA", n)
+		for i, o := range options {
+			if i == selected {
+				fmt.Fprintf(os.Stdout, "\r\033[2K  \033[36m❯ %s\033[0m\r\n", o)
+			} else {
+				fmt.Fprintf(os.Stdout, "\r\033[2K    %s\r\n", o)
+			}
+		}
+	}
+}
+
 func cmdInit() {
 	scanner := bufio.NewScanner(os.Stdin)
 	prompt := func(label, defaultVal string) string {
@@ -27,6 +158,25 @@ func cmdInit() {
 			return defaultVal
 		}
 		return s
+	}
+	choose := func(label string, options []string, defaultIdx int) int {
+		if idx := interactiveChoose(options, defaultIdx); idx >= 0 {
+			return idx
+		}
+		// Fallback: number-based input
+		for i, o := range options {
+			marker := "  "
+			if i == defaultIdx {
+				marker = "* "
+			}
+			fmt.Printf("    %s%d. %s\n", marker, i+1, o)
+		}
+		s := prompt(label, fmt.Sprintf("%d", defaultIdx+1))
+		n, _ := strconv.Atoi(s)
+		if n < 1 || n > len(options) {
+			return defaultIdx
+		}
+		return n - 1
 	}
 
 	home, _ := os.UserHomeDir()
@@ -44,77 +194,225 @@ func cmdInit() {
 		fmt.Println()
 	}
 
-	fmt.Println("=== Tetora Setup ===")
+	// --- OpenClaw Detection ---
+	migCfg := &Config{baseDir: configDir}
+	var ocMigrated bool
+	var ocReport *MigrationReport
+	ocDir := detectOpenClaw()
+	if ocDir != "" {
+		fmt.Printf("OpenClaw installation detected at %s\n", ocDir)
+		fmt.Print("  Import settings from OpenClaw? [Y/n]: ")
+		scanner.Scan()
+		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+		if ans != "n" {
+			fmt.Println()
+			fmt.Println("  What to import?")
+			incIdx := choose("Include", []string{
+				"All (config + memory + workspace + skills + cron)",
+				"Config only",
+				"Config + cron jobs",
+				"Custom (comma-separated: config,memory,skills,cron,workspace)",
+			}, 0)
+
+			var includeStr string
+			switch incIdx {
+			case 0:
+				includeStr = "all"
+			case 1:
+				includeStr = "config"
+			case 2:
+				includeStr = "config,cron"
+			case 3:
+				includeStr = prompt("Include list", "config,memory,skills,cron,workspace")
+			}
+
+			include := parseIncludeList(includeStr)
+			report, err := migrateOpenClaw(migCfg, ocDir, false, include, false)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Migration error: %v\n", err)
+			} else {
+				ocMigrated = true
+				ocReport = report
+				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs\n",
+					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs)
+				for _, w := range report.Warnings {
+					fmt.Printf("  \u26a0 %s\n", w)
+				}
+				for _, e := range report.Errors {
+					fmt.Printf("  \u2717 %s\n", e)
+				}
+			}
+			fmt.Println()
+		}
+	}
+	_ = ocReport // used below if ocMigrated
+
+	fmt.Println("=== Tetora Quick Setup ===")
 	fmt.Println()
 
-	// 1. Claude CLI
-	detected := detectClaude()
-	claudePath := prompt("Claude CLI path", detected)
-
-	// 2. Max concurrent
-	maxStr := prompt("Max concurrent tasks", "3")
-	maxConcurrent, _ := strconv.Atoi(maxStr)
-	if maxConcurrent <= 0 {
-		maxConcurrent = 3
-	}
-
-	// 3. Model
-	model := prompt("Default model", "sonnet")
-
-	// 4. Listen address
-	listenAddr := prompt("HTTP listen address", "127.0.0.1:8991")
-
-	// 5. Workdir
-	defaultWorkdir := prompt("Default workdir", filepath.Join(configDir, "workspace"))
-
-	// 6. Budget
-	budgetStr := prompt("Default budget (USD)", "2.00")
-	budget, _ := strconv.ParseFloat(budgetStr, 64)
-	if budget <= 0 {
-		budget = 2.0
-	}
-
-	// 7. Telegram
+	// --- Step 1: Channel ---
+	fmt.Println("Step 1/3: Choose a messaging channel")
 	fmt.Println()
-	fmt.Print("  Enable Telegram? [y/N]: ")
-	scanner.Scan()
-	tgEnabled := strings.ToLower(strings.TrimSpace(scanner.Text())) == "y"
+	channelIdx := choose("Channel", []string{
+		"Telegram",
+		"Discord",
+		"Slack",
+		"None (HTTP API only)",
+	}, 0)
+
 	var botToken string
 	var chatID int64
-	if tgEnabled {
-		botToken = prompt("Bot token", "")
-		cidStr := prompt("Chat ID", "")
+	var discordToken, discordAppID, discordChannelID string
+	var slackToken, slackSigningSecret string
+
+	switch channelIdx {
+	case 0: // Telegram
+		fmt.Println()
+		botToken = prompt("Telegram bot token", "")
+		cidStr := prompt("Telegram chat ID", "")
 		chatID, _ = strconv.ParseInt(cidStr, 10, 64)
+	case 1: // Discord
+		fmt.Println()
+		discordToken = prompt("Discord bot token", "")
+		discordAppID = prompt("Discord application ID", "")
+		discordChannelID = prompt("Discord channel ID", "")
+	case 2: // Slack
+		fmt.Println()
+		slackToken = prompt("Slack bot token (xoxb-...)", "")
+		slackSigningSecret = prompt("Slack signing secret", "")
 	}
 
-	// 8. API Token
+	// Apply OpenClaw values as defaults.
+	if ocMigrated {
+		if botToken == "" && migCfg.Telegram.BotToken != "" {
+			botToken = migCfg.Telegram.BotToken
+			fmt.Printf("  (using Telegram token from OpenClaw: %s****)\n", botToken[:4])
+		}
+		if chatID == 0 && migCfg.Telegram.ChatID != 0 {
+			chatID = migCfg.Telegram.ChatID
+			fmt.Printf("  (using Telegram chat ID from OpenClaw: %d)\n", chatID)
+		}
+		if discordToken == "" && migCfg.Discord.BotToken != "" {
+			discordToken = migCfg.Discord.BotToken
+			fmt.Printf("  (using Discord token from OpenClaw)\n")
+		}
+		if slackToken == "" && migCfg.Slack.BotToken != "" {
+			slackToken = migCfg.Slack.BotToken
+			fmt.Printf("  (using Slack token from OpenClaw)\n")
+		}
+	}
+
+	// --- Step 2: Provider ---
 	fmt.Println()
-	var apiToken string
+	fmt.Println("Step 2/3: Choose an AI provider")
+	fmt.Println()
+	providerIdx := choose("Provider", []string{
+		"Claude CLI (local claude binary)",
+		"Claude API (direct API key)",
+		"OpenAI-compatible API",
+	}, 0)
+
+	claudePath := ""
+	var claudeAPIKey, openaiEndpoint, openaiAPIKey, defaultModel string
+
+	switch providerIdx {
+	case 0: // Claude CLI
+		detected := detectClaude()
+		claudePath = prompt("Claude CLI path", detected)
+		defaultModel = prompt("Default model", "sonnet")
+	case 1: // Claude API
+		claudeAPIKey = prompt("Claude API key", "")
+		defaultModel = prompt("Default model", "claude-sonnet-4-5-20250929")
+	case 2: // OpenAI-compatible
+		openaiEndpoint = prompt("API endpoint", "https://api.openai.com/v1")
+		openaiAPIKey = prompt("API key", "")
+		defaultModel = prompt("Default model", "gpt-4o")
+	}
+
+	if ocMigrated {
+		if defaultModel == "" && migCfg.DefaultModel != "" {
+			defaultModel = migCfg.DefaultModel
+			fmt.Printf("  (using model from OpenClaw: %s)\n", defaultModel)
+		}
+	}
+
+	// --- Step 3: Generate ---
+	fmt.Println()
+	fmt.Println("Step 3/3: Generating config...")
+
+	defaultWorkdir := filepath.Join(configDir, "workspace")
+
+	// Generate API token.
 	tokenBytes := make([]byte, 32)
 	rand.Read(tokenBytes)
-	apiToken = hex.EncodeToString(tokenBytes)
-	fmt.Printf("  API token: %s\n", apiToken)
-	fmt.Println("  (Save this token — needed for CLI/API access)")
+	apiToken := hex.EncodeToString(tokenBytes)
 
 	// Build config.
 	cfg := map[string]any{
-		"claudePath":            claudePath,
-		"maxConcurrent":         maxConcurrent,
-		"defaultModel":          model,
+		"maxConcurrent":         3,
+		"defaultModel":          defaultModel,
 		"defaultTimeout":        "15m",
-		"defaultBudget":         budget,
+		"defaultBudget":         2.0,
 		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
-		"listenAddr":            listenAddr,
+		"listenAddr":            "127.0.0.1:8991",
 		"jobsFile":              "jobs.json",
 		"apiToken":              apiToken,
 		"log":                   true,
-		"telegram": map[string]any{
-			"enabled":     tgEnabled,
+	}
+
+	// Claude CLI path.
+	if claudePath != "" {
+		cfg["claudePath"] = claudePath
+	}
+
+	// Channel config.
+	switch channelIdx {
+	case 0: // Telegram
+		cfg["telegram"] = map[string]any{
+			"enabled":     true,
 			"botToken":    botToken,
 			"chatID":      chatID,
 			"pollTimeout": 30,
-		},
+		}
+	case 1: // Discord
+		cfg["discord"] = map[string]any{
+			"enabled":   true,
+			"botToken":  discordToken,
+			"appID":     discordAppID,
+			"channelID": discordChannelID,
+		}
+	case 2: // Slack
+		cfg["slack"] = map[string]any{
+			"enabled":       true,
+			"botToken":      slackToken,
+			"signingSecret": slackSigningSecret,
+		}
+	default:
+		cfg["telegram"] = map[string]any{"enabled": false}
+	}
+
+	// Provider config.
+	switch providerIdx {
+	case 1: // Claude API
+		cfg["providers"] = map[string]any{
+			"claude-api": map[string]any{
+				"type":   "claude",
+				"apiKey": claudeAPIKey,
+				"model":  defaultModel,
+			},
+		}
+		cfg["defaultProvider"] = "claude-api"
+	case 2: // OpenAI-compatible
+		cfg["providers"] = map[string]any{
+			"openai": map[string]any{
+				"type":     "openai",
+				"endpoint": openaiEndpoint,
+				"apiKey":   openaiAPIKey,
+				"model":    defaultModel,
+			},
+		}
+		cfg["defaultProvider"] = "openai"
 	}
 
 	// Create directories.
@@ -143,8 +441,10 @@ func cmdInit() {
 	}
 
 	fmt.Printf("\nConfig written: %s\n", configPath)
+	fmt.Printf("API token: %s\n", apiToken)
+	fmt.Println("(Save this token — needed for CLI/API access)")
 
-	// --- Step A: Create first role ---
+	// --- Optional: Create first role ---
 	fmt.Println()
 	fmt.Print("  Create a first role? [Y/n]: ")
 	scanner.Scan()
@@ -166,14 +466,14 @@ func cmdInit() {
 			archetype = &builtinArchetypes[n-1]
 		}
 
-		defaultModel := model
+		archModel := defaultModel
 		defaultPerm := "acceptEdits"
 		if archetype != nil {
-			defaultModel = archetype.Model
+			archModel = archetype.Model
 			defaultPerm = archetype.PermissionMode
 		}
 
-		roleModel := prompt("Role model", defaultModel)
+		roleModel := prompt("Role model", archModel)
 		roleDesc := prompt("Description", "Default agent role")
 		rolePerm := prompt("Permission mode (plan|acceptEdits|autoEdit|bypassPermissions)", defaultPerm)
 
@@ -246,90 +546,7 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 		}
 	}
 
-	// --- Step B: Create sample job ---
-	fmt.Println()
-	fmt.Print("  Create a sample cron job? [Y/n]: ")
-	scanner.Scan()
-	if strings.ToLower(strings.TrimSpace(scanner.Text())) != "n" {
-		fmt.Println()
-		jobID := prompt("Job ID", "heartbeat")
-		jobName := prompt("Job name", "Heartbeat")
-		jobSchedule := prompt("Cron schedule (m h dom mon dow)", "0 */2 * * *")
-		jobPrompt := prompt("Prompt", "Quick health check. Respond HEARTBEAT_OK.")
-		jobModel := prompt("Model", "haiku")
-
-		sampleJob := map[string]any{
-			"id":       jobID,
-			"name":     jobName,
-			"enabled":  true,
-			"schedule": jobSchedule,
-			"tz":       "Asia/Taipei",
-			"task": map[string]any{
-				"prompt":  jobPrompt,
-				"model":   jobModel,
-				"timeout": "1m",
-				"budget":  0.1,
-			},
-			"notify": false,
-		}
-
-		jfData := map[string]any{"jobs": []any{sampleJob}}
-
-		// Merge with existing jobs.json if it has content.
-		if raw, err := os.ReadFile(jobsPath); err == nil {
-			var existing map[string]any
-			if json.Unmarshal(raw, &existing) == nil {
-				if existingJobs, ok := existing["jobs"].([]any); ok && len(existingJobs) > 0 {
-					jfData["jobs"] = append(existingJobs, sampleJob)
-				}
-			}
-		}
-
-		jobData, _ := json.MarshalIndent(jfData, "", "  ")
-		os.WriteFile(jobsPath, append(jobData, '\n'), 0o644)
-		fmt.Printf("  Job %q added.\n", jobID)
-	}
-
-	// --- Step C: Quick test ---
-	fmt.Println()
-	fmt.Print("  Run a quick test of claude CLI? [y/N]: ")
-	scanner.Scan()
-	if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
-		fmt.Println("  Testing claude CLI...")
-		cmd := exec.Command(claudePath, "--print", "--output-format", "json",
-			"--model", "haiku", "--max-budget-usd", "0.05",
-			"--permission-mode", "plan",
-			"-p", "respond with OK")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Printf("  Test failed: %v\n", err)
-			if len(out) > 0 {
-				s := string(out)
-				if len(s) > 200 {
-					s = s[:200] + "..."
-				}
-				fmt.Printf("  Output: %s\n", s)
-			}
-		} else {
-			var result map[string]any
-			if json.Unmarshal(out, &result) == nil {
-				r, _ := result["result"].(string)
-				c, _ := result["cost_usd"].(float64)
-				if len(r) > 100 {
-					r = r[:100] + "..."
-				}
-				fmt.Printf("  Test OK: %s (cost: $%.4f)\n", r, c)
-			} else {
-				s := string(out)
-				if len(s) > 200 {
-					s = s[:200] + "..."
-				}
-				fmt.Printf("  Test completed: %s\n", s)
-			}
-		}
-	}
-
-	// --- Step D: Install service ---
+	// --- Optional: Install service ---
 	fmt.Println()
 	fmt.Print("  Install as launchd service? [y/N]: ")
 	scanner.Scan()

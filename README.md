@@ -60,6 +60,65 @@ tetora serve
 
 ---
 
+## Agents
+
+Every Tetora agent is more than a chatbot — it has an identity. Each agent (called a **role**) is defined by a **soul file**: a Markdown document that gives the agent its personality, expertise, communication style, and behavioral guidelines.
+
+### Defining a role
+
+Roles are declared in `config.json` under the `roles` key:
+
+```json
+{
+  "roles": {
+    "default": {
+      "soulFile": "SOUL.md",
+      "model": "sonnet",
+      "description": "General-purpose assistant",
+      "permissionMode": "acceptEdits"
+    },
+    "researcher": {
+      "soulFile": "SOUL-researcher.md",
+      "model": "opus",
+      "description": "Deep research and analysis",
+      "permissionMode": "plan"
+    }
+  }
+}
+```
+
+### Soul files
+
+A soul file tells the agent *who it is*. Place it in the workspace directory (`~/.tetora/workspace/` by default):
+
+```markdown
+# Koto — Soul File
+
+## Identity
+You are Koto, a thoughtful assistant who lives inside the Tetora system.
+You speak in a warm, concise tone and prefer actionable advice.
+
+## Expertise
+- Software architecture and code review
+- Technical writing and documentation
+
+## Behavioral Guidelines
+- Think step by step before answering
+- Ask clarifying questions when the request is ambiguous
+- Record important decisions in memory for future reference
+
+## Output Format
+- Start with a one-line summary
+- Use bullet points for details
+- End with next steps if applicable
+```
+
+### Getting started
+
+`tetora init` walks you through creating your first role and generates a starter soul file automatically. You can edit it at any time — changes take effect on the next session.
+
+---
+
 ## Build from Source
 
 ```bash
