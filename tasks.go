@@ -31,7 +31,9 @@ type TaskStats struct {
 
 // queryDB runs a SQL query against the SQLite database and returns JSON rows.
 func queryDB(dbPath, sql string) ([]map[string]any, error) {
-	cmd := exec.Command("sqlite3", "-json", dbPath, sql)
+	// Prepend pragmas so every sqlite3 invocation uses WAL + busy timeout.
+	wrapped := "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; " + sql
+	cmd := exec.Command("sqlite3", "-json", dbPath, wrapped)
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

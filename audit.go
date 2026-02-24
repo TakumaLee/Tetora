@@ -48,7 +48,8 @@ func auditLog(dbPath, action, source, detail, ip string) {
 	)
 
 	go func() {
-		cmd := exec.Command("sqlite3", dbPath, sql)
+		wrapped := "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; " + sql
+		cmd := exec.Command("sqlite3", dbPath, wrapped)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			logError("audit log insert failed", "output", string(out), "error", err)
 		}
