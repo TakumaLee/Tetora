@@ -1452,58 +1452,87 @@ func injectWorkspaceContent(cfg *Config, task *Task, roleName string) {
 		return
 	}
 
-	rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+	maxInjectionSize := 50 * 1024  // 50KB — skip entirely above this
+	indexThreshold := 20 * 1024    // 20KB — inject index instead of full dir above this
 
-	// Size protection: estimate total injection size.
-	totalSize := estimateDirSize(rulesDir)
-	maxInjectionSize := 50 * 1024 // 50KB default
-	if totalSize > maxInjectionSize {
-		logWarn("workspace rules too large, skipping injection", "size", totalSize, "max", maxInjectionSize)
-		return
-	}
-
-	// Always tier: inject rules/ directory (if has files and not already added).
-	if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
-		alreadyAdded := false
+	// Helper: inject a directory either as full AddDirs, as a compact index, or skip.
+	injectDir := func(dir string) {
+		fi, err := os.Stat(dir)
+		if err != nil || !fi.IsDir() {
+			return
+		}
+		size := estimateDirSize(dir)
+		if size > maxInjectionSize {
+			logWarn("workspace dir exceeds 50KB, skipping injection", "dir", dir, "size", size)
+			return
+		}
+		if size > indexThreshold {
+			// Inject compact index into system prompt instead of full dir.
+			idx := buildDirIndex(dir)
+			if idx != "" {
+				task.SystemPrompt += "\n\n" + idx
+			}
+			return
+		}
+		// Small enough — inject full directory.
 		for _, d := range task.AddDirs {
-			if d == rulesDir {
-				alreadyAdded = true
-				break
+			if d == dir {
+				return // already added
 			}
 		}
-		if !alreadyAdded {
-			task.AddDirs = append(task.AddDirs, rulesDir)
-		}
+		task.AddDirs = append(task.AddDirs, dir)
 	}
 
-	// Knowledge tier: inject knowledge/ directory with 50KB size guard.
-	knowledgeDir := filepath.Join(cfg.WorkspaceDir, "knowledge")
-	if fi, err := os.Stat(knowledgeDir); err == nil && fi.IsDir() {
-		kSize := estimateDirSize(knowledgeDir)
-		if kSize <= maxInjectionSize {
-			alreadyAdded := false
-			for _, d := range task.AddDirs {
-				if d == knowledgeDir {
-					alreadyAdded = true
-					break
-				}
-			}
-			if !alreadyAdded {
-				task.AddDirs = append(task.AddDirs, knowledgeDir)
-			}
-		} else {
-			logWarn("workspace knowledge dir exceeds 50KB, skipping injection", "size", kSize)
-		}
-	}
+	injectDir(filepath.Join(cfg.WorkspaceDir, "rules"))
+	injectDir(filepath.Join(cfg.WorkspaceDir, "knowledge"))
 
 	// Role tier: find role-specific rules and append to system prompt.
 	if roleName != "" {
-		roleRules := findRoleSpecificRules(rulesDir, roleName)
+		roleRules := findRoleSpecificRules(filepath.Join(cfg.WorkspaceDir, "rules"), roleName)
 		if roleRules != "" {
 			task.SystemPrompt += "\n\n" + roleRules
 		}
 	}
 	// On-demand tier: memory is resolved via {{memory.KEY}} in template.go, not here.
+	// When index mode is active, individual rules can be loaded via {{rules.FILENAME}}.
+}
+
+// buildDirIndex generates a compact markdown index of a directory.
+// Each file is summarized by its first line (or first 100 chars).
+func buildDirIndex(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	dirName := filepath.Base(dir)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## Directory Index: %s\n\nUse `{{rules.FILENAME}}` to load a specific file on demand.\n\n", dirName))
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		summary := strings.TrimSpace(string(data))
+		// Use first line as summary.
+		if idx := strings.IndexByte(summary, '\n'); idx >= 0 {
+			summary = summary[:idx]
+		}
+		if len(summary) > 100 {
+			summary = summary[:100] + "..."
+		}
+		// Strip markdown heading markers for cleaner display.
+		summary = strings.TrimLeft(summary, "# ")
+		b.WriteString(fmt.Sprintf("- **%s**: %s\n", e.Name(), summary))
+		count++
+	}
+	if count == 0 {
+		return ""
+	}
+	return b.String()
 }
 
 // findRoleSpecificRules reads files in rulesDir whose name contains roleName.

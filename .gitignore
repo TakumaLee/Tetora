@@ -35,5 +35,9 @@ backups/
 # OS
 .DS_Store
 
+# Internal planning (sensitive)
+tasks/gap*.md
+tasks/todo.md
+
 # Claude Code
 .claude/settings.local.json

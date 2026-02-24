@@ -19,4 +19,10 @@
 - Task system (Claude Code internal tasks) alone is NOT enough — they're session-scoped
 - Always write progress to persistent files on disk
 
+## Knowledge Architecture
+
+- Tetora's knowledge pipeline (Lesson → Rule → Skill) and Claude Code's pipeline (Lesson → Rule → Memory) are parallel but separate
+- `tetora/CLAUDE.md` describes product behavior strategy; `~/.claude/CLAUDE.md` describes development workflow
+- When analyzing external articles: route insights through domain routing, don't dump everything into one place
+
 _New lessons added here after each correction._

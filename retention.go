@@ -27,6 +27,7 @@ type RetentionConfig struct {
 	Versions    int      `json:"versions,omitempty"`    // days to keep config_versions (default 180)
 	Outputs     int      `json:"outputs,omitempty"`     // days to keep output files (default 30)
 	Uploads     int      `json:"uploads,omitempty"`     // days to keep upload files (default 7)
+	Memory      int      `json:"memory,omitempty"`      // days before stale memory archival (default 30)
 	PIIPatterns []string `json:"piiPatterns,omitempty"` // regex patterns for PII redaction
 }
 
@@ -197,6 +198,84 @@ func cleanupLogFiles(logDir string, days int) int {
 	return removed
 }
 
+// --- Stale Memory Cleanup ---
+
+// cleanupStaleMemory archives memory files that haven't been accessed in N days
+// and are not P0 (permanent). Returns the count of archived entries.
+func cleanupStaleMemory(cfg *Config, days int) (int, error) {
+	if cfg == nil || cfg.WorkspaceDir == "" || days <= 0 {
+		return 0, nil
+	}
+
+	memDir := filepath.Join(cfg.WorkspaceDir, "memory")
+	archiveDir := filepath.Join(memDir, "archive")
+
+	accessLog := loadMemoryAccessLog(cfg)
+	cutoff := time.Now().AddDate(0, 0, -days)
+	archived := 0
+
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		key := strings.TrimSuffix(e.Name(), ".md")
+
+		// Read file and check priority.
+		data, err := os.ReadFile(filepath.Join(memDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		priority, body := parseMemoryFrontmatter(data)
+
+		// Never archive P0 (permanent) entries.
+		if priority == "P0" {
+			continue
+		}
+
+		// Check last access time.
+		isStale := false
+		if ts, ok := accessLog[key]; ok {
+			if t, err := time.Parse(time.RFC3339, ts); err == nil {
+				isStale = t.Before(cutoff)
+			}
+		} else {
+			// No access record — use file mod time.
+			if info, err := e.Info(); err == nil {
+				isStale = info.ModTime().Before(cutoff)
+			}
+		}
+
+		if !isStale {
+			continue
+		}
+
+		// Archive: create archive dir, write with P2 priority, remove original.
+		os.MkdirAll(archiveDir, 0o755)
+		archiveContent := buildMemoryFrontmatter("P2", body)
+		if err := os.WriteFile(filepath.Join(archiveDir, e.Name()), []byte(archiveContent), 0o644); err != nil {
+			continue
+		}
+		os.Remove(filepath.Join(memDir, e.Name()))
+
+		// Remove from access log.
+		delete(accessLog, key)
+		archived++
+	}
+
+	if archived > 0 {
+		saveMemoryAccessLog(cfg, accessLog)
+	}
+	return archived, nil
+}
+
 // --- Master Retention Orchestrator ---
 
 // runRetention executes all retention cleanups and returns results.
@@ -295,6 +374,14 @@ func runRetention(cfg *Config) []RetentionResult {
 	logDir := filepath.Join(cfg.baseDir, "logs")
 	n := cleanupLogFiles(logDir, days)
 	results = append(results, RetentionResult{Table: "log_files", Deleted: n})
+
+	// Stale memory archival
+	days = retentionDays(cfg.Retention.Memory, 30)
+	if memArchived, err := cleanupStaleMemory(cfg, days); err != nil {
+		results = append(results, RetentionResult{Table: "memory", Error: err.Error()})
+	} else {
+		results = append(results, RetentionResult{Table: "memory", Deleted: memArchived})
+	}
 
 	logInfo("retention cleanup completed", "tables", len(results))
 	return results
