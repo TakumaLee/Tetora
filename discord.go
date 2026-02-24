@@ -26,8 +26,9 @@ type DiscordBotConfig struct {
 	Enabled        bool                        `json:"enabled"`
 	BotToken       string                      `json:"botToken"`            // $ENV_VAR supported
 	GuildID        string                      `json:"guildID,omitempty"`   // restrict to specific guild
-	ChannelID      string                      `json:"channelID,omitempty"`   // restrict to specific channel (single)
-	ChannelIDs     []string                    `json:"channelIDs,omitempty"`  // restrict to multiple channels
+	ChannelID         string                      `json:"channelID,omitempty"`          // restrict to specific channel (legacy, mention-only)
+	ChannelIDs        []string                    `json:"channelIDs,omitempty"`         // direct-reply channels (no @ needed)
+	MentionChannelIDs []string                    `json:"mentionChannelIDs,omitempty"`  // @mention-only channels
 	PublicKey      string                      `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
 	Components     DiscordComponentsConfig     `json:"components,omitempty"`
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
@@ -659,10 +660,11 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
-	// Mention-only in guilds; accept all in DMs.
+	// Direct channels respond to all messages; mention channels require @; DMs always accepted.
 	mentioned := discordIsMentioned(msg.Mentions, db.botUserID)
 	isDM := msg.GuildID == ""
-	if !mentioned && !isDM {
+	isDirect := db.isDirectChannel(msg.ChannelID)
+	if !mentioned && !isDM && !isDirect {
 		return
 	}
 
@@ -1037,21 +1039,39 @@ func (n *discordChannelNotifier) SendStatus(ctx context.Context, msg string) err
 	return nil
 }
 
-// isAllowedChannel checks if a channel ID is in the allowed list.
-// If neither channelID nor channelIDs is set, all channels are allowed.
+// isAllowedChannel checks if a channel ID is in any allowed list.
+// If no channel restrictions are set, all channels are allowed.
 func (db *DiscordBot) isAllowedChannel(chID string) bool {
-	if len(db.cfg.Discord.ChannelIDs) > 0 {
-		for _, id := range db.cfg.Discord.ChannelIDs {
-			if id == chID {
-				return true
-			}
+	hasRestrictions := len(db.cfg.Discord.ChannelIDs) > 0 ||
+		len(db.cfg.Discord.MentionChannelIDs) > 0 ||
+		db.cfg.Discord.ChannelID != ""
+	if !hasRestrictions {
+		return true
+	}
+	return db.isDirectChannel(chID) || db.isMentionChannel(chID)
+}
+
+// isDirectChannel returns true if the channel is in channelIDs (no @ needed).
+func (db *DiscordBot) isDirectChannel(chID string) bool {
+	for _, id := range db.cfg.Discord.ChannelIDs {
+		if id == chID {
+			return true
 		}
-		return false
 	}
-	if db.cfg.Discord.ChannelID != "" {
-		return db.cfg.Discord.ChannelID == chID
+	return false
+}
+
+// isMentionChannel returns true if the channel requires @mention.
+func (db *DiscordBot) isMentionChannel(chID string) bool {
+	if db.cfg.Discord.ChannelID != "" && db.cfg.Discord.ChannelID == chID {
+		return true
 	}
-	return true // no restriction
+	for _, id := range db.cfg.Discord.MentionChannelIDs {
+		if id == chID {
+			return true
+		}
+	}
+	return false
 }
 
 func (db *DiscordBot) notifyChannelID() string {
