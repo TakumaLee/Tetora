@@ -90,8 +90,8 @@ func cmdUpgrade() {
 	fmt.Printf("Current: v%s (%s/%s)\n", tetoraVersion, runtime.GOOS, runtime.GOARCH)
 
 	// Fetch latest release tag from GitHub API.
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/TakumaLee/Tetora/releases/latest")
+	ghClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := ghClient.Get("https://api.github.com/repos/TakumaLee/Tetora/releases/latest")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error checking latest release: %v\n", err)
 		os.Exit(1)
@@ -117,10 +117,11 @@ func cmdUpgrade() {
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
-	url := fmt.Sprintf("https://github.com/TakumaLee/Tetora/releases/download/%s/%s", release.TagName, binaryName)
+	dlURL := fmt.Sprintf("https://github.com/TakumaLee/Tetora/releases/download/%s/%s", release.TagName, binaryName)
 
-	fmt.Printf("Downloading %s...\n", url)
-	dlResp, err := client.Get(url)
+	fmt.Printf("Downloading %s...\n", dlURL)
+	dlClient := &http.Client{Timeout: 120 * time.Second} // binary ~15MB, allow time for slow connections
+	dlResp, err := dlClient.Get(dlURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Download failed: %v\n", err)
 		os.Exit(1)
@@ -162,18 +163,62 @@ func cmdUpgrade() {
 
 	fmt.Printf("Upgraded to v%s\n", latest)
 
-	// Restart service if running.
+	// Restart daemon automatically.
 	home, _ := os.UserHomeDir()
 	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
 	if _, err := os.Stat(plist); err == nil {
-		fmt.Println("Restarting service...")
+		fmt.Println("Restarting service (launchd)...")
 		exec.Command("launchctl", "unload", plist).Run()
 		exec.Command("launchctl", "load", plist).Run()
 		fmt.Println("Service restarted.")
-	} else {
-		fmt.Println("\nRestart the daemon to apply the update:")
-		fmt.Println("  tetora stop && tetora start")
+		return
 	}
+
+	// No launchd — find running daemon process and restart it.
+	if restartDaemonProcess(selfPath) {
+		return
+	}
+
+	fmt.Println("\nNo running daemon found. Start with:")
+	fmt.Println("  tetora serve")
+}
+
+// restartDaemonProcess finds a running "tetora serve" process, kills it,
+// and starts a new one in the background. Returns true if restart succeeded.
+func restartDaemonProcess(binaryPath string) bool {
+	// Find daemon PID via pgrep.
+	out, err := exec.Command("pgrep", "-f", "tetora serve").Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return false
+	}
+
+	// May have multiple PIDs (one per line), kill each.
+	pids := strings.Fields(strings.TrimSpace(string(out)))
+	fmt.Printf("Stopping daemon (PID %s)...\n", strings.Join(pids, ", "))
+	for _, pid := range pids {
+		exec.Command("kill", pid).Run()
+	}
+
+	// Wait briefly for process to exit.
+	time.Sleep(500 * time.Millisecond)
+
+	// Start new daemon in background.
+	fmt.Println("Starting daemon...")
+	cmd := exec.Command(binaryPath, "serve")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start daemon: %v\n", err)
+		fmt.Println("Start manually with: tetora serve")
+		return true // still return true since we killed the old one
+	}
+
+	// Release the child so it doesn't become a zombie.
+	cmd.Process.Release()
+
+	fmt.Printf("Daemon restarted (PID %d).\n", cmd.Process.Pid)
+	return true
 }
 
 func cmdOpenDashboard() {
