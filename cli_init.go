@@ -596,17 +596,18 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 }
 
 func detectClaude() string {
-	if path, err := exec.LookPath("claude"); err == nil {
-		return path
-	}
+	// Prefer Homebrew path, then npm, then PATH lookup.
 	home, _ := os.UserHomeDir()
 	for _, p := range []string{
-		filepath.Join(home, ".local", "bin", "claude"),
 		"/usr/local/bin/claude",
+		filepath.Join(home, ".local", "bin", "claude"),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	if path, err := exec.LookPath("claude"); err == nil {
+		return path
 	}
 	return "/usr/local/bin/claude"
 }
