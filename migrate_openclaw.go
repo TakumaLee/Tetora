@@ -19,6 +19,7 @@ type MigrationReport struct {
 	SkillsImported int      `json:"skillsImported"`
 	WorkspaceFiles int      `json:"workspaceFiles"`
 	CronJobs       int      `json:"cronJobs"`
+	RolesImported  int      `json:"rolesImported"`
 	Warnings       []string `json:"warnings,omitempty"`
 	Errors         []string `json:"errors,omitempty"`
 }
@@ -113,6 +114,7 @@ func parseIncludeList(s string) map[string]bool {
 			"skills":    true,
 			"cron":      true,
 			"workspace": true,
+			"roles":     true,
 		}
 	}
 	result := make(map[string]bool)
@@ -129,7 +131,7 @@ func parseIncludeList(s string) map[string]bool {
 func cmdMigrateOpenClaw(args []string) {
 	fs := flag.NewFlagSet("migrate-openclaw", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Preview migration without writing files")
-	includeStr := fs.String("include", "all", "Comma-separated list of components: config,memory,skills,cron,workspace")
+	includeStr := fs.String("include", "all", "Comma-separated list of components: config,memory,skills,cron,workspace,roles")
 	includeSecrets := fs.Bool("include-secrets", false, "Include secret values in migration (tokens, API keys)")
 	fs.Parse(args)
 
@@ -236,6 +238,13 @@ func migrateOpenClaw(cfg *Config, ocDir string, dryRun bool, include map[string]
 	if include["cron"] {
 		if err := migrateOpenClawCron(cfg, ocDir, dryRun, report); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("cron migration: %v", err))
+		}
+	}
+
+	// 6. Roles (soul files → Tetora roles)
+	if include["roles"] {
+		if err := migrateOpenClawRoles(cfg, ocDir, dryRun, report); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("roles migration: %v", err))
 		}
 	}
 
@@ -718,6 +727,98 @@ func migrateOpenClawCron(cfg *Config, ocDir string, dryRun bool, report *Migrati
 	}
 
 	report.CronJobs = count
+	return nil
+}
+
+// migrateOpenClawRoles finds SOUL files in OpenClaw workspace and creates
+// corresponding Tetora roles with soul files copied to ~/.tetora/workspace/.
+func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
+	wsDir := filepath.Join(ocDir, "workspace")
+	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
+		report.Warnings = append(report.Warnings, "no workspace/ directory, skipping roles")
+		return nil
+	}
+
+	tetoraWs := filepath.Join(cfg.baseDir, "workspace")
+	configPath := filepath.Join(cfg.baseDir, "config.json")
+	count := 0
+
+	// Collect soul files: root SOUL.md → "default", team/*/SOUL.md → directory name
+	type soulEntry struct {
+		name    string
+		srcPath string
+	}
+	var souls []soulEntry
+
+	// Root SOUL.md
+	rootSoul := filepath.Join(wsDir, "SOUL.md")
+	if _, err := os.Stat(rootSoul); err == nil {
+		souls = append(souls, soulEntry{name: "default", srcPath: rootSoul})
+	}
+
+	// team/*/SOUL.md
+	teamDir := filepath.Join(wsDir, "team")
+	if entries, err := os.ReadDir(teamDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			soulPath := filepath.Join(teamDir, e.Name(), "SOUL.md")
+			if _, err := os.Stat(soulPath); err == nil {
+				souls = append(souls, soulEntry{name: e.Name(), srcPath: soulPath})
+			}
+		}
+	}
+
+	if len(souls) == 0 {
+		report.Warnings = append(report.Warnings, "no SOUL files found in OpenClaw workspace")
+		return nil
+	}
+
+	// Read OpenClaw config for default model
+	defaultModel := "sonnet"
+	ocCfgPath := filepath.Join(ocDir, "openclaw.json")
+	if data, err := os.ReadFile(ocCfgPath); err == nil {
+		var oc map[string]any
+		if json.Unmarshal(data, &oc) == nil {
+			if m := getNestedString(oc, "agents", "defaults", "model", "primary"); m != "" {
+				defaultModel = stripModelPrefix(m)
+			}
+		}
+	}
+
+	for _, s := range souls {
+		dstFile := fmt.Sprintf("SOUL-%s.md", s.name)
+		if s.name == "default" {
+			dstFile = "SOUL.md"
+		}
+		dstPath := filepath.Join(tetoraWs, dstFile)
+
+		if !dryRun {
+			if err := os.MkdirAll(tetoraWs, 0o755); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("creating workspace dir: %v", err))
+				continue
+			}
+			if err := migCopyFile(s.srcPath, dstPath); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("copying %s: %v", filepath.Base(s.srcPath), err))
+				continue
+			}
+
+			rc := RoleConfig{
+				SoulFile:       dstFile,
+				Model:          defaultModel,
+				Description:    fmt.Sprintf("Imported from OpenClaw (%s)", s.name),
+				PermissionMode: "acceptEdits",
+			}
+			if err := updateConfigRoles(configPath, s.name, &rc); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("adding role %q: %v", s.name, err))
+				continue
+			}
+		}
+		count++
+	}
+
+	report.RolesImported = count
 	return nil
 }
 

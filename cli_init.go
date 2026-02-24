@@ -208,10 +208,10 @@ func cmdInit() {
 			fmt.Println()
 			fmt.Println("  What to import?")
 			incIdx := choose("Include", []string{
-				"All (config + memory + workspace + skills + cron)",
+				"All (config + memory + workspace + skills + cron + roles)",
 				"Config only",
-				"Config + cron jobs",
-				"Custom (comma-separated: config,memory,skills,cron,workspace)",
+				"Config + roles + cron jobs",
+				"Custom (comma-separated: config,memory,skills,cron,workspace,roles)",
 			}, 0)
 
 			var includeStr string
@@ -221,9 +221,9 @@ func cmdInit() {
 			case 1:
 				includeStr = "config"
 			case 2:
-				includeStr = "config,cron"
+				includeStr = "config,roles,cron"
 			case 3:
-				includeStr = prompt("Include list", "config,memory,skills,cron,workspace")
+				includeStr = prompt("Include list", "config,memory,skills,cron,workspace,roles")
 			}
 
 			include := parseIncludeList(includeStr)
@@ -233,8 +233,8 @@ func cmdInit() {
 			} else {
 				ocMigrated = true
 				ocReport = report
-				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs\n",
-					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs)
+				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs, %d roles\n",
+					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs, report.RolesImported)
 				for _, w := range report.Warnings {
 					fmt.Printf("  \u26a0 %s\n", w)
 				}
