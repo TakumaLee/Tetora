@@ -268,10 +268,19 @@
 
 ### P29: Cross-Module Intelligence ✅ (completed 2026-02-24)
 
-### P30: Life Completeness (~1,250 行)
-- P30.0: 結構化日記 (journal.go, ~300 行) — gratitude/mood/reflection 模板
-- P30.1: 學習/閱讀追蹤 (learning.go, ~350 行) — 書籍、課程、技能練習
-- P30.2: Apple Health / Google Fit (health_data.go, ~600 行) — 穿戴裝置健康數據
+### P30: Chat Command Unification + Life Completeness
+
+**P30.0: Unified Chat Command Handler** (優先)
+- [ ] 建立 `chat_commands.go` — 統一指令 handler，所有平台共用
+- [ ] 定義 `ChatCommandHandler` interface + `ChatReply` adapter per platform
+- [ ] 核心指令集（status, help, model, cost, jobs, cancel, new, route, memory, trust）
+- [ ] 將 Telegram (17), Discord (6), Slack (6) 的指令收斂為共用邏輯
+- [ ] 為零指令平台補上基礎指令：LINE, Teams, Signal, WhatsApp, iMessage, GChat
+- [ ] 參考 OpenClaw 指令集完善功能（/model, /role, /session, /budget 等）
+
+**P30.1: 結構化日記** (journal.go, ~300 行) — gratitude/mood/reflection 模板
+**P30.2: 學習/閱讀追蹤** (learning.go, ~350 行) — 書籍、課程、技能練習
+**P30.3: Apple Health / Google Fit** (health_data.go, ~600 行) — 穿戴裝置健康數據
 
 ### P31: Architecture Hardening II ✅ (partially completed 2026-02-24)
 - P31.0-P31.2 done. Remaining: further global migration (future)

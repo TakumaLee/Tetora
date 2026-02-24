@@ -21,6 +21,13 @@ func cmdRole(args []string) {
 		roleList()
 	case "add":
 		roleAdd()
+	case "set":
+		if len(args) < 4 {
+			fmt.Println("Usage: tetora role set <name> <field> <value>")
+			fmt.Println("Fields: model, permission, description")
+			return
+		}
+		roleSet(args[1], args[2], args[3])
 	case "show":
 		if len(args) < 2 {
 			fmt.Println("Usage: tetora role show <name>")
@@ -221,6 +228,54 @@ func roleShow(name string) {
 			}
 		}
 	}
+}
+
+func roleSet(name, field, value string) {
+	configPath := findConfigPath()
+	cfg := loadConfig(configPath)
+	rc, ok := cfg.Roles[name]
+	if !ok {
+		fmt.Printf("Role %q not found.\n", name)
+		os.Exit(1)
+	}
+
+	switch field {
+	case "model":
+		rc.Model = value
+	case "permission", "permissionMode":
+		rc.PermissionMode = value
+	case "description", "desc":
+		rc.Description = value
+	default:
+		fmt.Printf("Unknown field %q. Use: model, permission, description\n", field)
+		os.Exit(1)
+	}
+
+	if err := updateConfigRoles(configPath, name, &rc); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Role %q: %s → %s\n", name, field, value)
+}
+
+// updateRoleModel updates a role's model in config. Returns the old model.
+// Used by chat commands (!model, /model).
+func updateRoleModel(cfg *Config, roleName, model string) (string, error) {
+	rc, ok := cfg.Roles[roleName]
+	if !ok {
+		return "", fmt.Errorf("role %q not found", roleName)
+	}
+	old := rc.Model
+	rc.Model = model
+
+	configPath := findConfigPath()
+	if err := updateConfigRoles(configPath, roleName, &rc); err != nil {
+		return old, err
+	}
+
+	// Update in-memory config too.
+	cfg.Roles[roleName] = rc
+	return old, nil
 }
 
 func roleRemove(name string) {

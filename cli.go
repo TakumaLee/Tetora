@@ -31,7 +31,7 @@ Commands:
   status             Quick overview (daemon, jobs, cost)
   service <action>   Manage launchd service (install|uninstall|status)
   job <action>       Manage cron jobs (list|add|enable|disable|remove|trigger)
-  role <action>      Manage roles (list|add|show|remove)
+  role <action>      Manage roles (list|add|show|set|remove)
   history <action>   View execution history (list|show|cost)
   config <action>    Manage config (show|set|validate|migrate)
   logs               View daemon logs ([-f] [-n N] [--err] [--trace ID] [--json])

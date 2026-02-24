@@ -367,6 +367,8 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgMessage) {
 		b.cmdNew(msg, args)
 	case command == "/trust":
 		b.cmdTrust(msg)
+	case command == "/model":
+		b.cmdModel(msg, args)
 	case command == "/help":
 		b.cmdHelp(msg)
 	default:
@@ -1068,6 +1070,41 @@ func (b *Bot) sendRouteResponse(chatID int64, result *SmartDispatchResult) {
 
 // --- /help ---
 
+func (b *Bot) cmdModel(msg *tgMessage, args string) {
+	parts := strings.Fields(args)
+
+	// /model → show current models
+	if len(parts) == 0 {
+		var lines []string
+		for name, rc := range b.cfg.Roles {
+			m := rc.Model
+			if m == "" {
+				m = b.cfg.DefaultModel
+			}
+			lines = append(lines, fmt.Sprintf("  %s: `%s`", name, m))
+		}
+		b.reply(msg.Chat.ID, "Current models:\n"+strings.Join(lines, "\n"))
+		return
+	}
+
+	// /model <model> [role]
+	model := parts[0]
+	roleName := b.cfg.SmartDispatch.DefaultRole
+	if roleName == "" {
+		roleName = "default"
+	}
+	if len(parts) > 1 {
+		roleName = parts[1]
+	}
+
+	old, err := updateRoleModel(b.cfg, roleName, model)
+	if err != nil {
+		b.reply(msg.Chat.ID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+	b.reply(msg.Chat.ID, fmt.Sprintf("*%s* model: `%s` → `%s`", roleName, old, model))
+}
+
 func (b *Bot) cmdHelp(msg *tgMessage) {
 	b.reply(msg.Chat.ID, "Tetora - AI Agent Orchestrator\n\n"+
 		"/dispatch [tasks JSON] - parallel task dispatch\n"+
@@ -1085,6 +1122,7 @@ func (b *Bot) cmdHelp(msg *tgMessage) {
 		"/tasks - dashboard task stats\n"+
 		"/health - trigger heartbeat\n"+
 		"/trust - show trust levels for all agents\n"+
+		"/model [model] [role] - show/switch model\n"+
 		"/memory <keyword> - search memory files\n"+
 		"/help - this message\n\n"+
 		"Messages are linked to persistent sessions per role.\n"+

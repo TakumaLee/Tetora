@@ -748,6 +748,8 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		db.cmdJobs(msg)
 	case "cost":
 		db.cmdCost(msg)
+	case "model":
+		db.cmdModel(msg, args)
 	case "help":
 		db.cmdHelp(msg)
 	default:
@@ -828,6 +830,58 @@ func (db *DiscordBot) cmdCost(msg discordMessage) {
 	})
 }
 
+func (db *DiscordBot) cmdModel(msg discordMessage, args string) {
+	parts := strings.Fields(args)
+
+	// !model → show current model for default role
+	if len(parts) == 0 {
+		roleName := db.cfg.SmartDispatch.DefaultRole
+		if roleName == "" {
+			roleName = "default"
+		}
+		rc, ok := db.cfg.Roles[roleName]
+		if !ok {
+			db.sendMessage(msg.ChannelID, fmt.Sprintf("Role `%s` not found.", roleName))
+			return
+		}
+		model := rc.Model
+		if model == "" {
+			model = db.cfg.DefaultModel
+		}
+		var fields []discordEmbedField
+		for name, r := range db.cfg.Roles {
+			m := r.Model
+			if m == "" {
+				m = db.cfg.DefaultModel
+			}
+			fields = append(fields, discordEmbedField{
+				Name: name, Value: "`" + m + "`", Inline: true,
+			})
+		}
+		db.sendEmbed(msg.ChannelID, discordEmbed{
+			Title: "Current Models", Color: 0x5865F2, Fields: fields,
+		})
+		return
+	}
+
+	// !model <model> [role] → set model
+	model := parts[0]
+	roleName := db.cfg.SmartDispatch.DefaultRole
+	if roleName == "" {
+		roleName = "default"
+	}
+	if len(parts) > 1 {
+		roleName = parts[1]
+	}
+
+	old, err := updateRoleModel(db.cfg, roleName, model)
+	if err != nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+	db.sendMessage(msg.ChannelID, fmt.Sprintf("**%s** model: `%s` → `%s`", roleName, old, model))
+}
+
 func (db *DiscordBot) cmdHelp(msg discordMessage) {
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       "Tetora Help",
@@ -837,6 +891,7 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 			{Name: "!status", Value: "Show daemon status"},
 			{Name: "!jobs", Value: "List cron jobs"},
 			{Name: "!cost", Value: "Show cost summary"},
+			{Name: "!model [model] [role]", Value: "Show/switch model"},
 			{Name: "!help", Value: "Show this help"},
 			{Name: "Free text", Value: "Mention me + your prompt for smart dispatch"},
 		},

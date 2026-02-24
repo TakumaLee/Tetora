@@ -229,6 +229,8 @@ func (sb *SlackBot) handleSlackCommand(event slackEvent, cmdText string) {
 		sb.slackCmdJobs(event)
 	case "cost":
 		sb.slackCmdCost(event)
+	case "model":
+		sb.slackCmdModel(event, args)
 	case "new":
 		sb.slackCmdNew(event, args)
 	case "help":
@@ -497,12 +499,46 @@ func (sb *SlackBot) slackCmdNew(event slackEvent, args string) {
 	sb.slackReply(event.Channel, ts, "Session archived. Next message starts a fresh conversation.")
 }
 
+func (sb *SlackBot) slackCmdModel(event slackEvent, args string) {
+	parts := strings.Fields(args)
+
+	if len(parts) == 0 {
+		var lines []string
+		for name, rc := range sb.cfg.Roles {
+			m := rc.Model
+			if m == "" {
+				m = sb.cfg.DefaultModel
+			}
+			lines = append(lines, fmt.Sprintf("  %s: `%s`", name, m))
+		}
+		sb.slackReply(event.Channel, threadTS(event), "*Current models:*\n"+strings.Join(lines, "\n"))
+		return
+	}
+
+	model := parts[0]
+	roleName := sb.cfg.SmartDispatch.DefaultRole
+	if roleName == "" {
+		roleName = "default"
+	}
+	if len(parts) > 1 {
+		roleName = parts[1]
+	}
+
+	old, err := updateRoleModel(sb.cfg, roleName, model)
+	if err != nil {
+		sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("Error: %v", err))
+		return
+	}
+	sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("*%s* model: `%s` → `%s`", roleName, old, model))
+}
+
 func (sb *SlackBot) slackCmdHelp(event slackEvent) {
 	sb.slackReply(event.Channel, threadTS(event),
 		"*Tetora Slack Bot*\n"+
 			"`!status` -- Check running tasks\n"+
 			"`!jobs` -- List cron jobs\n"+
 			"`!cost` -- Cost summary\n"+
+			"`!model [model] [role]` -- Show/switch model\n"+
 			"`!new` -- Start fresh session in this thread\n"+
 			"`!help` -- This message\n"+
 			"\nMessages in a thread share conversation context.\n"+
