@@ -758,6 +758,16 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		db.cmdCost(msg)
 	case "model":
 		db.cmdModel(msg, args)
+	case "new":
+		db.cmdNewSession(msg)
+	case "cancel":
+		db.cmdCancel(msg)
+	case "ask":
+		if args == "" {
+			db.sendMessage(msg.ChannelID, "Usage: `!ask <prompt>`")
+		} else {
+			db.cmdAsk(msg, args)
+		}
 	case "help":
 		db.cmdHelp(msg)
 	default:
@@ -890,6 +900,96 @@ func (db *DiscordBot) cmdModel(msg discordMessage, args string) {
 	db.sendMessage(msg.ChannelID, fmt.Sprintf("**%s** model: `%s` → `%s`", roleName, old, model))
 }
 
+func (db *DiscordBot) cmdCancel(msg discordMessage) {
+	if db.state == nil {
+		db.sendMessage(msg.ChannelID, "No dispatch state.")
+		return
+	}
+	db.state.mu.Lock()
+	count := 0
+	for _, ts := range db.state.running {
+		if ts.cancelFn != nil {
+			ts.cancelFn()
+			count++
+		}
+	}
+	cancelFn := db.state.cancel
+	db.state.mu.Unlock()
+	if cancelFn != nil {
+		cancelFn()
+		count++
+	}
+	if count == 0 {
+		db.sendMessage(msg.ChannelID, "Nothing running to cancel.")
+	} else {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Cancelling %d task(s).", count))
+	}
+}
+
+func (db *DiscordBot) cmdAsk(msg discordMessage, prompt string) {
+	db.sendTyping(msg.ChannelID)
+
+	ctx := withTraceID(context.Background(), newTraceID("discord"))
+
+	task := Task{Prompt: prompt, Source: "ask:discord"}
+	fillDefaults(db.cfg, &task)
+
+	// Use default role but no routing overhead.
+	roleName := db.cfg.SmartDispatch.DefaultRole
+	if roleName != "" {
+		if soulPrompt, err := loadRolePrompt(db.cfg, roleName); err == nil && soulPrompt != "" {
+			task.SystemPrompt = soulPrompt
+		}
+		if rc, ok := db.cfg.Roles[roleName]; ok {
+			if rc.Model != "" {
+				task.Model = rc.Model
+			}
+		}
+	}
+
+	result := runSingleTask(ctx, db.cfg, task, db.sem, roleName)
+
+	output := result.Output
+	if result.Status != "success" {
+		output = result.Error
+		if output == "" {
+			output = result.Status
+		}
+	}
+	if len(output) > 3800 {
+		output = output[:3797] + "..."
+	}
+
+	color := 0x57F287
+	if result.Status != "success" {
+		color = 0xED4245
+	}
+	db.sendEmbed(msg.ChannelID, discordEmbed{
+		Description: output,
+		Color:       color,
+		Fields: []discordEmbedField{
+			{Name: "Cost", Value: fmt.Sprintf("$%.4f", result.CostUSD), Inline: true},
+			{Name: "Duration", Value: fmt.Sprintf("%dms", result.DurationMs), Inline: true},
+		},
+		Footer:    &discordEmbedFooter{Text: fmt.Sprintf("ask | %s", task.ID[:8])},
+		Timestamp: time.Now().Format(time.RFC3339),
+	})
+}
+
+func (db *DiscordBot) cmdNewSession(msg discordMessage) {
+	dbPath := db.cfg.HistoryDB
+	if dbPath == "" {
+		db.sendMessage(msg.ChannelID, "History DB not configured.")
+		return
+	}
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	if err := archiveChannelSession(dbPath, chKey); err != nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Error: %v", err))
+		return
+	}
+	db.sendMessage(msg.ChannelID, "New session started.")
+}
+
 func (db *DiscordBot) cmdHelp(msg discordMessage) {
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       "Tetora Help",
@@ -900,6 +1000,9 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 			{Name: "!jobs", Value: "List cron jobs"},
 			{Name: "!cost", Value: "Show cost summary"},
 			{Name: "!model [model] [role]", Value: "Show/switch model"},
+			{Name: "!new", Value: "Start a new session (clear context)"},
+			{Name: "!cancel", Value: "Cancel all running tasks"},
+			{Name: "!ask <prompt>", Value: "Quick question (no routing, no session)"},
 			{Name: "!help", Value: "Show this help"},
 			{Name: "Free text", Value: "Mention me + your prompt for smart dispatch"},
 		},
