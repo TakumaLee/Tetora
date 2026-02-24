@@ -33,6 +33,7 @@ type Config struct {
 	Log                   bool                       `json:"log"`
 	APIToken              string                     `json:"apiToken"`
 	AllowedDirs           []string                   `json:"allowedDirs"`
+	DefaultAddDirs        []string                   `json:"defaultAddDirs,omitempty"` // dirs injected as --add-dir for every task
 	CostAlert             CostAlertConfig            `json:"costAlert"`
 	Webhooks              []WebhookConfig            `json:"webhooks"`
 	DashboardAuth         DashboardAuthConfig        `json:"dashboardAuth"`

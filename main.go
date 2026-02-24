@@ -134,6 +134,9 @@ func main() {
 		case "completion":
 			cmdCompletion(os.Args[2:])
 			return
+		case "access":
+			cmdAccess(os.Args[2:])
+			return
 		case "import":
 			if len(os.Args) > 2 && os.Args[2] == "openclaw" {
 				cmdImportOpenClaw()

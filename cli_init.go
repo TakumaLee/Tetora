@@ -230,7 +230,7 @@ func cmdInit() {
 	fmt.Println()
 
 	// --- Step 1: Channel ---
-	fmt.Println("Step 1/3: Choose a messaging channel")
+	fmt.Println("Step 1/4: Choose a messaging channel")
 	fmt.Println()
 	channelIdx := choose("Channel", []string{
 		"Telegram",
@@ -312,7 +312,7 @@ func cmdInit() {
 
 	// --- Step 2: Provider ---
 	fmt.Println()
-	fmt.Println("Step 2/3: Choose an AI provider")
+	fmt.Println("Step 2/4: Choose an AI provider")
 	fmt.Println()
 	providerIdx := choose("Provider", []string{
 		"Claude CLI (local claude binary)",
@@ -344,9 +344,38 @@ func cmdInit() {
 		}
 	}
 
-	// --- Step 3: Generate ---
+	// --- Step 3: Directory Access ---
 	fmt.Println()
-	fmt.Println("Step 3/3: Generating config...")
+	fmt.Println("Step 3/4: Agent directory access")
+	fmt.Println()
+	fmt.Println("  Agents need file access permissions (passed as --add-dir to Claude CLI).")
+	fmt.Println("  The tetora data directory (~/.tetora/) is always included.")
+	fmt.Println()
+	accessIdx := choose("What should agents be able to access?", []string{
+		"Home directory (~/)",
+		"Specific directories (configure later in config.json)",
+		"Tetora data only (~/.tetora/)",
+	}, 0)
+
+	var defaultAddDirs []string
+	switch accessIdx {
+	case 0:
+		defaultAddDirs = []string{"~"}
+	case 1:
+		dirInput := prompt("Directories (comma-separated)", "~/Development")
+		for _, d := range strings.Split(dirInput, ",") {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				defaultAddDirs = append(defaultAddDirs, d)
+			}
+		}
+	case 2:
+		// No extra dirs, only ~/.tetora/ (always included)
+	}
+
+	// --- Step 4: Generate ---
+	fmt.Println()
+	fmt.Println("Step 4/4: Generating config...")
 
 	defaultWorkdir := filepath.Join(configDir, "workspace")
 
@@ -367,6 +396,11 @@ func cmdInit() {
 		"jobsFile":              "jobs.json",
 		"apiToken":              apiToken,
 		"log":                   true,
+	}
+
+	// Add defaultAddDirs if configured.
+	if len(defaultAddDirs) > 0 {
+		cfg["defaultAddDirs"] = defaultAddDirs
 	}
 
 	// Claude CLI path.

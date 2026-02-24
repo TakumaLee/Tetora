@@ -462,11 +462,20 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		if ws.Dir != "" {
 			task.Workdir = ws.Dir
 		}
-		// Auto-inject workspace rules directory.
-		rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
-		if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
-			task.AddDirs = append(task.AddDirs, rulesDir)
+		// Always grant access to tetora base directory.
+		task.AddDirs = append(task.AddDirs, cfg.baseDir)
+	}
+
+	// Inject global defaultAddDirs (configured accessible directories).
+	for _, d := range cfg.DefaultAddDirs {
+		if strings.HasPrefix(d, "~/") {
+			home, _ := os.UserHomeDir()
+			d = filepath.Join(home, d[2:])
+		} else if d == "~" {
+			home, _ := os.UserHomeDir()
+			d = home
 		}
+		task.AddDirs = append(task.AddDirs, d)
 	}
 
 	// Validate directories before running.
@@ -619,11 +628,8 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		if ws.Dir != "" {
 			task.Workdir = ws.Dir
 		}
-		// Auto-inject workspace rules directory.
-		rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
-		if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
-			task.AddDirs = append(task.AddDirs, rulesDir)
-		}
+		// Always grant access to tetora base directory.
+		task.AddDirs = append(task.AddDirs, cfg.baseDir)
 
 		// Apply role config overrides.
 		if rc, ok := cfg.Roles[roleName]; ok {
@@ -634,6 +640,18 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				task.PermissionMode = rc.PermissionMode
 			}
 		}
+	}
+
+	// Inject global defaultAddDirs (configured accessible directories).
+	for _, d := range cfg.DefaultAddDirs {
+		if strings.HasPrefix(d, "~/") {
+			home, _ := os.UserHomeDir()
+			d = filepath.Join(home, d[2:])
+		} else if d == "~" {
+			home, _ := os.UserHomeDir()
+			d = home
+		}
+		task.AddDirs = append(task.AddDirs, d)
 	}
 
 	// Auto-inject knowledge dir if it has files (with 50KB size guard).
