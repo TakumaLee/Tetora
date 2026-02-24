@@ -65,14 +65,14 @@ Examples:
   tetora job trigger heartbeat         Manually trigger a job
   tetora role list                     List all roles
   tetora role add                      Create a new agent/role (interactive)
-  tetora role show 琉璃                 Show role details + soul preview
+  tetora role show <name>               Show role details + soul preview
   tetora role set <name> <field> <val> Update role field (model, permission, description)
   tetora role remove <name>            Remove a role
   tetora history list                  Show recent execution history
   tetora history cost                  Show cost summary
   tetora config migrate --dry-run      Preview config migrations
   tetora session list                  List recent sessions
-  tetora session list --role 翡翠      List sessions for a specific agent
+  tetora session list --role <name>    List sessions for a specific agent
   tetora session show <id>            Show session conversation
   tetora backup                        Create backup
   tetora restore backup.tar.gz         Restore from backup
