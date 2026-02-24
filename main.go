@@ -131,6 +131,9 @@ func main() {
 		case "completion":
 			cmdCompletion(os.Args[2:])
 			return
+		case "upgrade":
+			cmdUpgrade()
+			return
 		case "version", "--version":
 			cmdVersion()
 			return

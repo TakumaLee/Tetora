@@ -46,6 +46,7 @@ Commands:
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
   plugin <action>    Manage external plugins (list|start|stop)
+  upgrade            Upgrade to the latest version
   backup             Create backup of tetora data
   restore            Restore from a backup file
   dashboard          Open web dashboard in browser
@@ -77,6 +78,93 @@ Examples:
 
 func cmdVersion() {
 	fmt.Printf("tetora v%s (%s/%s)\n", tetoraVersion, runtime.GOOS, runtime.GOARCH)
+}
+
+func cmdUpgrade() {
+	fmt.Printf("Current: v%s (%s/%s)\n", tetoraVersion, runtime.GOOS, runtime.GOARCH)
+
+	// Fetch latest release tag from GitHub API.
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/TakumaLee/Tetora/releases/latest")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error checking latest release: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing release info: %v\n", err)
+		os.Exit(1)
+	}
+	latest := strings.TrimPrefix(release.TagName, "v")
+	if latest == tetoraVersion {
+		fmt.Println("Already up to date.")
+		return
+	}
+	fmt.Printf("Latest:  v%s\n", latest)
+
+	// Determine binary name.
+	arch := runtime.GOARCH
+	binaryName := fmt.Sprintf("tetora-%s-%s", runtime.GOOS, arch)
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	url := fmt.Sprintf("https://github.com/TakumaLee/Tetora/releases/download/%s/%s", release.TagName, binaryName)
+
+	fmt.Printf("Downloading %s...\n", url)
+	dlResp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Download failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer dlResp.Body.Close()
+	if dlResp.StatusCode != 200 {
+		fmt.Fprintf(os.Stderr, "Download failed: HTTP %d\n", dlResp.StatusCode)
+		os.Exit(1)
+	}
+
+	// Write to temp file then replace.
+	selfPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot determine binary path: %v\n", err)
+		os.Exit(1)
+	}
+	selfPath, _ = filepath.EvalSymlinks(selfPath)
+
+	tmpPath := selfPath + ".tmp"
+	tmp, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot create temp file: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := io.Copy(tmp, dlResp.Body); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "Download failed: %v\n", err)
+		os.Exit(1)
+	}
+	tmp.Close()
+
+	// Replace old binary.
+	if err := os.Rename(tmpPath, selfPath); err != nil {
+		os.Remove(tmpPath)
+		fmt.Fprintf(os.Stderr, "Cannot replace binary: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Upgraded to v%s\n", latest)
+
+	// Restart service if running.
+	home, _ := os.UserHomeDir()
+	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
+	if _, err := os.Stat(plist); err == nil {
+		fmt.Println("Restarting service...")
+		exec.Command("launchctl", "unload", plist).Run()
+		exec.Command("launchctl", "load", plist).Run()
+		fmt.Println("Service restarted.")
+	}
 }
 
 func cmdOpenDashboard() {
