@@ -227,14 +227,20 @@ func cmdInit() {
 			}
 
 			include := parseIncludeList(includeStr)
+			// Defer roles import until after config is written.
+			wantRoles := include["roles"]
+			delete(include, "roles")
 			report, err := migrateOpenClaw(migCfg, ocDir, false, include, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  Migration error: %v\n", err)
 			} else {
 				ocMigrated = true
 				ocReport = report
-				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs, %d roles\n",
-					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs, report.RolesImported)
+				if wantRoles {
+					include["roles"] = true
+				}
+				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs\n",
+					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs)
 				for _, w := range report.Warnings {
 					fmt.Printf("  \u26a0 %s\n", w)
 				}
@@ -473,9 +479,30 @@ func cmdInit() {
 	fmt.Printf("API token: %s\n", apiToken)
 	fmt.Println("(Save this token — needed for CLI/API access)")
 
+	// --- Deferred: OpenClaw role import (config must exist first) ---
+	if ocMigrated && ocReport != nil {
+		include := parseIncludeList("roles")
+		roleReport := &MigrationReport{}
+		migCfg.baseDir = configDir
+		if err := migrateOpenClawRoles(migCfg, ocDir, false, roleReport); err != nil {
+			fmt.Fprintf(os.Stderr, "  Role import error: %v\n", err)
+		} else if roleReport.RolesImported > 0 {
+			ocReport.RolesImported = roleReport.RolesImported
+			// Enable smart dispatch when roles exist.
+			enableSmartDispatch(configPath)
+			fmt.Printf("  Imported %d role(s) from OpenClaw.\n", roleReport.RolesImported)
+			for _, w := range roleReport.Warnings {
+				fmt.Printf("  \u26a0 %s\n", w)
+			}
+			for _, e := range roleReport.Errors {
+				fmt.Printf("  \u2717 %s\n", e)
+			}
+		}
+		_ = include
+	}
+
 	// --- Optional: Create first role ---
 	if ocMigrated && ocReport != nil && ocReport.RolesImported > 0 {
-		fmt.Printf("\n  %d role(s) imported from OpenClaw, skipping role creation.\n", ocReport.RolesImported)
 		goto afterRole
 	}
 	fmt.Println()
@@ -598,6 +625,72 @@ afterRole:
 	fmt.Println("  tetora status      Quick overview")
 	fmt.Println("  tetora serve       Start daemon")
 	fmt.Println("  tetora dashboard   Open web UI")
+}
+
+// enableSmartDispatch sets smartDispatch.enabled=true in the config file.
+func enableSmartDispatch(configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	var raw map[string]any
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	sd, _ := raw["smartDispatch"].(map[string]any)
+	if sd == nil {
+		sd = map[string]any{}
+	}
+	sd["enabled"] = true
+	raw["smartDispatch"] = sd
+	out, _ := json.MarshalIndent(raw, "", "  ")
+	os.WriteFile(configPath, append(out, '\n'), 0o644)
+}
+
+// cmdImportOpenClaw handles "tetora import openclaw" as a standalone command.
+func cmdImportOpenClaw() {
+	ocDir := detectOpenClaw()
+	if ocDir == "" {
+		fmt.Println("No OpenClaw installation found at ~/.openclaw/")
+		return
+	}
+	fmt.Printf("Found OpenClaw at %s\n", ocDir)
+
+	configPath := findConfigPath()
+	if configPath == "" {
+		fmt.Println("No Tetora config found. Run 'tetora init' first.")
+		return
+	}
+
+	cfg, err := tryLoadConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		return
+	}
+
+	include := parseIncludeList("all")
+	report, err := migrateOpenClaw(cfg, ocDir, false, include, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Migration error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs, %d roles\n",
+		report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs, report.RolesImported)
+	for _, w := range report.Warnings {
+		fmt.Printf("  \u26a0 %s\n", w)
+	}
+	for _, e := range report.Errors {
+		fmt.Printf("  \u2717 %s\n", e)
+	}
+
+	if report.RolesImported > 0 {
+		enableSmartDispatch(configPath)
+		fmt.Println("Smart dispatch enabled.")
+	}
+
+	fmt.Println("\nRestart the service to apply changes:")
+	fmt.Println("  tetora service uninstall && tetora service install")
 }
 
 func detectClaude() string {

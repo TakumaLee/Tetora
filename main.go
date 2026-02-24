@@ -131,6 +131,14 @@ func main() {
 		case "completion":
 			cmdCompletion(os.Args[2:])
 			return
+		case "import":
+			if len(os.Args) > 2 && os.Args[2] == "openclaw" {
+				cmdImportOpenClaw()
+			} else {
+				fmt.Fprintln(os.Stderr, "Usage: tetora import <openclaw>")
+				os.Exit(1)
+			}
+			return
 		case "upgrade":
 			cmdUpgrade()
 			return

@@ -46,6 +46,7 @@ Commands:
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
   plugin <action>    Manage external plugins (list|start|stop)
+  import <source>    Import data (openclaw)
   upgrade            Upgrade to the latest version
   backup             Create backup of tetora data
   restore            Restore from a backup file
