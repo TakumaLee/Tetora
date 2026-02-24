@@ -474,6 +474,10 @@ func cmdInit() {
 	fmt.Println("(Save this token — needed for CLI/API access)")
 
 	// --- Optional: Create first role ---
+	if ocMigrated && ocReport != nil && ocReport.RolesImported > 0 {
+		fmt.Printf("\n  %d role(s) imported from OpenClaw, skipping role creation.\n", ocReport.RolesImported)
+		goto afterRole
+	}
 	fmt.Println()
 	fmt.Print("  Create a first role? [Y/n]: ")
 	scanner.Scan()
@@ -574,6 +578,7 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 			fmt.Printf("  Role %q added.\n", roleName)
 		}
 	}
+afterRole:
 
 	// --- Optional: Install service ---
 	fmt.Println()
