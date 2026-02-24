@@ -515,13 +515,11 @@ func cmdInit() {
 			rolePerm = "acceptEdits"
 		}
 
-		// Per-role workspace: ~/.tetora/workspaces/{roleName}/
-		roleWsDir := filepath.Join(configDir, "workspaces", roleName)
-		for _, sub := range []string{"", "memory", "skills"} {
-			os.MkdirAll(filepath.Join(roleWsDir, sub), 0o755)
-		}
+		// Per-role agent directory: ~/.tetora/agents/{roleName}/
+		agentDir := filepath.Join(configDir, "agents", roleName)
+		os.MkdirAll(agentDir, 0o755)
 
-		soulDst := filepath.Join(roleWsDir, "SOUL.md")
+		soulDst := filepath.Join(agentDir, "SOUL.md")
 		if archetype != nil {
 			if _, err := os.Stat(soulDst); os.IsNotExist(err) {
 				content := generateSoulContent(archetype, roleName)

@@ -804,7 +804,7 @@ func parseSoulDescription(path string) string {
 // corresponding Tetora roles with soul files in per-role workspaces.
 // Role names are derived from the character's romanized name in the SOUL file
 // (e.g. "Kohaku" → "kohaku"), not from directory names.
-// Each role gets: ~/.tetora/workspaces/{role}/SOUL.md + memory/ + skills/
+// Each role gets: ~/.tetora/agents/{role}/SOUL.md
 func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
 	wsDir := filepath.Join(ocDir, "workspace")
 	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
@@ -863,18 +863,15 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 	}
 
 	for _, s := range souls {
-		// Per-role workspace: ~/.tetora/workspaces/{roleName}/
-		roleWsDir := filepath.Join(cfg.baseDir, "workspaces", s.name)
-		dstPath := filepath.Join(roleWsDir, "SOUL.md")
+		// Per-role agent directory: ~/.tetora/agents/{roleName}/
+		agentDir := filepath.Join(cfg.AgentsDir, s.name)
+		dstPath := filepath.Join(agentDir, "SOUL.md")
 
 		if !dryRun {
-			// Create per-role workspace with subdirectories.
-			for _, sub := range []string{"", "memory", "skills"} {
-				dir := filepath.Join(roleWsDir, sub)
-				if err := os.MkdirAll(dir, 0o755); err != nil {
-					report.Errors = append(report.Errors, fmt.Sprintf("creating workspace dir %s: %v", dir, err))
-					continue
-				}
+			// Create agent directory.
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("creating agent dir %s: %v", agentDir, err))
+				continue
 			}
 			if err := migCopyFile(s.srcPath, dstPath); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("copying %s: %v", filepath.Base(s.srcPath), err))

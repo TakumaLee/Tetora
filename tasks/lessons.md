@@ -25,4 +25,16 @@
 - `tetora/CLAUDE.md` describes product behavior strategy; `~/.claude/CLAUDE.md` describes development workflow
 - When analyzing external articles: route insights through domain routing, don't dump everything into one place
 
+## Bugs to Fix (identified 2026-02-25)
+
+### Fixed
+- **smartDispatch config mismatch**: `defaultRole`/`coordinator` used display name "琉璃" instead of role key "ruri". Fixed in config.json.
+- **Poor role description**: ruri's description was "Imported from OpenClaw (ruri)" — not useful for LLM routing. Updated to descriptive text.
+
+### Also Fixed (code changes)
+- **LLM classifier returns functional names**: Fixed `classifyByLLM()` in `route.go` — added explicit valid keys list and IMPORTANT instruction to return exact role keys only.
+- **Dead `workspaces/` directories**: Fixed `cli_init.go` and `migrate_openclaw.go` — changed from `workspaces/{role}/` to `agents/{role}/` (matching v1.3.0 architecture).
+- **Test/implementation mismatch**: Rewrote `workspace_test.go` — all tests now use role keys ("ruri" not "琉璃") and expect shared workspace paths.
+- **`getWorkspaceMemoryPath`/`getWorkspaceSkillsPath`**: Removed unused `roleName` parameter, functions now correctly return shared workspace paths.
+
 _New lessons added here after each correction._

@@ -284,11 +284,11 @@ func loadSoulFile(cfg *Config, roleName string) string {
 // --- Workspace Memory Scope ---
 
 // getWorkspaceMemoryPath returns the shared workspace memory directory path.
-func getWorkspaceMemoryPath(cfg *Config, roleName string) string {
+func getWorkspaceMemoryPath(cfg *Config) string {
 	return filepath.Join(cfg.WorkspaceDir, "memory")
 }
 
-// getWorkspaceSkillsPath returns the skills directory path.
-func getWorkspaceSkillsPath(cfg *Config, roleName string) string {
-	return filepath.Join(cfg.baseDir, "skills")
+// getWorkspaceSkillsPath returns the shared workspace skills directory path.
+func getWorkspaceSkillsPath(cfg *Config) string {
+	return filepath.Join(cfg.WorkspaceDir, "skills")
 }

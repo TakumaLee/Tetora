@@ -148,19 +148,30 @@ func classifyByLLM(ctx context.Context, cfg *Config, prompt string, sem chan str
 	// Sort for deterministic output.
 	sort.Strings(roleLines)
 
+	// Build valid keys list for explicit constraint.
+	var validKeys []string
+	for name := range cfg.Roles {
+		validKeys = append(validKeys, name)
+	}
+	sort.Strings(validKeys)
+
 	classifyPrompt := fmt.Sprintf(
 		`You are a task router. Given a user request, decide which team member should handle it.
 
 Available roles:
 %s
 
+IMPORTANT: The "role" field in your response MUST be one of these exact keys: %s
+Do NOT use translated names, functional titles, or any other values.
+
 User request: %s
 
 Reply with ONLY a JSON object (no markdown, no explanation):
-{"role":"<role_name>","confidence":"high|medium|low","reason":"<brief reason>"}
+{"role":"<exact_role_key>","confidence":"high|medium|low","reason":"<brief reason>"}
 
 If no role is clearly appropriate, use %q as the default.`,
 		strings.Join(roleLines, "\n"),
+		strings.Join(validKeys, ", "),
 		prompt,
 		cfg.SmartDispatch.DefaultRole,
 	)

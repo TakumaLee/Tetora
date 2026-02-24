@@ -8,22 +8,22 @@ import (
 
 func TestResolveWorkspace_Defaults(t *testing.T) {
 	cfg := &Config{
-		DefaultWorkdir: "/tmp/tetora",
-		baseDir:        "/home/user/.tetora",
+		WorkspaceDir: "/home/user/.tetora/workspace",
+		AgentsDir:    "/home/user/.tetora/agents",
 		Roles: map[string]RoleConfig{
-			"琉璃": {Model: "opus"},
+			"ruri": {Model: "opus"},
 		},
 	}
 
-	ws := resolveWorkspace(cfg, "琉璃")
+	ws := resolveWorkspace(cfg, "ruri")
 
-	// Should use generated default path
-	expectedDir := filepath.Join(cfg.baseDir, "workspaces", "琉璃")
-	if ws.Dir != expectedDir {
-		t.Errorf("Dir = %q, want %q", ws.Dir, expectedDir)
+	// Should use shared workspace directory.
+	if ws.Dir != cfg.WorkspaceDir {
+		t.Errorf("Dir = %q, want %q", ws.Dir, cfg.WorkspaceDir)
 	}
 
-	expectedSoulFile := filepath.Join(expectedDir, "SOUL.md")
+	// Soul file should resolve to agents/{role}/SOUL.md.
+	expectedSoulFile := filepath.Join(cfg.AgentsDir, "ruri", "SOUL.md")
 	if ws.SoulFile != expectedSoulFile {
 		t.Errorf("SoulFile = %q, want %q", ws.SoulFile, expectedSoulFile)
 	}
@@ -31,10 +31,10 @@ func TestResolveWorkspace_Defaults(t *testing.T) {
 
 func TestResolveWorkspace_CustomConfig(t *testing.T) {
 	cfg := &Config{
-		DefaultWorkdir: "/tmp/tetora",
-		baseDir:        "/home/user/.tetora",
+		WorkspaceDir: "/home/user/.tetora/workspace",
+		AgentsDir:    "/home/user/.tetora/agents",
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Model: "opus",
 				Workspace: WorkspaceConfig{
 					Dir:        "/custom/workspace",
@@ -45,7 +45,7 @@ func TestResolveWorkspace_CustomConfig(t *testing.T) {
 		},
 	}
 
-	ws := resolveWorkspace(cfg, "琉璃")
+	ws := resolveWorkspace(cfg, "ruri")
 
 	if ws.Dir != "/custom/workspace" {
 		t.Errorf("Dir = %q, want /custom/workspace", ws.Dir)
@@ -60,14 +60,14 @@ func TestResolveWorkspace_CustomConfig(t *testing.T) {
 
 func TestResolveWorkspace_UnknownRole(t *testing.T) {
 	cfg := &Config{
-		DefaultWorkdir: "/tmp/tetora",
-		Roles:          map[string]RoleConfig{},
+		WorkspaceDir: "/tmp/tetora/workspace",
+		Roles:        map[string]RoleConfig{},
 	}
 
 	ws := resolveWorkspace(cfg, "unknown")
 
-	if ws.Dir != cfg.DefaultWorkdir {
-		t.Errorf("Dir = %q, want %q", ws.Dir, cfg.DefaultWorkdir)
+	if ws.Dir != cfg.WorkspaceDir {
+		t.Errorf("Dir = %q, want %q", ws.Dir, cfg.WorkspaceDir)
 	}
 }
 
@@ -77,7 +77,7 @@ func TestResolveSessionScope_Main(t *testing.T) {
 			DefaultProfile: "standard",
 		},
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
 				ToolPolicy: RoleToolPolicy{
@@ -90,7 +90,7 @@ func TestResolveSessionScope_Main(t *testing.T) {
 		},
 	}
 
-	scope := resolveSessionScope(cfg, "琉璃", "main")
+	scope := resolveSessionScope(cfg, "ruri", "main")
 
 	if scope.SessionType != "main" {
 		t.Errorf("SessionType = %q, want main", scope.SessionType)
@@ -112,7 +112,7 @@ func TestResolveSessionScope_DM(t *testing.T) {
 			DefaultProfile: "standard",
 		},
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
 				ToolPolicy: RoleToolPolicy{
@@ -122,7 +122,7 @@ func TestResolveSessionScope_DM(t *testing.T) {
 		},
 	}
 
-	scope := resolveSessionScope(cfg, "琉璃", "dm")
+	scope := resolveSessionScope(cfg, "ruri", "dm")
 
 	if scope.SessionType != "dm" {
 		t.Errorf("SessionType = %q, want dm", scope.SessionType)
@@ -143,7 +143,7 @@ func TestResolveSessionScope_DM(t *testing.T) {
 func TestResolveSessionScope_Group(t *testing.T) {
 	cfg := &Config{
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
 				ToolPolicy: RoleToolPolicy{
@@ -153,7 +153,7 @@ func TestResolveSessionScope_Group(t *testing.T) {
 		},
 	}
 
-	scope := resolveSessionScope(cfg, "琉璃", "group")
+	scope := resolveSessionScope(cfg, "ruri", "group")
 
 	if scope.SessionType != "group" {
 		t.Errorf("SessionType = %q, want group", scope.SessionType)
@@ -204,7 +204,7 @@ func TestResolveMCPServers_Explicit(t *testing.T) {
 			"server3": {},
 		},
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Workspace: WorkspaceConfig{
 					MCPServers: []string{"server1", "server2"},
 				},
@@ -212,7 +212,7 @@ func TestResolveMCPServers_Explicit(t *testing.T) {
 		},
 	}
 
-	servers := resolveMCPServers(cfg, "琉璃")
+	servers := resolveMCPServers(cfg, "ruri")
 
 	if len(servers) != 2 {
 		t.Fatalf("len(servers) = %d, want 2", len(servers))
@@ -236,11 +236,11 @@ func TestResolveMCPServers_Default(t *testing.T) {
 			"server3": {},
 		},
 		Roles: map[string]RoleConfig{
-			"琉璃": {}, // No explicit MCP servers
+			"ruri": {}, // No explicit MCP servers
 		},
 	}
 
-	servers := resolveMCPServers(cfg, "琉璃")
+	servers := resolveMCPServers(cfg, "ruri")
 
 	// Should return all configured servers
 	if len(servers) != 3 {
@@ -272,8 +272,8 @@ func TestInitWorkspaces(t *testing.T) {
 		RuntimeDir:   filepath.Join(tmpDir, "runtime"),
 		VaultDir:     filepath.Join(tmpDir, "vault"),
 		Roles: map[string]RoleConfig{
-			"琉璃": {Model: "opus"},
-			"翡翠": {Model: "sonnet"},
+			"ruri":  {Model: "opus"},
+			"hisui": {Model: "sonnet"},
 		},
 	}
 
@@ -282,25 +282,24 @@ func TestInitWorkspaces(t *testing.T) {
 		t.Fatalf("initDirectories failed: %v", err)
 	}
 
-	// Check workspace directories were created
-	for _, role := range []string{"琉璃", "翡翠"} {
-		ws := resolveWorkspace(cfg, role)
+	// Check shared workspace directory was created
+	if _, err := os.Stat(cfg.WorkspaceDir); os.IsNotExist(err) {
+		t.Errorf("workspace dir not created: %s", cfg.WorkspaceDir)
+	}
 
-		// Check main workspace dir
-		if _, err := os.Stat(ws.Dir); os.IsNotExist(err) {
-			t.Errorf("workspace dir not created: %s", ws.Dir)
+	// Check shared workspace subdirs
+	for _, sub := range []string{"memory", "skills", "rules", "team", "knowledge"} {
+		dir := filepath.Join(cfg.WorkspaceDir, sub)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			t.Errorf("workspace subdir not created: %s", dir)
 		}
+	}
 
-		// Check memory subdir
-		memoryDir := filepath.Join(ws.Dir, "memory")
-		if _, err := os.Stat(memoryDir); os.IsNotExist(err) {
-			t.Errorf("memory dir not created: %s", memoryDir)
-		}
-
-		// Check skills subdir
-		skillsDir := filepath.Join(ws.Dir, "skills")
-		if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-			t.Errorf("skills dir not created: %s", skillsDir)
+	// Check agent directories were created
+	for _, role := range []string{"ruri", "hisui"} {
+		agentDir := filepath.Join(cfg.AgentsDir, role)
+		if _, err := os.Stat(agentDir); os.IsNotExist(err) {
+			t.Errorf("agent dir not created: %s", agentDir)
 		}
 	}
 
@@ -326,7 +325,7 @@ func TestInitWorkspaces(t *testing.T) {
 func TestLoadSoulFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	soulFile := filepath.Join(tmpDir, "SOUL.md")
-	soulContent := "I am 琉璃, the coordinator agent."
+	soulContent := "I am ruri, the coordinator agent."
 
 	// Create soul file
 	if err := os.WriteFile(soulFile, []byte(soulContent), 0644); err != nil {
@@ -335,7 +334,7 @@ func TestLoadSoulFile(t *testing.T) {
 
 	cfg := &Config{
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Workspace: WorkspaceConfig{
 					SoulFile: soulFile,
 				},
@@ -343,7 +342,7 @@ func TestLoadSoulFile(t *testing.T) {
 		},
 	}
 
-	content := loadSoulFile(cfg, "琉璃")
+	content := loadSoulFile(cfg, "ruri")
 	if content != soulContent {
 		t.Errorf("loadSoulFile = %q, want %q", content, soulContent)
 	}
@@ -352,7 +351,7 @@ func TestLoadSoulFile(t *testing.T) {
 func TestLoadSoulFile_NotExist(t *testing.T) {
 	cfg := &Config{
 		Roles: map[string]RoleConfig{
-			"琉璃": {
+			"ruri": {
 				Workspace: WorkspaceConfig{
 					SoulFile: "/nonexistent/soul.md",
 				},
@@ -360,7 +359,7 @@ func TestLoadSoulFile_NotExist(t *testing.T) {
 		},
 	}
 
-	content := loadSoulFile(cfg, "琉璃")
+	content := loadSoulFile(cfg, "ruri")
 	if content != "" {
 		t.Errorf("loadSoulFile = %q, want empty string", content)
 	}
@@ -368,14 +367,11 @@ func TestLoadSoulFile_NotExist(t *testing.T) {
 
 func TestGetWorkspaceMemoryPath(t *testing.T) {
 	cfg := &Config{
-		baseDir: "/home/user/.tetora",
-		Roles: map[string]RoleConfig{
-			"琉璃": {},
-		},
+		WorkspaceDir: "/home/user/.tetora/workspace",
 	}
 
-	path := getWorkspaceMemoryPath(cfg, "琉璃")
-	expected := filepath.Join("/home/user/.tetora", "workspaces", "琉璃", "memory")
+	path := getWorkspaceMemoryPath(cfg)
+	expected := filepath.Join("/home/user/.tetora/workspace", "memory")
 
 	if path != expected {
 		t.Errorf("getWorkspaceMemoryPath = %q, want %q", path, expected)
@@ -384,14 +380,11 @@ func TestGetWorkspaceMemoryPath(t *testing.T) {
 
 func TestGetWorkspaceSkillsPath(t *testing.T) {
 	cfg := &Config{
-		baseDir: "/home/user/.tetora",
-		Roles: map[string]RoleConfig{
-			"琉璃": {},
-		},
+		WorkspaceDir: "/home/user/.tetora/workspace",
 	}
 
-	path := getWorkspaceSkillsPath(cfg, "琉璃")
-	expected := filepath.Join("/home/user/.tetora", "workspaces", "琉璃", "skills")
+	path := getWorkspaceSkillsPath(cfg)
+	expected := filepath.Join("/home/user/.tetora/workspace", "skills")
 
 	if path != expected {
 		t.Errorf("getWorkspaceSkillsPath = %q, want %q", path, expected)
