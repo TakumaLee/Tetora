@@ -34,7 +34,7 @@ Tetora is an AI agent orchestrator that lets you define multiple agent roles -- 
 
 ```bash
 # Install the latest release
-. <(curl -fsSL https://raw.githubusercontent.com/TakumaLee/Tetora/master/install.sh)
+. <(curl -fsSL https://raw.githubusercontent.com/TakumaLee/Tetora/main/install.sh)
 
 # Run the setup wizard
 tetora init
