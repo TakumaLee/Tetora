@@ -170,6 +170,9 @@ func cmdUpgrade() {
 		exec.Command("launchctl", "unload", plist).Run()
 		exec.Command("launchctl", "load", plist).Run()
 		fmt.Println("Service restarted.")
+	} else {
+		fmt.Println("\nRestart the daemon to apply the update:")
+		fmt.Println("  tetora stop && tetora start")
 	}
 }
 

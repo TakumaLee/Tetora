@@ -27,7 +27,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 	// --- DB Check ---
 	if cfg.HistoryDB != "" {
 		dbStart := time.Now()
-		rows, err := queryDB(cfg.HistoryDB, "SELECT count(*) as cnt FROM task_history;")
+		rows, err := queryDB(cfg.HistoryDB, "SELECT count(*) as cnt FROM job_runs;")
 		dbLatency := time.Since(dbStart)
 		if err != nil {
 			checks["db"] = map[string]any{
