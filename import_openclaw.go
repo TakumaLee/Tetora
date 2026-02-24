@@ -216,43 +216,145 @@ func runImportPipeline(cfg *Config, ocDir string, mode ImportMode, dryRun, autoY
 	return result, nil
 }
 
-// --- Stage 1: Copy to Staging ---
+// --- Stage 1: Selective Copy to Staging ---
 
-// importSkipDirs are directories that don't need to be staged (skipped in mapping anyway).
-var importSkipDirs = map[string]bool{
-	"browser":    true,
-	"sd-setup":   true,
-	"demo-video": true,
-	"sessions":   true,
-	"node_modules": true,
+// importStageDirs are the only top-level dirs worth staging from OpenClaw.
+var importStageDirs = []string{
+	"workspace",
+	"cron",
+}
+
+// importStageFiles are individual top-level files worth staging.
+var importStageFiles = []string{
+	"openclaw.json",
+	"HEARTBEAT.md",
+}
+
+// importWsAllowDirs are workspace subdirs that should be staged.
+// Anything not on this list is skipped (repos, binaries, temp data).
+var importWsAllowDirs = map[string]bool{
+	"team":          true,
+	"rules":         true,
+	"memory":        true,
+	"knowledge":     true,
+	"skills":        true,
+	"drafts":        true,
+	"intel":         true,
+	"products":      true,
+	"content-queue": true,
+	"research":      true,
+	"projects":      true,
+	"medium-articles": true,
+	"reference":     true,
 }
 
 func importStageCopy(ocDir string) (string, error) {
 	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("tetora-import-%d", time.Now().Unix()))
+	os.MkdirAll(tmpDir, 0o755)
 
 	count := 0
-	err := filepath.Walk(ocDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) || os.IsPermission(err) {
-				return nil
+	progress := func() {
+		count++
+		if count%20 == 0 {
+			fmt.Printf("\r  Staging files... %d", count)
+		}
+	}
+
+	// Copy selected top-level directories.
+	for _, dir := range importStageDirs {
+		src := filepath.Join(ocDir, dir)
+		if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
+			continue
+		}
+
+		if dir == "workspace" {
+			// Selective workspace copy — skip large/irrelevant subdirs.
+			dst := filepath.Join(tmpDir, "workspace")
+			os.MkdirAll(dst, 0o755)
+			entries, err := os.ReadDir(src)
+			if err != nil {
+				continue
 			}
+			for _, e := range entries {
+				if e.IsDir() && !importWsAllowDirs[e.Name()] {
+					fmt.Printf("  Skipping workspace/%s/ (not needed)\n", e.Name())
+					continue
+				}
+				eSrc := filepath.Join(src, e.Name())
+				eDst := filepath.Join(dst, e.Name())
+				if e.IsDir() {
+					if err := copyDirWithProgress(eSrc, eDst, progress); err != nil {
+						fmt.Printf("  Warning: workspace/%s: %v\n", e.Name(), err)
+					}
+				} else {
+					migCopyFile(eSrc, eDst)
+					progress()
+				}
+			}
+		} else {
+			dst := filepath.Join(tmpDir, dir)
+			if err := copyDirWithProgress(src, dst, progress); err != nil {
+				fmt.Printf("  Warning: %s: %v\n", dir, err)
+			}
+		}
+	}
+
+	// Copy individual top-level files.
+	for _, name := range importStageFiles {
+		src := filepath.Join(ocDir, name)
+		if fi, err := os.Stat(src); err == nil && fi.Mode().IsRegular() {
+			migCopyFile(src, filepath.Join(tmpDir, name))
+			progress()
+		}
+	}
+
+	// Copy agents/ SOUL files only (skip sessions, agent runtime data).
+	agentsDir := filepath.Join(ocDir, "agents")
+	if fi, err := os.Stat(agentsDir); err == nil && fi.IsDir() {
+		agentEntries, _ := os.ReadDir(agentsDir)
+		for _, ae := range agentEntries {
+			if !ae.IsDir() {
+				continue
+			}
+			// Only copy SOUL.md, AGENTS.md, and similar identity files.
+			agentSrc := filepath.Join(agentsDir, ae.Name())
+			agentFiles, _ := os.ReadDir(agentSrc)
+			for _, af := range agentFiles {
+				if af.IsDir() {
+					continue // skip sessions/, agent/ subdirs
+				}
+				if strings.HasSuffix(af.Name(), ".md") {
+					src := filepath.Join(agentSrc, af.Name())
+					dst := filepath.Join(tmpDir, "agents", ae.Name(), af.Name())
+					migCopyFile(src, dst)
+					progress()
+				}
+			}
+		}
+	}
+
+	if count > 0 {
+		fmt.Printf("\r  Staged %d files              \n", count)
+	}
+	return tmpDir, nil
+}
+
+// copyDirWithProgress is like copyDir but calls progress() for each file copied.
+func copyDirWithProgress(src, dst string, progress func()) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return nil // skip sockets, pipes, etc.
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
 			return err
 		}
+		target := filepath.Join(dst, rel)
 
-		rel, err := filepath.Rel(ocDir, path)
-		if err != nil {
-			return err
-		}
-
-		// Skip known large irrelevant top-level directories.
-		if info.IsDir() {
-			topDir := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-			if importSkipDirs[topDir] {
-				return filepath.SkipDir
-			}
-		}
-
-		target := filepath.Join(tmpDir, rel)
 		if info.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
@@ -263,19 +365,9 @@ func importStageCopy(ocDir string) (string, error) {
 			}
 			return err
 		}
-		count++
-		if count%50 == 0 {
-			fmt.Printf("\r  Copying files... %d", count)
-		}
+		progress()
 		return nil
 	})
-	if count > 0 {
-		fmt.Printf("\r  Copied %d files to staging\n", count)
-	}
-	if err != nil {
-		return "", fmt.Errorf("copy %s to %s: %w", ocDir, tmpDir, err)
-	}
-	return tmpDir, nil
 }
 
 // --- Stage 2: Generate Mappings ---
