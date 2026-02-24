@@ -456,6 +456,14 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		}
 	}
 
+	// Apply workspace configuration if role is set.
+	if roleName != "" {
+		ws := resolveWorkspace(cfg, roleName)
+		if task.Workdir == cfg.DefaultWorkdir && ws.Dir != "" {
+			task.Workdir = ws.Dir
+		}
+	}
+
 	// Validate directories before running.
 	if err := validateDirs(cfg, task, roleName); err != nil {
 		return TaskResult{
@@ -489,9 +497,9 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	providerName := resolveProviderName(cfg, task, roleName)
 
 	logDebugCtx(ctx, "task start",
-		"taskId", task.ID[:8], "name", task.Name,
+		"source", task.Source, "taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName,
-		"workdir", task.Workdir, "source", task.Source)
+		"role", roleName, "workdir", task.Workdir)
 
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {

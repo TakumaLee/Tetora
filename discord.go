@@ -632,6 +632,11 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 // handleMessageWithType is the top-level message handler that checks for thread bindings
 // before falling through to normal message handling. (P14.2)
 func (db *DiscordBot) handleMessageWithType(msg discordMessage, channelType int) {
+	logDebug("discord message received",
+		"author", msg.Author.Username, "channel", msg.ChannelID,
+		"content_len", len(msg.Content), "bot", msg.Author.Bot,
+		"guild", msg.GuildID, "mentions", len(msg.Mentions))
+
 	// Ignore bots.
 	if msg.Author.Bot || msg.Author.ID == db.botUserID {
 		return
@@ -664,6 +669,9 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	mentioned := discordIsMentioned(msg.Mentions, db.botUserID)
 	isDM := msg.GuildID == ""
 	isDirect := db.isDirectChannel(msg.ChannelID)
+	logDebug("discord message filter",
+		"mentioned", mentioned, "isDM", isDM, "isDirect", isDirect,
+		"channel", msg.ChannelID, "author", msg.Author.Username)
 	if !mentioned && !isDM && !isDirect {
 		return
 	}
