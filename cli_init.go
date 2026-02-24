@@ -287,6 +287,7 @@ func cmdInit() {
 		fmt.Println("    4. Bot → Reset Token → copy (this is the bot token)")
 		fmt.Println("    5. Bot → scroll down → enable MESSAGE CONTENT INTENT")
 		fmt.Println("    6. Invite bot to your server:")
+		fmt.Println("       (no server yet? Discord left sidebar → '+' → Create My Own)")
 		fmt.Println("       OAuth2 → URL Generator → check 'bot' in SCOPES")
 		fmt.Println("       → check permissions (Send Messages, Read Message History)")
 		fmt.Println("       → copy Generated URL at bottom → open in browser → select server")
