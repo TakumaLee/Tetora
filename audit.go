@@ -2,12 +2,93 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
 
 // --- Audit Log ---
+
+// auditEntry holds a single audit log entry for the batched writer.
+type auditEntry struct {
+	dbPath string
+	ts     string
+	action string
+	source string
+	detail string
+	ip     string
+}
+
+// auditChan is a buffered channel for non-blocking audit log writes.
+// The single auditWriter goroutine drains this channel and batches
+// inserts into one sqlite3 call, eliminating "database is locked" errors
+// from concurrent fire-and-forget goroutines.
+var auditChan = make(chan auditEntry, 256)
+
+// startAuditWriter starts the background goroutine that drains auditChan
+// and writes entries in batches. Call once at startup.
+func startAuditWriter() {
+	go auditWriter()
+}
+
+func auditWriter() {
+	// Batch window: collect entries for up to 500ms or 50 entries, whichever comes first.
+	const maxBatch = 50
+	const flushInterval = 500 * time.Millisecond
+
+	buf := make([]auditEntry, 0, maxBatch)
+	timer := time.NewTimer(flushInterval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case entry, ok := <-auditChan:
+			if !ok {
+				// Channel closed — flush remaining and exit.
+				if len(buf) > 0 {
+					auditFlush(buf)
+				}
+				return
+			}
+			buf = append(buf, entry)
+			if len(buf) >= maxBatch {
+				auditFlush(buf)
+				buf = buf[:0]
+				timer.Reset(flushInterval)
+			}
+		case <-timer.C:
+			if len(buf) > 0 {
+				auditFlush(buf)
+				buf = buf[:0]
+			}
+			timer.Reset(flushInterval)
+		}
+	}
+}
+
+// auditFlush writes a batch of audit entries in a single sqlite3 call.
+func auditFlush(entries []auditEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	// Group by dbPath (almost always the same, but be safe).
+	byDB := make(map[string][]auditEntry)
+	for _, e := range entries {
+		byDB[e.dbPath] = append(byDB[e.dbPath], e)
+	}
+	for dbPath, batch := range byDB {
+		var stmts []string
+		for _, e := range batch {
+			stmts = append(stmts, fmt.Sprintf(
+				`INSERT INTO audit_log (timestamp, action, source, detail, ip) VALUES ('%s','%s','%s','%s','%s')`,
+				e.ts, e.action, e.source, e.detail, e.ip,
+			))
+		}
+		sql := strings.Join(stmts, ";\n")
+		if err := execDB(dbPath, sql); err != nil {
+			logError("audit log batch insert failed", "count", len(batch), "error", err)
+		}
+	}
+}
 
 // initAuditLog creates the audit_log table if it doesn't exist.
 func initAuditLog(dbPath string) error {
@@ -22,38 +103,28 @@ func initAuditLog(dbPath string) error {
 CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);`
 
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("init audit_log: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // auditLog records an action to the audit_log table.
-// Non-blocking: failures are only logged.
+// Non-blocking: entries are queued to the batched audit writer.
 func auditLog(dbPath, action, source, detail, ip string) {
 	if dbPath == "" {
 		return
 	}
-
-	ts := time.Now().UTC().Format(time.RFC3339)
-	sql := fmt.Sprintf(
-		`INSERT INTO audit_log (timestamp, action, source, detail, ip)
-		 VALUES ('%s','%s','%s','%s','%s')`,
-		escapeSQLite(ts),
-		escapeSQLite(action),
-		escapeSQLite(source),
-		escapeSQLite(truncateStr(detail, 500)),
-		escapeSQLite(ip),
-	)
-
-	go func() {
-		wrapped := "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; " + sql
-		cmd := exec.Command("sqlite3", dbPath, wrapped)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			logError("audit log insert failed", "output", string(out), "error", err)
-		}
-	}()
+	select {
+	case auditChan <- auditEntry{
+		dbPath: dbPath,
+		ts:     escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
+		action: escapeSQLite(action),
+		source: escapeSQLite(source),
+		detail: escapeSQLite(truncateStr(detail, 500)),
+		ip:     escapeSQLite(ip),
+	}:
+	default:
+		// Channel full — drop entry rather than block the caller.
+		logWarn("audit log queue full, dropping entry", "action", action)
+	}
 }
 
 // AuditEntry represents a row in the audit_log table.
@@ -199,9 +270,5 @@ func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[str
 func cleanupAuditLog(dbPath string, days int) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM audit_log WHERE datetime(timestamp) < datetime('now','-%d days')`, days)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("cleanup audit_log: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }

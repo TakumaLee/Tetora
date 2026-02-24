@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // --- SQLite Task Management ---
@@ -29,11 +30,27 @@ type TaskStats struct {
 	Total   int `json:"total"`
 }
 
+// dbWriteMu serializes all SQLite write operations to prevent "database is locked"
+// errors from concurrent sqlite3 CLI processes competing for the same DB file.
+var dbWriteMu sync.Mutex
+
+// execDB runs a write SQL statement against the SQLite database.
+// Writes are serialized via dbWriteMu to prevent concurrent sqlite3 processes
+// from causing "database is locked" errors.
+func execDB(dbPath, sql string) error {
+	dbWriteMu.Lock()
+	defer dbWriteMu.Unlock()
+	cmd := exec.Command("sqlite3", dbPath, ".timeout 30000", sql)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sqlite3: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 // queryDB runs a SQL query against the SQLite database and returns JSON rows.
+// Uses .timeout dot-command (no output) instead of PRAGMA busy_timeout (produces JSON).
 func queryDB(dbPath, sql string) ([]map[string]any, error) {
-	// Prepend pragmas so every sqlite3 invocation uses WAL + busy timeout.
-	wrapped := "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; " + sql
-	cmd := exec.Command("sqlite3", "-json", dbPath, wrapped)
+	cmd := exec.Command("sqlite3", "-json", dbPath, ".timeout 30000", sql)
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -143,11 +160,7 @@ func updateTaskStatus(dbPath string, id, status, errMsg string) error {
 		`UPDATE tasks SET status = '%s', error = '%s', updated_at = datetime('now')
 		 WHERE id = %s`,
 		escapeSQLite(status), escapeSQLite(errMsg), escapeSQLite(id))
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("sqlite3: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // pragmaDB sets recommended SQLite pragmas for reliability.
@@ -156,7 +169,7 @@ func updateTaskStatus(dbPath string, id, status, errMsg string) error {
 func pragmaDB(dbPath string) error {
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL;",
-		"PRAGMA busy_timeout=5000;",
+		"PRAGMA busy_timeout=30000;",
 		"PRAGMA synchronous=NORMAL;",
 	}
 	for _, p := range pragmas {

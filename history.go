@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -58,30 +57,15 @@ CREATE TABLE IF NOT EXISTS job_runs (
 CREATE INDEX IF NOT EXISTS idx_job_runs_job_id ON job_runs(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 `
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("init history db: %s: %w", string(out), err)
+	if err := execDB(dbPath, sql); err != nil {
+		return fmt.Errorf("init history db: %w", err)
 	}
 
-	// Migration: add output_file column if missing.
-	migrate := `ALTER TABLE job_runs ADD COLUMN output_file TEXT DEFAULT '';`
-	cmd2 := exec.Command("sqlite3", dbPath, migrate)
-	cmd2.CombinedOutput() // ignore error if column already exists
-
-	// Migration: add tokens_in column if missing.
-	migrate2 := `ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`
-	cmd3 := exec.Command("sqlite3", dbPath, migrate2)
-	cmd3.CombinedOutput() // ignore error if column already exists
-
-	// Migration: add tokens_out column if missing.
-	migrate3 := `ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`
-	cmd4 := exec.Command("sqlite3", dbPath, migrate3)
-	cmd4.CombinedOutput() // ignore error if column already exists
-
-	// Migration: add role column if missing.
-	migrate4 := `ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`
-	cmd5 := exec.Command("sqlite3", dbPath, migrate4)
-	cmd5.CombinedOutput() // ignore error if column already exists
+	// Migrations: add columns if missing (errors ignored if column already exists).
+	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN output_file TEXT DEFAULT '';`)
+	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`)
+	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`)
+	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`)
 
 	return nil
 }
@@ -109,11 +93,7 @@ func insertJobRun(dbPath string, run JobRun) error {
 		run.TokensOut,
 		escapeSQLite(run.Role),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("insert job_run: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // --- Query History ---
@@ -432,11 +412,7 @@ func queryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 func cleanupHistory(dbPath string, days int) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM job_runs WHERE datetime(started_at) < datetime('now','-%d days')`, days)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("cleanup history: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // --- JSON helpers ---

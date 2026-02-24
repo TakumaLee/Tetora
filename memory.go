@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -39,11 +38,7 @@ CREATE TABLE IF NOT EXISTS agent_memory (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memory_role_key ON agent_memory(role, key);
 CREATE INDEX IF NOT EXISTS idx_agent_memory_role ON agent_memory(role);
 `
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("init agent_memory: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // --- Set (Upsert) ---
@@ -61,9 +56,8 @@ func setMemory(dbPath, role, key, value string) error {
 		escapeSQLite(value),
 		now, now,
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("set memory: %s: %w", string(out), err)
+	if err := execDB(dbPath, sql); err != nil {
+		return fmt.Errorf("set memory: %w", err)
 	}
 
 	// --- P23.0: Dual-write to unified memory ---
@@ -156,9 +150,5 @@ func deleteMemory(dbPath, role, key string) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM agent_memory WHERE role = '%s' AND key = '%s'`,
 		escapeSQLite(role), escapeSQLite(key))
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("delete memory: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }

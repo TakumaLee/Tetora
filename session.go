@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -88,20 +87,14 @@ CREATE TABLE IF NOT EXISTS session_messages (
 CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(created_at);
 `
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("init session db: %s: %w", string(out), err)
+	if err := execDB(dbPath, sql); err != nil {
+		return fmt.Errorf("init session db: %w", err)
 	}
 
 	// Migration: add channel_key column if it doesn't exist.
 	// ALTER TABLE ADD COLUMN errors are ignored if column already present.
-	migrate := `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`
-	cmd2 := exec.Command("sqlite3", dbPath, migrate)
-	cmd2.CombinedOutput() // ignore error (column may already exist)
-
-	idx := `CREATE INDEX IF NOT EXISTS idx_sessions_channel_key ON sessions(channel_key);`
-	cmd3 := exec.Command("sqlite3", dbPath, idx)
-	cmd3.CombinedOutput() // best effort
+	execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`)
+	execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_channel_key ON sessions(channel_key);`)
 
 	return nil
 }
@@ -121,11 +114,7 @@ func createSession(dbPath string, s Session) error {
 		escapeSQLite(s.CreatedAt),
 		escapeSQLite(s.UpdatedAt),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("create session: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 func addSessionMessage(dbPath string, msg SessionMessage) error {
@@ -149,11 +138,7 @@ func addSessionMessage(dbPath string, msg SessionMessage) error {
 		escapeSQLite(msg.TaskID),
 		escapeSQLite(msg.CreatedAt),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("add session message: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // --- Update ---
@@ -171,11 +156,7 @@ func updateSessionStats(dbPath, sessionID string, costDelta float64, tokensInDel
 		costDelta, tokensInDelta, tokensOutDelta, msgCountDelta,
 		escapeSQLite(now), escapeSQLite(sessionID),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("update session stats: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 func updateSessionStatus(dbPath, sessionID, status string) error {
@@ -184,11 +165,7 @@ func updateSessionStatus(dbPath, sessionID, status string) error {
 		`UPDATE sessions SET status = '%s', updated_at = '%s' WHERE id = '%s'`,
 		escapeSQLite(status), escapeSQLite(now), escapeSQLite(sessionID),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("update session status: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sql)
 }
 
 // updateSessionTitle updates the session title, but only if the current title
@@ -199,9 +176,8 @@ func updateSessionTitle(dbPath, sessionID, title string) error {
 		`UPDATE sessions SET title = '%s', updated_at = '%s' WHERE id = '%s' AND title LIKE 'New chat with%%'`,
 		escapeSQLite(title), escapeSQLite(now), escapeSQLite(sessionID),
 	)
-	cmd := exec.Command("sqlite3", dbPath, sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("update session title: %s: %w", string(out), err)
+	if err := execDB(dbPath, sql); err != nil {
+		return err
 	}
 	return nil
 }
@@ -337,17 +313,12 @@ func cleanupSessions(dbPath string, days int) error {
 		  SELECT id FROM sessions WHERE status IN ('completed','archived')
 		  AND datetime(created_at) < datetime('now','-%d days')
 		)`, days)
-	cmd1 := exec.Command("sqlite3", dbPath, msgSQL)
-	cmd1.CombinedOutput() // best effort
+	execDB(dbPath, msgSQL) // best effort
 
 	sessSQL := fmt.Sprintf(
 		`DELETE FROM sessions WHERE status IN ('completed','archived')
 		 AND datetime(created_at) < datetime('now','-%d days')`, days)
-	cmd2 := exec.Command("sqlite3", dbPath, sessSQL)
-	if out, err := cmd2.CombinedOutput(); err != nil {
-		return fmt.Errorf("cleanup sessions: %s: %w", string(out), err)
-	}
-	return nil
+	return execDB(dbPath, sessSQL)
 }
 
 // --- Row Parsers ---
@@ -574,9 +545,8 @@ Conversation (%d messages):
 	delSQL := fmt.Sprintf(
 		`DELETE FROM session_messages WHERE session_id = '%s' AND id <= %d`,
 		escapeSQLite(sessionID), lastOldID)
-	cmd := exec.Command("sqlite3", dbPath, delSQL)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("delete old messages: %s: %w", string(out), err)
+	if err := execDB(dbPath, delSQL); err != nil {
+		return fmt.Errorf("delete old messages: %w", err)
 	}
 
 	// Insert summary as first message.
@@ -597,8 +567,7 @@ Conversation (%d messages):
 	updateSQL := fmt.Sprintf(
 		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
 		newCount, escapeSQLite(now), escapeSQLite(sessionID))
-	cmd2 := exec.Command("sqlite3", dbPath, updateSQL)
-	cmd2.CombinedOutput() // best effort
+	execDB(dbPath, updateSQL) // best effort
 
 	logInfo("session compacted", "session", sessionID[:8], "before", len(msgs), "after", newCount, "kept", keep)
 	return nil

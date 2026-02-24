@@ -222,10 +222,11 @@ func main() {
 					logWarn("cleanup history failed", "error", err)
 				}
 			}
-			// Init audit log table.
+			// Init audit log table and start batched writer.
 			if err := initAuditLog(cfg.HistoryDB); err != nil {
 				logWarn("init audit_log failed", "error", err)
 			}
+			startAuditWriter()
 			cleanupAuditLog(cfg.HistoryDB, retentionDays(cfg.Retention.AuditLog, 365))
 			// Init agent memory table.
 			if err := initMemoryDB(cfg.HistoryDB); err != nil {
