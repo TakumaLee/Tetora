@@ -26,7 +26,8 @@ type DiscordBotConfig struct {
 	Enabled        bool                        `json:"enabled"`
 	BotToken       string                      `json:"botToken"`            // $ENV_VAR supported
 	GuildID        string                      `json:"guildID,omitempty"`   // restrict to specific guild
-	ChannelID      string                      `json:"channelID,omitempty"` // restrict to specific channel
+	ChannelID      string                      `json:"channelID,omitempty"`   // restrict to specific channel (single)
+	ChannelIDs     []string                    `json:"channelIDs,omitempty"`  // restrict to multiple channels
 	PublicKey      string                      `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
 	Components     DiscordComponentsConfig     `json:"components,omitempty"`
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
@@ -411,8 +412,10 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 	}
 
 	// P28.0: Initialize approval gate.
-	if cfg.ApprovalGates.Enabled && cfg.Discord.ChannelID != "" {
-		db.approvalGate = newDiscordApprovalGate(db, cfg.Discord.ChannelID)
+	if cfg.ApprovalGates.Enabled {
+		if ch := db.notifyChannelID(); ch != "" {
+			db.approvalGate = newDiscordApprovalGate(db, ch)
+		}
 	}
 
 	return db
@@ -649,7 +652,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	}
 
 	// Channel/guild restriction.
-	if db.cfg.Discord.ChannelID != "" && msg.ChannelID != db.cfg.Discord.ChannelID {
+	if !db.isAllowedChannel(msg.ChannelID) {
 		return
 	}
 	if db.cfg.Discord.GuildID != "" && msg.GuildID != db.cfg.Discord.GuildID {
@@ -1034,11 +1037,36 @@ func (n *discordChannelNotifier) SendStatus(ctx context.Context, msg string) err
 	return nil
 }
 
+// isAllowedChannel checks if a channel ID is in the allowed list.
+// If neither channelID nor channelIDs is set, all channels are allowed.
+func (db *DiscordBot) isAllowedChannel(chID string) bool {
+	if len(db.cfg.Discord.ChannelIDs) > 0 {
+		for _, id := range db.cfg.Discord.ChannelIDs {
+			if id == chID {
+				return true
+			}
+		}
+		return false
+	}
+	if db.cfg.Discord.ChannelID != "" {
+		return db.cfg.Discord.ChannelID == chID
+	}
+	return true // no restriction
+}
+
+func (db *DiscordBot) notifyChannelID() string {
+	if len(db.cfg.Discord.ChannelIDs) > 0 {
+		return db.cfg.Discord.ChannelIDs[0]
+	}
+	return db.cfg.Discord.ChannelID
+}
+
 func (db *DiscordBot) sendNotify(text string) {
-	if db.cfg.Discord.ChannelID == "" {
+	ch := db.notifyChannelID()
+	if ch == "" {
 		return
 	}
-	db.sendMessage(db.cfg.Discord.ChannelID, text)
+	db.sendMessage(ch, text)
 }
 
 func (db *DiscordBot) discordPost(path string, payload any) {
