@@ -19,6 +19,19 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	sem := s.sem
 	cron := s.cron
 
+	// --- Dashboard SSE Stream ---
+	mux.HandleFunc("/events/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if state.broker == nil {
+			http.Error(w, `{"error":"streaming not available"}`, http.StatusServiceUnavailable)
+			return
+		}
+		serveDashboardSSE(w, r, state.broker)
+	})
+
 	// --- Offline Queue ---
 	mux.HandleFunc("/queue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -151,6 +164,19 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		for i := range tasks {
 			fillDefaults(cfg, &tasks[i])
 			tasks[i].Source = "http"
+		}
+
+		// Publish task_received to dashboard.
+		if state.broker != nil {
+			for _, t := range tasks {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{
+					Type: SSETaskReceived,
+					Data: map[string]any{
+						"source": "http",
+						"prompt": truncate(t.Prompt, 200),
+					},
+				})
+			}
 		}
 
 		auditLog(cfg.HistoryDB, "dispatch", "http",

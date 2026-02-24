@@ -212,6 +212,66 @@ tr:hover { background: rgba(255,255,255,0.02); }
   font-size: 13px;
 }
 
+/* Activity Feed */
+.activity-list { max-height: 400px; overflow-y: auto; }
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  animation: activity-in 0.2s ease-out;
+}
+.activity-item:last-child { border-bottom: none; }
+@keyframes activity-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.activity-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  min-width: 72px;
+  text-align: center;
+}
+.activity-type.received { background: #1e293b; color: var(--accent2); }
+.activity-type.routing { background: #1e1b3a; color: var(--accent); }
+.activity-type.started { background: #064e3b; color: var(--green); }
+.activity-type.completed { background: #064e3b; color: var(--green); }
+.activity-type.error { background: #450a0a; color: var(--red); }
+.activity-type.tool { background: #1c1917; color: var(--yellow); }
+.activity-type.queued { background: #422006; color: var(--yellow); }
+.activity-detail { flex: 1; color: var(--text); line-height: 1.4; }
+.activity-detail .muted { color: var(--muted); font-size: 11px; }
+.activity-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.sse-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.sse-badge.live { background: #064e3b; color: var(--green); }
+.sse-badge.disconnected { background: #450a0a; color: var(--red); }
+.sse-badge .dot-live {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse-dot 1.5s infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* Modal */
 .modal-overlay {
   display: none;
@@ -948,6 +1008,19 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <button class="btn" onclick="cancelDispatch()">Cancel</button>
     </div>
     <div class="dispatch-tasks" id="dispatch-tasks"></div>
+  </div>
+
+  <!-- Activity Feed -->
+  <div class="section" id="activity-section">
+    <div class="section-header">
+      <span class="section-title">Activity Feed</span>
+      <span id="sse-status"><span class="sse-badge disconnected">Connecting...</span></span>
+    </div>
+    <div class="table-wrap">
+      <div class="activity-list" id="activity-list">
+        <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Waiting for events...</div>
+      </div>
+    </div>
   </div>
 
   <!-- Running Tasks -->
@@ -1746,6 +1819,144 @@ let cachedArchetypes = [];
 let historyPage = 1;
 let historyTotal = 0;
 const historyLimit = 20;
+
+// --- Dashboard SSE Activity Feed ---
+const ACTIVITY_MAX = 50;
+let activityItems = [];
+let dashboardSSE = null;
+let sseConnected = false;
+
+function connectDashboardSSE() {
+  if (dashboardSSE) { dashboardSSE.close(); dashboardSSE = null; }
+  const es = new EventSource(API + '/events/dashboard');
+  dashboardSSE = es;
+
+  es.onopen = function() {
+    sseConnected = true;
+    updateSSEBadge();
+    // Slow down polling when SSE is live.
+    clearInterval(pollTimer);
+    pollTimer = setInterval(refresh, 15000);
+  };
+
+  es.onerror = function() {
+    sseConnected = false;
+    updateSSEBadge();
+    // Speed up polling on disconnect.
+    clearInterval(pollTimer);
+    pollTimer = setInterval(refresh, 5000);
+  };
+
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result'];
+  eventTypes.forEach(function(evType) {
+    es.addEventListener(evType, function(e) {
+      try {
+        var data = JSON.parse(e.data);
+        handleActivityEvent(evType, data);
+      } catch(err) {}
+    });
+  });
+}
+
+function handleActivityEvent(type, ev) {
+  var detail = '';
+  var source = '';
+  var badge = type;
+  var data = ev.data || {};
+
+  switch(type) {
+    case 'task_received':
+      badge = 'received';
+      source = data.source || '';
+      detail = truncateText(data.prompt || '', 120);
+      if (data.author) detail = '<b>' + esc(data.author) + '</b>: ' + esc(truncateText(data.prompt || '', 100));
+      else detail = esc(detail);
+      break;
+    case 'task_routing':
+      badge = 'routing';
+      source = data.source || '';
+      detail = 'Role: <b>' + esc(data.role || '?') + '</b> via ' + esc(data.method || '?');
+      if (data.confidence) detail += ' <span class="muted">(' + esc(data.confidence) + ')</span>';
+      break;
+    case 'started':
+      badge = 'started';
+      detail = '<b>' + esc(data.name || ev.taskId || '') + '</b>';
+      if (data.role) detail += ' &middot; ' + esc(data.role);
+      if (data.model) detail += ' <span class="muted">[' + esc(data.model) + ']</span>';
+      break;
+    case 'completed':
+      badge = 'completed';
+      detail = esc(data.status || 'success');
+      if (data.durationMs) detail += ' in ' + formatDuration(data.durationMs);
+      if (data.costUsd) detail += ' &middot; $' + Number(data.costUsd).toFixed(4);
+      break;
+    case 'error':
+      badge = 'error';
+      detail = esc(data.error || data.status || 'error');
+      if (data.durationMs) detail += ' <span class="muted">(' + formatDuration(data.durationMs) + ')</span>';
+      break;
+    case 'task_queued':
+      badge = 'queued';
+      detail = esc(data.name || 'task') + ' queued';
+      if (data.error) detail += ' <span class="muted">' + esc(truncateText(data.error, 80)) + '</span>';
+      break;
+    case 'tool_call':
+      badge = 'tool';
+      detail = esc(data.name || '?');
+      break;
+    case 'tool_result':
+      badge = 'tool';
+      detail = esc(data.name || '?') + ' <span class="muted">' + (data.duration || 0) + 'ms</span>';
+      if (data.isError) detail += ' <span style="color:var(--red)">error</span>';
+      break;
+    default:
+      detail = type;
+  }
+
+  var now = new Date();
+  var timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  activityItems.unshift({ badge: badge, detail: detail, time: timeStr, taskId: ev.taskId || '' });
+  if (activityItems.length > ACTIVITY_MAX) activityItems.length = ACTIVITY_MAX;
+  renderActivityFeed();
+}
+
+function renderActivityFeed() {
+  var el = document.getElementById('activity-list');
+  if (activityItems.length === 0) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Waiting for events...</div>';
+    return;
+  }
+  var html = activityItems.map(function(item) {
+    return '<div class="activity-item">' +
+      '<span class="activity-type ' + item.badge + '">' + item.badge + '</span>' +
+      '<span class="activity-detail">' + item.detail + '</span>' +
+      '<span class="activity-time">' + item.time + '</span>' +
+      '</div>';
+  }).join('');
+  el.innerHTML = html;
+}
+
+function updateSSEBadge() {
+  var el = document.getElementById('sse-status');
+  if (sseConnected) {
+    el.innerHTML = '<span class="sse-badge live"><span class="dot-live"></span>Live</span>';
+  } else {
+    el.innerHTML = '<span class="sse-badge disconnected">Disconnected</span>';
+  }
+}
+
+function truncateText(s, n) {
+  if (!s) return '';
+  return s.length > n ? s.substring(0, n) + '...' : s;
+}
+
+function formatDuration(ms) {
+  if (ms < 1000) return ms + 'ms';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+  return Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+}
+
+// --- End Dashboard SSE ---
 
 async function fetchJSON(url, opts) {
   const resp = await fetch(API + url, opts);
@@ -4560,12 +4771,15 @@ function escAttr(s) {
 // --- End Workflow Visualization ---
 
 pollTimer = setInterval(refresh, 5000);
+connectDashboardSSE();
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     clearInterval(pollTimer);
+    if (dashboardSSE) { dashboardSSE.close(); dashboardSSE = null; sseConnected = false; updateSSEBadge(); }
   } else {
     refresh();
-    pollTimer = setInterval(refresh, 5000);
+    pollTimer = setInterval(refresh, sseConnected ? 15000 : 5000);
+    connectDashboardSSE();
   }
 });
 

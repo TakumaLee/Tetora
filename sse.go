@@ -28,7 +28,10 @@ const (
 	SSECompleted   = "completed"
 	SSEError       = "error"
 	SSEHeartbeat   = "heartbeat"
-	SSEQueued      = "task_queued"
+	SSEQueued       = "task_queued"
+	SSETaskReceived = "task_received"
+	SSETaskRouting  = "task_routing"
+	SSEDashboardKey = "__dashboard__"
 )
 
 // --- SSE Broker ---
@@ -171,6 +174,52 @@ func serveSSE(w http.ResponseWriter, r *http.Request, broker *sseBroker, key str
 			if event.Type == SSECompleted || event.Type == SSEError {
 				return
 			}
+
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+		}
+	}
+}
+
+// serveDashboardSSE handles a persistent SSE connection for the global dashboard feed.
+// Unlike serveSSE, it does NOT close on completed/error events (persistent stream).
+func serveDashboardSSE(w http.ResponseWriter, r *http.Request, broker *sseBroker) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := broker.Subscribe(SSEDashboardKey)
+	defer unsub()
+
+	var eventID atomic.Int64
+
+	fmt.Fprintf(w, ": connected to dashboard\n\n")
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			id := eventID.Add(1)
+			writeSSEEvent(w, id, event)
+			flusher.Flush()
 
 		case <-heartbeat.C:
 			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))

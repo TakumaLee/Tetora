@@ -919,9 +919,35 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	ctx := withTraceID(context.Background(), newTraceID("discord"))
 	dbPath := db.cfg.HistoryDB
 
+	// Publish task_received to dashboard.
+	if db.state != nil && db.state.broker != nil {
+		db.state.broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSETaskReceived,
+			Data: map[string]any{
+				"source":  "discord",
+				"author":  msg.Author.Username,
+				"prompt":  truncate(prompt, 200),
+				"channel": msg.ChannelID,
+			},
+		})
+	}
+
 	// Route.
 	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"}, db.sem)
 	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
+
+	// Publish task_routing to dashboard.
+	if db.state != nil && db.state.broker != nil {
+		db.state.broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSETaskRouting,
+			Data: map[string]any{
+				"source":     "discord",
+				"role":       route.Role,
+				"method":     route.Method,
+				"confidence": route.Confidence,
+			},
+		})
+	}
 
 	// Channel session.
 	chKey := channelSessionKey("discord", msg.ChannelID)

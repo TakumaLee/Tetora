@@ -311,12 +311,36 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan stru
 func smartDispatch(ctx context.Context, cfg *Config, prompt string, source string,
 	state *dispatchState, sem chan struct{}) *SmartDispatchResult {
 
+	// Publish task_received to dashboard.
+	if state != nil && state.broker != nil {
+		state.broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSETaskReceived,
+			Data: map[string]any{
+				"source": source,
+				"prompt": truncate(prompt, 200),
+			},
+		})
+	}
+
 	// Step 1: Route.
 	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source}, sem)
 
 	logInfoCtx(ctx, "route decision",
 		"prompt", truncate(prompt, 60), "role", route.Role,
 		"method", route.Method, "confidence", route.Confidence)
+
+	// Publish task_routing to dashboard.
+	if state != nil && state.broker != nil {
+		state.broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSETaskRouting,
+			Data: map[string]any{
+				"source":     source,
+				"role":       route.Role,
+				"method":     route.Method,
+				"confidence": route.Confidence,
+			},
+		})
+	}
 
 	// Step 2: Build and run task with the selected role.
 	task := Task{

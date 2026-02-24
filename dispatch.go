@@ -118,6 +118,21 @@ func newDispatchState() *dispatchState {
 	}
 }
 
+// publishSSE publishes an SSE event to the task, session, and global dashboard channels.
+func (s *dispatchState) publishSSE(event SSEEvent) {
+	if s.broker == nil {
+		return
+	}
+	keys := []string{SSEDashboardKey}
+	if event.TaskID != "" {
+		keys = append(keys, event.TaskID)
+	}
+	if event.SessionID != "" {
+		keys = append(keys, event.SessionID)
+	}
+	s.broker.PublishMulti(keys, event)
+}
+
 func (s *dispatchState) statusJSON() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -771,28 +786,31 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		"role", roleName, "workdir", task.Workdir)
 
 	// Publish SSE started event.
-	if state.broker != nil {
-		state.broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
-			Type:      SSEStarted,
-			TaskID:    task.ID,
-			SessionID: task.SessionID,
-			Data: map[string]any{
-				"name":  task.Name,
-				"role":  roleName,
-				"model": task.Model,
-			},
-		})
-	}
+	state.publishSSE(SSEEvent{
+		Type:      SSEStarted,
+		TaskID:    task.ID,
+		SessionID: task.SessionID,
+		Data: map[string]any{
+			"name":  task.Name,
+			"role":  roleName,
+			"model": task.Model,
+		},
+	})
 
 	// Create event channel for provider streaming.
 	var eventCh chan SSEEvent
-	if state.broker != nil && (state.broker.HasSubscribers(task.ID) || state.broker.HasSubscribers(task.SessionID)) {
-		eventCh = make(chan SSEEvent, 128)
-		go func() {
-			for ev := range eventCh {
-				state.broker.PublishMulti([]string{task.ID, task.SessionID}, ev)
-			}
-		}()
+	if state.broker != nil {
+		hasSub := state.broker.HasSubscribers(task.ID) ||
+			state.broker.HasSubscribers(task.SessionID) ||
+			state.broker.HasSubscribers(SSEDashboardKey)
+		if hasSub {
+			eventCh = make(chan SSEEvent, 128)
+			go func() {
+				for ev := range eventCh {
+					state.publishSSE(ev)
+				}
+			}()
+		}
 	}
 
 	start := time.Now()
@@ -841,18 +859,16 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 					"taskId", task.ID[:8], "name", task.Name)
 
 				// Publish SSE queued event.
-				if state.broker != nil {
-					state.broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
-						Type:      SSEQueued,
-						TaskID:    task.ID,
-						SessionID: task.SessionID,
-						Data: map[string]any{
-							"name":  task.Name,
-							"role":  roleName,
-							"error": result.Error,
-						},
-					})
-				}
+				state.publishSSE(SSEEvent{
+					Type:      SSEQueued,
+					TaskID:    task.ID,
+					SessionID: task.SessionID,
+					Data: map[string]any{
+						"name":  task.Name,
+						"role":  roleName,
+						"error": result.Error,
+					},
+				})
 			} else {
 				logWarnCtx(ctx, "failed to enqueue task", "taskId", task.ID[:8], "error", err)
 			}
@@ -896,28 +912,24 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	// Publish SSE completed/error/queued event.
-	if state.broker != nil {
+	if result.Status != "queued" {
 		evType := SSECompleted
-		if result.Status == "queued" {
-			// Already published SSEQueued above.
-		} else if result.Status != "success" {
+		if result.Status != "success" {
 			evType = SSEError
 		}
-		if result.Status != "queued" {
-			state.broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
-				Type:      evType,
-				TaskID:    task.ID,
-				SessionID: task.SessionID,
-				Data: map[string]any{
-					"status":     result.Status,
-					"durationMs": result.DurationMs,
-					"costUsd":    result.CostUSD,
-					"tokensIn":   result.TokensIn,
-					"tokensOut":  result.TokensOut,
-					"error":      result.Error,
-				},
-			})
-		}
+		state.publishSSE(SSEEvent{
+			Type:      evType,
+			TaskID:    task.ID,
+			SessionID: task.SessionID,
+			Data: map[string]any{
+				"status":     result.Status,
+				"durationMs": result.DurationMs,
+				"costUsd":    result.CostUSD,
+				"tokensIn":   result.TokensIn,
+				"tokensOut":  result.TokensOut,
+				"error":      result.Error,
+			},
+		})
 	}
 
 	// Webhook notifications.
@@ -1240,7 +1252,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		// Publish SSE event for tool calls.
 		if broker != nil {
 			for _, tc := range result.ToolCalls {
-				broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
+				broker.PublishMulti([]string{task.ID, task.SessionID, SSEDashboardKey}, SSEEvent{
 					Type:      "tool_call",
 					TaskID:    task.ID,
 					SessionID: task.SessionID,
@@ -1356,7 +1368,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 
 			// Publish SSE event for tool result.
 			if broker != nil {
-				broker.PublishMulti([]string{task.ID, task.SessionID}, SSEEvent{
+				broker.PublishMulti([]string{task.ID, task.SessionID, SSEDashboardKey}, SSEEvent{
 					Type:      "tool_result",
 					TaskID:    task.ID,
 					SessionID: task.SessionID,
