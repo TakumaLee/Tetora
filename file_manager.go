@@ -180,7 +180,7 @@ func (s *FileManagerService) StoreFile(userID, filename, category, source, sourc
 		return nil, false, fmt.Errorf("write file: %w", err)
 	}
 
-	id := umNewID()
+	id := newUUID()
 	mime := mimeFromExt(filename)
 	nowStr := now.UTC().Format(time.RFC3339)
 

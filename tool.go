@@ -114,6 +114,39 @@ func (r *ToolRegistry) ListForProvider() []map[string]any {
 	return result
 }
 
+// --- Tool Profiles ---
+
+// toolProfileSets defines which tools are included in each profile.
+var toolProfileSets = map[string][]string{
+	"minimal": {
+		"memory_get", "memory_search", "knowledge_search",
+		"web_search", "agent_dispatch",
+	},
+	"standard": {
+		"memory_get", "memory_search", "memory_store", "memory_recall",
+		"memory_um_search", "memory_forget",
+		"knowledge_search", "web_search", "web_fetch",
+		"agent_dispatch", "lesson_record",
+		"task_create", "task_list", "task_update",
+		"file_read", "file_write",
+	},
+	// "full" = all tools (no filtering)
+}
+
+// ToolsForProfile returns the allowed tool set for a given profile name.
+// Returns nil for "full" or unknown profiles (which means all tools).
+func ToolsForProfile(profile string) map[string]bool {
+	tools, ok := toolProfileSets[profile]
+	if !ok || profile == "full" {
+		return nil // nil = all tools
+	}
+	allowed := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		allowed[t] = true
+	}
+	return allowed
+}
+
 // --- Built-in Tools ---
 
 func (r *ToolRegistry) registerBuiltins(cfg *Config) {

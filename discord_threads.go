@@ -387,10 +387,10 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem)
 	}
 
-	if result.Status == "success" && dbPath != "" {
-		setMemory(dbPath, role, "last_thread_output", truncate(result.Output, 500))
-		setMemory(dbPath, role, "last_thread_prompt", truncate(prompt, 200))
-		setMemory(dbPath, role, "last_thread_time", time.Now().Format(time.RFC3339))
+	if result.Status == "success" {
+		setMemory(db.cfg, role, "last_thread_output", truncate(result.Output, 500))
+		setMemory(db.cfg, role, "last_thread_prompt", truncate(prompt, 200))
+		setMemory(db.cfg, role, "last_thread_time", time.Now().Format(time.RFC3339))
 	}
 
 	auditLog(dbPath, "thread.dispatch", "discord",

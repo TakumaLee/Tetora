@@ -14,28 +14,37 @@ func skipIfNoSQLite(t *testing.T) {
 	}
 }
 
+// tempMemoryCfg creates a temporary Config with a workspace/memory directory.
+func tempMemoryCfg(t *testing.T) *Config {
+	t.Helper()
+	dir := t.TempDir()
+	wsDir := filepath.Join(dir, "workspace")
+	os.MkdirAll(filepath.Join(wsDir, "memory"), 0o755)
+	return &Config{
+		baseDir:      dir,
+		WorkspaceDir: wsDir,
+	}
+}
+
 func TestInitMemoryDB(t *testing.T) {
-	skipIfNoSQLite(t)
+	// initMemoryDB is a no-op kept for backward compat.
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	if err := initMemoryDB(dbPath); err != nil {
 		t.Fatalf("initMemoryDB: %v", err)
 	}
-	// Idempotent.
 	if err := initMemoryDB(dbPath); err != nil {
 		t.Fatalf("initMemoryDB (second call): %v", err)
 	}
 }
 
 func TestSetAndGetMemory(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	if err := setMemory(dbPath, "amber", "topic", "Go concurrency"); err != nil {
+	if err := setMemory(cfg, "amber", "topic", "Go concurrency"); err != nil {
 		t.Fatalf("setMemory: %v", err)
 	}
 
-	val, err := getMemory(dbPath, "amber", "topic")
+	val, err := getMemory(cfg, "amber", "topic")
 	if err != nil {
 		t.Fatalf("getMemory: %v", err)
 	}
@@ -45,25 +54,21 @@ func TestSetAndGetMemory(t *testing.T) {
 }
 
 func TestSetMemoryUpsert(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	setMemory(dbPath, "amber", "topic", "first value")
-	setMemory(dbPath, "amber", "topic", "second value")
+	setMemory(cfg, "amber", "topic", "first value")
+	setMemory(cfg, "amber", "topic", "second value")
 
-	val, _ := getMemory(dbPath, "amber", "topic")
+	val, _ := getMemory(cfg, "amber", "topic")
 	if val != "second value" {
 		t.Errorf("upsert failed: got %q, want %q", val, "second value")
 	}
 }
 
 func TestGetMemoryNotFound(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	val, err := getMemory(dbPath, "amber", "nonexistent")
+	val, err := getMemory(cfg, "amber", "nonexistent")
 	if err != nil {
 		t.Fatalf("getMemory: %v", err)
 	}
@@ -73,62 +78,40 @@ func TestGetMemoryNotFound(t *testing.T) {
 }
 
 func TestListMemoryByRole(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	setMemory(dbPath, "amber", "key1", "val1")
-	setMemory(dbPath, "amber", "key2", "val2")
-	setMemory(dbPath, "ruby", "key3", "val3")
+	// Filesystem-based memory is shared (not per-role), so all keys are visible.
+	setMemory(cfg, "amber", "key1", "val1")
+	setMemory(cfg, "amber", "key2", "val2")
+	setMemory(cfg, "ruby", "key3", "val3")
 
-	entries, err := listMemory(dbPath, "amber")
+	entries, err := listMemory(cfg, "amber")
 	if err != nil {
 		t.Fatalf("listMemory: %v", err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries for amber, got %d", len(entries))
-	}
-}
-
-func TestListMemoryAllRoles(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
-
-	setMemory(dbPath, "amber", "key1", "val1")
-	setMemory(dbPath, "ruby", "key2", "val2")
-
-	entries, err := listMemory(dbPath, "")
-	if err != nil {
-		t.Fatalf("listMemory: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries total, got %d", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (shared memory), got %d", len(entries))
 	}
 }
 
 func TestDeleteMemory(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	setMemory(dbPath, "amber", "key1", "val1")
-	deleteMemory(dbPath, "amber", "key1")
+	setMemory(cfg, "amber", "key1", "val1")
+	deleteMemory(cfg, "amber", "key1")
 
-	val, _ := getMemory(dbPath, "amber", "key1")
+	val, _ := getMemory(cfg, "amber", "key1")
 	if val != "" {
 		t.Errorf("expected empty after delete, got %q", val)
 	}
 }
 
 func TestExpandPromptMemory(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
-	setMemory(dbPath, "amber", "context", "previous session notes")
+	setMemory(cfg, "amber", "context", "previous session notes")
 
-	got := expandPrompt("Remember: {{memory.context}}", "", dbPath, "amber", "", nil)
+	got := expandPrompt("Remember: {{memory.context}}", "", "", "amber", "", cfg)
 	want := "Remember: previous session notes"
 	if got != want {
 		t.Errorf("expandPrompt with memory: got %q, want %q", got, want)
@@ -144,17 +127,15 @@ func TestExpandPromptMemoryNoRole(t *testing.T) {
 }
 
 func TestMemorySpecialChars(t *testing.T) {
-	skipIfNoSQLite(t)
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	initMemoryDB(dbPath)
+	cfg := tempMemoryCfg(t)
 
 	// Test with quotes and special chars in value.
 	val := `He said "hello" and it's fine`
-	if err := setMemory(dbPath, "amber", "quote_test", val); err != nil {
+	if err := setMemory(cfg, "amber", "quote_test", val); err != nil {
 		t.Fatalf("setMemory with quotes: %v", err)
 	}
 
-	got, _ := getMemory(dbPath, "amber", "quote_test")
+	got, _ := getMemory(cfg, "amber", "quote_test")
 	if got != val {
 		t.Errorf("got %q, want %q", got, val)
 	}
@@ -194,20 +175,17 @@ func TestInitMemoryDBFromCLI(t *testing.T) {
 		t.Fatalf("initHistoryDB: %v", err)
 	}
 
-	// Then init memory table in same DB.
+	// initMemoryDB is now a no-op (filesystem-based memory).
 	if err := initMemoryDB(dbPath); err != nil {
 		t.Fatalf("initMemoryDB: %v", err)
 	}
 
-	// Verify both tables exist.
+	// Verify history table exists.
 	out, err := exec.Command("sqlite3", dbPath, ".tables").CombinedOutput()
 	if err != nil {
 		t.Fatalf("sqlite3 .tables: %v", err)
 	}
 	tables := string(out)
-	if !contains(tables, "agent_memory") {
-		t.Errorf("agent_memory table not found in: %s", tables)
-	}
 	if !contains(tables, "job_runs") {
 		t.Errorf("job_runs table not found in: %s", tables)
 	}

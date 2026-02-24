@@ -131,7 +131,7 @@ func newTaskManagerService(cfg *Config) *TaskManagerService {
 func (svc *TaskManagerService) CreateTask(task UserTask) (*UserTask, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if task.ID == "" {
-		task.ID = umNewID()
+		task.ID = newUUID()
 	}
 	if task.Status == "" {
 		task.Status = "todo"
@@ -357,7 +357,7 @@ func (svc *TaskManagerService) GetSubtasks(parentID string) ([]UserTask, error) 
 // CreateProject creates a new task project.
 func (svc *TaskManagerService) CreateProject(userID, name, description string) (*TaskProject, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	id := umNewID()
+	id := newUUID()
 
 	sql := fmt.Sprintf(`INSERT INTO task_projects (id, user_id, name, description, created_at)
 VALUES ('%s','%s','%s','%s','%s');`,

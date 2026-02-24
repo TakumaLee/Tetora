@@ -98,16 +98,12 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 
 	// --- Agent Memory ---
 	mux.HandleFunc("/memory", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.HistoryDB == "" {
-			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.Method {
 		case "GET":
 			role := r.URL.Query().Get("role")
-			entries, err := listMemory(cfg.HistoryDB, role)
+			entries, err := listMemory(cfg, role)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
@@ -131,7 +127,7 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 				http.Error(w, `{"error":"role and key are required"}`, http.StatusBadRequest)
 				return
 			}
-			if err := setMemory(cfg.HistoryDB, body.Role, body.Key, body.Value); err != nil {
+			if err := setMemory(cfg, body.Role, body.Key, body.Value); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
 			}
@@ -145,10 +141,6 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/memory/", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.HistoryDB == "" {
-			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
 
 		// Parse /memory/<role>/<key>
@@ -163,7 +155,7 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 
 		switch r.Method {
 		case "GET":
-			val, err := getMemory(cfg.HistoryDB, role, key)
+			val, err := getMemory(cfg, role, key)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
@@ -173,7 +165,7 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 			})
 
 		case "DELETE":
-			if err := deleteMemory(cfg.HistoryDB, role, key); err != nil {
+			if err := deleteMemory(cfg, role, key); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
 			}

@@ -136,15 +136,15 @@ func roleAdd() {
 
 	var soulFile string
 	if archetype != nil {
-		// Auto-generate soul file from archetype template.
-		soulFile = fmt.Sprintf("SOUL-%s.md", name)
+		// Auto-generate soul file in agents/{name}/ directory.
+		soulFile = "SOUL.md"
 		content := generateSoulContent(archetype, name)
-		soulPath := soulFile
-		if !filepath.IsAbs(soulPath) && cfg.DefaultWorkdir != "" {
-			soulPath = filepath.Join(cfg.DefaultWorkdir, soulPath)
-		}
-		if _, err := os.Stat(soulPath); os.IsNotExist(err) {
-			if err := writeSoulFile(cfg, soulFile, content); err != nil {
+		agentDir := filepath.Join(cfg.AgentsDir, name)
+		soulPath := filepath.Join(agentDir, "SOUL.md")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			fmt.Printf("Warning: could not create agent dir: %v\n", err)
+		} else if _, err := os.Stat(soulPath); os.IsNotExist(err) {
+			if err := os.WriteFile(soulPath, []byte(content), 0o644); err != nil {
 				fmt.Printf("Warning: could not write soul file: %v\n", err)
 			} else {
 				fmt.Printf("  Created soul file: %s\n", soulPath)
@@ -153,7 +153,7 @@ func roleAdd() {
 			fmt.Printf("  Soul file already exists: %s\n", soulPath)
 		}
 	} else {
-		soulFile = prompt("Soul file path (relative to workdir)", "")
+		soulFile = prompt("Soul file path (relative to agent dir)", "")
 	}
 
 	rc := RoleConfig{
@@ -198,9 +198,14 @@ func roleShow(name string) {
 		model = "default"
 	}
 
+	// Show workspace info.
+	ws := resolveWorkspace(cfg, name)
 	fmt.Printf("Role: %s\n", name)
 	fmt.Printf("  Model:       %s\n", model)
 	fmt.Printf("  Soul File:   %s\n", rc.SoulFile)
+	fmt.Printf("  Agent Dir:   %s\n", filepath.Join(cfg.AgentsDir, name))
+	fmt.Printf("  Workspace:   %s\n", ws.Dir)
+	fmt.Printf("  Soul Path:   %s\n", ws.SoulFile)
 	if rc.Description != "" {
 		fmt.Printf("  Description: %s\n", rc.Description)
 	}
@@ -353,4 +358,36 @@ func updateConfigRoles(configPath, roleName string, rc *RoleConfig) error {
 		snapshotConfig(cfg.HistoryDB, configPath, "cli", fmt.Sprintf("role %s", roleName))
 	}
 	return nil
+}
+
+// updateConfigSmartDispatchDefault sets smartDispatch.defaultRole in the config file.
+func updateConfigSmartDispatchDefault(configPath, roleName string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+
+	sd := make(map[string]any)
+	if sdRaw, ok := raw["smartDispatch"]; ok {
+		json.Unmarshal(sdRaw, &sd)
+	}
+
+	sd["defaultRole"] = roleName
+
+	sdJSON, err := json.Marshal(sd)
+	if err != nil {
+		return err
+	}
+	raw["smartDispatch"] = sdJSON
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, append(out, '\n'), 0o644)
 }

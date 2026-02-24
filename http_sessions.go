@@ -174,24 +174,32 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 
 			// Pre-record user message immediately.
 			now := time.Now().Format(time.RFC3339)
-			addSessionMessage(cfg.HistoryDB, SessionMessage{
+			if err := addSessionMessage(cfg.HistoryDB, SessionMessage{
 				SessionID: sessionID,
 				Role:      "user",
 				Content:   truncateStr(body.Prompt, 5000),
 				CreatedAt: now,
-			})
-			updateSessionStats(cfg.HistoryDB, sessionID, 0, 0, 0, 1)
+			}); err != nil {
+				logWarn("add user message failed", "session", sessionID, "error", err)
+			}
+			if err := updateSessionStats(cfg.HistoryDB, sessionID, 0, 0, 0, 1); err != nil {
+				logWarn("update session stats failed", "session", sessionID, "error", err)
+			}
 
 			// Update session title on first message.
 			title := body.Prompt
 			if len(title) > 100 {
 				title = title[:100]
 			}
-			updateSessionTitle(cfg.HistoryDB, sessionID, title)
+			if err := updateSessionTitle(cfg.HistoryDB, sessionID, title); err != nil {
+				logWarn("update session title failed", "session", sessionID, "error", err)
+			}
 
 			// Re-activate session if it was completed.
 			if sess.Status == "completed" {
-				updateSessionStatus(cfg.HistoryDB, sessionID, "active")
+				if err := updateSessionStatus(cfg.HistoryDB, sessionID, "active"); err != nil {
+					logWarn("reactivate session failed", "session", sessionID, "error", err)
+				}
 			}
 
 			task := Task{

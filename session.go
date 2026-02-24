@@ -53,6 +53,7 @@ type SessionDetail struct {
 // --- DB Init ---
 
 func initSessionDB(dbPath string) error {
+	pragmaDB(dbPath)
 	sql := `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -92,8 +93,11 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	}
 
 	// Migration: add channel_key column if it doesn't exist.
-	// ALTER TABLE ADD COLUMN errors are ignored if column already present.
-	execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`)
+	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			logWarn("session migration failed", "column", "channel_key", "error", err)
+		}
+	}
 	execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_channel_key ON sessions(channel_key);`)
 
 	return nil
@@ -313,7 +317,9 @@ func cleanupSessions(dbPath string, days int) error {
 		  SELECT id FROM sessions WHERE status IN ('completed','archived')
 		  AND datetime(created_at) < datetime('now','-%d days')
 		)`, days)
-	execDB(dbPath, msgSQL) // best effort
+	if err := execDB(dbPath, msgSQL); err != nil {
+		logWarn("cleanup session messages failed", "error", err)
+	}
 
 	sessSQL := fmt.Sprintf(
 		`DELETE FROM sessions WHERE status IN ('completed','archived')
@@ -567,7 +573,9 @@ Conversation (%d messages):
 	updateSQL := fmt.Sprintf(
 		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
 		newCount, escapeSQLite(now), escapeSQLite(sessionID))
-	execDB(dbPath, updateSQL) // best effort
+	if err := execDB(dbPath, updateSQL); err != nil {
+		logWarn("session count update failed", "session", sessionID, "error", err)
+	}
 
 	logInfo("session compacted", "session", sessionID[:8], "before", len(msgs), "after", newCount, "kept", keep)
 	return nil

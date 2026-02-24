@@ -1015,10 +1015,10 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem)
 	}
 
-	if result.Status == "success" && dbPath != "" {
-		setMemory(dbPath, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(dbPath, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(dbPath, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+	if result.Status == "success" {
+		setMemory(db.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
+		setMemory(db.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
+		setMemory(db.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	auditLog(dbPath, "route.dispatch", "discord",

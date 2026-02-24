@@ -173,17 +173,35 @@ If no role is clearly appropriate, use %q as the default.`,
 	}
 	fillDefaults(cfg, &task)
 
-	// Use coordinator's model.
-	if rc, ok := cfg.Roles[coordinator]; ok && rc.Model != "" {
-		task.Model = rc.Model
-	}
+	// Step 1: Try with sonnet for cost efficiency.
+	task.Model = "sonnet"
 
 	result := runSingleTask(ctx, cfg, task, sem, coordinator)
 	if result.Status != "success" {
 		return nil, fmt.Errorf("classification failed: %s", result.Error)
 	}
 
-	return parseLLMRouteResult(result.Output, cfg.SmartDispatch.DefaultRole)
+	parsed, err := parseLLMRouteResult(result.Output, cfg.SmartDispatch.DefaultRole)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: If low confidence, escalate to opus.
+	if parsed.Confidence == "low" {
+		logInfo("route: sonnet confidence low, escalating to opus", "reason", parsed.Reason)
+		task.Model = "opus"
+		result2 := runSingleTask(ctx, cfg, task, sem, coordinator)
+		if result2.Status == "success" {
+			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultRole)
+			if err2 == nil {
+				parsed2.Method = "llm-escalated"
+				return parsed2, nil
+			}
+		}
+		// If opus also fails, return the sonnet result.
+	}
+
+	return parsed, nil
 }
 
 // parseLLMRouteResult extracts RouteResult from LLM output.
@@ -326,10 +344,10 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	recordSessionActivity(cfg.HistoryDB, task, result, route.Role)
 
 	// Step 3: Store output summary in agent memory.
-	if result.Status == "success" && cfg.HistoryDB != "" {
-		setMemory(cfg.HistoryDB, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(cfg.HistoryDB, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(cfg.HistoryDB, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+	if result.Status == "success" {
+		setMemory(cfg, route.Role, "last_route_output", truncate(result.Output, 500))
+		setMemory(cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
+		setMemory(cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	sdr := &SmartDispatchResult{
@@ -337,8 +355,8 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 		Task:  result,
 	}
 
-	// Step 4: Optional coordinator review.
-	if cfg.SmartDispatch.Review && result.Status == "success" {
+	// Step 4: Optional coordinator review (conditional trigger).
+	if shouldReview(cfg, route, result.CostUSD) && result.Status == "success" {
 		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Role, sem)
 		sdr.ReviewOK = &reviewOK
 		sdr.Review = reviewComment
@@ -418,4 +436,23 @@ Is this output satisfactory? Reply with ONLY a JSON object:
 	}
 
 	return true, "review parse error"
+}
+
+// --- Conditional Review Trigger ---
+
+// shouldReview determines if a task result should be reviewed by the coordinator.
+// Reviews are triggered by: low routing confidence, high task cost, or explicit priority.
+func shouldReview(cfg *Config, routeResult *RouteResult, taskCost float64) bool {
+	if !cfg.SmartDispatch.Review {
+		return false
+	}
+	// Condition 1: routing confidence was low.
+	if routeResult != nil && routeResult.Confidence == "low" {
+		return true
+	}
+	// Condition 2: task cost exceeded threshold ($0.10).
+	if taskCost > 0.10 {
+		return true
+	}
+	return false
 }

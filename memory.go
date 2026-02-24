@@ -1,154 +1,118 @@
 package main
 
 import (
-	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 // --- Agent Memory Types ---
 
-// globalUnifiedMemoryEnabled is set to true when unified memory is initialized.
-// Used by setMemory/getMemory for dual-write routing.
-var globalUnifiedMemoryEnabled bool
-var globalUnifiedMemoryDB string
-
-// MemoryEntry represents a key-value memory entry scoped to a role.
+// MemoryEntry represents a key-value memory entry.
 type MemoryEntry struct {
-	ID        int    `json:"id"`
-	Role      string `json:"role"`
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 	UpdatedAt string `json:"updatedAt"`
-	CreatedAt string `json:"createdAt"`
-}
-
-// --- Init ---
-
-func initMemoryDB(dbPath string) error {
-	sql := `
-CREATE TABLE IF NOT EXISTS agent_memory (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL,
-  key TEXT NOT NULL,
-  value TEXT NOT NULL DEFAULT '',
-  updated_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memory_role_key ON agent_memory(role, key);
-CREATE INDEX IF NOT EXISTS idx_agent_memory_role ON agent_memory(role);
-`
-	return execDB(dbPath, sql)
-}
-
-// --- Set (Upsert) ---
-
-func setMemory(dbPath, role, key, value string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	sql := fmt.Sprintf(
-		`INSERT INTO agent_memory (role, key, value, updated_at, created_at)
-		 VALUES ('%s','%s','%s','%s','%s')
-		 ON CONFLICT(role, key) DO UPDATE SET
-		   value = excluded.value,
-		   updated_at = excluded.updated_at`,
-		escapeSQLite(role),
-		escapeSQLite(key),
-		escapeSQLite(value),
-		now, now,
-	)
-	if err := execDB(dbPath, sql); err != nil {
-		return fmt.Errorf("set memory: %w", err)
-	}
-
-	// --- P23.0: Dual-write to unified memory ---
-	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
-		ns := UMNSFact
-		if isPreferenceKey(key) {
-			ns = UMNSPreference
-		}
-		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
-			Namespace: ns,
-			Scope:     role,
-			Key:       key,
-			Value:     value,
-			Source:    "agent_memory",
-		})
-		if umErr != nil {
-			logWarn("unified memory dual-write failed", "key", key, "error", umErr)
-		}
-	}
-
-	return nil
-}
-
-// isPreferenceKey heuristically detects preference-related keys.
-func isPreferenceKey(key string) bool {
-	lower := strings.ToLower(key)
-	for _, kw := range []string{"prefer", "setting", "config", "theme", "language", "timezone", "mode"} {
-		if strings.Contains(lower, kw) {
-			return true
-		}
-	}
-	return false
 }
 
 // --- Get ---
 
-func getMemory(dbPath, role, key string) (string, error) {
-	sql := fmt.Sprintf(
-		`SELECT value FROM agent_memory WHERE role = '%s' AND key = '%s'`,
-		escapeSQLite(role), escapeSQLite(key))
-
-	rows, err := queryDB(dbPath, sql)
+// getMemory reads workspace/memory/{key}.md
+func getMemory(cfg *Config, role, key string) (string, error) {
+	path := filepath.Join(cfg.WorkspaceDir, "memory", sanitizeKey(key)+".md")
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", nil // missing = empty, not error
 	}
-	if len(rows) == 0 {
-		return "", nil
-	}
-	return jsonStr(rows[0]["value"]), nil
+	return string(data), nil
+}
+
+// --- Set (Write) ---
+
+// setMemory writes workspace/memory/{key}.md
+func setMemory(cfg *Config, role, key, value string) error {
+	dir := filepath.Join(cfg.WorkspaceDir, "memory")
+	os.MkdirAll(dir, 0o755)
+	return os.WriteFile(filepath.Join(dir, sanitizeKey(key)+".md"), []byte(value), 0o644)
 }
 
 // --- List ---
 
-func listMemory(dbPath, role string) ([]MemoryEntry, error) {
-	where := ""
-	if role != "" {
-		where = fmt.Sprintf("WHERE role = '%s'", escapeSQLite(role))
-	}
-
-	sql := fmt.Sprintf(
-		`SELECT id, role, key, value, updated_at, created_at
-		 FROM agent_memory %s ORDER BY role, key ASC`, where)
-
-	rows, err := queryDB(dbPath, sql)
+// listMemory lists all memory files.
+func listMemory(cfg *Config, role string) ([]MemoryEntry, error) {
+	dir := filepath.Join(cfg.WorkspaceDir, "memory")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
-	var entries []MemoryEntry
-	for _, row := range rows {
-		entries = append(entries, memoryEntryFromRow(row))
+	var result []MemoryEntry
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		key := strings.TrimSuffix(e.Name(), ".md")
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		info, _ := e.Info()
+		updatedAt := ""
+		if info != nil {
+			updatedAt = info.ModTime().Format(time.RFC3339)
+		}
+		result = append(result, MemoryEntry{
+			Key:       key,
+			Value:     string(data),
+			UpdatedAt: updatedAt,
+		})
 	}
-	return entries, nil
-}
-
-func memoryEntryFromRow(row map[string]any) MemoryEntry {
-	return MemoryEntry{
-		ID:        jsonInt(row["id"]),
-		Role:      jsonStr(row["role"]),
-		Key:       jsonStr(row["key"]),
-		Value:     jsonStr(row["value"]),
-		UpdatedAt: jsonStr(row["updated_at"]),
-		CreatedAt: jsonStr(row["created_at"]),
-	}
+	return result, nil
 }
 
 // --- Delete ---
 
-func deleteMemory(dbPath, role, key string) error {
-	sql := fmt.Sprintf(
-		`DELETE FROM agent_memory WHERE role = '%s' AND key = '%s'`,
-		escapeSQLite(role), escapeSQLite(key))
-	return execDB(dbPath, sql)
+// deleteMemory removes workspace/memory/{key}.md
+func deleteMemory(cfg *Config, role, key string) error {
+	path := filepath.Join(cfg.WorkspaceDir, "memory", sanitizeKey(key)+".md")
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+// --- Search ---
+
+// searchMemory searches memory files by content.
+func searchMemoryFS(cfg *Config, role, query string) ([]MemoryEntry, error) {
+	all, err := listMemory(cfg, role)
+	if err != nil {
+		return nil, err
+	}
+	query = strings.ToLower(query)
+	var results []MemoryEntry
+	for _, e := range all {
+		if strings.Contains(strings.ToLower(e.Key), query) ||
+			strings.Contains(strings.ToLower(e.Value), query) {
+			results = append(results, e)
+		}
+	}
+	return results, nil
+}
+
+// sanitizeKey sanitizes a memory key for use as a filename.
+func sanitizeKey(key string) string {
+	// Replace path separators and other unsafe chars.
+	r := strings.NewReplacer("/", "_", "\\", "_", "..", "_", "\x00", "")
+	return r.Replace(key)
+}
+
+// initMemoryDB is a no-op kept for backward compatibility.
+func initMemoryDB(dbPath string) error {
+	return nil
 }

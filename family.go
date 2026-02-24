@@ -441,7 +441,7 @@ func (f *FamilyService) CreateList(name, listType, createdBy string) (*SharedLis
 		createdBy = "default"
 	}
 
-	id := umNewID()
+	id := newUUID()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	sql := fmt.Sprintf(

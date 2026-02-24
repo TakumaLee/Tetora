@@ -38,6 +38,7 @@ type CostStats struct {
 // --- Init ---
 
 func initHistoryDB(dbPath string) error {
+	pragmaDB(dbPath)
 	sql := `
 CREATE TABLE IF NOT EXISTS job_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,11 +62,19 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		return fmt.Errorf("init history db: %w", err)
 	}
 
-	// Migrations: add columns if missing (errors ignored if column already exists).
-	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN output_file TEXT DEFAULT '';`)
-	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`)
-	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`)
-	execDB(dbPath, `ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`)
+	// Migrations: add columns if missing.
+	for _, col := range []string{
+		`ALTER TABLE job_runs ADD COLUMN output_file TEXT DEFAULT '';`,
+		`ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`,
+		`ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`,
+		`ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`,
+	} {
+		if err := execDB(dbPath, col); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				logWarn("history migration failed", "sql", col, "error", err)
+			}
+		}
+	}
 
 	return nil
 }

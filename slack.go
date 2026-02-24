@@ -359,10 +359,10 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	}
 
 	// Store in agent memory.
-	if result.Status == "success" && dbPath != "" {
-		setMemory(dbPath, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(dbPath, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(dbPath, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+	if result.Status == "success" {
+		setMemory(sb.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
+		setMemory(sb.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
+		setMemory(sb.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	// Audit log.

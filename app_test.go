@@ -52,23 +52,17 @@ func TestAppSyncToGlobals_Phase2Fields(t *testing.T) {
 	oldSpawnTracker := globalSpawnTracker
 	oldJudgeCache := globalJudgeCache
 	oldImageGen := globalImageGenLimiter
-	oldUMEnabled := globalUnifiedMemoryEnabled
-	oldUMDB := globalUnifiedMemoryDB
 	defer func() {
 		globalLifecycleEngine = oldLifecycle
 		globalTimeTracking = oldTimeTracking
 		globalSpawnTracker = oldSpawnTracker
 		globalJudgeCache = oldJudgeCache
 		globalImageGenLimiter = oldImageGen
-		globalUnifiedMemoryEnabled = oldUMEnabled
-		globalUnifiedMemoryDB = oldUMDB
 	}()
 
 	// Clear globals.
 	globalLifecycleEngine = nil
 	globalTimeTracking = nil
-	globalUnifiedMemoryEnabled = false
-	globalUnifiedMemoryDB = ""
 
 	cfg := &Config{}
 	le := &LifecycleEngine{cfg: cfg}
@@ -77,13 +71,11 @@ func TestAppSyncToGlobals_Phase2Fields(t *testing.T) {
 	ig := &imageGenLimiter{}
 
 	app := &App{
-		Cfg:                  cfg,
-		Lifecycle:            le,
-		TimeTracking:         tt,
-		SpawnTracker:         st,
-		ImageGenLimiter:      ig,
-		UnifiedMemoryEnabled: true,
-		UnifiedMemoryDB:      "/tmp/test.db",
+		Cfg:             cfg,
+		Lifecycle:       le,
+		TimeTracking:    tt,
+		SpawnTracker:    st,
+		ImageGenLimiter: ig,
 	}
 	app.SyncToGlobals()
 
@@ -98,11 +90,5 @@ func TestAppSyncToGlobals_Phase2Fields(t *testing.T) {
 	}
 	if globalImageGenLimiter != ig {
 		t.Error("SyncToGlobals should set globalImageGenLimiter")
-	}
-	if !globalUnifiedMemoryEnabled {
-		t.Error("SyncToGlobals should set globalUnifiedMemoryEnabled")
-	}
-	if globalUnifiedMemoryDB != "/tmp/test.db" {
-		t.Errorf("SyncToGlobals should set globalUnifiedMemoryDB, got %q", globalUnifiedMemoryDB)
 	}
 }

@@ -137,9 +137,19 @@ func cmdDoctor() {
 
 	// 9. Roles
 	for name, rc := range cfg.Roles {
-		path := rc.SoulFile
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(cfg.DefaultWorkdir, path)
+		// Try new path first: agents/{name}/SOUL.md
+		path := filepath.Join(cfg.AgentsDir, name, "SOUL.md")
+		if _, err := os.Stat(path); err != nil {
+			// Fallback: try workspace-resolved path
+			ws := resolveWorkspace(cfg, name)
+			path = ws.SoulFile
+			if _, err := os.Stat(path); err != nil {
+				// Legacy fallback
+				path = rc.SoulFile
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(cfg.DefaultWorkdir, path)
+				}
+			}
 		}
 		if _, err := os.Stat(path); err != nil {
 			check(false, "Role/"+name, "soul file missing")
@@ -177,6 +187,27 @@ func cmdDoctor() {
 		ok = false
 	} else {
 		check(true, "sqlite3", "available")
+	}
+
+	// 14. Security scan tool
+	if _, err := exec.LookPath("npx"); err == nil {
+		suggestions = append(suggestions, "Security: run 'npx @nexylore/sentori scan .' for security audit")
+	} else {
+		suggestions = append(suggestions, "Install Node.js for security scanning with Sentori: npx @nexylore/sentori scan .")
+	}
+
+	// 15. New directory structure check
+	if _, err := os.Stat(filepath.Join(cfg.AgentsDir)); err == nil {
+		agentEntries, _ := os.ReadDir(cfg.AgentsDir)
+		check(true, "Agents Dir", fmt.Sprintf("%s (%d agents)", cfg.AgentsDir, len(agentEntries)))
+	} else {
+		suggest(false, "Agents Dir", fmt.Sprintf("not found: %s — run 'tetora init'", cfg.AgentsDir))
+	}
+
+	if _, err := os.Stat(cfg.WorkspaceDir); err == nil {
+		check(true, "Workspace", cfg.WorkspaceDir)
+	} else {
+		suggest(false, "Workspace", fmt.Sprintf("not found: %s — run 'tetora init'", cfg.WorkspaceDir))
 	}
 
 	fmt.Println()

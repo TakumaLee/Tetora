@@ -150,7 +150,7 @@ func (svc *UserProfileService) CreateProfile(profile UserProfile) error {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	if profile.ID == "" {
-		profile.ID = umNewID()
+		profile.ID = newUUID()
 	}
 	if profile.CreatedAt == "" {
 		profile.CreatedAt = now
@@ -237,7 +237,7 @@ func (svc *UserProfileService) ResolveUser(channelKey string) (string, error) {
 	}
 
 	// Create a new user profile and link.
-	userID := umNewID()
+	userID := newUUID()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	sql := fmt.Sprintf(

@@ -56,6 +56,16 @@ CREATE INDEX IF NOT EXISTS idx_reflections_role ON reflections(role);
 	return nil
 }
 
+// --- MinCost Default ---
+
+// minCostOrDefault returns the configured MinCost, defaulting to $0.03.
+func (c ReflectionConfig) minCostOrDefault() float64 {
+	if c.MinCost > 0 {
+		return c.MinCost
+	}
+	return 0.03
+}
+
 // --- Should Reflect ---
 
 // shouldReflect determines if a reflection should be performed after task execution.
@@ -71,8 +81,8 @@ func shouldReflect(cfg *Config, task Task, result TaskResult) bool {
 	if (result.Status == "error" || result.Status == "timeout") && !cfg.Reflection.TriggerOnFail {
 		return false
 	}
-	// Skip if cost is below MinCost threshold (when MinCost > 0).
-	if cfg.Reflection.MinCost > 0 && result.CostUSD < cfg.Reflection.MinCost {
+	// Skip if cost is below MinCost threshold (default $0.03).
+	if result.CostUSD < cfg.Reflection.minCostOrDefault() {
 		return false
 	}
 	return true
@@ -235,25 +245,6 @@ func storeReflection(dbPath string, ref *ReflectionResult) error {
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("store reflection: %s: %w", string(out), err)
-	}
-
-	// --- P23.0: Dual-write to unified memory ---
-	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
-		umValue := ref.Feedback
-		if ref.Improvement != "" {
-			umValue += "\n---\n" + ref.Improvement
-		}
-		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
-			Namespace: UMNSReflection,
-			Scope:     ref.Role,
-			Key:       "reflect:" + ref.TaskID,
-			Value:     umValue,
-			Source:    "reflection",
-			SourceRef: ref.TaskID,
-		})
-		if umErr != nil {
-			logWarn("unified memory reflection dual-write failed", "taskId", ref.TaskID, "error", umErr)
-		}
 	}
 
 	return nil

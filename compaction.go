@@ -57,6 +57,21 @@ type sessionMessage struct {
 	Timestamp string
 }
 
+// --- Token-Based Compaction Check ---
+
+// shouldCompactByTokens estimates whether the session context exceeds 75% of the model's context window.
+func shouldCompactByTokens(cfg *Config, messages []sessionMessage, systemPromptLen, toolDefsLen int) bool {
+	var totalChars int
+	totalChars += systemPromptLen
+	totalChars += toolDefsLen
+	for _, m := range messages {
+		totalChars += len(m.Content)
+	}
+	estimatedTokens := totalChars / 4 // rough estimate: 4 chars per token
+	contextLimit := 200000            // model context window
+	return estimatedTokens > contextLimit*75/100
+}
+
 // --- Core Compaction Logic ---
 
 // checkCompaction checks if a session needs compaction and runs it if so.

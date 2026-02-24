@@ -9,17 +9,35 @@ import (
 
 // loadRolePrompt reads the SOUL file for a given role name
 // and returns its contents as a system prompt string.
+// Resolution order:
+//  1. Per-role workspace soul file (via resolveWorkspace)
+//  2. agents/{role}/SOUL.md
+//  3. Legacy fallback: {DefaultWorkdir}/{soulFile}
 func loadRolePrompt(cfg *Config, roleName string) (string, error) {
-	rc, ok := cfg.Roles[roleName]
+	_, ok := cfg.Roles[roleName]
 	if !ok {
 		return "", fmt.Errorf("role %q not found in config", roleName)
 	}
 
+	// Try workspace-resolved soul file first (per-role workspace).
+	ws := resolveWorkspace(cfg, roleName)
+	if ws.SoulFile != "" {
+		if data, err := os.ReadFile(ws.SoulFile); err == nil {
+			return string(data), nil
+		}
+	}
+
+	// Fallback: agents/{role}/SOUL.md
+	agentSoulPath := filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
+	if data, err := os.ReadFile(agentSoulPath); err == nil {
+		return string(data), nil
+	}
+
+	// Legacy fallback: DefaultWorkdir resolution.
+	rc := cfg.Roles[roleName]
 	if rc.SoulFile == "" {
 		return "", nil
 	}
-
-	// Resolve relative path against workspace.
 	path := rc.SoulFile
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(cfg.DefaultWorkdir, path)
@@ -187,11 +205,8 @@ func getArchetypeByName(name string) *RoleArchetype {
 	return nil
 }
 
-func writeSoulFile(cfg *Config, soulFile, content string) error {
-	path := soulFile
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cfg.DefaultWorkdir, path)
-	}
+func writeSoulFile(cfg *Config, roleName, content string) error {
+	path := filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	return os.WriteFile(path, []byte(content), 0o644)
 }

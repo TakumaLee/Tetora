@@ -92,6 +92,7 @@ func auditFlush(entries []auditEntry) {
 
 // initAuditLog creates the audit_log table if it doesn't exist.
 func initAuditLog(dbPath string) error {
+	pragmaDB(dbPath)
 	sql := `CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   timestamp TEXT NOT NULL,

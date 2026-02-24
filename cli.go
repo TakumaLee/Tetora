@@ -45,6 +45,7 @@ Commands:
   budget <action>    Cost governance (show|pause|resume)
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
+  security <action>  Security scanning (scan|baseline)
   plugin <action>    Manage external plugins (list|start|stop)
   import <source>    Import data (openclaw)
   upgrade            Upgrade to the latest version

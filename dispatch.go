@@ -459,8 +459,13 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Apply workspace configuration if role is set.
 	if roleName != "" {
 		ws := resolveWorkspace(cfg, roleName)
-		if task.Workdir == cfg.DefaultWorkdir && ws.Dir != "" {
+		if ws.Dir != "" {
 			task.Workdir = ws.Dir
+		}
+		// Auto-inject workspace rules directory.
+		rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+		if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
+			task.AddDirs = append(task.AddDirs, rulesDir)
 		}
 	}
 
@@ -475,10 +480,13 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	sem <- struct{}{}
 	defer func() { <-sem }()
 
-	// Auto-inject knowledge dir if it has files.
-	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) {
+	// Auto-inject knowledge dir if it has files (with 50KB size guard).
+	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) && estimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
 		task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
 	}
+
+	// Inject workspace rules (always tier).
+	injectWorkspaceContent(cfg, &task, roleName)
 
 	// Budget check before execution.
 	if budgetResult := checkBudget(cfg, roleName, "", 0); budgetResult != nil && !budgetResult.Allowed {
@@ -608,8 +616,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 		// Apply workspace directory as workdir if task doesn't specify one.
 		ws := resolveWorkspace(cfg, roleName)
-		if task.Workdir == cfg.DefaultWorkdir && ws.Dir != "" {
+		if ws.Dir != "" {
 			task.Workdir = ws.Dir
+		}
+		// Auto-inject workspace rules directory.
+		rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+		if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
+			task.AddDirs = append(task.AddDirs, rulesDir)
 		}
 
 		// Apply role config overrides.
@@ -623,8 +636,8 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}
 	}
 
-	// Auto-inject knowledge dir if it has files.
-	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) {
+	// Auto-inject knowledge dir if it has files (with 50KB size guard).
+	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) && estimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
 		task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
 	}
 
@@ -1426,4 +1439,108 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	finalResult.ProviderMs = totalProviderMs
 
 	return finalResult
+}
+
+// --- Workspace Content Injection ---
+
+// injectWorkspaceContent applies the three-tier workspace injection:
+// always: workspace/rules/ directory
+// role: role-specific rules from workspace/rules/{roleName}*
+// on-demand: memory only via {{memory.KEY}} template
+func injectWorkspaceContent(cfg *Config, task *Task, roleName string) {
+	if cfg.WorkspaceDir == "" {
+		return
+	}
+
+	rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+
+	// Size protection: estimate total injection size.
+	totalSize := estimateDirSize(rulesDir)
+	maxInjectionSize := 50 * 1024 // 50KB default
+	if totalSize > maxInjectionSize {
+		logWarn("workspace rules too large, skipping injection", "size", totalSize, "max", maxInjectionSize)
+		return
+	}
+
+	// Always tier: inject rules/ directory (if has files and not already added).
+	if fi, err := os.Stat(rulesDir); err == nil && fi.IsDir() {
+		alreadyAdded := false
+		for _, d := range task.AddDirs {
+			if d == rulesDir {
+				alreadyAdded = true
+				break
+			}
+		}
+		if !alreadyAdded {
+			task.AddDirs = append(task.AddDirs, rulesDir)
+		}
+	}
+
+	// Knowledge tier: inject knowledge/ directory with 50KB size guard.
+	knowledgeDir := filepath.Join(cfg.WorkspaceDir, "knowledge")
+	if fi, err := os.Stat(knowledgeDir); err == nil && fi.IsDir() {
+		kSize := estimateDirSize(knowledgeDir)
+		if kSize <= maxInjectionSize {
+			alreadyAdded := false
+			for _, d := range task.AddDirs {
+				if d == knowledgeDir {
+					alreadyAdded = true
+					break
+				}
+			}
+			if !alreadyAdded {
+				task.AddDirs = append(task.AddDirs, knowledgeDir)
+			}
+		} else {
+			logWarn("workspace knowledge dir exceeds 50KB, skipping injection", "size", kSize)
+		}
+	}
+
+	// Role tier: find role-specific rules and append to system prompt.
+	if roleName != "" {
+		roleRules := findRoleSpecificRules(rulesDir, roleName)
+		if roleRules != "" {
+			task.SystemPrompt += "\n\n" + roleRules
+		}
+	}
+	// On-demand tier: memory is resolved via {{memory.KEY}} in template.go, not here.
+}
+
+// findRoleSpecificRules reads files in rulesDir whose name contains roleName.
+func findRoleSpecificRules(rulesDir, roleName string) string {
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return ""
+	}
+	var parts []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.Contains(strings.ToLower(e.Name()), strings.ToLower(roleName)) {
+			data, err := os.ReadFile(filepath.Join(rulesDir, e.Name()))
+			if err == nil {
+				parts = append(parts, string(data))
+			}
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// estimateDirSize returns an estimate of the total file size in a directory.
+func estimateDirSize(dir string) int {
+	total := 0
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
+			total += int(info.Size())
+		}
+	}
+	return total
 }

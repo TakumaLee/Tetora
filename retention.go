@@ -395,7 +395,7 @@ func exportData(cfg *Config) ([]byte, error) {
 	}
 
 	// Memory
-	if entries, err := listMemory(dbPath, ""); err == nil {
+	if entries, err := listMemory(cfg, ""); err == nil {
 		export.Memory = entries
 	}
 

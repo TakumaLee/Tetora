@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -364,21 +363,6 @@ func (svc *NotesService) CreateNote(name, content string) error {
 	// Auto-embed if configured.
 	if svc.autoEmbed {
 		go svc.embedNote(name, content)
-	}
-
-	// --- P23.0: Dual-write to unified memory ---
-	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
-		h := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))[:32]
-		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
-			Namespace: UMNSFile,
-			Key:       name,
-			Value:     h,
-			Source:    "notes",
-			SourceRef: p,
-		})
-		if umErr != nil {
-			logWarn("unified memory note dual-write failed", "name", name, "error", umErr)
-		}
 	}
 
 	return nil

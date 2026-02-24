@@ -102,7 +102,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 
 			// Write soul content to file.
 			if body.SoulContent != "" {
-				if err := writeSoulFile(cfg, body.SoulFile, body.SoulContent); err != nil {
+				if err := writeSoulFile(cfg, body.Name, body.SoulContent); err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"write soul file: %v"}`, err), http.StatusInternalServerError)
 					return
 				}
@@ -200,12 +200,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 				rc.SoulFile = body.SoulFile
 			}
 			if body.SoulContent != "" {
-				soulFile := rc.SoulFile
-				if soulFile == "" {
-					soulFile = fmt.Sprintf("SOUL-%s.md", name)
-					rc.SoulFile = soulFile
-				}
-				if err := writeSoulFile(cfg, soulFile, body.SoulContent); err != nil {
+				if err := writeSoulFile(cfg, name, body.SoulContent); err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"write soul: %v"}`, err), http.StatusInternalServerError)
 					return
 				}

@@ -41,8 +41,6 @@ type App struct {
 	SpawnTracker        *spawnTracker
 	JudgeCache          *judgeCache
 	ImageGenLimiter     *imageGenLimiter
-	UnifiedMemoryEnabled bool
-	UnifiedMemoryDB     string
 	Presence            *presenceManager
 	Reminder            *ReminderEngine
 }
@@ -130,10 +128,6 @@ func (a *App) SyncToGlobals() {
 	}
 	if a.ImageGenLimiter != nil {
 		globalImageGenLimiter = a.ImageGenLimiter
-	}
-	if a.UnifiedMemoryEnabled {
-		globalUnifiedMemoryEnabled = true
-		globalUnifiedMemoryDB = a.UnifiedMemoryDB
 	}
 	if a.Presence != nil {
 		globalPresence = a.Presence

@@ -288,21 +288,6 @@ VALUES ('%s', '%s', '%s', %s, '%s', '%s', '%s')`,
 		return err
 	}
 
-	// --- P23.0: Dual-write to unified memory ---
-	if globalUnifiedMemoryEnabled && globalUnifiedMemoryDB != "" {
-		umKey := "emb:" + source + ":" + sourceID
-		_, _, umErr := umStore(globalUnifiedMemoryDB, UnifiedMemoryEntry{
-			Namespace: UMNSFact,
-			Key:       umKey,
-			Value:     content,
-			Source:    "embedding",
-			SourceRef: sourceID,
-		})
-		if umErr != nil {
-			logWarn("unified memory embedding dual-write failed", "key", umKey, "error", umErr)
-		}
-	}
-
 	return nil
 }
 
@@ -754,55 +739,7 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 
 	var totalIndexed int
 
-	// 1. Index unified memory entries.
-	entries, err := umList(dbPath, "", "", 10000)
-	if err != nil {
-		logWarn("reindex: failed to list unified memory", "error", err)
-	} else {
-		var batch []string
-		var batchMeta []struct{ source, sourceID string }
-		for _, e := range entries {
-			text := e.Key + ": " + e.Value
-			batch = append(batch, text)
-			batchMeta = append(batchMeta, struct{ source, sourceID string }{"unified_memory", e.ID})
-			if len(batch) >= batchSize {
-				vecs, bErr := getEmbeddings(ctx, cfg, batch)
-				if bErr != nil {
-					logWarn("reindex um batch failed", "error", bErr)
-					batch = batch[:0]
-					batchMeta = batchMeta[:0]
-					continue
-				}
-				for i, vec := range vecs {
-					if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
-						logWarn("reindex store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
-					} else {
-						totalIndexed++
-					}
-				}
-				batch = batch[:0]
-				batchMeta = batchMeta[:0]
-			}
-		}
-		// Flush remaining batch.
-		if len(batch) > 0 {
-			vecs, bErr := getEmbeddings(ctx, cfg, batch)
-			if bErr == nil {
-				for i, vec := range vecs {
-					if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
-						logWarn("reindex store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
-					} else {
-						totalIndexed++
-					}
-				}
-			} else {
-				logWarn("reindex um flush batch failed", "error", bErr)
-			}
-		}
-		logInfo("reindex: unified memory complete", "count", len(entries))
-	}
-
-	// 2. Index knowledge files.
+	// 1. Index knowledge files.
 	knowledgeDir := cfg.KnowledgeDir
 	if knowledgeDir != "" {
 		dirEntries, rErr := os.ReadDir(knowledgeDir)

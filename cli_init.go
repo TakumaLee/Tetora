@@ -201,53 +201,26 @@ func cmdInit() {
 	ocDir := detectOpenClaw()
 	if ocDir != "" {
 		fmt.Printf("OpenClaw installation detected at %s\n", ocDir)
-		fmt.Print("  Import settings from OpenClaw? [Y/n]: ")
+		fmt.Print("  Import basic config from OpenClaw? [Y/n]: ")
 		scanner.Scan()
 		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
 		if ans != "n" {
-			fmt.Println()
-			fmt.Println("  What to import?")
-			incIdx := choose("Include", []string{
-				"All (config + memory + workspace + skills + cron + roles)",
-				"Config only",
-				"Config + roles + cron jobs",
-				"Custom (comma-separated: config,memory,skills,cron,workspace,roles)",
-			}, 0)
-
-			var includeStr string
-			switch incIdx {
-			case 0:
-				includeStr = "all"
-			case 1:
-				includeStr = "config"
-			case 2:
-				includeStr = "config,roles,cron"
-			case 3:
-				includeStr = prompt("Include list", "config,memory,skills,cron,workspace,roles")
-			}
-
-			include := parseIncludeList(includeStr)
-			// Defer roles import until after config is written.
-			wantRoles := include["roles"]
-			delete(include, "roles")
+			// Extract only basic config fields (tokens, model).
+			include := parseIncludeList("config")
 			report, err := migrateOpenClaw(migCfg, ocDir, false, include, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  Migration error: %v\n", err)
 			} else {
 				ocMigrated = true
 				ocReport = report
-				if wantRoles {
-					include["roles"] = true
-				}
-				fmt.Printf("  Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs\n",
-					report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs)
+				fmt.Printf("  Imported %d config fields\n", report.ConfigMerged)
 				for _, w := range report.Warnings {
-					fmt.Printf("  \u26a0 %s\n", w)
-				}
-				for _, e := range report.Errors {
-					fmt.Printf("  \u2717 %s\n", e)
+					fmt.Printf("  ! %s\n", w)
 				}
 			}
+			fmt.Println()
+			fmt.Println("  For full workspace migration (roles, memory, skills, etc.),")
+			fmt.Println("  run after setup: tetora import openclaw")
 			fmt.Println()
 		}
 	}
@@ -479,27 +452,8 @@ func cmdInit() {
 	fmt.Printf("API token: %s\n", apiToken)
 	fmt.Println("(Save this token — needed for CLI/API access)")
 
-	// --- Deferred: OpenClaw role import (config must exist first) ---
-	if ocMigrated && ocReport != nil {
-		include := parseIncludeList("roles")
-		roleReport := &MigrationReport{}
-		migCfg.baseDir = configDir
-		if err := migrateOpenClawRoles(migCfg, ocDir, false, roleReport); err != nil {
-			fmt.Fprintf(os.Stderr, "  Role import error: %v\n", err)
-		} else if roleReport.RolesImported > 0 {
-			ocReport.RolesImported = roleReport.RolesImported
-			// Enable smart dispatch when roles exist.
-			enableSmartDispatch(configPath)
-			fmt.Printf("  Imported %d role(s) from OpenClaw.\n", roleReport.RolesImported)
-			for _, w := range roleReport.Warnings {
-				fmt.Printf("  \u26a0 %s\n", w)
-			}
-			for _, e := range roleReport.Errors {
-				fmt.Printf("  \u2717 %s\n", e)
-			}
-		}
-		_ = include
-	}
+	// OpenClaw workspace/roles migration is now handled by `tetora import openclaw`.
+	_ = ocMigrated
 
 	// --- Optional: Create first role ---
 	if ocMigrated && ocReport != nil && ocReport.RolesImported > 0 {
@@ -659,51 +613,7 @@ func enableSmartDispatch(configPath string) {
 	os.WriteFile(configPath, append(out, '\n'), 0o644)
 }
 
-// cmdImportOpenClaw handles "tetora import openclaw" as a standalone command.
-func cmdImportOpenClaw() {
-	ocDir := detectOpenClaw()
-	if ocDir == "" {
-		fmt.Println("No OpenClaw installation found at ~/.openclaw/")
-		return
-	}
-	fmt.Printf("Found OpenClaw at %s\n", ocDir)
-
-	configPath := findConfigPath()
-	if configPath == "" {
-		fmt.Println("No Tetora config found. Run 'tetora init' first.")
-		return
-	}
-
-	cfg, err := tryLoadConfig(configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		return
-	}
-
-	include := parseIncludeList("all")
-	report, err := migrateOpenClaw(cfg, ocDir, false, include, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Migration error: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Imported: %d config fields, %d memory files, %d workspace files, %d skills, %d cron jobs, %d roles\n",
-		report.ConfigMerged, report.MemoryFiles, report.WorkspaceFiles, report.SkillsImported, report.CronJobs, report.RolesImported)
-	for _, w := range report.Warnings {
-		fmt.Printf("  \u26a0 %s\n", w)
-	}
-	for _, e := range report.Errors {
-		fmt.Printf("  \u2717 %s\n", e)
-	}
-
-	if report.RolesImported > 0 {
-		enableSmartDispatch(configPath)
-		fmt.Println("Smart dispatch enabled.")
-	}
-
-	fmt.Println("\nRestart the service to apply changes:")
-	fmt.Println("  tetora service uninstall && tetora service install")
-}
+// cmdImportOpenClaw is now defined in import_openclaw.go (3-stage pipeline).
 
 func detectClaude() string {
 	// Prefer Homebrew path, then npm, then PATH lookup.

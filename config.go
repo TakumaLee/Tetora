@@ -58,6 +58,10 @@ type Config struct {
 	GoogleChat            GoogleChatConfig           `json:"googleChat,omitempty"`     // --- P15.5: Google Chat Channel ---
 	ConfigVersion         int                        `json:"configVersion,omitempty"`
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"` // default: baseDir/knowledge/
+	AgentsDir             string                     `json:"agentsDir,omitempty"`    // default: baseDir/agents/
+	WorkspaceDir          string                     `json:"workspaceDir,omitempty"` // default: baseDir/workspace/
+	RuntimeDir            string                     `json:"runtimeDir,omitempty"`   // default: baseDir/runtime/
+	VaultDir              string                     `json:"vaultDir,omitempty"`     // default: baseDir/vault/
 	Skills                []SkillConfig              `json:"skills,omitempty"`
 	Session               SessionConfig              `json:"session,omitempty"`
 	Pricing               map[string]ModelPricing    `json:"pricing,omitempty"`
@@ -109,7 +113,6 @@ type Config struct {
 	Currency              CurrencyConfig                   `json:"currency,omitempty"`      // --- P22.2: Currency Tools ---
 	RSS                   RSSConfig                        `json:"rss,omitempty"`           // --- P22.2: RSS Tools ---
 	Translate             TranslateConfig                  `json:"translate,omitempty"`     // --- P22.2: Translate Tools ---
-	UnifiedMemory         UnifiedMemoryConfig              `json:"unifiedMemory,omitempty"` // --- P23.0: Unified Memory Layer ---
 	UserProfile           UserProfileConfig                `json:"userProfile,omitempty"`   // --- P23.1: User Profile & Emotional Memory ---
 	Ops                   OpsConfig                        `json:"ops,omitempty"`           // --- P23.7: Reliability & Operations ---
 	Finance               FinanceConfig                    `json:"finance,omitempty"`       // --- P23.4: Financial Tracking ---
@@ -201,33 +204,6 @@ type TranslateConfig struct {
 	Enabled  bool   `json:"enabled"`
 	Provider string `json:"provider,omitempty"` // "lingva" (default) | "deepl"
 	APIKey   string `json:"apiKey,omitempty"`   // DeepL free tier key ($DEEPL_KEY)
-}
-
-// --- P23.0: Unified Memory Layer ---
-
-// UnifiedMemoryConfig controls the unified memory layer.
-type UnifiedMemoryConfig struct {
-	Enabled       bool `json:"enabled"`
-	AutoMigrate   bool `json:"autoMigrate,omitempty"`
-	Consolidation struct {
-		Enabled   bool `json:"enabled"`
-		IntervalH int  `json:"intervalHours,omitempty"` // default 6
-		MaxAge    int  `json:"maxAgeDays,omitempty"`    // default 30
-	} `json:"consolidation,omitempty"`
-}
-
-func (c UnifiedMemoryConfig) consolidationIntervalOrDefault() int {
-	if c.Consolidation.IntervalH > 0 {
-		return c.Consolidation.IntervalH
-	}
-	return 6
-}
-
-func (c UnifiedMemoryConfig) consolidationMaxAgeOrDefault() int {
-	if c.Consolidation.MaxAge > 0 {
-		return c.Consolidation.MaxAge
-	}
-	return 30
 }
 
 // --- P23.1: User Profile & Emotional Memory ---
@@ -360,6 +336,7 @@ type RoleConfig struct {
 	FallbackProviders []string        `json:"fallbackProviders,omitempty"` // failover chain
 	TrustLevel        string          `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
 	ToolPolicy        RoleToolPolicy  `json:"tools,omitempty"`             // tool access policy
+	ToolProfile       string          `json:"toolProfile,omitempty"`       // "minimal"|"standard"|"full"
 	Workspace         WorkspaceConfig `json:"workspace,omitempty"`         // workspace isolation config
 }
 
@@ -784,6 +761,38 @@ func tryLoadConfig(path string) (*Config, error) {
 	}
 	if !filepath.IsAbs(cfg.KnowledgeDir) {
 		cfg.KnowledgeDir = filepath.Join(cfg.baseDir, cfg.KnowledgeDir)
+	}
+
+	// Agents dir default.
+	if cfg.AgentsDir == "" {
+		cfg.AgentsDir = filepath.Join(cfg.baseDir, "agents")
+	}
+	if !filepath.IsAbs(cfg.AgentsDir) {
+		cfg.AgentsDir = filepath.Join(cfg.baseDir, cfg.AgentsDir)
+	}
+
+	// Workspace dir default.
+	if cfg.WorkspaceDir == "" {
+		cfg.WorkspaceDir = filepath.Join(cfg.baseDir, "workspace")
+	}
+	if !filepath.IsAbs(cfg.WorkspaceDir) {
+		cfg.WorkspaceDir = filepath.Join(cfg.baseDir, cfg.WorkspaceDir)
+	}
+
+	// Runtime dir default.
+	if cfg.RuntimeDir == "" {
+		cfg.RuntimeDir = filepath.Join(cfg.baseDir, "runtime")
+	}
+	if !filepath.IsAbs(cfg.RuntimeDir) {
+		cfg.RuntimeDir = filepath.Join(cfg.baseDir, cfg.RuntimeDir)
+	}
+
+	// Vault dir default.
+	if cfg.VaultDir == "" {
+		cfg.VaultDir = filepath.Join(cfg.baseDir, "vault")
+	}
+	if !filepath.IsAbs(cfg.VaultDir) {
+		cfg.VaultDir = filepath.Join(cfg.baseDir, cfg.VaultDir)
 	}
 
 	// Resolve relative paths to config dir.

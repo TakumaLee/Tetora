@@ -42,11 +42,11 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 		})
 	}
 
-	// --- P23.0: Unified Memory Tools ---
+	// --- Unified Memory Tools (filesystem-backed) ---
 	if enabled("memory_store") {
 		r.Register(&ToolDef{
 			Name:        "memory_store",
-			Description: "Store a memory entry with automatic deduplication and versioning. Uses the unified memory layer as single source of truth.",
+			Description: "Store a memory entry. Uses filesystem-based memory layer.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -67,7 +67,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 	if enabled("memory_recall") {
 		r.Register(&ToolDef{
 			Name:        "memory_recall",
-			Description: "Recall a specific memory by namespace, scope, and key from unified memory",
+			Description: "Recall a specific memory by key",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -85,7 +85,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 	if enabled("memory_um_search") {
 		r.Register(&ToolDef{
 			Name:        "memory_um_search",
-			Description: "Search unified memory entries by query with optional namespace/scope filters",
+			Description: "Search memory entries by query with optional namespace/scope filters",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -104,7 +104,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 	if enabled("memory_history") {
 		r.Register(&ToolDef{
 			Name:        "memory_history",
-			Description: "View version history of a unified memory entry",
+			Description: "View version history of a memory entry",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -139,7 +139,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 	if enabled("memory_forget") {
 		r.Register(&ToolDef{
 			Name:        "memory_forget",
-			Description: "Soft-delete (tombstone) a unified memory entry. Can be recovered within retention period.",
+			Description: "Delete a memory entry by key.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -174,7 +174,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 
 // --- Memory Tool Handlers ---
 
-// toolMemorySearch searches agent memory.
+// toolMemorySearch searches agent memory via filesystem.
 func toolMemorySearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
 		Query string `json:"query"`
@@ -187,24 +187,16 @@ func toolMemorySearch(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("query is required")
 	}
 
-	// Build SQL query.
-	query := fmt.Sprintf(`SELECT key, value, role FROM agent_memory WHERE value LIKE '%%%s%%'`, escapeSQLite(args.Query))
-	if args.Role != "" {
-		query += fmt.Sprintf(` AND role = '%s'`, escapeSQLite(args.Role))
-	}
-	query += ` ORDER BY updated_at DESC LIMIT 10`
-
-	rows, err := queryDB(cfg.HistoryDB, query)
+	entries, err := searchMemoryFS(cfg, args.Role, args.Query)
 	if err != nil {
-		return "", fmt.Errorf("query failed: %w", err)
+		return "", fmt.Errorf("search failed: %w", err)
 	}
 
 	var results []map[string]string
-	for _, row := range rows {
+	for _, e := range entries {
 		results = append(results, map[string]string{
-			"key":   fmt.Sprintf("%v", row["key"]),
-			"value": fmt.Sprintf("%v", row["value"]),
-			"role":  fmt.Sprintf("%v", row["role"]),
+			"key":   e.Key,
+			"value": e.Value,
 		})
 	}
 
@@ -225,21 +217,15 @@ func toolMemoryGet(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("key is required")
 	}
 
-	query := fmt.Sprintf(`SELECT value FROM agent_memory WHERE key = '%s'`, escapeSQLite(args.Key))
-	if args.Role != "" {
-		query += fmt.Sprintf(` AND role = '%s'`, escapeSQLite(args.Role))
-	}
-	query += ` LIMIT 1`
-
-	rows, err := queryDB(cfg.HistoryDB, query)
+	val, err := getMemory(cfg, args.Role, args.Key)
 	if err != nil {
-		return "", fmt.Errorf("query failed: %w", err)
+		return "", fmt.Errorf("get failed: %w", err)
 	}
-	if len(rows) == 0 {
+	if val == "" {
 		return "", fmt.Errorf("key not found")
 	}
 
-	return fmt.Sprintf("%v", rows[0]["value"]), nil
+	return val, nil
 }
 
 // toolKnowledgeSearch searches the knowledge base using existing TF-IDF search.
@@ -278,7 +264,7 @@ func toolKnowledgeSearch(ctx context.Context, cfg *Config, input json.RawMessage
 	return string(b), nil
 }
 
-// --- P23.0: Unified Memory Tool Handlers ---
+// --- Unified Memory Tool Handlers (filesystem-backed) ---
 
 func toolUMStore(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
@@ -295,29 +281,12 @@ func toolUMStore(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 	if args.Namespace == "" || args.Key == "" || args.Value == "" {
 		return "", fmt.Errorf("namespace, key, and value are required")
 	}
-	if args.Source == "" {
-		args.Source = "tool"
-	}
 
-	entry := UnifiedMemoryEntry{
-		Namespace: args.Namespace,
-		Scope:     args.Scope,
-		Key:       args.Key,
-		Value:     args.Value,
-		Source:    args.Source,
-		TTLDays:   args.TTLDays,
-	}
-
-	id, created, err := umStore(cfg.HistoryDB, entry)
-	if err != nil {
+	if err := setMemory(cfg, args.Scope, args.Key, args.Value); err != nil {
 		return "", fmt.Errorf("store failed: %w", err)
 	}
 
-	action := "updated"
-	if created {
-		action = "created"
-	}
-	result := map[string]any{"id": id, "action": action}
+	result := map[string]any{"action": "stored", "key": args.Key}
 	b, _ := json.Marshal(result)
 	return string(b), nil
 }
@@ -335,15 +304,16 @@ func toolUMRecall(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		return "", fmt.Errorf("namespace and key are required")
 	}
 
-	entry, err := umGet(cfg.HistoryDB, args.Namespace, args.Scope, args.Key)
+	val, err := getMemory(cfg, args.Scope, args.Key)
 	if err != nil {
 		return "", fmt.Errorf("recall failed: %w", err)
 	}
-	if entry == nil {
+	if val == "" {
 		return "", fmt.Errorf("memory not found")
 	}
 
-	b, _ := json.Marshal(entry)
+	result := map[string]string{"key": args.Key, "value": val}
+	b, _ := json.Marshal(result)
 	return string(b), nil
 }
 
@@ -360,11 +330,8 @@ func toolUMSearch(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	if args.Query == "" {
 		return "", fmt.Errorf("query is required")
 	}
-	if args.Limit <= 0 {
-		args.Limit = 10
-	}
 
-	entries, err := umSearch(cfg.HistoryDB, args.Query, args.Namespace, args.Scope, args.Limit)
+	entries, err := searchMemoryFS(cfg, args.Scope, args.Query)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
@@ -374,47 +341,11 @@ func toolUMSearch(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 }
 
 func toolUMHistory(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	var args struct {
-		ID    string `json:"id"`
-		Limit int    `json:"limit"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if args.ID == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	if args.Limit <= 0 {
-		args.Limit = 10
-	}
-
-	versions, err := umHistory(cfg.HistoryDB, args.ID, args.Limit)
-	if err != nil {
-		return "", fmt.Errorf("history failed: %w", err)
-	}
-
-	b, _ := json.Marshal(versions)
-	return string(b), nil
+	return "version history not available with filesystem memory", nil
 }
 
 func toolUMLink(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	var args struct {
-		SourceID string `json:"sourceId"`
-		TargetID string `json:"targetId"`
-		LinkType string `json:"linkType"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if args.SourceID == "" || args.TargetID == "" || args.LinkType == "" {
-		return "", fmt.Errorf("sourceId, targetId, and linkType are required")
-	}
-
-	if err := umLink(cfg.HistoryDB, args.SourceID, args.TargetID, args.LinkType); err != nil {
-		return "", fmt.Errorf("link failed: %w", err)
-	}
-
-	return fmt.Sprintf("linked %s -> %s (%s)", args.SourceID, args.TargetID, args.LinkType), nil
+	return "memory linking not available with filesystem memory", nil
 }
 
 func toolUMForget(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
@@ -428,28 +359,17 @@ func toolUMForget(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	// By ID
-	if args.ID != "" {
-		if err := umDelete(cfg.HistoryDB, args.ID); err != nil {
-			return "", fmt.Errorf("forget failed: %w", err)
-		}
-		return fmt.Sprintf("memory %s tombstoned", args.ID), nil
+	// By key (preferred in filesystem mode)
+	key := args.Key
+	if key == "" {
+		key = args.ID
+	}
+	if key == "" {
+		return "", fmt.Errorf("key or id is required")
 	}
 
-	// By namespace+key
-	if args.Namespace != "" && args.Key != "" {
-		entry, err := umGet(cfg.HistoryDB, args.Namespace, args.Scope, args.Key)
-		if err != nil {
-			return "", fmt.Errorf("lookup failed: %w", err)
-		}
-		if entry == nil {
-			return "", fmt.Errorf("memory not found")
-		}
-		if err := umDelete(cfg.HistoryDB, entry.ID); err != nil {
-			return "", fmt.Errorf("forget failed: %w", err)
-		}
-		return fmt.Sprintf("memory %s tombstoned", entry.ID), nil
+	if err := deleteMemory(cfg, args.Scope, key); err != nil {
+		return "", fmt.Errorf("forget failed: %w", err)
 	}
-
-	return "", fmt.Errorf("either id or namespace+key is required")
+	return fmt.Sprintf("memory %q deleted", key), nil
 }

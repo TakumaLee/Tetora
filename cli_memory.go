@@ -52,17 +52,8 @@ func memoryList(args []string) {
 	role, _ := parseRoleFlag(args)
 
 	cfg := loadConfig(findConfigPath())
-	if cfg.HistoryDB == "" {
-		fmt.Fprintln(os.Stderr, "Error: historyDB not configured")
-		os.Exit(1)
-	}
 
-	if err := initMemoryDB(cfg.HistoryDB); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	entries, err := listMemory(cfg.HistoryDB, role)
+	entries, err := listMemory(cfg, role)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -78,14 +69,14 @@ func memoryList(args []string) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ROLE\tKEY\tVALUE\tUPDATED")
+	fmt.Fprintln(w, "KEY\tVALUE\tUPDATED")
 	for _, e := range entries {
 		val := e.Value
 		if len(val) > 60 {
 			val = val[:60] + "..."
 		}
 		val = strings.ReplaceAll(val, "\n", " ")
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", e.Role, e.Key, val, e.UpdatedAt)
+		fmt.Fprintf(w, "%s\t%s\t%s\n", e.Key, val, e.UpdatedAt)
 	}
 	w.Flush()
 }
@@ -103,17 +94,8 @@ func memoryGet(args []string) {
 	key := remaining[0]
 
 	cfg := loadConfig(findConfigPath())
-	if cfg.HistoryDB == "" {
-		fmt.Fprintln(os.Stderr, "Error: historyDB not configured")
-		os.Exit(1)
-	}
 
-	if err := initMemoryDB(cfg.HistoryDB); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	val, err := getMemory(cfg.HistoryDB, role, key)
+	val, err := getMemory(cfg, role, key)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -140,17 +122,8 @@ func memorySet(args []string) {
 	value := strings.Join(remaining[1:], " ")
 
 	cfg := loadConfig(findConfigPath())
-	if cfg.HistoryDB == "" {
-		fmt.Fprintln(os.Stderr, "Error: historyDB not configured")
-		os.Exit(1)
-	}
 
-	if err := initMemoryDB(cfg.HistoryDB); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := setMemory(cfg.HistoryDB, role, key, value); err != nil {
+	if err := setMemory(cfg, role, key, value); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -170,17 +143,8 @@ func memoryDelete(args []string) {
 	key := remaining[0]
 
 	cfg := loadConfig(findConfigPath())
-	if cfg.HistoryDB == "" {
-		fmt.Fprintln(os.Stderr, "Error: historyDB not configured")
-		os.Exit(1)
-	}
 
-	if err := initMemoryDB(cfg.HistoryDB); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := deleteMemory(cfg.HistoryDB, role, key); err != nil {
+	if err := deleteMemory(cfg, role, key); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

@@ -250,7 +250,7 @@ func TestFindDuplicates(t *testing.T) {
 	mf, _, _ := svc.StoreFile("user1", "dup1.txt", "docs", "", "", data1)
 	// Since dedup returns existing, manually insert a second record.
 	hash := mf.ContentHash
-	id2 := umNewID()
+	id2 := newUUID()
 	queryDB(svc.dbPath, "INSERT INTO managed_files (id, user_id, filename, original_name, category, mime_type, file_size, content_hash, storage_path, source, source_id, metadata, created_at, updated_at) VALUES ('"+id2+"','user1','dup2.txt','dup2.txt','docs','text/plain',20,'"+hash+"','/tmp/fake','','','{}','2025-01-01T00:00:00Z','2025-01-01T00:00:00Z')")
 
 	svc.StoreFile("user1", "unique.txt", "docs", "", "", data2)

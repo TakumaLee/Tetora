@@ -979,10 +979,10 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		// Store output summary in agent memory.
-		if result.Status == "success" && dbPath != "" {
-			setMemory(dbPath, route.Role, "last_route_output", truncate(result.Output, 500))
-			setMemory(dbPath, route.Role, "last_route_prompt", truncate(prompt, 200))
-			setMemory(dbPath, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+		if result.Status == "success" {
+			setMemory(b.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
+			setMemory(b.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
+			setMemory(b.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
 		}
 
 		// Optional coordinator review.

@@ -266,16 +266,20 @@ func TestInitWorkspaces(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	cfg := &Config{
-		baseDir: tmpDir,
+		baseDir:      tmpDir,
+		AgentsDir:    filepath.Join(tmpDir, "agents"),
+		WorkspaceDir: filepath.Join(tmpDir, "workspace"),
+		RuntimeDir:   filepath.Join(tmpDir, "runtime"),
+		VaultDir:     filepath.Join(tmpDir, "vault"),
 		Roles: map[string]RoleConfig{
 			"琉璃": {Model: "opus"},
 			"翡翠": {Model: "sonnet"},
 		},
 	}
 
-	err := initWorkspaces(cfg)
+	err := initDirectories(cfg)
 	if err != nil {
-		t.Fatalf("initWorkspaces failed: %v", err)
+		t.Fatalf("initDirectories failed: %v", err)
 	}
 
 	// Check workspace directories were created
@@ -297,6 +301,24 @@ func TestInitWorkspaces(t *testing.T) {
 		skillsDir := filepath.Join(ws.Dir, "skills")
 		if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
 			t.Errorf("skills dir not created: %s", skillsDir)
+		}
+	}
+
+	// Check v1.3.0 directories
+	v130Dirs := []string{
+		filepath.Join(tmpDir, "workspace", "team"),
+		filepath.Join(tmpDir, "workspace", "knowledge"),
+		filepath.Join(tmpDir, "workspace", "drafts"),
+		filepath.Join(tmpDir, "workspace", "intel"),
+		filepath.Join(tmpDir, "runtime", "sessions"),
+		filepath.Join(tmpDir, "runtime", "cache"),
+		filepath.Join(tmpDir, "dbs"),
+		filepath.Join(tmpDir, "vault"),
+		filepath.Join(tmpDir, "media"),
+	}
+	for _, d := range v130Dirs {
+		if _, err := os.Stat(d); os.IsNotExist(err) {
+			t.Errorf("v1.3.0 dir not created: %s", d)
 		}
 	}
 }

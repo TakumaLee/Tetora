@@ -42,12 +42,12 @@ func resolveWorkspace(cfg *Config, roleName string) WorkspaceConfig {
 
 	// Set default workspace directory if not specified
 	if ws.Dir == "" {
-		ws.Dir = filepath.Join(cfg.baseDir, "workspaces", roleName)
+		ws.Dir = cfg.WorkspaceDir
 	}
 
 	// Set default soul file path if not specified
 	if ws.SoulFile == "" {
-		ws.SoulFile = filepath.Join(ws.Dir, "SOUL.md")
+		ws.SoulFile = filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
 	}
 
 	return ws
@@ -56,36 +56,79 @@ func resolveWorkspace(cfg *Config, roleName string) WorkspaceConfig {
 // defaultWorkspace returns the default workspace configuration.
 func defaultWorkspace(cfg *Config) WorkspaceConfig {
 	return WorkspaceConfig{
-		Dir: cfg.DefaultWorkdir,
+		Dir: cfg.WorkspaceDir,
 	}
 }
 
 // --- Workspace Initialization ---
 
-// initWorkspaces ensures workspace directories exist for all configured roles.
-// Creates workspace root directory and subdirectories (memory/, skills/).
-func initWorkspaces(cfg *Config) error {
-	for name := range cfg.Roles {
-		ws := resolveWorkspace(cfg, name)
-		if ws.Dir != "" {
-			// Create main workspace directory
-			if err := os.MkdirAll(ws.Dir, 0755); err != nil {
-				return err
-			}
-
-			// Create subdirectories
-			if err := os.MkdirAll(filepath.Join(ws.Dir, "memory"), 0755); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(filepath.Join(ws.Dir, "skills"), 0755); err != nil {
-				return err
-			}
-
-			logInfo("initialized workspace for role",
-				"role", name,
-				"dir", ws.Dir)
+// initDirectories ensures all required directories exist for agents, workspace, and runtime.
+// v1.3.0 directory layout:
+//
+//	~/.tetora/
+//	  agents/{name}/          — role identity (SOUL.md)
+//	  workspace/              — shared workspace
+//	    rules/                — governance rules (injected into system prompt)
+//	    memory/               — shared memory (.md files)
+//	    team/                 — team governance
+//	    knowledge/            — knowledge base
+//	    drafts/               — content drafts
+//	    intel/                — intelligence center
+//	    products/             — product portfolio
+//	    projects/             — project references
+//	    content-queue/        — publishing schedule
+//	    research/             — research documents
+//	    skills/               — skills/integrations
+//	  runtime/                — ephemeral (deletable)
+//	    sessions/ outputs/ logs/ cache/ security/ cron-runs/
+//	  dbs/                    — databases
+//	  vault/                  — import snapshots
+//	  media/                  — media assets
+func initDirectories(cfg *Config) error {
+	dirs := []string{
+		// Agents
+		cfg.AgentsDir,
+		// Workspace sub-directories
+		cfg.WorkspaceDir,
+		filepath.Join(cfg.WorkspaceDir, "rules"),
+		filepath.Join(cfg.WorkspaceDir, "memory"),
+		filepath.Join(cfg.WorkspaceDir, "team"),
+		filepath.Join(cfg.WorkspaceDir, "knowledge"),
+		filepath.Join(cfg.WorkspaceDir, "drafts"),
+		filepath.Join(cfg.WorkspaceDir, "intel"),
+		filepath.Join(cfg.WorkspaceDir, "products"),
+		filepath.Join(cfg.WorkspaceDir, "projects"),
+		filepath.Join(cfg.WorkspaceDir, "content-queue"),
+		filepath.Join(cfg.WorkspaceDir, "research"),
+		filepath.Join(cfg.WorkspaceDir, "skills"),
+		// Runtime sub-directories
+		cfg.RuntimeDir,
+		filepath.Join(cfg.RuntimeDir, "sessions"),
+		filepath.Join(cfg.RuntimeDir, "outputs"),
+		filepath.Join(cfg.RuntimeDir, "logs"),
+		filepath.Join(cfg.RuntimeDir, "cache"),
+		filepath.Join(cfg.RuntimeDir, "security"),
+		filepath.Join(cfg.RuntimeDir, "cron-runs"),
+		// Databases
+		filepath.Join(cfg.baseDir, "dbs"),
+		// Vault (import snapshots)
+		cfg.VaultDir,
+		// Media assets
+		filepath.Join(cfg.baseDir, "media"),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
 		}
 	}
+	// Create agent directories for configured roles.
+	for name := range cfg.Roles {
+		agentDir := filepath.Join(cfg.AgentsDir, name)
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			return err
+		}
+	}
+	logInfo("initialized directories", "agents", cfg.AgentsDir, "workspace", cfg.WorkspaceDir, "runtime", cfg.RuntimeDir)
 	return nil
 }
 
@@ -240,20 +283,12 @@ func loadSoulFile(cfg *Config, roleName string) string {
 
 // --- Workspace Memory Scope ---
 
-// getWorkspaceMemoryPath returns the memory directory path for a role's workspace.
+// getWorkspaceMemoryPath returns the shared workspace memory directory path.
 func getWorkspaceMemoryPath(cfg *Config, roleName string) string {
-	ws := resolveWorkspace(cfg, roleName)
-	if ws.Dir == "" {
-		return ""
-	}
-	return filepath.Join(ws.Dir, "memory")
+	return filepath.Join(cfg.WorkspaceDir, "memory")
 }
 
-// getWorkspaceSkillsPath returns the skills directory path for a role's workspace.
+// getWorkspaceSkillsPath returns the skills directory path.
 func getWorkspaceSkillsPath(cfg *Config, roleName string) string {
-	ws := resolveWorkspace(cfg, roleName)
-	if ws.Dir == "" {
-		return ""
-	}
-	return filepath.Join(ws.Dir, "skills")
+	return filepath.Join(cfg.baseDir, "skills")
 }

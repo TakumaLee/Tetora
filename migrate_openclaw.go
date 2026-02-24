@@ -730,8 +730,80 @@ func migrateOpenClawCron(cfg *Config, ocDir string, dryRun bool, report *Migrati
 	return nil
 }
 
+// parseSoulRoleName extracts the romanized character name from a SOUL file.
+// Looks for pattern "/ Romaji" (e.g. "コハク / Kohaku") in the first 5 lines.
+// Returns lowercase romaji (e.g. "kohaku"), or fallback if not found.
+func parseSoulRoleName(path, fallback string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	lines := strings.SplitN(string(data), "\n", 6)
+	re := regexp.MustCompile(`/\s*([A-Za-z]+)\s*[）)]`)
+	for _, line := range lines {
+		if m := re.FindStringSubmatch(line); len(m) >= 2 {
+			return strings.ToLower(m[1])
+		}
+	}
+	return fallback
+}
+
+// parseSoulDescription extracts a short description from a SOUL file header.
+// Looks for "# SOUL.md — NAME（KANA / ROMAJI）" pattern, plus a 職責 section.
+func parseSoulDescription(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.SplitN(string(data), "\n", 80)
+
+	// Extract character display: "琥珀（コハク）" from first line.
+	charName := ""
+	re := regexp.MustCompile(`[—-]\s*(.+?（.+?）)`)
+	if len(lines) > 0 {
+		if m := re.FindStringSubmatch(lines[0]); len(m) >= 2 {
+			// Strip romaji part: "琥珀（コハク / Kohaku）" → "琥珀（コハク）"
+			name := m[1]
+			if idx := strings.Index(name, " / "); idx >= 0 {
+				name = name[:idx] + "）"
+			}
+			charName = name
+		}
+	}
+
+	// Look for 職責 section for role title.
+	roleTitle := ""
+	for _, line := range lines {
+		if strings.HasPrefix(line, "## 職責") {
+			continue
+		}
+		// Lines like "創作擔當——團隊的對外聲音。" or "總指揮" after 職責 header.
+		if roleTitle == "" && charName != "" {
+			// Check for role lines like "創作擔當", "工程擔當", "情報擔當", "總指揮"
+			for _, keyword := range []string{"擔當", "總指揮", "軍師", "工程師"} {
+				if strings.Contains(line, keyword) {
+					// Extract just the role part.
+					parts := strings.SplitN(line, "——", 2)
+					roleTitle = strings.TrimSpace(parts[0])
+					break
+				}
+			}
+		}
+	}
+
+	if charName != "" && roleTitle != "" {
+		return charName + "— " + roleTitle
+	}
+	if charName != "" {
+		return charName
+	}
+	return ""
+}
+
 // migrateOpenClawRoles finds SOUL files in OpenClaw workspace and creates
 // corresponding Tetora roles with soul files in per-role workspaces.
+// Role names are derived from the character's romanized name in the SOUL file
+// (e.g. "Kohaku" → "kohaku"), not from directory names.
 // Each role gets: ~/.tetora/workspaces/{role}/SOUL.md + memory/ + skills/
 func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
 	wsDir := filepath.Join(ocDir, "workspace")
@@ -743,20 +815,22 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 	configPath := filepath.Join(cfg.baseDir, "config.json")
 	count := 0
 
-	// Collect soul files: root SOUL.md → "default", team/*/SOUL.md → directory name
+	// Collect soul files with character names parsed from SOUL content.
 	type soulEntry struct {
-		name    string
+		name    string // romanized character name (lowercase)
 		srcPath string
+		isRoot  bool // root SOUL = coordinator/default role
 	}
 	var souls []soulEntry
 
-	// Root SOUL.md
+	// Root SOUL.md → parse character name (e.g. "ruri")
 	rootSoul := filepath.Join(wsDir, "SOUL.md")
 	if _, err := os.Stat(rootSoul); err == nil {
-		souls = append(souls, soulEntry{name: "default", srcPath: rootSoul})
+		name := parseSoulRoleName(rootSoul, "default")
+		souls = append(souls, soulEntry{name: name, srcPath: rootSoul, isRoot: true})
 	}
 
-	// team/*/SOUL.md
+	// team/*/SOUL.md → parse character name from each file
 	teamDir := filepath.Join(wsDir, "team")
 	if entries, err := os.ReadDir(teamDir); err == nil {
 		for _, e := range entries {
@@ -765,7 +839,8 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 			}
 			soulPath := filepath.Join(teamDir, e.Name(), "SOUL.md")
 			if _, err := os.Stat(soulPath); err == nil {
-				souls = append(souls, soulEntry{name: e.Name(), srcPath: soulPath})
+				name := parseSoulRoleName(soulPath, e.Name())
+				souls = append(souls, soulEntry{name: name, srcPath: soulPath})
 			}
 		}
 	}
@@ -775,7 +850,7 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 		return nil
 	}
 
-	// Read OpenClaw config for default model
+	// Read OpenClaw config for default model.
 	defaultModel := "sonnet"
 	ocCfgPath := filepath.Join(ocDir, "openclaw.json")
 	if data, err := os.ReadFile(ocCfgPath); err == nil {
@@ -806,15 +881,27 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 				continue
 			}
 
+			desc := parseSoulDescription(s.srcPath)
+			if desc == "" {
+				desc = fmt.Sprintf("Imported from OpenClaw (%s)", s.name)
+			}
+
 			rc := RoleConfig{
 				SoulFile:       "SOUL.md",
 				Model:          defaultModel,
-				Description:    fmt.Sprintf("Imported from OpenClaw (%s)", s.name),
+				Description:    desc,
 				PermissionMode: "acceptEdits",
 			}
 			if err := updateConfigRoles(configPath, s.name, &rc); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("adding role %q: %v", s.name, err))
 				continue
+			}
+
+			// Set root soul as smartDispatch default role.
+			if s.isRoot {
+				if err := updateConfigSmartDispatchDefault(configPath, s.name); err != nil {
+					report.Warnings = append(report.Warnings, fmt.Sprintf("setting defaultRole: %v", err))
+				}
 			}
 		}
 		count++

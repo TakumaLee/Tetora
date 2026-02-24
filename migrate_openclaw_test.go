@@ -871,6 +871,43 @@ func TestMigrationReport_JSON(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// parseSoulRoleName
+// ---------------------------------------------------------------------------
+
+func TestParseSoulRoleName(t *testing.T) {
+	tests := []struct {
+		content  string
+		fallback string
+		want     string
+	}{
+		{"# SOUL.md — 琥珀（コハク / Kohaku）\n\n*創作擔當*", "x", "kohaku"},
+		{"# SOUL.md — 黒曜（コクヨウ / Kokuyou）\n\n*工程擔當*", "x", "kokuyou"},
+		{"# SOUL.md — 翡翠（ヒスイ / Hisui）\n\n*情報擔當*", "x", "hisui"},
+		{"# SOUL.md - 琉璃的靈魂\n\n*我是琉璃（ルリ / Ruri），Takuma 的 AI 女僕。*", "x", "ruri"},
+		{"# No romaji here\n\nplain text", "fallback", "fallback"},
+		{"", "empty", "empty"},
+	}
+
+	for _, tt := range tests {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "SOUL.md")
+		os.WriteFile(path, []byte(tt.content), 0o644)
+
+		got := parseSoulRoleName(path, tt.fallback)
+		if got != tt.want {
+			t.Errorf("parseSoulRoleName(%q) = %q, want %q", tt.content[:min(len(tt.content), 40)], got, tt.want)
+		}
+	}
+}
+
+func TestParseSoulRoleName_FileNotFound(t *testing.T) {
+	got := parseSoulRoleName("/nonexistent/SOUL.md", "fallback")
+	if got != "fallback" {
+		t.Errorf("got %q, want %q", got, "fallback")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Invalid JSON
 // ---------------------------------------------------------------------------
 

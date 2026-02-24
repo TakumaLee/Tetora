@@ -70,6 +70,9 @@ func main() {
 		case "workflow":
 			cmdWorkflow(os.Args[2:])
 			return
+		case "security":
+			cmdSecurity(os.Args[2:])
+			return
 		case "session":
 			cmdSession(os.Args[2:])
 			return
@@ -264,35 +267,6 @@ func main() {
 			if err := initOAuthTable(cfg.HistoryDB); err != nil {
 				logWarn("init oauth_tokens failed", "error", err)
 			}
-			// --- P23.0: Unified Memory Layer ---
-			if cfg.UnifiedMemory.Enabled {
-				if err := initUnifiedMemoryDB(cfg.HistoryDB); err != nil {
-					logWarn("init unified_memory failed", "error", err)
-				} else {
-					globalUnifiedMemoryEnabled = true
-					globalUnifiedMemoryDB = cfg.HistoryDB
-					logInfo("unified memory initialized")
-					// Auto-migrate legacy data if configured.
-					if cfg.UnifiedMemory.AutoMigrate {
-						vaultPath := ""
-						if cfg.Notes.Enabled {
-							vaultPath = cfg.Notes.vaultPathResolved(cfg.baseDir)
-						}
-						stats, err := umMigrateAll(cfg.HistoryDB, vaultPath)
-						if err != nil {
-							logWarn("unified memory migration failed", "error", err)
-						} else {
-							logInfo("unified memory migration complete",
-								"agentMemory", stats.AgentMemory,
-								"embeddings", stats.Embeddings,
-								"reflections", stats.Reflections,
-								"notes", stats.Notes,
-								"skipped", stats.Skipped,
-								"errors", stats.Errors)
-						}
-					}
-				}
-			}
 		}
 
 		// --- P23.1: User Profile & Emotional Memory ---
@@ -464,25 +438,15 @@ func main() {
 		cfg.toolRegistry = NewToolRegistry(cfg)
 		logInfo("tool registry initialized", "tools", len(cfg.toolRegistry.List()))
 
-		// Init workspace directories for all roles.
-		if err := initWorkspaces(cfg); err != nil {
-			logWarn("init workspaces failed", "error", err)
+		// Init directories for agents, workspace, and runtime.
+		if err := initDirectories(cfg); err != nil {
+			logWarn("init directories failed", "error", err)
 		} else {
-			logInfo("workspaces initialized", "roles", len(cfg.Roles))
+			logInfo("directories initialized", "roles", len(cfg.Roles))
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
-		// --- P23.0: Unified Memory Consolidation Loop ---
-		if cfg.UnifiedMemory.Enabled && cfg.UnifiedMemory.Consolidation.Enabled && cfg.HistoryDB != "" {
-			startConsolidationLoop(ctx, cfg.HistoryDB,
-				cfg.UnifiedMemory.consolidationIntervalOrDefault(),
-				cfg.UnifiedMemory.consolidationMaxAgeOrDefault())
-			logInfo("unified memory consolidation started",
-				"intervalH", cfg.UnifiedMemory.consolidationIntervalOrDefault(),
-				"maxAgeDays", cfg.UnifiedMemory.consolidationMaxAgeOrDefault())
-		}
 
 		// --- P23.7: Reliability & Operations --- Start background services.
 		if cfg.Ops.MessageQueue.Enabled && cfg.HistoryDB != "" {
@@ -898,8 +862,6 @@ func main() {
 			SpawnTracker:        globalSpawnTracker,
 			JudgeCache:          globalJudgeCache,
 			ImageGenLimiter:     globalImageGenLimiter,
-			UnifiedMemoryEnabled: globalUnifiedMemoryEnabled,
-			UnifiedMemoryDB:     globalUnifiedMemoryDB,
 			Presence:    globalPresence,
 			Reminder:    reminderEngine,
 		}

@@ -72,14 +72,14 @@ func expandPrompt(prompt, jobID, dbPath, roleName, knowledgeDir string, cfg *Con
 	})
 
 	// Agent memory replacements: {{memory.KEY}}
-	if roleName != "" && dbPath != "" {
+	if roleName != "" && cfg != nil {
 		memRe := regexp.MustCompile(`\{\{memory\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
 		prompt = memRe.ReplaceAllStringFunc(prompt, func(match string) string {
 			parts := memRe.FindStringSubmatch(match)
 			if len(parts) < 2 {
 				return match
 			}
-			val, _ := getMemory(dbPath, roleName, parts[1])
+			val, _ := getMemory(cfg, roleName, parts[1])
 			return val
 		})
 	}

@@ -2,7 +2,7 @@
 # Tetora installer — safe for both `curl | bash` and `source <(curl ...)`.
 
 _tetora_install() {
-    local VERSION="${TETORA_VERSION:-1.2.7}"
+    local VERSION="${TETORA_VERSION:-1.3.0}"
     local INSTALL_DIR="${TETORA_INSTALL_DIR:-$HOME/.tetora/bin}"
     local BASE_URL="${TETORA_BASE_URL:-https://github.com/TakumaLee/Tetora/releases/download/v${VERSION}}"
 
