@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -33,6 +34,11 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req ProviderRequest) (*Pro
 		cmd = exec.CommandContext(ctx, p.binaryPath, args...)
 		cmd.Dir = req.Workdir
 		cmd.Env = os.Environ()
+	}
+
+	// Pipe prompt via stdin to avoid OS ARG_MAX limits on long prompts.
+	if req.Prompt != "" {
+		cmd.Stdin = strings.NewReader(req.Prompt)
 	}
 
 	// Streaming mode: pipe stdout line-by-line, emitting SSE events.
@@ -201,7 +207,8 @@ func buildClaudeArgs(req ProviderRequest) []string {
 		args = append(args, "--append-system-prompt", req.SystemPrompt)
 	}
 
-	args = append(args, req.Prompt)
+	// Prompt is NOT appended as a positional arg; it is piped via stdin
+	// in Execute() to avoid OS ARG_MAX limits and shell escaping issues.
 	return args
 }
 

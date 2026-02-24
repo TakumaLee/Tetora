@@ -232,9 +232,11 @@ func TestBuildClaudeArgs_Basic(t *testing.T) {
 	assertContainsSequence(t, args, "--permission-mode", "acceptEdits")
 	assertContains(t, args, "--print")
 	assertContains(t, args, "--no-session-persistence")
-	// Prompt should be last
-	if args[len(args)-1] != "hello world" {
-		t.Errorf("expected prompt as last arg, got %s", args[len(args)-1])
+	// Prompt should NOT be in args (piped via stdin instead).
+	for _, a := range args {
+		if a == "hello world" {
+			t.Error("prompt should not be in args; it is piped via stdin")
+		}
 	}
 }
 
