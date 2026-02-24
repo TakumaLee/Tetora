@@ -1,6 +1,10 @@
-# Tetora
+<p align="center">
+  <img src="assets/banner.png" alt="Tetora — AI Agent Orchestrator" width="800">
+</p>
 
-**Self-hosted AI assistant platform with multi-agent architecture.**
+<p align="center">
+  <strong>Self-hosted AI assistant platform with multi-agent architecture.</strong>
+</p>
 
 Tetora runs as a single Go binary with zero external dependencies. It connects to the AI providers you already use, integrates with the messaging platforms your team lives on, and keeps all data on your own hardware.
 
