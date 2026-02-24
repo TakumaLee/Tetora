@@ -923,6 +923,15 @@ func slugify(s string) string {
 // migCopyFile copies a single file from src to dst, creating parent directories as needed.
 // Named differently from copyFile in backup_schedule.go to avoid redeclaration.
 func migCopyFile(src, dst string) error {
+	// Skip non-regular files (sockets, pipes, device files).
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -947,14 +956,17 @@ func migCopyFile(src, dst string) error {
 }
 
 // copyDir recursively copies a directory tree from src to dst.
+// Skips non-regular files (sockets, pipes) and tolerates missing/inaccessible files.
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			// Skip files/dirs that vanished or are inaccessible (e.g. browser temp files).
-			if os.IsNotExist(err) || os.IsPermission(err) {
-				return nil
-			}
-			return err
+			// Skip files/dirs that vanished, are inaccessible, or can't be stat'd (sockets, etc).
+			return nil
+		}
+
+		// Skip non-regular, non-directory entries (sockets, pipes, device files).
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return nil
 		}
 
 		rel, err := filepath.Rel(src, path)

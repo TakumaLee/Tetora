@@ -218,9 +218,61 @@ func runImportPipeline(cfg *Config, ocDir string, mode ImportMode, dryRun, autoY
 
 // --- Stage 1: Copy to Staging ---
 
+// importSkipDirs are directories that don't need to be staged (skipped in mapping anyway).
+var importSkipDirs = map[string]bool{
+	"browser":    true,
+	"sd-setup":   true,
+	"demo-video": true,
+	"sessions":   true,
+	"node_modules": true,
+}
+
 func importStageCopy(ocDir string) (string, error) {
 	tmpDir := filepath.Join(os.TempDir(), fmt.Sprintf("tetora-import-%d", time.Now().Unix()))
-	if err := copyDir(ocDir, tmpDir); err != nil {
+
+	count := 0
+	err := filepath.Walk(ocDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) || os.IsPermission(err) {
+				return nil
+			}
+			return err
+		}
+
+		rel, err := filepath.Rel(ocDir, path)
+		if err != nil {
+			return err
+		}
+
+		// Skip known large irrelevant top-level directories.
+		if info.IsDir() {
+			topDir := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+			if importSkipDirs[topDir] {
+				return filepath.SkipDir
+			}
+		}
+
+		target := filepath.Join(tmpDir, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+
+		if err := migCopyFile(path, target); err != nil {
+			if os.IsNotExist(err) || os.IsPermission(err) {
+				return nil
+			}
+			return err
+		}
+		count++
+		if count%50 == 0 {
+			fmt.Printf("\r  Copying files... %d", count)
+		}
+		return nil
+	})
+	if count > 0 {
+		fmt.Printf("\r  Copied %d files to staging\n", count)
+	}
+	if err != nil {
 		return "", fmt.Errorf("copy %s to %s: %w", ocDir, tmpDir, err)
 	}
 	return tmpDir, nil
