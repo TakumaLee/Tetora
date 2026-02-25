@@ -1,7 +1,7 @@
 # 安裝 Tetora
 
 <p align="center">
-  <a href="INSTALL.md">English</a> | <strong>繁體中文</strong> | <a href="INSTALL.zh-CN.md">简体中文</a> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.id.md">Bahasa Indonesia</a>
+  <a href="INSTALL.md">English</a> | <strong>繁體中文</strong> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.it.md">Italiano</a> | <a href="INSTALL.ru.md">Русский</a>
 </p>
 
 ---

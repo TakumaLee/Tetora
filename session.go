@@ -758,11 +758,9 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 			logWarn("update session stats failed", "session", sessionID, "error", err)
 		}
 
-		// Mark session completed if task succeeded (single-shot sessions).
+		// Mark session completed once the task reaches any terminal state.
 		// Multi-turn sessions via /sessions/{id}/message won't hit this path.
-		if result.Status == "success" {
-			updateSessionStatus(dbPath, sessionID, "completed")
-		}
+		updateSessionStatus(dbPath, sessionID, "completed")
 	}()
 }
 

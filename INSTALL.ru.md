@@ -1,7 +1,7 @@
 # Установка Tetora
 
 <p align="center">
-  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <a href="INSTALL.zh-CN.md">简体中文</a> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <strong>Русский</strong>
+  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.it.md">Italiano</a> | <strong>Русский</strong>
 </p>
 
 ---
@@ -71,6 +71,9 @@ source ~/.zshrc
 Этот путь использует **Claude Code CLI** в качестве бэкенда ИИ. Требуется активная подписка Claude Pro ($20/месяц на [claude.ai](https://claude.ai)).
 
 > **Почему этот путь?** Не нужно управлять API-ключами, никаких неожиданных счетов. Ваша подписка Pro покрывает всё использование Tetora через Claude Code.
+
+> [!IMPORTANT]
+> **Предварительные требования:** Для этого пути необходима активная подписка Claude Pro ($20/месяц). Если вы ещё не подписались, сначала посетите [claude.ai/upgrade](https://claude.ai/upgrade).
 
 ### Шаг 1: Установка Claude Code CLI
 
