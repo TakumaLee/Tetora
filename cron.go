@@ -22,10 +22,10 @@ type CronJobConfig struct {
 	Name            string         `json:"name"`
 	Enabled         bool           `json:"enabled"`
 	Schedule        string         `json:"schedule"`
-	TZ              string         `json:"tz"`
-	Role            string         `json:"role"`
+	TZ              string         `json:"tz,omitempty"`
+	Role            string         `json:"role,omitempty"`
 	Task            CronTaskConfig `json:"task"`
-	Notify          bool           `json:"notify"`
+	Notify          bool           `json:"notify,omitempty"`
 	MaxRetries      int            `json:"maxRetries,omitempty"`      // 0 = no retry (default)
 	RetryDelay      string         `json:"retryDelay,omitempty"`      // e.g. "1m", "5m"; default "1m"
 	OnSuccess       []string       `json:"onSuccess,omitempty"`       // job IDs to trigger on success
@@ -37,15 +37,15 @@ type CronJobConfig struct {
 type CronTaskConfig struct {
 	Prompt         string   `json:"prompt"`
 	PromptFile     string   `json:"promptFile,omitempty"` // file in ~/.tetora/prompts/ (overrides prompt)
-	Workdir        string   `json:"workdir"`
-	Model          string   `json:"model"`
+	Workdir        string   `json:"workdir,omitempty"`
+	Model          string   `json:"model,omitempty"`
 	Provider       string   `json:"provider,omitempty"` // override provider (e.g. "openai", "ollama")
 	Docker         *bool    `json:"docker,omitempty"`   // per-job Docker sandbox override
-	Timeout        string   `json:"timeout"`
-	Budget         float64  `json:"budget"`
-	PermissionMode string   `json:"permissionMode"`
-	MCP            string   `json:"mcp"`
-	AddDirs        []string `json:"addDirs"`
+	Timeout        string   `json:"timeout,omitempty"`
+	Budget         float64  `json:"budget,omitempty"`
+	PermissionMode string   `json:"permissionMode,omitempty"`
+	MCP            string   `json:"mcp,omitempty"`
+	AddDirs        []string `json:"addDirs,omitempty"`
 }
 
 // --- Runtime Job State ---

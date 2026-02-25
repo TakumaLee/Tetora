@@ -1238,25 +1238,28 @@ func importMergeCronJobs(cfg *Config, cronPath string) (int, []string) {
 	content := string(data)
 	content = strings.ReplaceAll(content, "~/.openclaw/", "~/.tetora/")
 	content = strings.ReplaceAll(content, ".openclaw/", ".tetora/")
+	content = strings.ReplaceAll(content, "/Users/kumaneko/.openclaw/", "/Users/kumaneko/.tetora/")
 
-	// OpenClaw uses array of job objects.
+	// Parse OpenClaw format: {"version":N, "jobs":[...]} or bare array [...].
 	var ocJobs []map[string]any
-	if err := json.Unmarshal([]byte(content), &ocJobs); err != nil {
+	var wrapper struct {
+		Jobs []map[string]any `json:"jobs"`
+	}
+	if err := json.Unmarshal([]byte(content), &wrapper); err == nil && len(wrapper.Jobs) > 0 {
+		ocJobs = wrapper.Jobs
+	} else if err := json.Unmarshal([]byte(content), &ocJobs); err != nil {
 		return 0, []string{fmt.Sprintf("parse cron jobs: %v", err)}
 	}
 
-	// Read existing Tetora jobs.
-	var tetoraJobs []map[string]any
-	if existing, err := os.ReadFile(cfg.JobsFile); err == nil {
-		json.Unmarshal(existing, &tetoraJobs)
+	// Read existing Tetora jobs (in {"jobs":[...]} format).
+	var existing JobsFile
+	if raw, err := os.ReadFile(cfg.JobsFile); err == nil {
+		json.Unmarshal(raw, &existing)
 	}
 
-	// Merge: add OpenClaw jobs that don't already exist (by name).
 	existingNames := make(map[string]bool)
-	for _, j := range tetoraJobs {
-		if name, ok := j["name"].(string); ok {
-			existingNames[name] = true
-		}
+	for _, j := range existing.Jobs {
+		existingNames[j.Name] = true
 	}
 
 	added := 0
@@ -1270,12 +1273,22 @@ func importMergeCronJobs(cfg *Config, cronPath string) (int, []string) {
 			warnings = append(warnings, fmt.Sprintf("cron job %q already exists, skipping", name))
 			continue
 		}
-		tetoraJobs = append(tetoraJobs, job)
+
+		converted, warn := convertOpenClawJob(job)
+		if warn != "" {
+			warnings = append(warnings, warn)
+		}
+		if converted == nil {
+			continue
+		}
+
+		existing.Jobs = append(existing.Jobs, *converted)
+		existingNames[name] = true
 		added++
 	}
 
 	if added > 0 {
-		out, err := json.MarshalIndent(tetoraJobs, "", "  ")
+		out, err := json.MarshalIndent(existing, "", "  ")
 		if err != nil {
 			return 0, []string{fmt.Sprintf("marshal jobs: %v", err)}
 		}
@@ -1285,6 +1298,93 @@ func importMergeCronJobs(cfg *Config, cronPath string) (int, []string) {
 	}
 
 	return added, warnings
+}
+
+// convertOpenClawJob converts an OpenClaw cron job to Tetora CronJobConfig.
+func convertOpenClawJob(job map[string]any) (*CronJobConfig, string) {
+	// Extract schedule. OpenClaw uses {"kind":"cron","expr":"...","tz":"..."}.
+	var schedule, tz string
+	switch sched := job["schedule"].(type) {
+	case string:
+		schedule = sched
+	case map[string]any:
+		kind, _ := sched["kind"].(string)
+		if kind == "at" {
+			// One-time schedule — skip (already expired).
+			name, _ := job["name"].(string)
+			return nil, fmt.Sprintf("cron job %q has one-time schedule, skipping", name)
+		}
+		schedule, _ = sched["expr"].(string)
+		tz, _ = sched["tz"].(string)
+	}
+	if schedule == "" {
+		name, _ := job["name"].(string)
+		return nil, fmt.Sprintf("cron job %q has no schedule, skipping", name)
+	}
+
+	// Extract basic fields.
+	id, _ := job["id"].(string)
+	name, _ := job["name"].(string)
+	enabled, _ := job["enabled"].(bool)
+	notify := false
+
+	// Convert delivery to notify flag.
+	if delivery, ok := job["delivery"].(map[string]any); ok {
+		if _, hasChannel := delivery["channel"]; hasChannel {
+			notify = true
+		}
+	}
+
+	// Map agentId to role. "main" → "ruri".
+	role := "ruri"
+	if agentID, ok := job["agentId"].(string); ok && agentID != "main" {
+		role = agentID
+	}
+
+	// Extract payload → task config.
+	var task CronTaskConfig
+	if payload, ok := job["payload"].(map[string]any); ok {
+		task.Prompt, _ = payload["message"].(string)
+
+		// Timeout: seconds → duration string.
+		if timeoutSec, ok := payload["timeoutSeconds"].(float64); ok && timeoutSec > 0 {
+			mins := int(timeoutSec) / 60
+			if mins < 1 {
+				mins = 1
+			}
+			task.Timeout = fmt.Sprintf("%dm", mins)
+		}
+
+		// Model name mapping.
+		if model, ok := payload["model"].(string); ok {
+			task.Model = convertOpenClawModel(model)
+		}
+	}
+
+	return &CronJobConfig{
+		ID:       id,
+		Name:     name,
+		Enabled:  enabled,
+		Schedule: schedule,
+		TZ:       tz,
+		Role:     role,
+		Task:     task,
+		Notify:   notify,
+	}, ""
+}
+
+// convertOpenClawModel maps OpenClaw model IDs to Tetora short names.
+func convertOpenClawModel(model string) string {
+	switch {
+	case strings.Contains(model, "opus"):
+		return "opus"
+	case strings.Contains(model, "sonnet"):
+		return "sonnet"
+	case strings.Contains(model, "haiku"):
+		return "haiku"
+	default:
+		return model
+	}
 }
 
 // --- Directory Tree Helpers ---
