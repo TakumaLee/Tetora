@@ -309,6 +309,58 @@ func newUUID() string {
 
 // --- Task Defaults ---
 
+// estimateTimeout infers an appropriate task timeout from the prompt content.
+// This prevents long-running development tasks from being killed prematurely.
+// The caller can always override by setting Task.Timeout explicitly.
+func estimateTimeout(prompt string) string {
+	p := strings.ToLower(prompt)
+
+	// Heaviest tasks — large-scale refactors, migrations, multi-phase builds.
+	heavyKeywords := []string{
+		"refactor", "migrate", "migration", "全部", "整個", "整合", "架構",
+		"rewrite", "overhaul", "all ", "entire", "全面",
+	}
+	for _, kw := range heavyKeywords {
+		if strings.Contains(p, kw) {
+			return "3h"
+		}
+	}
+
+	// Medium-heavy — implementation, multi-file changes, feature builds.
+	buildKeywords := []string{
+		"implement", "build", "create", "add ", "新增", "建立", "實作",
+		"feature", "功能", "develop", "設計", "規劃",
+	}
+	for _, kw := range buildKeywords {
+		if strings.Contains(p, kw) {
+			return "1h"
+		}
+	}
+
+	// Light fixes — targeted bug fixes and updates.
+	fixKeywords := []string{
+		"fix", "bug", "修復", "update", "更新", "debug", "patch", "調整",
+	}
+	for _, kw := range fixKeywords {
+		if strings.Contains(p, kw) {
+			return "30m"
+		}
+	}
+
+	// Read-only / query tasks.
+	queryKeywords := []string{
+		"check", "查", "show", "list", "search", "analyze", "分析", "查看",
+	}
+	for _, kw := range queryKeywords {
+		if strings.Contains(p, kw) {
+			return "15m"
+		}
+	}
+
+	// Default: 1h is safe for most tasks.
+	return "1h"
+}
+
 func fillDefaults(cfg *Config, t *Task) {
 	if t.ID == "" {
 		t.ID = newUUID()
@@ -320,7 +372,12 @@ func fillDefaults(cfg *Config, t *Task) {
 		t.Model = cfg.DefaultModel
 	}
 	if t.Timeout == "" {
-		t.Timeout = cfg.DefaultTimeout
+		// Use smart estimation from prompt; fall back to config default.
+		if t.Prompt != "" {
+			t.Timeout = estimateTimeout(t.Prompt)
+		} else {
+			t.Timeout = cfg.DefaultTimeout
+		}
 	}
 	if t.Budget == 0 {
 		t.Budget = cfg.DefaultBudget
@@ -614,7 +671,12 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {
-		timeout = 15 * time.Minute
+		// Estimate from prompt rather than hard-coding 15m.
+		estimated, _ := time.ParseDuration(estimateTimeout(task.Prompt))
+		if estimated <= 0 {
+			estimated = time.Hour
+		}
+		timeout = estimated
 	}
 	taskCtx, taskCancel := context.WithTimeout(ctx, timeout)
 	defer taskCancel()
@@ -816,7 +878,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {
-		timeout = 15 * time.Minute
+		// Estimate from prompt rather than hard-coding 15m.
+		estimated, _ := time.ParseDuration(estimateTimeout(task.Prompt))
+		if estimated <= 0 {
+			estimated = time.Hour
+		}
+		timeout = estimated
 	}
 	taskCtx, taskCancel := context.WithTimeout(ctx, timeout)
 	defer taskCancel()

@@ -707,7 +707,7 @@ func tryLoadConfig(path string) (*Config, error) {
 		cfg.DefaultModel = "sonnet"
 	}
 	if cfg.DefaultTimeout == "" {
-		cfg.DefaultTimeout = "15m"
+		cfg.DefaultTimeout = "1h"
 	}
 	if cfg.DefaultPermissionMode == "" {
 		cfg.DefaultPermissionMode = "acceptEdits"
