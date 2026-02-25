@@ -193,15 +193,31 @@ func restartDaemonProcess(binaryPath string) bool {
 		return false
 	}
 
-	// May have multiple PIDs (one per line), kill each.
+	// May have multiple PIDs (one per line), kill each with SIGTERM.
 	pids := strings.Fields(strings.TrimSpace(string(out)))
 	fmt.Printf("Stopping daemon (PID %s)...\n", strings.Join(pids, ", "))
 	for _, pid := range pids {
 		exec.Command("kill", pid).Run()
 	}
 
-	// Wait briefly for process to exit.
-	time.Sleep(500 * time.Millisecond)
+	// Poll until all processes are dead (up to 3s), then SIGKILL stragglers.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		check, _ := exec.Command("pgrep", "-f", "tetora serve").Output()
+		if len(strings.TrimSpace(string(check))) == 0 {
+			break
+		}
+	}
+	// Force-kill any remaining processes.
+	if remaining, _ := exec.Command("pgrep", "-f", "tetora serve").Output(); len(strings.TrimSpace(string(remaining))) > 0 {
+		stragglers := strings.Fields(strings.TrimSpace(string(remaining)))
+		fmt.Printf("Force-killing stragglers (PID %s)...\n", strings.Join(stragglers, ", "))
+		for _, pid := range stragglers {
+			exec.Command("kill", "-9", pid).Run()
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 
 	// Start new daemon in background.
 	fmt.Println("Starting daemon...")
@@ -220,6 +236,35 @@ func restartDaemonProcess(binaryPath string) bool {
 
 	fmt.Printf("Daemon restarted (PID %d).\n", cmd.Process.Pid)
 	return true
+}
+
+// cmdRestart restarts the running tetora daemon.
+func cmdRestart() {
+	selfPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot determine executable path: %v\n", err)
+		os.Exit(1)
+	}
+	selfPath, _ = filepath.EvalSymlinks(selfPath)
+
+	// Try launchd first.
+	home, _ := os.UserHomeDir()
+	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
+	if _, err := os.Stat(plist); err == nil {
+		fmt.Println("Restarting service (launchd)...")
+		exec.Command("launchctl", "unload", plist).Run()
+		exec.Command("launchctl", "load", plist).Run()
+		fmt.Println("Service restarted.")
+		return
+	}
+
+	// No launchd — find running daemon process and restart it.
+	if restartDaemonProcess(selfPath) {
+		return
+	}
+
+	fmt.Println("No running daemon found. Start with:")
+	fmt.Println("  tetora serve")
 }
 
 func cmdOpenDashboard() {

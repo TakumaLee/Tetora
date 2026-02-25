@@ -33,12 +33,15 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req ProviderRequest) (*Pro
 	} else {
 		cmd = exec.CommandContext(ctx, p.binaryPath, args...)
 		cmd.Dir = req.Workdir
-		// Filter out CLAUDECODE so Claude Code doesn't refuse to start when
-		// Tetora is invoked from within a Claude Code session.
+		// Filter out Claude Code session env vars so Claude Code doesn't refuse to start
+		// when Tetora is invoked from within a Claude Code session. Claude Code checks
+		// CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, and CLAUDE_CODE_TEAM_MODE.
 		rawEnv := os.Environ()
 		filteredEnv := make([]string, 0, len(rawEnv))
 		for _, e := range rawEnv {
-			if !strings.HasPrefix(e, "CLAUDECODE=") {
+			if !strings.HasPrefix(e, "CLAUDECODE=") &&
+				!strings.HasPrefix(e, "CLAUDE_CODE_ENTRYPOINT=") &&
+				!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") {
 				filteredEnv = append(filteredEnv, e)
 			}
 		}

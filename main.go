@@ -148,6 +148,9 @@ func main() {
 		case "drain":
 			cmdDrain()
 			return
+		case "restart":
+			cmdRestart()
+			return
 		case "upgrade":
 			cmdUpgrade()
 			return

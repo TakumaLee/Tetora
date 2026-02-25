@@ -33,12 +33,15 @@ func (p *ClaudeCodeProvider) Execute(ctx context.Context, req ProviderRequest) (
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 	cmd.Dir = req.Workdir
 
-	// Filter out CLAUDECODE to allow spawning Claude Code from within a Claude Code session.
-	// Claude Code refuses to start when CLAUDECODE env var is set (nested session guard).
+	// Filter out Claude Code session env vars to allow spawning Claude Code from within
+	// a Claude Code session. Claude Code checks CLAUDECODE, CLAUDE_CODE_ENTRYPOINT,
+	// and CLAUDE_CODE_TEAM_MODE to detect nested sessions.
 	rawEnv := os.Environ()
 	filteredEnv := make([]string, 0, len(rawEnv))
 	for _, e := range rawEnv {
-		if !strings.HasPrefix(e, "CLAUDECODE=") {
+		if !strings.HasPrefix(e, "CLAUDECODE=") &&
+			!strings.HasPrefix(e, "CLAUDE_CODE_ENTRYPOINT=") &&
+			!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") {
 			filteredEnv = append(filteredEnv, e)
 		}
 	}
