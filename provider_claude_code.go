@@ -131,6 +131,7 @@ func (p *ClaudeCodeProvider) Execute(ctx context.Context, req ProviderRequest) (
 func buildClaudeCodeArgs(req ProviderRequest) []string {
 	args := []string{
 		"--print",
+		"--verbose",
 		"--output-format", "stream-json",
 	}
 

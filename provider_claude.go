@@ -279,6 +279,7 @@ func buildClaudeArgs(req ProviderRequest, streaming bool) []string {
 	}
 	args := []string{
 		"--print",
+		"--verbose",
 		"--output-format", outputFormat,
 		"--model", req.Model,
 		"--session-id", req.SessionID,
