@@ -21,7 +21,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run tests
         run: go test ./...
@@ -36,7 +36,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Extract version from tag
         id: version
@@ -136,16 +136,47 @@ jobs:
       - name: Copy installer scripts to dist
         run: |
           cp install.sh dist/install.sh
-          # install.ps1 is included if it exists
           if [ -f install.ps1 ]; then
             cp install.ps1 dist/install.ps1
           fi
+          echo "Files ready for release:"
+          ls -lh dist/
+
+      - name: Verify required binaries exist
+        run: |
+          required=(
+            dist/tetora-darwin-amd64
+            dist/tetora-darwin-arm64
+            dist/tetora-linux-amd64
+            dist/tetora-linux-arm64
+            dist/tetora-windows-amd64.exe
+            dist/tetora-linux-amd64.deb
+            dist/tetora-windows-amd64.zip
+            dist/checksums.txt
+            dist/install.sh
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "MISSING: $f"
+              missing=1
+            else
+              echo "OK: $f ($(stat -c%s "$f") bytes)"
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "ERROR: required release files are missing, aborting upload"
+            exit 1
+          fi
+          echo "All required files present."
 
       - name: Create GitHub Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           make_latest: true
+          fail_on_unmatched_files: false
           files: |
             dist/tetora-darwin-amd64
             dist/tetora-darwin-arm64
@@ -157,3 +188,38 @@ jobs:
             dist/checksums.txt
             dist/install.sh
             dist/install.ps1
+
+      - name: Verify release assets uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          echo "Verifying uploaded assets for $TAG..."
+          assets=$(gh release view "$TAG" --json assets -q '.assets[].name')
+          echo "Uploaded assets:"
+          echo "$assets"
+          required_assets=(
+            "tetora-darwin-amd64"
+            "tetora-darwin-arm64"
+            "tetora-linux-amd64"
+            "tetora-linux-arm64"
+            "tetora-windows-amd64.exe"
+            "tetora-linux-amd64.deb"
+            "tetora-windows-amd64.zip"
+            "checksums.txt"
+            "install.sh"
+          )
+          missing=0
+          for asset in "${required_assets[@]}"; do
+            if echo "$assets" | grep -q "^${asset}$"; then
+              echo "VERIFIED: $asset"
+            else
+              echo "MISSING FROM RELEASE: $asset"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "ERROR: some assets were not uploaded to the release"
+            exit 1
+          fi
+          echo "All assets verified successfully."
