@@ -33,7 +33,16 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req ProviderRequest) (*Pro
 	} else {
 		cmd = exec.CommandContext(ctx, p.binaryPath, args...)
 		cmd.Dir = req.Workdir
-		cmd.Env = os.Environ()
+		// Filter out CLAUDECODE so Claude Code doesn't refuse to start when
+		// Tetora is invoked from within a Claude Code session.
+		rawEnv := os.Environ()
+		filteredEnv := make([]string, 0, len(rawEnv))
+		for _, e := range rawEnv {
+			if !strings.HasPrefix(e, "CLAUDECODE=") {
+				filteredEnv = append(filteredEnv, e)
+			}
+		}
+		cmd.Env = filteredEnv
 	}
 
 	// Pipe prompt via stdin to avoid OS ARG_MAX limits on long prompts.
