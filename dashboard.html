@@ -459,6 +459,33 @@ tr:hover { background: rgba(255,255,255,0.02); }
   text-overflow: ellipsis;
 }
 
+/* Task Hierarchy */
+.task-indent {
+  border-left: 2px solid var(--border);
+  margin-left: 12px;
+  padding-left: 12px;
+}
+.task-role {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--accent);
+  margin-right: 6px;
+}
+.task-sub-label {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--accent2);
+  margin-left: 4px;
+}
+
 /* Live Output */
 .live-output {
   margin-top: 8px;
@@ -2078,8 +2105,13 @@ async function refresh() {
           const dot = d.phase === 'routing' ? 'dot-blue' : d.phase === 'processing' ? 'dot-yellow' : 'dot-green';
           const label = d.role ? d.role + ' (' + d.phase + ')' : d.phase;
           const meta = [d.author, d.elapsed].filter(Boolean).join(' · ');
-          return `<div class="dispatch-task"><span class="dot ${dot}"></span>${esc(label)} <span style="color:var(--muted);font-size:12px">${esc(meta)}</span></div>`;
+          const liveBtn = d.phase === 'processing' && d.taskId
+            ? ` <button class="btn-live" id="live-btn-${esc(d.taskId)}" onclick="toggleLive('${esc(d.taskId)}')">Live</button>`
+            : '';
+          return `<div class="dispatch-task" id="task-${esc(d.taskId)}"><span class="dot ${dot}"></span>${esc(label)} <span style="color:var(--muted);font-size:12px">${esc(meta)}</span>${liveBtn}
+            <div class="live-output" id="live-${esc(d.taskId)}" style="display:none"></div></div>`;
         }).join('');
+        cleanupLiveStreams();
       }
       document.getElementById('dispatch-tasks').innerHTML = dHTML;
     } else {
@@ -2259,7 +2291,42 @@ async function refreshRunning() {
     section.style.display = '';
     document.getElementById('running-meta').textContent = `${tasks.length} running`;
 
-    container.innerHTML = tasks.map(t => {
+    // Build tree: group by parentId, walk recursively for ordered flat list.
+    const byId = {};
+    const byParent = {};
+    const roots = [];
+    tasks.forEach(t => {
+      byId[t.id] = t;
+      if (t.parentId && byId[t.parentId]) {
+        (byParent[t.parentId] = byParent[t.parentId] || []).push(t);
+      } else if (t.parentId) {
+        // Orphan sub-agent (parent already finished) — treat as root with depth intact.
+        roots.push(t);
+      } else {
+        roots.push(t);
+      }
+    });
+    // Also index children whose parents were added after them.
+    tasks.forEach(t => {
+      if (t.parentId && byId[t.parentId] && !roots.includes(t)) {
+        if (!byParent[t.parentId] || !byParent[t.parentId].includes(t)) {
+          (byParent[t.parentId] = byParent[t.parentId] || []).push(t);
+        }
+      }
+    });
+
+    const ordered = [];
+    function walkTree(list) {
+      for (const t of list) {
+        ordered.push(t);
+        if (byParent[t.id]) walkTree(byParent[t.id]);
+      }
+    }
+    walkTree(roots);
+    // Include any tasks not yet in ordered (safety net).
+    tasks.forEach(t => { if (!ordered.includes(t)) ordered.push(t); });
+
+    container.innerHTML = ordered.map(t => {
       const elapsedSec = parseDuration(t.elapsed);
       const timeoutSec = parseTimeout(t.timeout);
       const pct = Math.min((elapsedSec / timeoutSec) * 100, 100);
@@ -2274,11 +2341,18 @@ async function refreshRunning() {
         ? `<span class="${t.pidAlive ? 'pid-alive' : 'pid-dead'}">PID ${t.pid} ${t.pidAlive ? 'alive' : 'dead!'}</span>`
         : '';
 
-      return `<div class="running-task" id="task-${esc(t.id)}">
+      const depth = t.depth || 0;
+      const indentStyle = depth > 0 ? ` style="margin-left:${depth * 24}px"` : '';
+      const indentClass = depth > 0 ? ' task-indent' : '';
+      const roleBadge = t.role ? `<span class="task-role">${esc(t.role)}</span>` : '';
+      const subLabel = (t.source && t.source.startsWith('agent_dispatch')) ? '<span class="task-sub-label">sub-agent</span>' : '';
+      const sourceDisplay = t.source || '';
+
+      return `<div class="running-task${indentClass}" id="task-${esc(t.id)}"${indentStyle}>
         <div class="running-task-header">
-          <span class="running-task-name"><span class="dot dot-yellow"></span>${esc(t.name)}</span>
+          <span class="running-task-name">${roleBadge}<span class="dot dot-yellow"></span>${esc(t.name)}${subLabel}</span>
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:12px;color:var(--muted)">${esc(t.source)}</span>
+            <span style="font-size:12px;color:var(--muted)">${esc(sourceDisplay)}</span>
             <button class="btn-live" id="live-btn-${esc(t.id)}" onclick="toggleLive('${esc(t.id)}')">Live</button>
             <button class="btn btn-del" onclick="cancelTask('${esc(t.id)}')" style="font-size:10px;padding:2px 8px">Cancel</button>
           </div>
@@ -4053,7 +4127,7 @@ function finalizeChatBubble(data, isError) {
 
 // --- Chat Input Handling ---
 function chatKeydown(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChatMessage(); }
 }
 
 function autoResizeInput(el) {

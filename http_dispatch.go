@@ -148,12 +148,17 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 
-		state.mu.Lock()
-		busy := state.active
-		state.mu.Unlock()
-		if busy {
-			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
-			return
+		// Allow sub-agent dispatches to run concurrently with parent tasks.
+		// Only block duplicate batch dispatches from external callers.
+		isSubAgent := r.Header.Get("X-Tetora-Source") == "agent_dispatch"
+		if !isSubAgent {
+			state.mu.Lock()
+			busy := state.active
+			state.mu.Unlock()
+			if busy {
+				http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
+				return
+			}
 		}
 
 		var tasks []Task
@@ -260,6 +265,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			Prompt   string `json:"prompt,omitempty"`
 			PID      int    `json:"pid,omitempty"`
 			PIDAlive bool   `json:"pidAlive"`
+			Role     string `json:"role,omitempty"`
+			ParentID string `json:"parentId,omitempty"`
+			Depth    int    `json:"depth,omitempty"`
 		}
 
 		var tasks []runningTask
@@ -290,6 +298,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				Prompt:   prompt,
 				PID:      pid,
 				PIDAlive: pidAlive,
+				Role:     ts.task.Role,
+				ParentID: ts.task.ParentID,
+				Depth:    ts.task.Depth,
 			})
 		}
 		state.mu.Unlock()
@@ -603,7 +614,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.Error(w, `{"error":"prompt is required"}`, http.StatusBadRequest)
 			return
 		}
-		route := routeTask(r.Context(), cfg, RouteRequest{Prompt: body.Prompt, Source: "http"}, sem)
+		route := routeTask(r.Context(), cfg, RouteRequest{Prompt: body.Prompt, Source: "http"})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(route)
 	})

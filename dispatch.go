@@ -46,6 +46,7 @@ type Task struct {
 	ParentID       string   `json:"parentId,omitempty"` // --- P13.3: Nested Sub-Agents --- parent task ID
 	channelNotifier ChannelNotifier                     // P27.3: unexported, not serialized
 	approvalGate    ApprovalGate                        // P28.0: unexported, not serialized
+	sseBroker       *sseBroker                          // streaming: unexported, not serialized
 }
 
 type TaskResult struct {
@@ -169,6 +170,22 @@ func (s *dispatchState) publishSSE(event SSEEvent) {
 	s.broker.PublishMulti(keys, event)
 }
 
+// publishToSSEBroker publishes an SSE event directly via a broker reference.
+// Used by runSingleTask which has no access to dispatchState.
+func publishToSSEBroker(broker *sseBroker, event SSEEvent) {
+	if broker == nil {
+		return
+	}
+	keys := []string{SSEDashboardKey}
+	if event.TaskID != "" {
+		keys = append(keys, event.TaskID)
+	}
+	if event.SessionID != "" {
+		keys = append(keys, event.SessionID)
+	}
+	broker.PublishMulti(keys, event)
+}
+
 func (s *dispatchState) statusJSON() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,6 +202,9 @@ func (s *dispatchState) statusJSON() []byte {
 		Prompt   string  `json:"prompt,omitempty"`
 		PID      int     `json:"pid,omitempty"`
 		Source   string  `json:"source,omitempty"`
+		Role     string  `json:"role,omitempty"`
+		ParentID string  `json:"parentId,omitempty"`
+		Depth    int     `json:"depth,omitempty"`
 	}
 
 	status := "idle"
@@ -207,15 +227,18 @@ func (s *dispatchState) statusJSON() []byte {
 			pid = ts.cmd.Process.Pid
 		}
 		tasks = append(tasks, taskStatus{
-			ID:      ts.task.ID,
-			Name:    ts.task.Name,
-			Status:  "running",
-			Elapsed: time.Since(ts.startAt).Round(time.Second).String(),
-			Model:   ts.task.Model,
-			Timeout: ts.task.Timeout,
-			Prompt:  prompt,
-			PID:     pid,
-			Source:  ts.task.Source,
+			ID:       ts.task.ID,
+			Name:     ts.task.Name,
+			Status:   "running",
+			Elapsed:  time.Since(ts.startAt).Round(time.Second).String(),
+			Model:    ts.task.Model,
+			Timeout:  ts.task.Timeout,
+			Prompt:   prompt,
+			PID:      pid,
+			Source:   ts.task.Source,
+			Role:     ts.task.Role,
+			ParentID: ts.task.ParentID,
+			Depth:    ts.task.Depth,
 		})
 	}
 	for _, r := range s.finished {
@@ -606,8 +629,32 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	taskCtx, taskCancel := context.WithTimeout(ctx, timeout)
 	defer taskCancel()
 
+	// SSE streaming: publish started event and create eventCh when sseBroker is set.
+	var eventCh chan SSEEvent
+	if task.sseBroker != nil {
+		publishToSSEBroker(task.sseBroker, SSEEvent{
+			Type:      SSEStarted,
+			TaskID:    task.ID,
+			SessionID: task.SessionID,
+			Data: map[string]any{
+				"name":  task.Name,
+				"role":  roleName,
+				"model": task.Model,
+			},
+		})
+		eventCh = make(chan SSEEvent, 128)
+		go func() {
+			for ev := range eventCh {
+				publishToSSEBroker(task.sseBroker, ev)
+			}
+		}()
+	}
+
 	start := time.Now()
-	pr := executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, nil)
+	pr := executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, eventCh)
+	if eventCh != nil {
+		close(eventCh)
+	}
 	elapsed := time.Since(start)
 
 	result := TaskResult{
@@ -662,6 +709,27 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Save output to file.
 	if pr.Output != "" {
 		result.OutputFile = saveTaskOutput(cfg.baseDir, task.ID, []byte(pr.Output))
+	}
+
+	// SSE streaming: publish completed/error event.
+	if task.sseBroker != nil && result.Status != "queued" {
+		evType := SSECompleted
+		if result.Status != "success" {
+			evType = SSEError
+		}
+		publishToSSEBroker(task.sseBroker, SSEEvent{
+			Type:      evType,
+			TaskID:    task.ID,
+			SessionID: task.SessionID,
+			Data: map[string]any{
+				"status":     result.Status,
+				"durationMs": result.DurationMs,
+				"costUsd":    result.CostUSD,
+				"tokensIn":   result.TokensIn,
+				"tokensOut":  result.TokensOut,
+				"error":      result.Error,
+			},
+		})
 	}
 
 	// Note: history recording for runSingleTask is handled by the caller (cron.go).
@@ -1380,7 +1448,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			}
 
 			// P28.0: Pre-execution approval gate.
-			if needsApproval(cfg, tc.Name) && task.approvalGate != nil {
+			if needsApproval(cfg, tc.Name) && task.approvalGate != nil && !task.approvalGate.IsAutoApproved(tc.Name) {
 				approved, gateErr := requestToolApproval(ctx, cfg, task, tc)
 				if gateErr != nil || !approved {
 					toolResults = append(toolResults, ToolResult{
