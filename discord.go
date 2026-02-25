@@ -1233,8 +1233,8 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 			output = result.Status
 		}
 	}
-	// Fallback for empty output on success (e.g. tool-only responses).
-	if output == "" && result.Status == "success" {
+	// Fallback for empty/whitespace output on success (e.g. tool-only responses).
+	if strings.TrimSpace(output) == "" && result.Status == "success" {
 		parts := []string{"Task completed successfully."}
 		if result.TokensIn > 0 || result.TokensOut > 0 {
 			parts = append(parts, fmt.Sprintf("Tokens: %d in / %d out", result.TokensIn, result.TokensOut))
@@ -1244,14 +1244,31 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 		}
 		output = strings.Join(parts, "\n")
 	}
-	if len(output) > 3800 {
-		output = output[:3797] + "..."
+
+	// Send output as plain text messages (split into 2000-char chunks).
+	// This avoids embed description truncation and is more readable.
+	const maxChunk = 1900 // leave room for markdown formatting
+	for len(output) > 0 {
+		chunk := output
+		if len(chunk) > maxChunk {
+			// Try to split at a newline boundary.
+			cut := maxChunk
+			if idx := strings.LastIndex(chunk[:maxChunk], "\n"); idx > maxChunk/2 {
+				cut = idx + 1
+			}
+			chunk = output[:cut]
+			output = output[cut:]
+		} else {
+			output = ""
+		}
+		db.sendMessage(channelID, chunk)
 	}
+
+	// Send metadata as a small embed at the end.
 	db.sendEmbed(channelID, discordEmbed{
-		Title:       fmt.Sprintf("%s (%s)", route.Role, route.Method),
-		Description: output,
-		Color:       color,
+		Color: color,
 		Fields: []discordEmbedField{
+			{Name: "Role", Value: fmt.Sprintf("%s (%s)", route.Role, route.Method), Inline: true},
 			{Name: "Status", Value: result.Status, Inline: true},
 			{Name: "Cost", Value: fmt.Sprintf("$%.4f", result.CostUSD), Inline: true},
 			{Name: "Duration", Value: fmt.Sprintf("%dms", result.DurationMs), Inline: true},
