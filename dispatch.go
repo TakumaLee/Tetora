@@ -997,6 +997,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// Record session activity (skip for chat source — handled by HTTP handler).
 	if !strings.HasPrefix(task.Source, "chat") {
 		recordSessionActivity(cfg.HistoryDB, task, result, task.Role)
+		logSystemDispatch(cfg.HistoryDB, task, result, task.Role)
 	}
 
 	// Publish SSE completed/error/queued event.
@@ -1106,6 +1107,7 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 
 	// Record session activity.
 	recordSessionActivity(cfg.HistoryDB, task, result, task.Role)
+	logSystemDispatch(cfg.HistoryDB, task, result, task.Role)
 
 	// If retry succeeded, remove from failed tasks.
 	if result.Status == "success" {

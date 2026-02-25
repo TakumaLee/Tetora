@@ -738,6 +738,18 @@ tr:hover { background: rgba(255,255,255,0.02); }
   background: rgba(167,139,250,0.06);
   border-color: rgba(167,139,250,0.25);
 }
+.chat-session-item.system-log {
+  border-color: rgba(100,116,139,0.3);
+  margin-bottom: 8px;
+}
+.chat-session-item.system-log .chat-session-role { color: var(--muted) !important; }
+.chat-session-divider {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 12px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 .chat-session-role {
   font-size: 11px;
   font-weight: 600;
@@ -759,6 +771,21 @@ tr:hover { background: rgba(255,255,255,0.02); }
   font-size: 11px;
   color: var(--muted);
   margin-top: 2px;
+}
+
+.live-task-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid rgba(74,222,128,0.2);
+  margin-bottom: 4px;
+  background: rgba(74,222,128,0.03);
+  transition: background 0.15s, border-color 0.15s;
+}
+.live-task-item:hover { background: rgba(74,222,128,0.07); }
+.live-task-item.active {
+  background: rgba(74,222,128,0.1);
+  border-color: rgba(74,222,128,0.4);
 }
 
 /* Chat Main */
@@ -1383,6 +1410,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
             <option value="">All Roles</option>
           </select>
         </div>
+        <div id="live-tasks-section" style="display:none;border-bottom:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--green);padding:8px 12px 4px;display:flex;align-items:center;gap:6px"><span class="dot dot-green"></span>Live Tasks</div>
+          <div id="live-tasks-list" style="padding:0 8px 8px"></div>
+        </div>
         <div class="chat-sidebar-list" id="chat-sidebar-list"></div>
       </div>
       <div class="chat-main">
@@ -1391,7 +1422,8 @@ tr:hover { background: rgba(255,255,255,0.02); }
             <span id="chat-header-role" style="font-weight:600"></span>
             <span id="chat-header-meta" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
           </div>
-          <button class="btn btn-del" onclick="archiveChat()" style="font-size:11px">Archive</button>
+          <button class="btn" id="chat-back-btn" onclick="closeTaskView()" style="font-size:11px;display:none">← Back</button>
+          <button class="btn btn-del" id="chat-archive-btn" onclick="archiveChat()" style="font-size:11px">Archive</button>
         </div>
         <div class="chat-empty" id="chat-empty">Select a session or start a new chat</div>
         <div class="chat-messages" id="chat-messages" style="display:none"></div>
@@ -1915,17 +1947,20 @@ function handleActivityEvent(type, ev) {
       detail = '<b>' + esc(data.name || ev.taskId || '') + '</b>';
       if (data.role) detail += ' &middot; ' + esc(data.role);
       if (data.model) detail += ' <span class="muted">[' + esc(data.model) + ']</span>';
+      if (ev.taskId) addLiveTaskItem(ev.taskId, data);
       break;
     case 'completed':
       badge = 'completed';
       detail = esc(data.status || 'success');
       if (data.durationMs) detail += ' in ' + formatDuration(data.durationMs);
       if (data.costUsd) detail += ' &middot; $' + Number(data.costUsd).toFixed(4);
+      if (ev.taskId) removeLiveTaskItem(ev.taskId);
       break;
     case 'error':
       badge = 'error';
       detail = esc(data.error || data.status || 'error');
       if (data.durationMs) detail += ' <span class="muted">(' + formatDuration(data.durationMs) + ')</span>';
+      if (ev.taskId) removeLiveTaskItem(ev.taskId);
       break;
     case 'task_queued':
       badge = 'queued';
@@ -3871,6 +3906,9 @@ var chatSessionId = null;
 var chatSSE = null;
 var chatSending = false;
 var chatSessionRole = '';
+var liveTaskItems = {}; // taskId -> { name, role }
+var taskViewId = null;
+var taskViewSSE = null;
 
 function switchTab(tab) {
   currentTab = tab;
@@ -3915,17 +3953,39 @@ async function refreshChatSidebar() {
     var roleFilter = document.getElementById('chat-role-filter').value;
     var url = '/sessions?limit=50';
     if (roleFilter) url += '&role=' + encodeURIComponent(roleFilter);
-    var data = await fetch(url).then(function(r) { return r.json(); }).catch(function() { return { sessions: [] }; });
-    var sessions = data.sessions || [];
+
+    // Fetch session list and system log in parallel.
+    var results = await Promise.all([
+      fetch(url).then(function(r) { return r.json(); }).catch(function() { return { sessions: [] }; }),
+      fetch('/sessions/system:logs').then(function(r) { return r.json(); }).catch(function() { return null; }),
+    ]);
+    var sessions = results[0].sessions || [];
+    var sysData = results[1];
+    var sysSession = sysData && sysData.session ? sysData.session : null;
 
     var list = document.getElementById('chat-sidebar-list');
-    if (sessions.length === 0) {
+    var html = '';
+
+    // Pin system log at the top.
+    if (sysSession) {
+      var isActiveSys = !taskViewId && sysSession.id === chatSessionId;
+      html += '<div class="chat-session-item system-log' + (isActiveSys ? ' active' : '') + '" onclick="openChatSession(\'system:logs\')">' +
+        '<div class="chat-session-role"><span class="dot dot-gray"></span>System Log</div>' +
+        '<div class="chat-session-title">All dispatch outputs</div>' +
+        '<div class="chat-session-meta">' + (sysSession.messageCount || 0) + ' entries &middot; ' + costFmt(sysSession.totalCost || 0) + '</div>' +
+      '</div>';
+      if (sessions.length > 0) {
+        html += '<div class="chat-session-divider">Sessions</div>';
+      }
+    }
+
+    if (sessions.length === 0 && !sysSession) {
       list.innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No sessions yet</div>';
       return;
     }
 
-    list.innerHTML = sessions.map(function(s) {
-      var isActive = s.id === chatSessionId;
+    html += sessions.map(function(s) {
+      var isActive = !taskViewId && s.id === chatSessionId;
       var dotCls = s.status === 'active' ? 'dot-green' : 'dot-gray';
       var title = (s.title || '(untitled)').substring(0, 50);
       var color = chatRoleColor(s.role);
@@ -3935,17 +3995,197 @@ async function refreshChatSidebar() {
         '<div class="chat-session-meta">' + (s.messageCount || 0) + ' msgs &middot; ' + costFmt(s.totalCost || 0) + ' &middot; ' + dateTimeStr(s.updatedAt) + '</div>' +
       '</div>';
     }).join('');
+
+    list.innerHTML = html;
   } catch(e) { console.error('refreshChatSidebar:', e); }
+}
+
+function renderLiveTaskSection() {
+  var ids = Object.keys(liveTaskItems);
+  var section = document.getElementById('live-tasks-section');
+  var list = document.getElementById('live-tasks-list');
+  if (!section || !list) return;
+  if (ids.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  list.innerHTML = ids.map(function(id) {
+    var t = liveTaskItems[id];
+    var isActive = id === taskViewId;
+    var color = chatRoleColor(t.role);
+    return '<div class="live-task-item' + (isActive ? ' active' : '') + '" onclick="openTaskView(\'' + esc(id) + '\')">' +
+      '<div class="chat-session-role" style="color:' + color + '"><span class="dot dot-green"></span>' + esc(t.role) + '</div>' +
+      '<div class="chat-session-title">' + esc((t.name || id).substring(0, 50)) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function addLiveTaskItem(taskId, data) {
+  liveTaskItems[taskId] = { name: data.name || taskId, role: data.role || 'Agent' };
+  renderLiveTaskSection();
+}
+
+function removeLiveTaskItem(taskId) {
+  delete liveTaskItems[taskId];
+  renderLiveTaskSection();
+  // If currently viewing this task, show completion marker
+  if (taskViewId === taskId) {
+    var container = document.getElementById('chat-messages');
+    if (container) {
+      container.insertAdjacentHTML('beforeend', renderChatBubble({
+        role: 'system', content: 'Task finished.', createdAt: new Date().toISOString()
+      }));
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+}
+
+function disconnectTaskView() {
+  if (taskViewSSE) { taskViewSSE.close(); taskViewSSE = null; }
+  window._taskViewStream = null;
+  taskViewId = null;
+}
+
+function _finalizeTaskStreamBubble(data) {
+  var stream = window._taskViewStream;
+  if (!stream) return;
+  var el = document.getElementById(stream.id);
+  if (el) {
+    el.classList.remove('chat-bubble-streaming');
+    var contentEl = document.getElementById(stream.id + '-content');
+    if (contentEl && stream.text) contentEl.innerHTML = renderMarkdown(stream.text);
+    if (!stream.text) el.remove();
+    else if (data && (data.costUsd > 0 || data.durationMs)) {
+      var metaParts = [];
+      if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
+      if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+      if (metaParts.length > 0) {
+        el.insertAdjacentHTML('beforeend',
+          '<div class="chat-bubble-meta">' + metaParts.map(function(p){ return '<span>' + esc(p) + '</span>'; }).join('') + '</div>');
+      }
+    }
+  }
+  window._taskViewStream = null;
+}
+
+function _startTaskStreamBubble(taskId, role, container) {
+  var streamId = 'tv-' + taskId + '-' + Date.now();
+  container.insertAdjacentHTML('beforeend',
+    '<div id="' + streamId + '" class="chat-bubble chat-bubble-agent chat-bubble-streaming">' +
+    '<div class="chat-bubble-label" style="color:' + chatRoleColor(role) + '">' + esc(role) + '</div>' +
+    '<div id="' + streamId + '-content" class="md-rendered"></div>' +
+    '</div>');
+  window._taskViewStream = { id: streamId, text: '' };
+}
+
+function openTaskView(taskId) {
+  disconnectChatSSE();
+  disconnectTaskView();
+  taskViewId = taskId;
+  var info = liveTaskItems[taskId] || { name: taskId, role: 'Agent' };
+
+  document.getElementById('chat-empty').style.display = 'none';
+  document.getElementById('chat-messages').style.display = 'flex';
+  document.getElementById('chat-input-area').style.display = 'none';
+  document.getElementById('chat-header').style.display = '';
+  document.getElementById('chat-back-btn').style.display = '';
+  document.getElementById('chat-archive-btn').style.display = 'none';
+  document.getElementById('chat-header-role').textContent = info.role;
+  document.getElementById('chat-header-role').style.color = chatRoleColor(info.role);
+  document.getElementById('chat-header-meta').textContent = info.name;
+
+  var container = document.getElementById('chat-messages');
+  container.innerHTML = renderChatBubble({
+    role: 'system', content: 'Task: ' + info.name, createdAt: new Date().toISOString()
+  });
+
+  renderLiveTaskSection();
+  refreshChatSidebar();
+
+  _startTaskStreamBubble(taskId, info.role, container);
+  container.scrollTop = container.scrollHeight;
+
+  var es = new EventSource('/dispatch/' + encodeURIComponent(taskId) + '/stream');
+  taskViewSSE = es;
+
+  es.addEventListener('output_chunk', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      var chunk = (d.data && d.data.chunk) || '';
+      if (!chunk || !window._taskViewStream) return;
+      window._taskViewStream.text += chunk;
+      var contentEl = document.getElementById(window._taskViewStream.id + '-content');
+      if (contentEl) contentEl.innerHTML = renderMarkdown(window._taskViewStream.text);
+      container.scrollTop = container.scrollHeight;
+    } catch(err) {}
+  });
+
+  es.addEventListener('tool_call', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      var name = (d.data && (d.data.name || d.data.id)) || '(tool)';
+      _finalizeTaskStreamBubble(null);
+      container.insertAdjacentHTML('beforeend', renderChatBubble({
+        role: 'system', content: '\uD83D\uDD27 ' + name, createdAt: new Date().toISOString()
+      }));
+      _startTaskStreamBubble(taskId, info.role, container);
+      container.scrollTop = container.scrollHeight;
+    } catch(err) {}
+  });
+
+  es.addEventListener('completed', function(e) {
+    try {
+      var d = JSON.parse(e.data);
+      _finalizeTaskStreamBubble(d.data);
+    } catch(err) { _finalizeTaskStreamBubble(null); }
+    taskViewSSE = null;
+    container.scrollTop = container.scrollHeight;
+  });
+
+  es.addEventListener('error', function(e) {
+    if (e.data) {
+      try {
+        var d = JSON.parse(e.data);
+        _finalizeTaskStreamBubble(null);
+        container.insertAdjacentHTML('beforeend', renderChatBubble({
+          role: 'system', content: 'Error: ' + ((d.data && d.data.error) || 'unknown'), createdAt: new Date().toISOString()
+        }));
+        container.scrollTop = container.scrollHeight;
+      } catch(err) {}
+    }
+    taskViewSSE = null;
+  });
+
+  es.onerror = function() { taskViewSSE = null; };
+}
+
+function closeTaskView() {
+  disconnectTaskView();
+  renderLiveTaskSection();
+  document.getElementById('chat-back-btn').style.display = 'none';
+  document.getElementById('chat-archive-btn').style.display = '';
+  if (chatSessionId) {
+    openChatSession(chatSessionId);
+  } else {
+    document.getElementById('chat-header').style.display = 'none';
+    document.getElementById('chat-messages').style.display = 'none';
+    document.getElementById('chat-empty').style.display = '';
+    document.getElementById('chat-input-area').style.display = 'none';
+  }
 }
 
 async function openChatSession(sessionId) {
   disconnectChatSSE();
+  disconnectTaskView();
   chatSessionId = sessionId;
 
   document.getElementById('chat-empty').style.display = 'none';
   document.getElementById('chat-messages').style.display = 'flex';
   document.getElementById('chat-input-area').style.display = '';
   document.getElementById('chat-header').style.display = '';
+  document.getElementById('chat-back-btn').style.display = 'none';
+  document.getElementById('chat-archive-btn').style.display = '';
 
   refreshChatSidebar();
 

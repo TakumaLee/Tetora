@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// SystemLogSessionID is a fixed session ID that aggregates all non-chat dispatch task outputs.
+const SystemLogSessionID = "system:logs"
+
 // --- Session Types ---
 
 type Session struct {
@@ -100,7 +103,24 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	}
 	execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_channel_key ON sessions(channel_key);`)
 
+	// Ensure system log session exists.
+	ensureSystemLogSession(dbPath)
+
 	return nil
+}
+
+// ensureSystemLogSession creates the system log session if it doesn't exist.
+func ensureSystemLogSession(dbPath string) {
+	now := time.Now().Format(time.RFC3339)
+	_ = createSession(dbPath, Session{
+		ID:        SystemLogSessionID,
+		Role:      "system",
+		Source:    "system",
+		Status:    "active",
+		Title:     "System Dispatch Log",
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
 }
 
 // --- Insert ---
@@ -743,5 +763,52 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 		if result.Status == "success" {
 			updateSessionStatus(dbPath, sessionID, "completed")
 		}
+	}()
+}
+
+// logSystemDispatch appends a summary of a dispatch task to the system log session.
+// This allows dashboard users to see all non-chat dispatch outputs in one place.
+func logSystemDispatch(dbPath string, task Task, result TaskResult, role string) {
+	if dbPath == "" || task.ID == "" {
+		return
+	}
+	go func() {
+		now := time.Now().Format(time.RFC3339)
+		taskShort := task.ID
+		if len(taskShort) > 8 {
+			taskShort = taskShort[:8]
+		}
+		statusLabel := "✓"
+		if result.Status != "success" {
+			statusLabel = "✗"
+		}
+		output := truncateStr(result.Output, 1000)
+		if result.Status != "success" {
+			errMsg := result.Error
+			if errMsg == "" {
+				errMsg = result.Status
+			}
+			output = truncateStr(errMsg, 500)
+		}
+		content := fmt.Sprintf("[%s] %s · %s · %s · $%.4f\n\n**Prompt:** %s\n\n**Output:**\n%s",
+			statusLabel, taskShort, role, task.Source, result.CostUSD,
+			truncateStr(task.Prompt, 300),
+			output,
+		)
+		if err := addSessionMessage(dbPath, SessionMessage{
+			SessionID: SystemLogSessionID,
+			Role:      "system",
+			Content:   content,
+			CostUSD:   result.CostUSD,
+			TokensIn:  result.TokensIn,
+			TokensOut: result.TokensOut,
+			Model:     result.Model,
+			TaskID:    task.ID,
+			CreatedAt: now,
+		}); err != nil {
+			logWarn("logSystemDispatch: add message failed", "task", task.ID, "error", err)
+			return
+		}
+		_ = updateSessionStats(dbPath, SystemLogSessionID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 	}()
 }
