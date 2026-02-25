@@ -128,6 +128,7 @@ type Config struct {
 	ApprovalGates         ApprovalGateConfig               `json:"approvalGates,omitempty"`    // --- P28.0: Pre-execution approval gates ---
 	TimeTracking          TimeTrackingConfig               `json:"timeTracking,omitempty"`         // --- P29.2: Time Tracking ---
 	Lifecycle             LifecycleConfig                  `json:"lifecycle,omitempty"`             // --- P29.0: Lifecycle Automation ---
+	PromptBudget          PromptBudgetConfig               `json:"promptBudget,omitempty"`          // --- Tiered Prompt Builder ---
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -137,6 +138,26 @@ type Config struct {
 	circuits     *circuitRegistry
 	toolRegistry *ToolRegistry
 }
+
+// --- Tiered Prompt Builder: Budget Config ---
+
+// PromptBudgetConfig controls maximum character budgets for each section
+// of the tiered system prompt. Zero values use built-in defaults.
+type PromptBudgetConfig struct {
+	SoulMax      int `json:"soulMax,omitempty"`      // max chars for soul prompt (default 8000)
+	RulesMax     int `json:"rulesMax,omitempty"`      // max chars for workspace rules (default 4000)
+	KnowledgeMax int `json:"knowledgeMax,omitempty"`  // max chars for knowledge (default 8000)
+	SkillsMax    int `json:"skillsMax,omitempty"`     // max chars for skills (default 2000)
+	ContextMax   int `json:"contextMax,omitempty"`    // max chars for session context (default 16000)
+	TotalMax     int `json:"totalMax,omitempty"`      // max total chars (default 40000)
+}
+
+func (c PromptBudgetConfig) soulMaxOrDefault() int      { if c.SoulMax > 0 { return c.SoulMax }; return 8000 }
+func (c PromptBudgetConfig) rulesMaxOrDefault() int     { if c.RulesMax > 0 { return c.RulesMax }; return 4000 }
+func (c PromptBudgetConfig) knowledgeMaxOrDefault() int { if c.KnowledgeMax > 0 { return c.KnowledgeMax }; return 8000 }
+func (c PromptBudgetConfig) skillsMaxOrDefault() int    { if c.SkillsMax > 0 { return c.SkillsMax }; return 2000 }
+func (c PromptBudgetConfig) contextMaxOrDefault() int   { if c.ContextMax > 0 { return c.ContextMax }; return 16000 }
+func (c PromptBudgetConfig) totalMaxOrDefault() int     { if c.TotalMax > 0 { return c.TotalMax }; return 40000 }
 
 // --- P28.0: Approval Gates ---
 

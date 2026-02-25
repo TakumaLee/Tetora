@@ -560,26 +560,19 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		}
 	}
 
-	// Apply workspace configuration if role is set.
-	if roleName != "" {
-		ws := resolveWorkspace(cfg, roleName)
-		if ws.Dir != "" {
-			task.Workdir = ws.Dir
+	// Classify request complexity and build tiered system prompt.
+	complexity := classifyComplexity(task.Prompt, task.Source)
+	if task.Source != "route-classify" {
+		buildTieredPrompt(cfg, &task, roleName, complexity)
+	} else {
+		// For routing classification, only set up workspace dir and baseDir.
+		if roleName != "" {
+			ws := resolveWorkspace(cfg, roleName)
+			if ws.Dir != "" {
+				task.Workdir = ws.Dir
+			}
+			task.AddDirs = append(task.AddDirs, cfg.baseDir)
 		}
-		// Always grant access to tetora base directory.
-		task.AddDirs = append(task.AddDirs, cfg.baseDir)
-	}
-
-	// Inject global defaultAddDirs (configured accessible directories).
-	for _, d := range cfg.DefaultAddDirs {
-		if strings.HasPrefix(d, "~/") {
-			home, _ := os.UserHomeDir()
-			d = filepath.Join(home, d[2:])
-		} else if d == "~" {
-			home, _ := os.UserHomeDir()
-			d = home
-		}
-		task.AddDirs = append(task.AddDirs, d)
 	}
 
 	// Validate directories before running.
@@ -592,14 +585,6 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 
 	sem <- struct{}{}
 	defer func() { <-sem }()
-
-	// Auto-inject knowledge dir if it has files (with 50KB size guard).
-	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) && estimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
-		task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
-	}
-
-	// Inject workspace rules (always tier).
-	injectWorkspaceContent(cfg, &task, roleName)
 
 	// Budget check before execution.
 	if budgetResult := checkBudget(cfg, roleName, "", 0); budgetResult != nil && !budgetResult.Allowed {
@@ -706,6 +691,24 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		"provider", result.Provider,
 		"status", result.Status)
 
+	// Record token telemetry (async).
+	go recordTokenTelemetry(cfg.HistoryDB, TokenTelemetryEntry{
+		TaskID:             task.ID,
+		Role:               roleName,
+		Complexity:         complexity.String(),
+		Provider:           pr.Provider,
+		Model:              task.Model,
+		SystemPromptTokens: len(task.SystemPrompt) / 4,
+		ContextTokens:      len(task.Prompt) / 4,
+		ToolDefsTokens:     0,
+		InputTokens:        pr.TokensIn,
+		OutputTokens:       pr.TokensOut,
+		CostUSD:            pr.CostUSD,
+		DurationMs:         elapsed.Milliseconds(),
+		Source:             task.Source,
+		CreatedAt:          time.Now().Format(time.RFC3339),
+	})
+
 	// Save output to file.
 	if pr.Output != "" {
 		result.OutputFile = saveTaskOutput(cfg.baseDir, task.ID, []byte(pr.Output))
@@ -759,95 +762,14 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}
 	}
 
-	// Apply workspace configuration if role is set.
-	if roleName != "" {
-		// Use workspace soul file if available, otherwise fallback to legacy loadRolePrompt.
-		soulPrompt := loadSoulFile(cfg, roleName)
-		if soulPrompt == "" {
-			if sp, err := loadRolePrompt(cfg, roleName); err == nil {
-				soulPrompt = sp
-			}
-		}
-		if soulPrompt != "" {
-			task.SystemPrompt = soulPrompt
-		}
-
-		// Apply workspace directory as workdir if task doesn't specify one.
-		ws := resolveWorkspace(cfg, roleName)
-		if ws.Dir != "" {
-			task.Workdir = ws.Dir
-		}
-		// Always grant access to tetora base directory.
-		task.AddDirs = append(task.AddDirs, cfg.baseDir)
-
-		// Apply role config overrides.
-		if rc, ok := cfg.Roles[roleName]; ok {
-			if task.Model == cfg.DefaultModel && rc.Model != "" {
-				task.Model = rc.Model
-			}
-			if task.PermissionMode == cfg.DefaultPermissionMode && rc.PermissionMode != "" {
-				task.PermissionMode = rc.PermissionMode
-			}
-		}
-	}
-
-	// Inject global defaultAddDirs (configured accessible directories).
-	for _, d := range cfg.DefaultAddDirs {
-		if strings.HasPrefix(d, "~/") {
-			home, _ := os.UserHomeDir()
-			d = filepath.Join(home, d[2:])
-		} else if d == "~" {
-			home, _ := os.UserHomeDir()
-			d = home
-		}
-		task.AddDirs = append(task.AddDirs, d)
-	}
-
-	// Auto-inject knowledge dir if it has files (with 50KB size guard).
-	if cfg.KnowledgeDir != "" && knowledgeDirHasFiles(cfg.KnowledgeDir) && estimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
-		task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
-	}
+	// Classify request complexity and build tiered system prompt.
+	complexity := classifyComplexity(task.Prompt, task.Source)
+	buildTieredPrompt(cfg, &task, roleName, complexity)
 
 	// Apply trust level (may override permissionMode for observe mode).
 	trustLevel, _ := applyTrustToTask(cfg, &task, roleName)
 	if trustLevel == TrustObserve {
 		logDebugCtx(ctx, "trust: observe mode, forcing plan permission", "role", roleName)
-	}
-
-	// Inject reflection context from past self-assessments.
-	if cfg.Reflection.Enabled && roleName != "" && cfg.HistoryDB != "" {
-		if refCtx := buildReflectionContext(cfg.HistoryDB, roleName, 3); refCtx != "" {
-			task.SystemPrompt = task.SystemPrompt + "\n\n" + refCtx
-		}
-	}
-
-	// --- P21.2: Writing Style Guidelines ---
-	if cfg.WritingStyle.Enabled {
-		style := loadWritingStyle(cfg)
-		if style != "" {
-			task.SystemPrompt += "\n\n## Writing Style\n\n" + style
-		}
-	}
-
-	// --- P21.4: Source Citation ---
-	if cfg.Citation.Enabled {
-		citationFmt := cfg.Citation.Format
-		if citationFmt == "" {
-			citationFmt = "bracket"
-		}
-		var citationRule string
-		switch citationFmt {
-		case "footnote":
-			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
-				"add numbered footnotes at the end of your response. Format: [1] source_name"
-		case "inline":
-			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
-				"cite sources inline immediately after the relevant information. Format: (source: source_name)"
-		default: // "bracket"
-			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
-				"cite the source at the end of your response. Format: [source_name]"
-		}
-		task.SystemPrompt += "\n\n## Citation Rules\n" + citationRule
 	}
 
 	// Validate directories before running.
@@ -947,8 +869,15 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}
 	}
 
+	// Reuse complexity from tiered prompt builder for tool trimming.
 	start := time.Now()
-	pr := executeWithProviderAndTools(taskCtx, cfg, task, roleName, cfg.registry, eventCh, state.broker)
+	var pr *ProviderResult
+	if complexity == ComplexitySimple {
+		// Simple requests skip the tool engine entirely.
+		pr = executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, eventCh)
+	} else {
+		pr = executeWithProviderAndTools(taskCtx, cfg, task, roleName, cfg.registry, eventCh, state.broker)
+	}
 	if eventCh != nil {
 		close(eventCh)
 	}
@@ -1030,6 +959,24 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		"cost", result.CostUSD,
 		"tokensIn", result.TokensIn, "tokensOut", result.TokensOut,
 		"status", result.Status)
+
+	// Record token telemetry (async).
+	go recordTokenTelemetry(cfg.HistoryDB, TokenTelemetryEntry{
+		TaskID:             task.ID,
+		Role:               roleName,
+		Complexity:         complexity.String(),
+		Provider:           pr.Provider,
+		Model:              task.Model,
+		SystemPromptTokens: len(task.SystemPrompt) / 4,
+		ContextTokens:      len(task.Prompt) / 4,
+		ToolDefsTokens:     0,
+		InputTokens:        pr.TokensIn,
+		OutputTokens:       pr.TokensOut,
+		CostUSD:            pr.CostUSD,
+		DurationMs:         elapsed.Milliseconds(),
+		Source:             task.Source,
+		CreatedAt:          time.Now().Format(time.RFC3339),
+	})
 
 	// Save output to file.
 	if pr.Output != "" {
@@ -1316,10 +1263,28 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
 	}
 
-	// Get available tools (filtered by role policy if set).
+	// Get available tools (filtered by role policy and complexity).
 	var allowed map[string]bool
 	if task.Role != "" {
 		allowed = resolveAllowedTools(cfg, task.Role)
+	}
+	// Apply complexity-based tool filtering.
+	complexity := classifyComplexity(task.Prompt, task.Source)
+	complexityProfile := ToolsForComplexity(complexity)
+	if complexityProfile != "full" && complexityProfile != "none" {
+		profileAllowed := ToolsForProfile(complexityProfile)
+		if profileAllowed != nil {
+			if allowed == nil {
+				allowed = profileAllowed
+			} else {
+				// Intersection: only keep tools in both sets.
+				for name := range allowed {
+					if !profileAllowed[name] {
+						delete(allowed, name)
+					}
+				}
+			}
+		}
 	}
 	tools := cfg.toolRegistry.ListFiltered(allowed)
 	if len(tools) == 0 {
@@ -1574,17 +1539,24 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			break
 		}
 
-		// Context window estimation (heuristic: 1 token ~ 4 bytes, 80% of 200k).
-		var msgBytes int
-		for _, m := range messages {
-			msgBytes += len(m.Content)
-		}
-		if msgBytes/4 > 200000*80/100 {
-			logWarnCtx(ctx, "context window nearing limit", "estimatedTokens", msgBytes/4)
-			finalResult = &ProviderResult{
-				Output: result.Output + "\n[stopped: context limit]",
+		// Pre-send token estimation: compress old messages if nearing context window.
+		ctxWindow := contextWindowForModel(req.Model)
+		threshold := ctxWindow * 80 / 100
+		req.Messages = messages // update for estimation
+		estTokens := estimateRequestTokens(req)
+		if estTokens > threshold {
+			// Try compression first before stopping.
+			messages = compressMessages(messages, 3)
+			req.Messages = messages
+			estTokens = estimateRequestTokens(req)
+			if estTokens > threshold {
+				logWarnCtx(ctx, "context window limit after compression", "estimatedTokens", estTokens, "threshold", threshold)
+				finalResult = &ProviderResult{
+					Output: result.Output + "\n[stopped: context limit reached]",
+				}
+				break
 			}
-			break
+			logInfoCtx(ctx, "compressed old messages to fit context window", "estimatedTokens", estTokens, "threshold", threshold)
 		}
 	}
 

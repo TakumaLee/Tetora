@@ -470,6 +470,21 @@ func buildSessionContext(dbPath, sessionID string, maxMessages int) string {
 	return strings.Join(lines, "\n\n")
 }
 
+// buildSessionContextWithLimit fetches session context like buildSessionContext
+// but also enforces a character limit on the result. If the context exceeds
+// maxChars, it is truncated at a paragraph boundary with a note.
+func buildSessionContextWithLimit(dbPath, sessionID string, maxMessages int, maxChars int) string {
+	ctx := buildSessionContext(dbPath, sessionID, maxMessages)
+	if maxChars > 0 && len(ctx) > maxChars {
+		ctx = ctx[:maxChars]
+		if idx := strings.LastIndex(ctx, "\n\n"); idx > len(ctx)*3/4 {
+			ctx = ctx[:idx]
+		}
+		ctx += "\n\n[... earlier context truncated ...]"
+	}
+	return ctx
+}
+
 // wrapWithContext prepends conversation history to a new user prompt.
 // Returns the original prompt unchanged if there's no context.
 func wrapWithContext(sessionContext, prompt string) string {

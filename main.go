@@ -270,6 +270,10 @@ func main() {
 			if err := initOAuthTable(cfg.HistoryDB); err != nil {
 				logWarn("init oauth_tokens failed", "error", err)
 			}
+			// Init token telemetry table.
+			if err := initTokenTelemetry(cfg.HistoryDB); err != nil {
+				logWarn("init token_telemetry failed", "error", err)
+			}
 		}
 
 		// --- P23.1: User Profile & Emotional Memory ---

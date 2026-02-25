@@ -186,6 +186,13 @@ func initProviders(cfg *Config) *providerRegistry {
 				baseURL:   baseURL,
 				cfg:       cfg,
 			})
+
+		case "claude-code":
+			path := pc.Path
+			if path == "" {
+				path = "/usr/local/bin/claude"
+			}
+			reg.register(name, &ClaudeCodeProvider{binaryPath: path, cfg: cfg})
 		}
 	}
 

@@ -373,4 +373,46 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 		}
 		json.NewEncoder(w).Encode(trend)
 	})
+
+	// --- Token Telemetry API ---
+	mux.HandleFunc("/api/tokens/summary", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		days := 7
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 365 {
+				days = n
+			}
+		}
+
+		summaryRows, err := queryTokenUsageSummary(cfg.HistoryDB, days)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		roleRows, err := queryTokenUsageByRole(cfg.HistoryDB, days)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		summary := parseTokenSummaryRows(summaryRows)
+		byRole := parseTokenRoleRows(roleRows)
+		if summary == nil {
+			summary = []TokenSummaryRow{}
+		}
+		if byRole == nil {
+			byRole = []TokenRoleRow{}
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"summary": summary,
+			"byRole":  byRole,
+			"days":    days,
+		})
+	})
 }

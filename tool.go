@@ -147,6 +147,18 @@ func ToolsForProfile(profile string) map[string]bool {
 	return allowed
 }
 
+// ToolsForComplexity returns the tool profile name appropriate for the given request complexity.
+func ToolsForComplexity(c RequestComplexity) string {
+	switch c {
+	case ComplexitySimple:
+		return "none"
+	case ComplexityStandard:
+		return "standard"
+	default:
+		return "full"
+	}
+}
+
 // --- Built-in Tools ---
 
 func (r *ToolRegistry) registerBuiltins(cfg *Config) {

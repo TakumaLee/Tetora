@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -62,6 +63,66 @@ func estimateInputTokens(prompt, systemPrompt string) int {
 		tokens = 10
 	}
 	return tokens
+}
+
+// estimateRequestTokens estimates the total input tokens for a provider request.
+// Uses the len/4 heuristic for all text components.
+func estimateRequestTokens(req ProviderRequest) int {
+	total := len(req.Prompt)/4 + len(req.SystemPrompt)/4
+	for _, m := range req.Messages {
+		total += len(m.Content) / 4
+	}
+	for _, t := range req.Tools {
+		total += (len(t.Name) + len(t.Description) + len(string(t.InputSchema))) / 4
+	}
+	if total < 10 {
+		total = 10
+	}
+	return total
+}
+
+// contextWindowForModel returns the context window size (in tokens) for known models.
+func contextWindowForModel(model string) int {
+	lm := strings.ToLower(model)
+	switch {
+	case strings.Contains(lm, "opus"):
+		return 200000
+	case strings.Contains(lm, "sonnet"):
+		return 200000
+	case strings.Contains(lm, "haiku"):
+		return 200000
+	case strings.Contains(lm, "gpt-4o"):
+		return 128000
+	case strings.Contains(lm, "gpt-4-turbo"):
+		return 128000
+	case strings.Contains(lm, "o1"):
+		return 200000
+	default:
+		return 200000
+	}
+}
+
+// compressMessages truncates old messages to reduce context window usage.
+// Keeps the most recent keepRecent message pairs intact.
+func compressMessages(messages []Message, keepRecent int) []Message {
+	keepMsgs := keepRecent * 2
+	if len(messages) <= keepMsgs {
+		return messages
+	}
+
+	result := make([]Message, len(messages))
+	compressEnd := len(messages) - keepMsgs
+
+	for i, msg := range messages {
+		if i < compressEnd && len(msg.Content) > 256 {
+			// Replace large old messages with a compact summary.
+			summary := fmt.Sprintf(`[{"type":"text","text":"[prior tool exchange, %d bytes compressed]"}]`, len(msg.Content))
+			result[i] = Message{Role: msg.Role, Content: json.RawMessage(summary)}
+		} else {
+			result[i] = msg
+		}
+	}
+	return result
 }
 
 // queryModelAvgOutput returns the average output tokens for a model from history DB.

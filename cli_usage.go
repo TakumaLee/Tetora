@@ -11,7 +11,14 @@ import (
 // --- P18.1: CLI Usage Command ---
 
 // cmdUsage implements `tetora usage [today|week|month] [--model] [--role] [--days N]`
+// Also supports `tetora usage tokens [--days N]` for token telemetry breakdown.
 func cmdUsage(args []string) {
+	// Handle `tetora usage tokens` subcommand.
+	if len(args) > 0 && args[0] == "tokens" {
+		cmdUsageTokens(args[1:])
+		return
+	}
+
 	period := "today"
 	showModel := false
 	showRole := false
@@ -35,12 +42,16 @@ func cmdUsage(args []string) {
 			}
 		case "--help", "-h":
 			fmt.Println("Usage: tetora usage [today|week|month] [--model] [--role] [--days N]")
+			fmt.Println("       tetora usage tokens [--days N]")
 			fmt.Println()
 			fmt.Println("Options:")
 			fmt.Println("  today|week|month  Period for summary (default: today)")
 			fmt.Println("  --model, -m       Show breakdown by model")
 			fmt.Println("  --role, -r        Show breakdown by role")
 			fmt.Println("  --days, -d N      Number of days for breakdown (default: 30)")
+			fmt.Println()
+			fmt.Println("Subcommands:")
+			fmt.Println("  tokens            Show token telemetry breakdown by complexity and role")
 			return
 		}
 	}
@@ -173,4 +184,78 @@ func usageFromDB(cfg *Config, period string, showModel, showRole bool, days int)
 	if !showModel && !showRole {
 		fmt.Println("Tip: use --model or --role for detailed breakdown")
 	}
+}
+
+// cmdUsageTokens implements `tetora usage tokens [--days N]`.
+// Shows token telemetry breakdown by complexity and role.
+func cmdUsageTokens(args []string) {
+	days := 7
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--days", "-d":
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					days = n
+				}
+			}
+		case "--help", "-h":
+			fmt.Println("Usage: tetora usage tokens [--days N]")
+			fmt.Println()
+			fmt.Println("Options:")
+			fmt.Println("  --days, -d N  Number of days to include (default: 7)")
+			return
+		}
+	}
+
+	cfg := loadConfig("")
+	defaultLogger = initLogger(cfg.Logging, cfg.baseDir)
+
+	if cfg.HistoryDB == "" {
+		fmt.Fprintln(os.Stderr, "Error: historyDB not configured")
+		os.Exit(1)
+	}
+
+	// Try daemon API first.
+	api := newAPIClient(cfg)
+	resp, err := api.get(fmt.Sprintf("/api/tokens/summary?days=%d", days))
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		var data struct {
+			Summary []TokenSummaryRow `json:"summary"`
+			ByRole  []TokenRoleRow    `json:"byRole"`
+			Days    int               `json:"days"`
+		}
+		if json.Unmarshal(body, &data) == nil {
+			fmt.Printf("Token Telemetry (last %d days):\n\n", data.Days)
+			fmt.Println("By Complexity:")
+			fmt.Println(formatTokenSummary(data.Summary))
+			fmt.Println()
+			fmt.Println("By Role:")
+			fmt.Println(formatTokenByRole(data.ByRole))
+			return
+		}
+	}
+
+	// Fallback: direct DB query.
+	fmt.Printf("Token Telemetry (last %d days):\n\n", days)
+
+	summaryRows, err := queryTokenUsageSummary(cfg.HistoryDB, days)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error querying token summary: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("By Complexity:")
+	fmt.Println(formatTokenSummary(parseTokenSummaryRows(summaryRows)))
+	fmt.Println()
+
+	roleRows, err := queryTokenUsageByRole(cfg.HistoryDB, days)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error querying token by role: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("By Role:")
+	fmt.Println(formatTokenByRole(parseTokenRoleRows(roleRows)))
 }

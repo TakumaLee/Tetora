@@ -189,8 +189,8 @@ If no role is clearly appropriate, use %q as the default.`,
 	}
 	fillDefaults(cfg, &task)
 
-	// Step 1: Try with sonnet for cost efficiency.
-	task.Model = "sonnet"
+	// Step 1: Try with haiku for cost efficiency.
+	task.Model = "haiku"
 
 	result := runSingleTask(ctx, cfg, task, routeSem, coordinator)
 	if result.Status != "success" {
@@ -202,10 +202,10 @@ If no role is clearly appropriate, use %q as the default.`,
 		return nil, err
 	}
 
-	// Step 2: If low confidence, escalate to opus.
+	// Step 2: If low confidence, escalate to sonnet.
 	if parsed.Confidence == "low" {
-		logInfo("route: sonnet confidence low, escalating to opus", "reason", parsed.Reason)
-		task.Model = "opus"
+		logInfo("route: haiku confidence low, escalating to sonnet", "reason", parsed.Reason)
+		task.Model = "sonnet"
 		result2 := runSingleTask(ctx, cfg, task, routeSem, coordinator)
 		if result2.Status == "success" {
 			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultRole)
