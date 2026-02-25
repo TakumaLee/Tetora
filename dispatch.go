@@ -100,8 +100,20 @@ type dispatchState struct {
 	active      bool
 	cancel      context.CancelFunc
 	broker      *sseBroker       // SSE event broker for streaming progress
-	sandboxMgr  *SandboxManager  // --- P13.2: Sandbox Plugin ---
-	discordBot  *DiscordBot      // --- P14.1: Discord Components v2 ---
+	sandboxMgr        *SandboxManager              // --- P13.2: Sandbox Plugin ---
+	discordBot        *DiscordBot                  // --- P14.1: Discord Components v2 ---
+	discordActivities map[string]*discordActivity  // task ID -> active Discord task
+}
+
+// discordActivity tracks a Discord-initiated task for dashboard visibility.
+type discordActivity struct {
+	TaskID    string    `json:"taskId"`
+	Role      string    `json:"role"`
+	Phase     string    `json:"phase"`     // "routing", "processing", "replying"
+	Author    string    `json:"author"`
+	ChannelID string    `json:"channelId"`
+	StartAt   time.Time `json:"startedAt"`
+	Prompt    string    `json:"prompt"`
 }
 
 type taskState struct {
@@ -113,9 +125,33 @@ type taskState struct {
 
 func newDispatchState() *dispatchState {
 	return &dispatchState{
-		running:     make(map[string]*taskState),
-		failedTasks: make(map[string]*failedTask),
+		running:           make(map[string]*taskState),
+		failedTasks:       make(map[string]*failedTask),
+		discordActivities: make(map[string]*discordActivity),
 	}
+}
+
+// setDiscordActivity registers a new Discord-initiated task for dashboard tracking.
+func (s *dispatchState) setDiscordActivity(taskID string, da *discordActivity) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.discordActivities[taskID] = da
+}
+
+// updateDiscordPhase updates the phase of an active Discord task.
+func (s *dispatchState) updateDiscordPhase(taskID, phase string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if da, ok := s.discordActivities[taskID]; ok {
+		da.Phase = phase
+	}
+}
+
+// removeDiscordActivity removes a completed Discord task from tracking.
+func (s *dispatchState) removeDiscordActivity(taskID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.discordActivities, taskID)
 }
 
 // publishSSE publishes an SSE event to the task, session, and global dashboard channels.
@@ -154,6 +190,8 @@ func (s *dispatchState) statusJSON() []byte {
 	status := "idle"
 	if s.active {
 		status = "dispatching"
+	} else if len(s.discordActivities) > 0 {
+		status = "processing"
 	} else if len(s.finished) > 0 {
 		status = "done"
 	}
@@ -189,11 +227,39 @@ func (s *dispatchState) statusJSON() []byte {
 		})
 	}
 
+	// Discord activities.
+	type discordActivityStatus struct {
+		TaskID    string `json:"taskId"`
+		Role      string `json:"role"`
+		Phase     string `json:"phase"`
+		Author    string `json:"author"`
+		ChannelID string `json:"channelId"`
+		Elapsed   string `json:"elapsed"`
+		Prompt    string `json:"prompt"`
+	}
+	var discord []discordActivityStatus
+	for _, da := range s.discordActivities {
+		prompt := da.Prompt
+		if len(prompt) > 100 {
+			prompt = prompt[:100] + "..."
+		}
+		discord = append(discord, discordActivityStatus{
+			TaskID:    da.TaskID,
+			Role:      da.Role,
+			Phase:     da.Phase,
+			Author:    da.Author,
+			ChannelID: da.ChannelID,
+			Elapsed:   time.Since(da.StartAt).Round(time.Second).String(),
+			Prompt:    prompt,
+		})
+	}
+
 	out := map[string]any{
 		"status":    status,
 		"running":   len(s.running),
 		"completed": len(s.finished),
 		"tasks":     tasks,
+		"discord":   discord,
 	}
 	if s.active {
 		out["elapsed"] = time.Since(s.startAt).Round(time.Second).String()

@@ -1022,6 +1022,23 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	ctx := withTraceID(context.Background(), newTraceID("discord"))
 	dbPath := db.cfg.HistoryDB
 
+	// Generate a task ID early for Discord activity tracking.
+	activityID := newUUID()
+
+	// Register Discord activity for dashboard visibility.
+	if db.state != nil {
+		db.state.setDiscordActivity(activityID, &discordActivity{
+			TaskID:    activityID,
+			Role:      "",
+			Phase:     "routing",
+			Author:    msg.Author.Username,
+			ChannelID: msg.ChannelID,
+			StartAt:   time.Now(),
+			Prompt:    truncate(prompt, 200),
+		})
+		defer db.state.removeDiscordActivity(activityID)
+	}
+
 	// Publish task_received to dashboard.
 	if db.state != nil && db.state.broker != nil {
 		db.state.broker.Publish(SSEDashboardKey, SSEEvent{
@@ -1038,6 +1055,15 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	// Route.
 	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"}, db.sem)
 	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
+
+	// Update Discord activity with resolved role.
+	if db.state != nil {
+		db.state.mu.Lock()
+		if da, ok := db.state.discordActivities[activityID]; ok {
+			da.Role = route.Role
+		}
+		db.state.mu.Unlock()
+	}
 
 	// Publish task_routing to dashboard.
 	if db.state != nil && db.state.broker != nil {
@@ -1107,8 +1133,40 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		db.reactions.reactThinking(msg.ChannelID, msg.ID)
 	}
 
+	// Update Discord activity: routing → processing.
+	if db.state != nil {
+		db.state.updateDiscordPhase(activityID, "processing")
+		if db.state.broker != nil {
+			db.state.broker.Publish(SSEDashboardKey, SSEEvent{
+				Type: SSEDiscordProcessing,
+				Data: map[string]any{
+					"taskId":  activityID,
+					"role":    route.Role,
+					"author":  msg.Author.Username,
+					"channel": msg.ChannelID,
+				},
+			})
+		}
+	}
+
 	taskStart := time.Now()
 	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Role)
+
+	// Update Discord activity: processing → replying.
+	if db.state != nil {
+		db.state.updateDiscordPhase(activityID, "replying")
+		if db.state.broker != nil {
+			db.state.broker.Publish(SSEDashboardKey, SSEEvent{
+				Type: SSEDiscordReplying,
+				Data: map[string]any{
+					"taskId":  activityID,
+					"role":    route.Role,
+					"author":  msg.Author.Username,
+					"status":  result.Status,
+				},
+			})
+		}
+	}
 
 	// P14.3: Set done/error reaction based on result.
 	if db.reactions != nil {
@@ -1174,6 +1232,17 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 		if output == "" {
 			output = result.Status
 		}
+	}
+	// Fallback for empty output on success (e.g. tool-only responses).
+	if output == "" && result.Status == "success" {
+		parts := []string{"Task completed successfully."}
+		if result.TokensIn > 0 || result.TokensOut > 0 {
+			parts = append(parts, fmt.Sprintf("Tokens: %d in / %d out", result.TokensIn, result.TokensOut))
+		}
+		if result.OutputFile != "" {
+			parts = append(parts, fmt.Sprintf("Output saved: `%s`", result.OutputFile))
+		}
+		output = strings.Join(parts, "\n")
 	}
 	if len(output) > 3800 {
 		output = output[:3797] + "..."

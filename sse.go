@@ -30,8 +30,10 @@ const (
 	SSEHeartbeat   = "heartbeat"
 	SSEQueued       = "task_queued"
 	SSETaskReceived = "task_received"
-	SSETaskRouting  = "task_routing"
-	SSEDashboardKey = "__dashboard__"
+	SSETaskRouting       = "task_routing"
+	SSEDiscordProcessing = "discord_processing"
+	SSEDiscordReplying   = "discord_replying"
+	SSEDashboardKey      = "__dashboard__"
 )
 
 // --- SSE Broker ---

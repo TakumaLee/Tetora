@@ -171,6 +171,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .dot-yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
 .dot-red { background: var(--red); }
 .dot-gray { background: #444; }
+.dot-blue { background: #5865F2; box-shadow: 0 0 6px #5865F2; }
 
 /* Task stats grid */
 .task-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
@@ -1001,10 +1002,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
     </div>
   </div>
 
-  <!-- Dispatch -->
+  <!-- Bot Activity -->
   <div class="section" id="dispatch-section" style="display:none">
     <div class="section-header">
-      <span class="section-title">Dispatch</span>
+      <span class="section-title">Bot Activity</span>
       <button class="btn" onclick="cancelDispatch()">Cancel</button>
     </div>
     <div class="dispatch-tasks" id="dispatch-tasks"></div>
@@ -1847,7 +1848,7 @@ function connectDashboardSSE() {
     pollTimer = setInterval(refresh, 5000);
   };
 
-  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result'];
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'discord_processing', 'discord_replying'];
   eventTypes.forEach(function(evType) {
     es.addEventListener(evType, function(e) {
       try {
@@ -1908,6 +1909,19 @@ function handleActivityEvent(type, ev) {
       badge = 'tool';
       detail = esc(data.name || '?') + ' <span class="muted">' + (data.duration || 0) + 'ms</span>';
       if (data.isError) detail += ' <span style="color:var(--red)">error</span>';
+      break;
+    case 'discord_processing':
+      badge = 'processing';
+      source = 'discord';
+      detail = '<b>' + esc(data.role || '?') + '</b> processing';
+      if (data.author) detail += ' for ' + esc(data.author);
+      break;
+    case 'discord_replying':
+      badge = 'replying';
+      source = 'discord';
+      detail = '<b>' + esc(data.role || '?') + '</b> replying';
+      if (data.author) detail += ' to ' + esc(data.author);
+      if (data.status && data.status !== 'success') detail += ' <span style="color:var(--red)">[' + esc(data.status) + ']</span>';
       break;
     default:
       detail = type;
@@ -2029,7 +2043,7 @@ async function refresh() {
       { label: 'This Month', value: costFmt(cost.month || 0), cls: 'cost' },
       { label: 'Jobs', value: `${cron.enabled || 0} / ${cron.jobs || 0}` },
       { label: 'Running', value: cron.running || 0, color: (cron.running || 0) > 0 ? 'var(--yellow)' : '' },
-      { label: 'Dispatch', value: dispatch.status || 'idle' },
+      { label: 'Bot Status', value: (dispatch.discord && dispatch.discord.length > 0) ? dispatch.discord.length + ' active' : (dispatch.status || 'idle'), color: (dispatch.discord && dispatch.discord.length > 0) ? 'var(--accent2)' : '' },
     ].map(s => {
       let bar = '';
       if (s.limit > 0) {
@@ -2044,15 +2058,29 @@ async function refresh() {
     }).join('');
     document.getElementById('stats').innerHTML = statsHTML;
 
-    // Dispatch section
+    // Bot Activity section (dispatch tasks + Discord activities)
     const dSec = document.getElementById('dispatch-section');
-    if (dispatch.status === 'dispatching' && dispatch.tasks) {
+    const discordActs = dispatch.discord || [];
+    const hasDispatch = dispatch.status === 'dispatching' && dispatch.tasks;
+    const hasDiscord = discordActs.length > 0;
+    if (hasDispatch || hasDiscord) {
       dSec.style.display = '';
-      const dHTML = dispatch.tasks.map(t => {
-        const dot = t.status === 'running' ? 'dot-yellow' : t.status === 'success' ? 'dot-green' : 'dot-red';
-        const info = t.elapsed || t.duration || '';
-        return `<div class="dispatch-task"><span class="dot ${dot}"></span>${t.name} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
-      }).join('');
+      let dHTML = '';
+      if (hasDispatch) {
+        dHTML += dispatch.tasks.map(t => {
+          const dot = t.status === 'running' ? 'dot-yellow' : t.status === 'success' ? 'dot-green' : 'dot-red';
+          const info = t.elapsed || t.duration || '';
+          return `<div class="dispatch-task"><span class="dot ${dot}"></span>${t.name} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
+        }).join('');
+      }
+      if (hasDiscord) {
+        dHTML += discordActs.map(d => {
+          const dot = d.phase === 'routing' ? 'dot-blue' : d.phase === 'processing' ? 'dot-yellow' : 'dot-green';
+          const label = d.role ? d.role + ' (' + d.phase + ')' : d.phase;
+          const meta = [d.author, d.elapsed].filter(Boolean).join(' · ');
+          return `<div class="dispatch-task"><span class="dot ${dot}"></span>${esc(label)} <span style="color:var(--muted);font-size:12px">${esc(meta)}</span></div>`;
+        }).join('');
+      }
       document.getElementById('dispatch-tasks').innerHTML = dHTML;
     } else {
       dSec.style.display = 'none';
