@@ -142,9 +142,10 @@ type Config struct {
 
 // ApprovalGateConfig configures pre-execution approval gates for high-risk tools.
 type ApprovalGateConfig struct {
-	Enabled bool     `json:"enabled,omitempty"`
-	Timeout int      `json:"timeout,omitempty"` // seconds, default 120
-	Tools   []string `json:"tools,omitempty"`   // tool names requiring approval
+	Enabled          bool     `json:"enabled,omitempty"`
+	Timeout          int      `json:"timeout,omitempty"`          // seconds, default 120
+	Tools            []string `json:"tools,omitempty"`            // tool names requiring approval
+	AutoApproveTools []string `json:"autoApproveTools,omitempty"` // tools pre-approved at startup
 }
 
 // --- P21.2: Writing Style Guidelines ---
@@ -679,7 +680,7 @@ func tryLoadConfig(path string) (*Config, error) {
 
 	// Defaults.
 	if cfg.MaxConcurrent <= 0 {
-		cfg.MaxConcurrent = 3
+		cfg.MaxConcurrent = 8
 	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = "sonnet"

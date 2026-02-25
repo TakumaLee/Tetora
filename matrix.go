@@ -246,7 +246,7 @@ func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
 	// Route to determine role.
 	role := mb.cfg.Matrix.DefaultRole
 	if role == "" {
-		route := routeTask(ctx, mb.cfg, RouteRequest{Prompt: text, Source: "matrix"}, mb.sem)
+		route := routeTask(ctx, mb.cfg, RouteRequest{Prompt: text, Source: "matrix"})
 		role = route.Role
 		logInfoCtx(ctx, "matrix route result", "role", role, "method", route.Method)
 	}

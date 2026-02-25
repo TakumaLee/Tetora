@@ -340,7 +340,7 @@ func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
 	// Route to determine role.
 	role := tb.cfg.Teams.DefaultRole
 	if role == "" {
-		route := routeTask(ctx, tb.cfg, RouteRequest{Prompt: text, Source: "teams"}, tb.sem)
+		route := routeTask(ctx, tb.cfg, RouteRequest{Prompt: text, Source: "teams"})
 		role = route.Role
 		logInfoCtx(ctx, "teams route result", "role", role, "method", route.Method)
 	}

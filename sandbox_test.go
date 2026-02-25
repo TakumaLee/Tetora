@@ -226,7 +226,7 @@ func TestBuildClaudeArgs_Basic(t *testing.T) {
 		PermissionMode: "acceptEdits",
 		Prompt:         "hello world",
 	}
-	args := buildClaudeArgs(req)
+	args := buildClaudeArgs(req, false)
 	assertContainsSequence(t, args, "--model", "opus")
 	assertContainsSequence(t, args, "--session-id", "s123")
 	assertContainsSequence(t, args, "--permission-mode", "acceptEdits")
@@ -248,7 +248,7 @@ func TestBuildClaudeArgs_WithBudget(t *testing.T) {
 		Budget:         5.50,
 		Prompt:         "hi",
 	}
-	args := buildClaudeArgs(req)
+	args := buildClaudeArgs(req, false)
 	assertContainsSequence(t, args, "--max-budget-usd", "5.50")
 }
 
@@ -260,7 +260,7 @@ func TestBuildClaudeArgs_WithAddDirs(t *testing.T) {
 		AddDirs:        []string{"/dir1", "/dir2"},
 		Prompt:         "hi",
 	}
-	args := buildClaudeArgs(req)
+	args := buildClaudeArgs(req, false)
 	assertContainsSequence(t, args, "--add-dir", "/dir1")
 	assertContainsSequence(t, args, "--add-dir", "/dir2")
 }
@@ -273,7 +273,7 @@ func TestBuildClaudeArgs_WithMCP(t *testing.T) {
 		MCPPath:        "/tmp/mcp.json",
 		Prompt:         "hi",
 	}
-	args := buildClaudeArgs(req)
+	args := buildClaudeArgs(req, false)
 	assertContainsSequence(t, args, "--mcp-config", "/tmp/mcp.json")
 }
 
@@ -285,7 +285,7 @@ func TestBuildClaudeArgs_WithSystemPrompt(t *testing.T) {
 		SystemPrompt:   "You are a helper",
 		Prompt:         "hi",
 	}
-	args := buildClaudeArgs(req)
+	args := buildClaudeArgs(req, false)
 	assertContainsSequence(t, args, "--append-system-prompt", "You are a helper")
 }
 

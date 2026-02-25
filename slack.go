@@ -183,7 +183,7 @@ func (sb *SlackBot) handleSlackEvent(event slackEvent) {
 			return
 		}
 
-		// P28.0: Handle approval gate replies ("approve <id>" / "reject <id>").
+		// P28.0: Handle approval gate replies ("approve <id>" / "reject <id>" / "always <tool>").
 		if sb.approvalGate != nil {
 			if strings.HasPrefix(text, "approve ") {
 				reqID := strings.TrimPrefix(text, "approve ")
@@ -195,6 +195,12 @@ func (sb *SlackBot) handleSlackEvent(event slackEvent) {
 				reqID := strings.TrimPrefix(text, "reject ")
 				sb.approvalGate.handleGateCallback(strings.TrimSpace(reqID), false)
 				sb.slackReply(event.Channel, threadTS(event), "Rejected.")
+				return
+			}
+			if strings.HasPrefix(text, "always ") {
+				toolName := strings.TrimSpace(strings.TrimPrefix(text, "always "))
+				sb.approvalGate.AutoApprove(toolName)
+				sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("Auto-approved `%s` for this runtime.", toolName))
 				return
 			}
 		}
@@ -257,7 +263,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	dbPath := sb.cfg.HistoryDB
 
 	// Step 1: Route to determine role.
-	route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: prompt, Source: "slack"}, sb.sem)
+	route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: prompt, Source: "slack"})
 	logInfoCtx(ctx, "slack route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
 
 	// Step 2: Find or create channel session for this thread.
@@ -704,18 +710,38 @@ func (sb *SlackBot) sendSlackNotify(text string) {
 // This implementation sends a prompt and polls the user via a reaction-based
 // fallback (approve = message reply "yes", reject = "no" or timeout).
 type slackApprovalGate struct {
-	bot     *SlackBot
-	channel string
-	mu      sync.Mutex
-	pending map[string]chan bool
+	bot          *SlackBot
+	channel      string
+	mu           sync.Mutex
+	pending      map[string]chan bool
+	autoApproved map[string]bool // tool name → always approved
 }
 
 func newSlackApprovalGate(bot *SlackBot, channel string) *slackApprovalGate {
-	return &slackApprovalGate{
-		bot:     bot,
-		channel: channel,
-		pending: make(map[string]chan bool),
+	g := &slackApprovalGate{
+		bot:          bot,
+		channel:      channel,
+		pending:      make(map[string]chan bool),
+		autoApproved: make(map[string]bool),
 	}
+	// Copy config-level auto-approve tools.
+	for _, tool := range bot.cfg.ApprovalGates.AutoApproveTools {
+		g.autoApproved[tool] = true
+	}
+	return g
+}
+
+func (g *slackApprovalGate) AutoApprove(toolName string) {
+	g.mu.Lock()
+	g.autoApproved[toolName] = true
+	g.mu.Unlock()
+}
+
+func (g *slackApprovalGate) IsAutoApproved(toolName string) bool {
+	g.mu.Lock()
+	ok := g.autoApproved[toolName]
+	g.mu.Unlock()
+	return ok
 }
 
 func (g *slackApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
@@ -729,8 +755,8 @@ func (g *slackApprovalGate) RequestApproval(ctx context.Context, req ApprovalReq
 		g.mu.Unlock()
 	}()
 
-	text := fmt.Sprintf("*Approval needed*\n\nTool: `%s`\n%s\n\nReply `approve %s` or `reject %s`",
-		req.Tool, req.Summary, req.ID, req.ID)
+	text := fmt.Sprintf("*Approval needed*\n\nTool: `%s`\n%s\n\nReply `approve %s` or `reject %s` or `always %s`",
+		req.Tool, req.Summary, req.ID, req.ID, req.Tool)
 	g.bot.slackReply(g.channel, "", text)
 
 	select {

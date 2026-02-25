@@ -297,7 +297,7 @@ func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
 	// Route to determine role.
 	role := lb.cfg.LINE.DefaultRole
 	if role == "" {
-		route := routeTask(ctx, lb.cfg, RouteRequest{Prompt: text, Source: "line"}, lb.sem)
+		route := routeTask(ctx, lb.cfg, RouteRequest{Prompt: text, Source: "line"})
 		role = route.Role
 		logInfoCtx(ctx, "line route result", "role", role, "method", route.Method)
 	}

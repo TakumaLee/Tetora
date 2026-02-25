@@ -128,8 +128,13 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 
 // --- LLM Classification (Slow Path) ---
 
+// routeSem is a dedicated semaphore for routing LLM calls.
+// Routing should never compete with task execution for slots,
+// otherwise new messages block until running tasks complete.
+var routeSem = make(chan struct{}, 5)
+
 // classifyByLLM asks the coordinator role to classify the task.
-func classifyByLLM(ctx context.Context, cfg *Config, prompt string, sem chan struct{}) (*RouteResult, error) {
+func classifyByLLM(ctx context.Context, cfg *Config, prompt string) (*RouteResult, error) {
 	coordinator := cfg.SmartDispatch.Coordinator
 
 	// Build role list for the classification prompt.
@@ -187,7 +192,7 @@ If no role is clearly appropriate, use %q as the default.`,
 	// Step 1: Try with sonnet for cost efficiency.
 	task.Model = "sonnet"
 
-	result := runSingleTask(ctx, cfg, task, sem, coordinator)
+	result := runSingleTask(ctx, cfg, task, routeSem, coordinator)
 	if result.Status != "success" {
 		return nil, fmt.Errorf("classification failed: %s", result.Error)
 	}
@@ -201,7 +206,7 @@ If no role is clearly appropriate, use %q as the default.`,
 	if parsed.Confidence == "low" {
 		logInfo("route: sonnet confidence low, escalating to opus", "reason", parsed.Reason)
 		task.Model = "opus"
-		result2 := runSingleTask(ctx, cfg, task, sem, coordinator)
+		result2 := runSingleTask(ctx, cfg, task, routeSem, coordinator)
 		if result2.Status == "success" {
 			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultRole)
 			if err2 == nil {
@@ -250,7 +255,7 @@ func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
 
 // routeTask determines which role should handle the given prompt.
 // Priority: bindings → keywords → LLM/coordinator fallback.
-func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan struct{}) *RouteResult {
+func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult {
 	// Tier 1: Check bindings (highest priority).
 	if result := checkBindings(cfg, req); result != nil {
 		if _, ok := cfg.Roles[result.Role]; ok {
@@ -284,7 +289,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest, sem chan stru
 	}
 
 	// Smart fallback: LLM classification.
-	result, err := classifyByLLM(ctx, cfg, req.Prompt, sem)
+	result, err := classifyByLLM(ctx, cfg, req.Prompt)
 	if err != nil {
 		logWarnCtx(ctx, "LLM classify error, using default", "error", err)
 		return &RouteResult{
@@ -323,7 +328,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	}
 
 	// Step 1: Route.
-	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source}, sem)
+	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source})
 
 	logInfoCtx(ctx, "route decision",
 		"prompt", truncate(prompt, 60), "role", route.Role,

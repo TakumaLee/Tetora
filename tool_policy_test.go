@@ -421,9 +421,10 @@ func TestSummarizeToolCall(t *testing.T) {
 
 // mockApprovalGate is a test implementation of ApprovalGate.
 type mockApprovalGate struct {
-	respondWith bool
-	respondErr  error
-	delay       time.Duration
+	respondWith  bool
+	respondErr   error
+	delay        time.Duration
+	autoApproved map[string]bool
 }
 
 func (m *mockApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
@@ -435,6 +436,20 @@ func (m *mockApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequ
 		}
 	}
 	return m.respondWith, m.respondErr
+}
+
+func (m *mockApprovalGate) AutoApprove(toolName string) {
+	if m.autoApproved == nil {
+		m.autoApproved = make(map[string]bool)
+	}
+	m.autoApproved[toolName] = true
+}
+
+func (m *mockApprovalGate) IsAutoApproved(toolName string) bool {
+	if m.autoApproved == nil {
+		return false
+	}
+	return m.autoApproved[toolName]
 }
 
 func TestApprovalGateTimeout(t *testing.T) {
@@ -465,5 +480,63 @@ func TestGateReason(t *testing.T) {
 	}
 	if r := gateReason(nil, true); r != "approved" {
 		t.Errorf("got %q, want %q", r, "approved")
+	}
+}
+
+func TestAutoApproveFlow(t *testing.T) {
+	gate := &mockApprovalGate{respondWith: false}
+
+	// Initially not auto-approved.
+	if gate.IsAutoApproved("exec") {
+		t.Error("exec should not be auto-approved initially")
+	}
+
+	// Auto-approve exec.
+	gate.AutoApprove("exec")
+
+	if !gate.IsAutoApproved("exec") {
+		t.Error("exec should be auto-approved after AutoApprove")
+	}
+
+	// Other tools still not approved.
+	if gate.IsAutoApproved("write") {
+		t.Error("write should not be auto-approved")
+	}
+}
+
+func TestConfigAutoApproveTools(t *testing.T) {
+	cfg := &Config{
+		ApprovalGates: ApprovalGateConfig{
+			Enabled:          true,
+			Tools:            []string{"exec", "write", "delete"},
+			AutoApproveTools: []string{"exec"},
+		},
+	}
+
+	// exec needs approval per config.
+	if !needsApproval(cfg, "exec") {
+		t.Error("exec should need approval")
+	}
+
+	// Simulate what dispatch.go does: check auto-approved before requesting.
+	gate := &mockApprovalGate{}
+	// Pre-load from config.
+	for _, tool := range cfg.ApprovalGates.AutoApproveTools {
+		gate.AutoApprove(tool)
+	}
+
+	// exec is auto-approved → skip gate.
+	if !gate.IsAutoApproved("exec") {
+		t.Error("exec should be auto-approved from config")
+	}
+
+	// write still needs full approval.
+	if gate.IsAutoApproved("write") {
+		t.Error("write should not be auto-approved")
+	}
+
+	// delete still needs full approval.
+	if gate.IsAutoApproved("delete") {
+		t.Error("delete should not be auto-approved")
 	}
 }

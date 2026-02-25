@@ -560,6 +560,23 @@ func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInt
 			},
 		}
 	}
+	if strings.HasPrefix(customID, "gate_always:") {
+		rest := strings.TrimPrefix(customID, "gate_always:")
+		parts := strings.SplitN(rest, ":", 2)
+		if len(parts) == 2 {
+			reqID, toolName := parts[0], parts[1]
+			if db.approvalGate != nil {
+				db.approvalGate.AutoApprove(toolName)
+				db.approvalGate.handleGateCallback(reqID, true)
+			}
+			return discordInteractionResponse{
+				Type: interactionResponseUpdateMessage,
+				Data: &discordInteractionResponseData{
+					Content: fmt.Sprintf("Always approved `%s` by <@%s>.", toolName, userID),
+				},
+			}
+		}
+	}
 	if strings.HasPrefix(customID, "gate_reject:") {
 		reqID := strings.TrimPrefix(customID, "gate_reject:")
 		if db.approvalGate != nil {

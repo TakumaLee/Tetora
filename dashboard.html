@@ -506,6 +506,8 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .live-output .ev-started { color: var(--green); font-weight: 600; }
 .live-output .ev-completed { color: var(--green); font-weight: 600; }
 .live-output .ev-error { color: var(--red); font-weight: 600; }
+.live-output .ev-tool { color: var(--accent, #5865f2); }
+.live-output .ev-tool-result { color: var(--muted, #8b949e); font-size: 12px; }
 .btn-live {
   font-size: 10px;
   padding: 2px 10px;
@@ -1875,7 +1877,7 @@ function connectDashboardSSE() {
     pollTimer = setInterval(refresh, 5000);
   };
 
-  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'discord_processing', 'discord_replying'];
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying'];
   eventTypes.forEach(function(evType) {
     es.addEventListener(evType, function(e) {
       try {
@@ -1885,6 +1887,8 @@ function connectDashboardSSE() {
     });
   });
 }
+
+var lastOutputChunkTime = 0;
 
 function handleActivityEvent(type, ev) {
   var detail = '';
@@ -1936,6 +1940,14 @@ function handleActivityEvent(type, ev) {
       badge = 'tool';
       detail = esc(data.name || '?') + ' <span class="muted">' + (data.duration || 0) + 'ms</span>';
       if (data.isError) detail += ' <span style="color:var(--red)">error</span>';
+      break;
+    case 'output_chunk':
+      var now = Date.now();
+      if (now - lastOutputChunkTime < 2000) return;
+      lastOutputChunkTime = now;
+      badge = 'output';
+      var chunk = data.chunk || '';
+      detail = esc(chunk.length > 80 ? chunk.substring(0, 80) + '...' : chunk);
       break;
     case 'discord_processing':
       badge = 'processing';
@@ -3711,6 +3723,25 @@ function openLive(taskId) {
         output.innerHTML += '<span class="chunk">' + esc(chunk) + '</span>\n';
         scrollLive(output);
       }
+    } catch(err) {}
+  });
+
+  es.addEventListener('tool_call', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      const name = d.data?.name || '?';
+      output.innerHTML += '<span class="ev-tool">[tool] ' + esc(name) + '</span>\n';
+      scrollLive(output);
+    } catch(err) {}
+  });
+
+  es.addEventListener('tool_result', function(e) {
+    try {
+      const d = JSON.parse(e.data);
+      const content = d.data?.content || '';
+      const preview = content.length > 200 ? content.substring(0, 200) + '...' : content;
+      output.innerHTML += '<span class="ev-tool-result">[done] ' + esc(preview) + '</span>\n';
+      scrollLive(output);
     } catch(err) {}
   });
 

@@ -868,7 +868,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		dbPath := b.cfg.HistoryDB
 
 		// Step 1: Route (classify which role handles this).
-		route := routeTask(ctx, b.cfg, RouteRequest{Prompt: prompt, Source: "telegram"}, b.sem)
+		route := routeTask(ctx, b.cfg, RouteRequest{Prompt: prompt, Source: "telegram"})
 		logInfoCtx(ctx, "route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method, "confidence", route.Confidence)
 
 		// Step 2: Find or create channel session for this role.
@@ -1311,6 +1311,17 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgCallbackQuery) {
 			b.approvalGate.handleGateCallback(id, true)
 		}
 		return
+	case "gate_always":
+		// id contains "reqID:toolName"
+		alwaysParts := strings.SplitN(id, ":", 2)
+		if len(alwaysParts) == 2 && b.approvalGate != nil {
+			b.approvalGate.AutoApprove(alwaysParts[1])
+			b.approvalGate.handleGateCallback(alwaysParts[0], true)
+			b.answerCallback(cq.ID, "Always approved: "+alwaysParts[1])
+		} else {
+			b.answerCallback(cq.ID, "Approved")
+		}
+		return
 	case "gate_reject":
 		b.answerCallback(cq.ID, "Rejected")
 		if b.approvalGate != nil {
@@ -1537,18 +1548,38 @@ func (n *tgChannelNotifier) SendStatus(ctx context.Context, msg string) error {
 
 // tgApprovalGate implements ApprovalGate via Telegram inline keyboards.
 type tgApprovalGate struct {
-	bot     *Bot
-	chatID  int64
-	mu      sync.Mutex
-	pending map[string]chan bool // requestID → response channel
+	bot          *Bot
+	chatID       int64
+	mu           sync.Mutex
+	pending      map[string]chan bool // requestID → response channel
+	autoApproved map[string]bool     // tool name → always approved
 }
 
 func newTGApprovalGate(bot *Bot, chatID int64) *tgApprovalGate {
-	return &tgApprovalGate{
-		bot:     bot,
-		chatID:  chatID,
-		pending: make(map[string]chan bool),
+	g := &tgApprovalGate{
+		bot:          bot,
+		chatID:       chatID,
+		pending:      make(map[string]chan bool),
+		autoApproved: make(map[string]bool),
 	}
+	// Copy config-level auto-approve tools.
+	for _, tool := range bot.cfg.ApprovalGates.AutoApproveTools {
+		g.autoApproved[tool] = true
+	}
+	return g
+}
+
+func (g *tgApprovalGate) AutoApprove(toolName string) {
+	g.mu.Lock()
+	g.autoApproved[toolName] = true
+	g.mu.Unlock()
+}
+
+func (g *tgApprovalGate) IsAutoApproved(toolName string) bool {
+	g.mu.Lock()
+	ok := g.autoApproved[toolName]
+	g.mu.Unlock()
+	return ok
 }
 
 func (g *tgApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
@@ -1562,10 +1593,11 @@ func (g *tgApprovalGate) RequestApproval(ctx context.Context, req ApprovalReques
 		g.mu.Unlock()
 	}()
 
-	// Send message with approve/reject buttons.
+	// Send message with approve/always/reject buttons.
 	text := fmt.Sprintf("Approval needed\n\nTool: %s\n%s", req.Tool, req.Summary)
 	keyboard := [][]tgInlineButton{{
 		{Text: "Approve", CallbackData: "gate_approve:" + req.ID},
+		{Text: "Always", CallbackData: "gate_always:" + req.ID + ":" + req.Tool},
 		{Text: "Reject", CallbackData: "gate_reject:" + req.ID},
 	}}
 	g.bot.replyWithKeyboard(g.chatID, text, keyboard)

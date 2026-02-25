@@ -199,7 +199,7 @@ func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
 	// Route to determine role.
 	role := ib.cfg.IMessage.DefaultRole
 	if role == "" {
-		route := routeTask(ctx, ib.cfg, RouteRequest{Prompt: text, Source: "imessage"}, ib.sem)
+		route := routeTask(ctx, ib.cfg, RouteRequest{Prompt: text, Source: "imessage"})
 		role = route.Role
 		logInfoCtx(ctx, "imessage route result", "role", role, "method", route.Method)
 	}

@@ -34,6 +34,8 @@ const (
 	SSEDiscordProcessing = "discord_processing"
 	SSEDiscordReplying   = "discord_replying"
 	SSEDashboardKey      = "__dashboard__"
+	SSEToolCall          = "tool_call"
+	SSEToolResult        = "tool_result"
 )
 
 // --- SSE Broker ---

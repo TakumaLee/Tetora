@@ -221,7 +221,7 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 	dbPath := wb.cfg.HistoryDB
 
 	// Route to determine role.
-	route := routeTask(ctx, wb.cfg, RouteRequest{Prompt: text, Source: "whatsapp"}, wb.sem)
+	route := routeTask(ctx, wb.cfg, RouteRequest{Prompt: text, Source: "whatsapp"})
 	logInfoCtx(ctx, "whatsapp route result", "from", from, "role", route.Role, "method", route.Method)
 
 	// Find or create session for this phone number.

@@ -361,7 +361,7 @@ func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targe
 	// Route to determine role.
 	role := sb.cfg.Signal.DefaultRole
 	if role == "" {
-		route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: text, Source: "signal"}, sb.sem)
+		route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: text, Source: "signal"})
 		role = route.Role
 		logInfoCtx(ctx, "signal route result", "role", role, "method", route.Method)
 	}

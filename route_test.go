@@ -396,14 +396,13 @@ func TestRouteTask_BindingPriority(t *testing.T) {
 
 	// Even though prompt contains "research" keyword, binding should take priority.
 	ctx := context.Background()
-	sem := make(chan struct{}, 1)
 	req := RouteRequest{
 		Prompt: "do some research please",
 		Source: "telegram",
 		UserID: "12345",
 	}
 
-	result := routeTask(ctx, cfg, req, sem)
+	result := routeTask(ctx, cfg, req)
 	if result.Role != "黒曜" {
 		t.Errorf("Role = %q, want 黒曜 (binding should override keyword)", result.Role)
 	}
@@ -425,13 +424,12 @@ func TestRouteTask_FallbackCoordinator(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sem := make(chan struct{}, 1)
 	req := RouteRequest{
 		Prompt: "random task with no keywords or bindings",
 		Source: "http",
 	}
 
-	result := routeTask(ctx, cfg, req, sem)
+	result := routeTask(ctx, cfg, req)
 	if result.Role != "琉璃" {
 		t.Errorf("Role = %q, want 琉璃 (fallback coordinator)", result.Role)
 	}
@@ -460,14 +458,13 @@ func TestRouteTask_FallbackSmartWithKeyword(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sem := make(chan struct{}, 1)
 	req := RouteRequest{
 		Prompt: "do research please",
 		Source: "http",
 	}
 
 	// With fallback="smart", keyword matching should still work.
-	result := routeTask(ctx, cfg, req, sem)
+	result := routeTask(ctx, cfg, req)
 	if result.Role != "翡翠" {
 		t.Errorf("Role = %q, want 翡翠 (keyword should work with smart fallback)", result.Role)
 	}
@@ -491,14 +488,13 @@ func TestRouteTask_NoBindingsUsesKeywords(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sem := make(chan struct{}, 1)
 	req := RouteRequest{
 		Prompt: "run a security check",
 		Source: "telegram",
 		// No bindings defined, so should fall through to keyword matching.
 	}
 
-	result := routeTask(ctx, cfg, req, sem)
+	result := routeTask(ctx, cfg, req)
 	if result.Role != "黒曜" {
 		t.Errorf("Role = %q, want 黒曜 (keyword match)", result.Role)
 	}

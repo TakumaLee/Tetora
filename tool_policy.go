@@ -414,6 +414,10 @@ type ApprovalGate interface {
 	// RequestApproval blocks until user approves/rejects or context expires.
 	// Returns true if approved, false if rejected or timed out.
 	RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error)
+	// AutoApprove adds a tool to the runtime auto-approved list.
+	AutoApprove(toolName string)
+	// IsAutoApproved checks if a tool has been auto-approved.
+	IsAutoApproved(toolName string) bool
 }
 
 // ApprovalRequest describes a tool call pending user approval.

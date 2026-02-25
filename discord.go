@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha1"
@@ -768,6 +769,8 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		} else {
 			db.cmdAsk(msg, args)
 		}
+	case "approve":
+		db.cmdApprove(msg, args)
 	case "help":
 		db.cmdHelp(msg)
 	default:
@@ -1003,10 +1006,47 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 			{Name: "!new", Value: "Start a new session (clear context)"},
 			{Name: "!cancel", Value: "Cancel all running tasks"},
 			{Name: "!ask <prompt>", Value: "Quick question (no routing, no session)"},
+			{Name: "!approve [tool|reset]", Value: "Manage auto-approved tools"},
 			{Name: "!help", Value: "Show this help"},
 			{Name: "Free text", Value: "Mention me + your prompt for smart dispatch"},
 		},
 	})
+}
+
+func (db *DiscordBot) cmdApprove(msg discordMessage, args string) {
+	if db.approvalGate == nil {
+		db.sendMessage(msg.ChannelID, "Approval gates are not enabled.")
+		return
+	}
+
+	args = strings.TrimSpace(args)
+	if args == "" {
+		// List auto-approved tools.
+		db.approvalGate.mu.Lock()
+		var tools []string
+		for t := range db.approvalGate.autoApproved {
+			tools = append(tools, "`"+t+"`")
+		}
+		db.approvalGate.mu.Unlock()
+		if len(tools) == 0 {
+			db.sendMessage(msg.ChannelID, "No auto-approved tools.")
+		} else {
+			db.sendMessage(msg.ChannelID, "Auto-approved tools: "+strings.Join(tools, ", "))
+		}
+		return
+	}
+
+	if args == "reset" {
+		db.approvalGate.mu.Lock()
+		db.approvalGate.autoApproved = make(map[string]bool)
+		db.approvalGate.mu.Unlock()
+		db.sendMessage(msg.ChannelID, "Cleared all auto-approved tools.")
+		return
+	}
+
+	// Add tool to auto-approved list.
+	db.approvalGate.AutoApprove(args)
+	db.sendMessage(msg.ChannelID, fmt.Sprintf("Auto-approved `%s` for this runtime.", args))
 }
 
 // --- Smart Dispatch ---
@@ -1053,7 +1093,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 
 	// Route.
-	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"}, db.sem)
+	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
 	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
 
 	// Update Discord activity with resolved role.
@@ -1102,8 +1142,8 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		updateSessionTitle(dbPath, sess.ID, title)
 	}
 
-	// Build and run task.
-	task := Task{Prompt: contextPrompt, Role: route.Role, Source: "route:discord"}
+	// Build and run task. Pre-set ID so it matches the activityID used for dashboard tracking.
+	task := Task{ID: activityID, Prompt: contextPrompt, Role: route.Role, Source: "route:discord"}
 	fillDefaults(db.cfg, &task)
 	if sess != nil {
 		task.SessionID = sess.ID
@@ -1149,8 +1189,45 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		}
 	}
 
+	// Wire up SSE streaming so dashboard can show live output.
+	if db.state != nil && db.state.broker != nil {
+		task.sseBroker = db.state.broker
+	}
+
+	// Start progress message for live Discord updates.
+	var progressMsgID string
+	var progressStopCh chan struct{}
+	if db.state != nil && db.state.broker != nil {
+		msgID, err := db.sendMessageReturningID(msg.ChannelID, "Working...")
+		if err == nil && msgID != "" {
+			progressMsgID = msgID
+			progressStopCh = make(chan struct{})
+			builder := newDiscordProgressBuilder()
+			go db.runDiscordProgressUpdater(msg.ChannelID, progressMsgID, task.ID, db.state.broker, progressStopCh, builder)
+		}
+	}
+
 	taskStart := time.Now()
 	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Role)
+
+	// Stop progress updater and clean up progress message.
+	if progressStopCh != nil {
+		close(progressStopCh)
+	}
+	if progressMsgID != "" {
+		if result.Status != "success" {
+			// On error, edit progress to show error instead of deleting.
+			errMsg := result.Error
+			if errMsg == "" {
+				errMsg = result.Status
+			}
+			elapsed := time.Since(taskStart).Round(time.Second)
+			db.editMessage(msg.ChannelID, progressMsgID, fmt.Sprintf("Error (%s): %s", elapsed, errMsg))
+		} else {
+			// On success, delete progress message before sending response (maintains order).
+			db.deleteMessage(msg.ChannelID, progressMsgID)
+		}
+	}
 
 	// Update Discord activity: processing → replying.
 	if db.state != nil {
@@ -1388,6 +1465,72 @@ func (db *DiscordBot) discordPost(path string, payload any) {
 	}
 }
 
+// discordRequestWithResponse sends a Discord API request and returns the response body.
+// Supports any HTTP method (POST, PATCH, DELETE).
+func (db *DiscordBot) discordRequestWithResponse(method, path string, payload any) ([]byte, error) {
+	var bodyReader io.Reader
+	if payload != nil {
+		body, _ := json.Marshal(payload)
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, discordAPIBase+path, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bot "+db.cfg.Discord.BotToken)
+	resp, err := db.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode >= 400 {
+		return respBody, fmt.Errorf("discord api %s %s: %d %s", method, path, resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
+// sendMessageReturningID sends a message and returns the message ID.
+func (db *DiscordBot) sendMessageReturningID(channelID, content string) (string, error) {
+	if len(content) > 2000 {
+		content = content[:1997] + "..."
+	}
+	body, err := db.discordRequestWithResponse("POST",
+		fmt.Sprintf("/channels/%s/messages", channelID),
+		map[string]string{"content": content})
+	if err != nil {
+		return "", err
+	}
+	var msg struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return "", err
+	}
+	return msg.ID, nil
+}
+
+// editMessage edits an existing Discord message.
+func (db *DiscordBot) editMessage(channelID, messageID, content string) error {
+	if len(content) > 2000 {
+		content = content[:1997] + "..."
+	}
+	_, err := db.discordRequestWithResponse("PATCH",
+		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID),
+		map[string]string{"content": content})
+	return err
+}
+
+// deleteMessage deletes a Discord message.
+func (db *DiscordBot) deleteMessage(channelID, messageID string) {
+	_, err := db.discordRequestWithResponse("DELETE",
+		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID), nil)
+	if err != nil {
+		logWarn("discord delete message failed", "error", err)
+	}
+}
+
 // --- P14.1: Discord Components v2 ---
 
 // sendMessageWithComponents sends a message with interactive components (buttons, selects, etc.).
@@ -1409,22 +1552,152 @@ func (db *DiscordBot) sendEmbedWithComponents(channelID string, embed discordEmb
 	})
 }
 
+// --- Discord Progress Updater ---
+
+// discordProgressBuilder accumulates SSE events and renders a progress display for Discord.
+type discordProgressBuilder struct {
+	mu      sync.Mutex
+	startAt time.Time
+	tools   []string // tool names in order
+	dirty   bool     // whether content changed since last render
+}
+
+func newDiscordProgressBuilder() *discordProgressBuilder {
+	return &discordProgressBuilder{
+		startAt: time.Now(),
+	}
+}
+
+func (b *discordProgressBuilder) addToolCall(name string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tools = append(b.tools, name)
+	b.dirty = true
+}
+
+func (b *discordProgressBuilder) addText(text string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_ = text // reserved for future use
+	b.dirty = true
+}
+
+func (b *discordProgressBuilder) render() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dirty = false
+
+	elapsed := time.Since(b.startAt).Round(time.Second)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Working... (%s)\n", elapsed))
+
+	// Show last 5 tool calls.
+	start := 0
+	if len(b.tools) > 5 {
+		start = len(b.tools) - 5
+		sb.WriteString(fmt.Sprintf("... and %d earlier steps\n", start))
+	}
+	for _, t := range b.tools[start:] {
+		sb.WriteString(fmt.Sprintf("> %s\n", t))
+	}
+
+	return sb.String()
+}
+
+func (b *discordProgressBuilder) isDirty() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dirty
+}
+
+// runDiscordProgressUpdater subscribes to task SSE events and updates a Discord progress message.
+// It stops when stopCh is closed or the event channel closes.
+func (db *DiscordBot) runDiscordProgressUpdater(
+	channelID, progressMsgID, taskID string,
+	broker *sseBroker,
+	stopCh <-chan struct{},
+	builder *discordProgressBuilder,
+) {
+	eventCh, unsub := broker.Subscribe(taskID)
+	defer unsub()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopCh:
+			return
+		case ev, ok := <-eventCh:
+			if !ok {
+				return
+			}
+			switch ev.Type {
+			case SSEToolCall:
+				if data, ok := ev.Data.(map[string]any); ok {
+					name, _ := data["name"].(string)
+					if name != "" {
+						builder.addToolCall(name)
+					}
+				}
+			case SSEOutputChunk:
+				if data, ok := ev.Data.(map[string]any); ok {
+					chunk, _ := data["chunk"].(string)
+					if chunk != "" {
+						builder.addText(chunk)
+					}
+				}
+			case SSECompleted, SSEError:
+				return
+			}
+		case <-ticker.C:
+			if builder.isDirty() {
+				content := builder.render()
+				if err := db.editMessage(channelID, progressMsgID, content); err != nil {
+					logWarn("discord progress edit failed", "error", err)
+				}
+				db.sendTyping(channelID)
+			}
+		}
+	}
+}
+
 // --- P28.0: Discord Approval Gate ---
 
 // discordApprovalGate implements ApprovalGate via Discord button components.
 type discordApprovalGate struct {
-	bot       *DiscordBot
-	channelID string
-	mu        sync.Mutex
-	pending   map[string]chan bool
+	bot          *DiscordBot
+	channelID    string
+	mu           sync.Mutex
+	pending      map[string]chan bool
+	autoApproved map[string]bool // tool name → always approved
 }
 
 func newDiscordApprovalGate(bot *DiscordBot, channelID string) *discordApprovalGate {
-	return &discordApprovalGate{
-		bot:       bot,
-		channelID: channelID,
-		pending:   make(map[string]chan bool),
+	g := &discordApprovalGate{
+		bot:          bot,
+		channelID:    channelID,
+		pending:      make(map[string]chan bool),
+		autoApproved: make(map[string]bool),
 	}
+	// Copy config-level auto-approve tools.
+	for _, tool := range bot.cfg.ApprovalGates.AutoApproveTools {
+		g.autoApproved[tool] = true
+	}
+	return g
+}
+
+func (g *discordApprovalGate) AutoApprove(toolName string) {
+	g.mu.Lock()
+	g.autoApproved[toolName] = true
+	g.mu.Unlock()
+}
+
+func (g *discordApprovalGate) IsAutoApproved(toolName string) bool {
+	g.mu.Lock()
+	ok := g.autoApproved[toolName]
+	g.mu.Unlock()
+	return ok
 }
 
 func (g *discordApprovalGate) RequestApproval(ctx context.Context, req ApprovalRequest) (bool, error) {
@@ -1443,6 +1716,7 @@ func (g *discordApprovalGate) RequestApproval(ctx context.Context, req ApprovalR
 		Type: componentTypeActionRow,
 		Components: []discordComponent{
 			{Type: componentTypeButton, Style: buttonStyleSuccess, Label: "Approve", CustomID: "gate_approve:" + req.ID},
+			{Type: componentTypeButton, Style: buttonStylePrimary, Label: "Always", CustomID: "gate_always:" + req.ID + ":" + req.Tool},
 			{Type: componentTypeButton, Style: buttonStyleDanger, Label: "Reject", CustomID: "gate_reject:" + req.ID},
 		},
 	}}

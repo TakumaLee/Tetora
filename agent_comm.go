@@ -199,6 +199,7 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tetora-Source", "agent_dispatch")
 
 	// Add auth token if configured.
 	if cfg.APIToken != "" {
