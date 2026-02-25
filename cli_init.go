@@ -179,16 +179,43 @@ func cmdInit() {
 		return n - 1
 	}
 
+	// --- Language selection ---
+	fmt.Println("Select language / 選擇語言 / 言語を選択 / 언어 선택:")
+	langNames := []string{
+		"English",
+		"繁體中文",
+		"日本語",
+		"한국어",
+		"Deutsch",
+		"Español",
+		"Français",
+		"Bahasa Indonesia",
+		"Filipino",
+		"ภาษาไทย",
+	}
+	langCodes := []string{"en", "zh-TW", "ja", "ko", "de", "es", "fr", "id", "fil", "th"}
+	langIdx := interactiveChoose(langNames, 0)
+	if langIdx < 0 {
+		langIdx = 0
+	}
+	selectedLang := langCodes[langIdx]
+	L := initTranslations[selectedLang]
+	// fallback to English if missing
+	if L.Title == "" {
+		L = initTranslations["en"]
+	}
+	fmt.Println()
+
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".tetora")
 	configPath := filepath.Join(configDir, "config.json")
 
 	if _, err := os.Stat(configPath); err == nil {
-		fmt.Printf("Config already exists: %s\n", configPath)
-		fmt.Print("  Overwrite? [y/N]: ")
+		fmt.Printf("%s %s\n", L.ConfigExists, configPath)
+		fmt.Printf("  %s ", L.OverwritePrompt)
 		scanner.Scan()
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
-			fmt.Println("Aborted.")
+			fmt.Println(L.Aborted)
 			return
 		}
 		fmt.Println()
@@ -200,8 +227,8 @@ func cmdInit() {
 	var ocReport *MigrationReport
 	ocDir := detectOpenClaw()
 	if ocDir != "" {
-		fmt.Printf("OpenClaw installation detected at %s\n", ocDir)
-		fmt.Print("  Import basic config from OpenClaw? [Y/n]: ")
+		fmt.Printf("%s %s\n", L.OpenClawDetected, ocDir)
+		fmt.Printf("  %s ", L.OpenClawImport)
 		scanner.Scan()
 		ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
 		if ans != "n" {
@@ -213,30 +240,30 @@ func cmdInit() {
 			} else {
 				ocMigrated = true
 				ocReport = report
-				fmt.Printf("  Imported %d config fields\n", report.ConfigMerged)
+				fmt.Printf("  "+L.OpenClawImported+"\n", report.ConfigMerged)
 				for _, w := range report.Warnings {
 					fmt.Printf("  ! %s\n", w)
 				}
 			}
 			fmt.Println()
-			fmt.Println("  For full workspace migration (roles, memory, skills, etc.),")
-			fmt.Println("  run after setup: tetora import openclaw")
+			fmt.Printf("  %s\n", L.OpenClawMigrateNote1)
+			fmt.Printf("  %s\n", L.OpenClawMigrateNote2)
 			fmt.Println()
 		}
 	}
 	_ = ocReport // used below if ocMigrated
 
-	fmt.Println("=== Tetora Quick Setup ===")
+	fmt.Println(L.Title)
 	fmt.Println()
 
 	// --- Step 1: Channel ---
-	fmt.Println("Step 1/4: Choose a messaging channel")
+	fmt.Println(L.Step1Title)
 	fmt.Println()
 	channelIdx := choose("Channel", []string{
-		"Telegram",
-		"Discord",
-		"Slack",
-		"None (HTTP API only)",
+		L.ChannelOptions[0],
+		L.ChannelOptions[1],
+		L.ChannelOptions[2],
+		L.ChannelOptions[3],
 	}, 0)
 
 	var botToken string
@@ -247,47 +274,35 @@ func cmdInit() {
 	switch channelIdx {
 	case 0: // Telegram
 		fmt.Println()
-		fmt.Println("  \033[2mHow to get these values:")
-		fmt.Println("    1. Message @BotFather on Telegram → /newbot")
-		fmt.Println("    2. Copy the bot token it gives you")
-		fmt.Println("    3. Send a message to your bot, then visit:")
-		fmt.Println("       https://api.telegram.org/bot<TOKEN>/getUpdates")
-		fmt.Println("       to find your chat ID\033[0m")
+		fmt.Printf("  \033[2m%s\n", L.TelegramHint1)
+		fmt.Printf("    %s\n", L.TelegramHint2)
+		fmt.Printf("    %s\n", L.TelegramHint3)
+		fmt.Printf("    %s\033[0m\n", L.TelegramHint4)
 		fmt.Println()
-		botToken = prompt("Telegram bot token", "")
-		cidStr := prompt("Telegram chat ID", "")
+		botToken = prompt(L.TelegramTokenPrompt, "")
+		cidStr := prompt(L.TelegramChatIDPrompt, "")
 		chatID, _ = strconv.ParseInt(cidStr, 10, 64)
 	case 1: // Discord
 		fmt.Println()
-		fmt.Println("  \033[2mHow to get these values:")
-		fmt.Println("    1. Go to https://discord.com/developers/applications")
-		fmt.Println("    2. Create an application (or select existing)")
-		fmt.Println("    3. Application ID → General Information page (top)")
-		fmt.Println("    4. Bot → Reset Token → copy (this is the bot token)")
-		fmt.Println("    5. Bot → scroll down → enable MESSAGE CONTENT INTENT")
-		fmt.Println("    6. Invite bot to your server:")
-		fmt.Println("       (no server yet? Discord left sidebar → '+' → Create My Own)")
-		fmt.Println("       OAuth2 → URL Generator → check 'bot' in SCOPES")
-		fmt.Println("       → check permissions (Send Messages, Read Message History)")
-		fmt.Println("       → copy Generated URL at bottom → open in browser → select server")
-		fmt.Println("    7. Get channel ID:")
-		fmt.Println("       Discord app → Settings (gear icon near your username)")
-		fmt.Println("       → App Settings → Advanced → toggle Developer Mode ON")
-		fmt.Println("       → go back, right-click the target channel → Copy Channel ID\033[0m")
+		fmt.Printf("  \033[2m%s\n", L.DiscordHint1)
+		fmt.Printf("    %s\n", L.DiscordHint2)
+		fmt.Printf("    %s\n", L.DiscordHint3)
+		fmt.Printf("    %s\n", L.DiscordHint4)
+		fmt.Printf("    %s\n", L.DiscordHint5)
+		fmt.Printf("    %s\n", L.DiscordHint6)
+		fmt.Printf("    %s\033[0m\n", L.DiscordHint7)
 		fmt.Println()
-		discordToken = prompt("Discord bot token", "")
-		discordAppID = prompt("Discord application ID", "")
-		discordChannelID = prompt("Discord channel ID", "")
+		discordToken = prompt(L.DiscordTokenPrompt, "")
+		discordAppID = prompt(L.DiscordAppIDPrompt, "")
+		discordChannelID = prompt(L.DiscordChannelPrompt, "")
 	case 2: // Slack
 		fmt.Println()
-		fmt.Println("  \033[2mHow to get these values:")
-		fmt.Println("    1. Go to https://api.slack.com/apps → Create New App")
-		fmt.Println("    2. Bot token → OAuth & Permissions → Install to Workspace")
-		fmt.Println("       → copy the xoxb-... token")
-		fmt.Println("    3. Signing secret → Basic Information → App Credentials\033[0m")
+		fmt.Printf("  \033[2m%s\n", L.SlackHint1)
+		fmt.Printf("    %s\n", L.SlackHint2)
+		fmt.Printf("    %s\033[0m\n", L.SlackHint3)
 		fmt.Println()
-		slackToken = prompt("Slack bot token (xoxb-...)", "")
-		slackSigningSecret = prompt("Slack signing secret", "")
+		slackToken = prompt(L.SlackTokenPrompt, "")
+		slackSigningSecret = prompt(L.SlackSigningSecretPrompt, "")
 	}
 
 	// Apply OpenClaw values as defaults.
@@ -312,12 +327,12 @@ func cmdInit() {
 
 	// --- Step 2: Provider ---
 	fmt.Println()
-	fmt.Println("Step 2/4: Choose an AI provider")
+	fmt.Println(L.Step2Title)
 	fmt.Println()
 	providerIdx := choose("Provider", []string{
-		"Claude CLI (local claude binary)",
-		"Claude API (direct API key)",
-		"OpenAI-compatible API",
+		L.ProviderOptions[0],
+		L.ProviderOptions[1],
+		L.ProviderOptions[2],
 	}, 0)
 
 	claudePath := ""
@@ -325,16 +340,28 @@ func cmdInit() {
 
 	switch providerIdx {
 	case 0: // Claude CLI
+		fmt.Println()
+		fmt.Printf("  \033[2m%s\n", L.ClaudeCLIHint1)
+		fmt.Printf("  %s\n", L.ClaudeCLIHint2)
+		fmt.Printf("  %s\n", L.ClaudeCLIHint3)
+		fmt.Printf("  %s\n", L.ClaudeCLIHint4)
+		fmt.Printf("  %s\033[0m\n", L.ClaudeCLIHint5)
+		fmt.Println()
 		detected := detectClaude()
-		claudePath = prompt("Claude CLI path", detected)
-		defaultModel = prompt("Default model", "sonnet")
+		claudePath = prompt(L.ClaudeCLIPathPrompt, detected)
+		defaultModel = prompt(L.DefaultModelPrompt, "sonnet")
 	case 1: // Claude API
-		claudeAPIKey = prompt("Claude API key", "")
-		defaultModel = prompt("Default model", "claude-sonnet-4-5-20250929")
+		fmt.Println()
+		fmt.Printf("  \033[2m%s\n", L.ClaudeAPIHint1)
+		fmt.Printf("  %s\n", L.ClaudeAPIHint2)
+		fmt.Printf("  %s\033[0m\n", L.ClaudeAPIHint3)
+		fmt.Println()
+		claudeAPIKey = prompt(L.ClaudeAPIKeyPrompt, "")
+		defaultModel = prompt(L.DefaultModelPrompt, "claude-sonnet-4-5-20250929")
 	case 2: // OpenAI-compatible
-		openaiEndpoint = prompt("API endpoint", "https://api.openai.com/v1")
-		openaiAPIKey = prompt("API key", "")
-		defaultModel = prompt("Default model", "gpt-4o")
+		openaiEndpoint = prompt(L.OpenAIEndpointPrompt, "https://api.openai.com/v1")
+		openaiAPIKey = prompt(L.OpenAIKeyPrompt, "")
+		defaultModel = prompt(L.DefaultModelPrompt, "gpt-4o")
 	}
 
 	if ocMigrated {
@@ -346,15 +373,15 @@ func cmdInit() {
 
 	// --- Step 3: Directory Access ---
 	fmt.Println()
-	fmt.Println("Step 3/4: Agent directory access")
+	fmt.Println(L.Step3Title)
 	fmt.Println()
-	fmt.Println("  Agents need file access permissions (passed as --add-dir to Claude CLI).")
-	fmt.Println("  The tetora data directory (~/.tetora/) is always included.")
+	fmt.Printf("  %s\n", L.Step3Note1)
+	fmt.Printf("  %s\n", L.Step3Note2)
 	fmt.Println()
-	accessIdx := choose("What should agents be able to access?", []string{
-		"Home directory (~/)",
-		"Specific directories (configure later in config.json)",
-		"Tetora data only (~/.tetora/)",
+	accessIdx := choose("Access", []string{
+		L.DirOptions[0],
+		L.DirOptions[1],
+		L.DirOptions[2],
 	}, 0)
 
 	var defaultAddDirs []string
@@ -362,7 +389,7 @@ func cmdInit() {
 	case 0:
 		defaultAddDirs = []string{"~"}
 	case 1:
-		dirInput := prompt("Directories (comma-separated)", "~/Development")
+		dirInput := prompt(L.DirInputPrompt, "~/Development")
 		for _, d := range strings.Split(dirInput, ",") {
 			d = strings.TrimSpace(d)
 			if d != "" {
@@ -375,7 +402,7 @@ func cmdInit() {
 
 	// --- Step 4: Generate ---
 	fmt.Println()
-	fmt.Println("Step 4/4: Generating config...")
+	fmt.Println(L.Step4Title)
 
 	defaultWorkdir := filepath.Join(configDir, "workspace")
 
@@ -483,8 +510,8 @@ func cmdInit() {
 	}
 
 	fmt.Printf("\nConfig written: %s\n", configPath)
-	fmt.Printf("API token: %s\n", apiToken)
-	fmt.Println("(Save this token — needed for CLI/API access)")
+	fmt.Printf("%s %s\n", L.APITokenLabel, apiToken)
+	fmt.Println(L.APITokenNote)
 
 	// OpenClaw workspace/roles migration is now handled by `tetora import openclaw`.
 	_ = ocMigrated
@@ -492,15 +519,14 @@ func cmdInit() {
 	// --- Optional: Create first role ---
 	if ocMigrated {
 		fmt.Println()
-		fmt.Println("  OpenClaw roles can be imported later with: tetora import openclaw")
-		fmt.Print("  Create a new role now instead? [y/N]: ")
+		fmt.Print("  " + L.CreateRoleOCPrompt + " ")
 		scanner.Scan()
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
 			goto afterRole
 		}
 	} else {
 		fmt.Println()
-		fmt.Print("  Create a first role? [Y/n]: ")
+		fmt.Print("  " + L.CreateRolePrompt + " ")
 		scanner.Scan()
 		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "n" {
 			goto afterRole
@@ -508,16 +534,16 @@ func cmdInit() {
 	}
 	{
 		fmt.Println()
-		roleName := prompt("Role name", "default")
+		roleName := prompt(L.RoleNamePrompt, "default")
 
 		// Archetype selection.
 		fmt.Println()
-		fmt.Println("  Start from a template?")
+		fmt.Printf("  %s\n", L.ArchetypeTitle)
 		for i, a := range builtinArchetypes {
 			fmt.Printf("    %d. %-12s %s\n", i+1, a.Name, a.Description)
 		}
-		fmt.Printf("    %d. %-12s Start from scratch\n", len(builtinArchetypes)+1, "blank")
-		archChoice := prompt(fmt.Sprintf("Choose [1-%d]", len(builtinArchetypes)+1), fmt.Sprintf("%d", len(builtinArchetypes)+1))
+		fmt.Printf("    %d. %-12s %s\n", len(builtinArchetypes)+1, "blank", L.ArchetypeBlank)
+		archChoice := prompt(fmt.Sprintf(L.ArchetypeChoosePrompt, len(builtinArchetypes)+1), fmt.Sprintf("%d", len(builtinArchetypes)+1))
 
 		var archetype *RoleArchetype
 		if n, err := strconv.Atoi(archChoice); err == nil && n >= 1 && n <= len(builtinArchetypes) {
@@ -531,9 +557,9 @@ func cmdInit() {
 			defaultPerm = archetype.PermissionMode
 		}
 
-		roleModel := prompt("Role model", archModel)
-		roleDesc := prompt("Description", "Default agent role")
-		rolePerm := prompt("Permission mode (plan|acceptEdits|autoEdit|bypassPermissions)", defaultPerm)
+		roleModel := prompt(L.RoleModelPrompt, archModel)
+		roleDesc := prompt(L.RoleDescPrompt, "Default agent role")
+		rolePerm := prompt(L.RolePermPrompt, defaultPerm)
 
 		// Validate permission mode.
 		validPerms := []string{"plan", "acceptEdits", "autoEdit", "bypassPermissions"}
@@ -545,7 +571,7 @@ func cmdInit() {
 			}
 		}
 		if !permOK {
-			fmt.Printf("  Unknown permission mode %q, using acceptEdits\n", rolePerm)
+			fmt.Printf("  "+L.RolePermInvalid+"\n", rolePerm)
 			rolePerm = "acceptEdits"
 		}
 
@@ -561,7 +587,7 @@ func cmdInit() {
 				fmt.Printf("  Created soul file: %s\n", soulDst)
 			}
 		} else {
-			customPath := prompt("Soul file path (empty for template)", "")
+			customPath := prompt(L.SoulFilePrompt, "")
 			if customPath != "" {
 				// Copy custom soul file to workspace.
 				if data, err := os.ReadFile(customPath); err == nil {
@@ -608,16 +634,16 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 			PermissionMode: rolePerm,
 		}
 		if err := updateConfigRoles(configPath, roleName, &rc); err != nil {
-			fmt.Fprintf(os.Stderr, "  Error saving role: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  "+L.RoleError+"\n", err)
 		} else {
-			fmt.Printf("  Role %q added.\n", roleName)
+			fmt.Printf("  "+L.RoleAdded+"\n", roleName)
 		}
 	}
 afterRole:
 
 	// --- Optional: Install service ---
 	fmt.Println()
-	fmt.Print("  Install as launchd service? [y/N]: ")
+	fmt.Printf("  %s ", L.ServiceInstallPrompt)
 	scanner.Scan()
 	if strings.ToLower(strings.TrimSpace(scanner.Text())) == "y" {
 		serviceInstall()
@@ -625,14 +651,14 @@ afterRole:
 
 	// Final summary.
 	fmt.Println()
-	fmt.Printf("Config: %s\n", configPath)
-	fmt.Printf("Jobs:   %s\n", jobsPath)
+	fmt.Printf("%s %s\n", L.FinalConfig, configPath)
+	fmt.Printf("%s %s\n", L.FinalJobs, jobsPath)
 	fmt.Println()
-	fmt.Println("Next steps:")
-	fmt.Println("  tetora doctor      Verify setup")
-	fmt.Println("  tetora status      Quick overview")
-	fmt.Println("  tetora serve       Start daemon")
-	fmt.Println("  tetora dashboard   Open web UI")
+	fmt.Println(L.NextSteps)
+	fmt.Println(L.NextDoctor)
+	fmt.Println(L.NextStatus)
+	fmt.Println(L.NextServe)
+	fmt.Println(L.NextDashboard)
 }
 
 // enableSmartDispatch sets smartDispatch.enabled=true in the config file.

@@ -1934,7 +1934,7 @@ function handleActivityEvent(type, ev) {
       break;
     case 'tool_call':
       badge = 'tool';
-      detail = esc(data.name || '?');
+      detail = esc(data.name || data.id || '(tool)');
       break;
     case 'tool_result':
       badge = 'tool';
@@ -2109,7 +2109,8 @@ async function refresh() {
         dHTML += dispatch.tasks.map(t => {
           const dot = t.status === 'running' ? 'dot-yellow' : t.status === 'success' ? 'dot-green' : 'dot-red';
           const info = t.elapsed || t.duration || '';
-          return `<div class="dispatch-task"><span class="dot ${dot}"></span>${t.name} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
+          const roleLabel = t.role ? `<span style="color:var(--accent);font-size:12px;margin-right:4px">[${esc(t.role)}]</span>` : '';
+          return `<div class="dispatch-task"><span class="dot ${dot}"></span>${roleLabel}${esc(t.name)} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
         }).join('');
       }
       if (hasDiscord) {
@@ -3729,7 +3730,7 @@ function openLive(taskId) {
   es.addEventListener('tool_call', function(e) {
     try {
       const d = JSON.parse(e.data);
-      const name = d.data?.name || '?';
+      const name = d.data?.name || d.data?.id || '(tool)';
       output.innerHTML += '<span class="ev-tool">[tool] ' + esc(name) + '</span>\n';
       scrollLive(output);
     } catch(err) {}
