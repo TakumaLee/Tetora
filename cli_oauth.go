@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"runtime"
 )
 
 // --- P18.2: CLI OAuth Command ---
@@ -205,18 +203,4 @@ func cmdOAuthTest(cfg *Config, service string) {
 	fmt.Println("\nToken is valid and accessible.")
 }
 
-// openBrowser opens a URL in the default browser.
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		return
-	}
-	cmd.Start()
-}
+

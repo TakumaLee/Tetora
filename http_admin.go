@@ -826,4 +826,35 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	globalOAuthManager = oauthMgr // expose for Gmail/Calendar tools
 	mux.HandleFunc("/api/oauth/services", oauthMgr.handleOAuthServices)
 	mux.HandleFunc("/api/oauth/", oauthMgr.handleOAuthRoute)
+
+	// --- Drain: graceful shutdown (stop accepting new tasks, wait for running to finish) ---
+	mux.HandleFunc("/api/admin/drain", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		state.mu.Lock()
+		alreadyDraining := state.draining
+		state.draining = true
+		active := len(state.running)
+		state.mu.Unlock()
+
+		auditLog(cfg.HistoryDB, "admin.drain", "http", fmt.Sprintf("active=%d", active), clientIP(r))
+		logInfo("drain requested via API", "activeAgents", active)
+
+		// Signal the main loop to begin draining (if channel is wired up).
+		if s.drainCh != nil && !alreadyDraining {
+			select {
+			case s.drainCh <- struct{}{}:
+			default:
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":   "draining",
+			"active":   active,
+			"message":  "daemon will stop accepting new tasks and exit after current tasks complete",
+		})
+	})
 }

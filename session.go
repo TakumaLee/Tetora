@@ -253,6 +253,24 @@ func querySessionByID(dbPath, id string) (*Session, error) {
 	return &s, nil
 }
 
+// querySessionsByPrefix searches sessions whose id starts with the given prefix.
+// Returns all matching sessions ordered by updated_at DESC.
+func querySessionsByPrefix(dbPath, prefix string) ([]Session, error) {
+	sql := fmt.Sprintf(
+		`SELECT id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		 FROM sessions WHERE id LIKE '%s%%' ORDER BY updated_at DESC LIMIT 10`,
+		escapeSQLite(prefix))
+	rows, err := queryDB(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+	var sessions []Session
+	for _, row := range rows {
+		sessions = append(sessions, sessionFromRow(row))
+	}
+	return sessions, nil
+}
+
 func querySessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
 	sql := fmt.Sprintf(
 		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
@@ -270,16 +288,45 @@ func querySessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
 	return msgs, nil
 }
 
+// ErrAmbiguousSession is returned by querySessionDetail when a prefix matches
+// multiple sessions. The Matches field lists the candidates.
+type ErrAmbiguousSession struct {
+	Prefix  string
+	Matches []Session
+}
+
+func (e *ErrAmbiguousSession) Error() string {
+	return fmt.Sprintf("ambiguous session ID %q: %d matches", e.Prefix, len(e.Matches))
+}
+
 func querySessionDetail(dbPath, sessionID string) (*SessionDetail, error) {
+	// Try exact match first.
 	sess, err := querySessionByID(dbPath, sessionID)
 	if err != nil {
 		return nil, err
 	}
+
+	// If not found and not a full UUID (36 chars), attempt prefix search.
+	if sess == nil && len(sessionID) < 36 {
+		matches, err := querySessionsByPrefix(dbPath, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		switch len(matches) {
+		case 0:
+			return nil, nil // not found
+		case 1:
+			sess = &matches[0]
+		default:
+			return nil, &ErrAmbiguousSession{Prefix: sessionID, Matches: matches}
+		}
+	}
+
 	if sess == nil {
 		return nil, nil
 	}
 
-	msgs, err := querySessionMessages(dbPath, sessionID)
+	msgs, err := querySessionMessages(dbPath, sess.ID)
 	if err != nil {
 		return nil, err
 	}

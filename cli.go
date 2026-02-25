@@ -29,6 +29,7 @@ Commands:
   init               Interactive setup wizard
   doctor             Health checks and diagnostics
   status             Quick overview (daemon, jobs, cost)
+  drain              Graceful shutdown: stop new tasks, wait for running agents to finish
   service <action>   Manage launchd service (install|uninstall|status)
   job <action>       Manage cron jobs (list|add|enable|disable|remove|trigger)
   role <action>      Manage roles (list|add|show|set|remove)

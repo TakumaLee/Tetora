@@ -68,6 +68,7 @@ type TaskResult struct {
 	TraceID    string `json:"traceId,omitempty"`
 	Provider   string `json:"provider,omitempty"`
 	TrustLevel string `json:"trustLevel,omitempty"`
+	Role       string `json:"role,omitempty"`
 }
 
 type DispatchResult struct {
@@ -99,6 +100,7 @@ type dispatchState struct {
 	failedTasks map[string]*failedTask // task ID -> original task (for retry/reroute)
 	startAt     time.Time
 	active      bool
+	draining    bool             // graceful shutdown: stop accepting new tasks
 	cancel      context.CancelFunc
 	broker      *sseBroker       // SSE event broker for streaming progress
 	sandboxMgr        *SandboxManager              // --- P13.2: Sandbox Plugin ---
@@ -243,10 +245,13 @@ func (s *dispatchState) statusJSON() []byte {
 	}
 	for _, r := range s.finished {
 		tasks = append(tasks, taskStatus{
-			ID: r.ID, Name: r.Name, Status: r.Status,
+			ID:       r.ID,
+			Name:     r.Name,
+			Status:   r.Status,
 			Duration: (time.Duration(r.DurationMs) * time.Millisecond).Round(time.Second).String(),
 			CostUSD:  r.CostUSD,
 			Model:    r.Model,
+			Role:     r.Role,
 		})
 	}
 
@@ -654,6 +659,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		TokensOut:  pr.TokensOut,
 		ProviderMs: pr.ProviderMs,
 		Provider:   pr.Provider,
+		Role:       roleName,
 	}
 	if result.SessionID == "" {
 		result.SessionID = task.SessionID
@@ -895,6 +901,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		TokensOut:  pr.TokensOut,
 		ProviderMs: pr.ProviderMs,
 		Provider:   pr.Provider,
+		Role:       roleName,
 	}
 	if result.SessionID == "" {
 		result.SessionID = task.SessionID
@@ -1317,6 +1324,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	var totalTokensIn, totalTokensOut int
 	var totalCostUSD float64
 	var totalProviderMs int64
+	var taskBudgetWarnLogged bool // soft-limit: log once and continue instead of stopping
 
 	for i := 0; i < maxIter; i++ {
 		req.Messages = messages
@@ -1521,13 +1529,16 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 
 		// --- Mid-loop budget + context checks ---
 
-		// Per-task budget guard.
-		if task.Budget > 0 && totalCostUSD >= task.Budget {
-			logWarnCtx(ctx, "task budget exceeded mid-loop", "budget", task.Budget, "spent", totalCostUSD)
-			finalResult = &ProviderResult{
-				Output: result.Output + "\n[stopped: task budget exceeded]",
-			}
-			break
+		// Per-task budget soft limit: log once for analysis, then continue.
+		if task.Budget > 0 && totalCostUSD >= task.Budget && !taskBudgetWarnLogged {
+			taskBudgetWarnLogged = true
+			logWarnCtx(ctx, "task budget soft-limit exceeded (continuing)",
+				"budget", task.Budget,
+				"spent", totalCostUSD,
+				"role", task.Role,
+				"task_id", task.ID,
+				"task_prompt_preview", task.Prompt[:min(120, len(task.Prompt))],
+			)
 		}
 
 		// Global budget check.

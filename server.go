@@ -37,6 +37,9 @@ type Server struct {
 
 	// DegradedServices tracks services that failed to initialize.
 	DegradedServices []string
+
+	// drainCh is closed when a drain request is received, triggering graceful shutdown.
+	drainCh chan struct{}
 }
 
 // Cfg returns the current config with read-lock protection.

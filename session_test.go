@@ -558,6 +558,126 @@ func TestChannelKeyInQuerySessions(t *testing.T) {
 	}
 }
 
+func TestQuerySessionDetailPrefixMatch(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	initSessionDB(dbPath)
+
+	now := time.Now().Format(time.RFC3339)
+	// Use realistic UUID-like IDs to exercise the prefix path (len < 36 check).
+	s1 := Session{
+		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000001", Role: "翡翠", Source: "http", Status: "active",
+		Title: "Research session", CreatedAt: now, UpdatedAt: now,
+	}
+	s2 := Session{
+		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000002", Role: "黒曜", Source: "cli", Status: "active",
+		Title: "Dev session", CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := Session{
+		ID: "deadbeef-1234-5678-abcd-000000000003", Role: "琥珀", Source: "http", Status: "active",
+		Title: "Creative session", CreatedAt: now, UpdatedAt: now,
+	}
+	createSession(dbPath, s1)
+	createSession(dbPath, s2)
+	createSession(dbPath, s3)
+
+	// Prefix that matches exactly one session.
+	detail, err := querySessionDetail(dbPath, "deadbeef")
+	if err != nil {
+		t.Fatalf("querySessionDetail (unique prefix): %v", err)
+	}
+	if detail == nil {
+		t.Fatal("expected detail, got nil")
+	}
+	if detail.Session.ID != s3.ID {
+		t.Errorf("got session ID %q, want %q", detail.Session.ID, s3.ID)
+	}
+
+	// Prefix that matches two sessions → ErrAmbiguousSession.
+	_, err = querySessionDetail(dbPath, "9c1bbafa-6cc")
+	if err == nil {
+		t.Fatal("expected ErrAmbiguousSession, got nil error")
+	}
+	ambig, ok := err.(*ErrAmbiguousSession)
+	if !ok {
+		t.Fatalf("expected *ErrAmbiguousSession, got %T: %v", err, err)
+	}
+	if len(ambig.Matches) != 2 {
+		t.Errorf("ambiguous matches = %d, want 2", len(ambig.Matches))
+	}
+
+	// Prefix with no matches → nil, no error.
+	detail2, err2 := querySessionDetail(dbPath, "ffffffff")
+	if err2 != nil {
+		t.Fatalf("querySessionDetail (no match): %v", err2)
+	}
+	if detail2 != nil {
+		t.Error("expected nil for no-match prefix")
+	}
+
+	// Exact full ID match always works (bypasses prefix path).
+	detail3, err3 := querySessionDetail(dbPath, s1.ID)
+	if err3 != nil {
+		t.Fatalf("querySessionDetail (exact): %v", err3)
+	}
+	if detail3 == nil {
+		t.Fatal("expected detail for exact ID, got nil")
+	}
+	if detail3.Session.Role != "翡翠" {
+		t.Errorf("role = %q, want %q", detail3.Session.Role, "翡翠")
+	}
+}
+
+func TestQuerySessionsByPrefix(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	initSessionDB(dbPath)
+
+	now := time.Now().Format(time.RFC3339)
+	createSession(dbPath, Session{
+		ID: "aaaa-0001", Role: "翡翠", Source: "http", Status: "active",
+		Title: "First", CreatedAt: now, UpdatedAt: now,
+	})
+	createSession(dbPath, Session{
+		ID: "aaaa-0002", Role: "黒曜", Source: "cli", Status: "active",
+		Title: "Second", CreatedAt: now, UpdatedAt: now,
+	})
+	createSession(dbPath, Session{
+		ID: "bbbb-0001", Role: "琥珀", Source: "http", Status: "active",
+		Title: "Third", CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Prefix "aaaa" matches two.
+	matches, err := querySessionsByPrefix(dbPath, "aaaa")
+	if err != nil {
+		t.Fatalf("querySessionsByPrefix: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Errorf("expected 2 matches for prefix 'aaaa', got %d", len(matches))
+	}
+
+	// Prefix "bbbb" matches one.
+	matches2, err := querySessionsByPrefix(dbPath, "bbbb")
+	if err != nil {
+		t.Fatalf("querySessionsByPrefix: %v", err)
+	}
+	if len(matches2) != 1 {
+		t.Errorf("expected 1 match for prefix 'bbbb', got %d", len(matches2))
+	}
+	if matches2[0].ID != "bbbb-0001" {
+		t.Errorf("got ID %q, want %q", matches2[0].ID, "bbbb-0001")
+	}
+
+	// Prefix "cccc" matches none.
+	matches3, err := querySessionsByPrefix(dbPath, "cccc")
+	if err != nil {
+		t.Fatalf("querySessionsByPrefix: %v", err)
+	}
+	if len(matches3) != 0 {
+		t.Errorf("expected 0 matches for prefix 'cccc', got %d", len(matches3))
+	}
+}
+
 func TestJoinStrings(t *testing.T) {
 	tests := []struct {
 		input []string

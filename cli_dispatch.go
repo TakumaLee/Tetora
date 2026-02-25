@@ -128,20 +128,38 @@ func cmdDispatch(args []string) {
 
 	// If role specified, fetch soul content and inject.
 	if role != "" {
+		// Always pass the role name to the daemon so it can apply role config
+		// (model, permissionMode, workspace, etc.) server-side.
+		task["role"] = role
+
 		resp, err := api.get("/roles/" + role)
-		if err == nil {
-			defer resp.Body.Close()
-			var roleData map[string]any
-			if json.NewDecoder(resp.Body).Decode(&roleData) == nil {
-				if sc, ok := roleData["soulContent"].(string); ok && sc != "" {
-					task["systemPrompt"] = sc
-				}
-				// Use role's model if not overridden.
-				if model == "" {
-					if rm, ok := roleData["model"].(string); ok && rm != "" {
-						task["model"] = rm
-					}
-				}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: cannot fetch role %q from daemon: %v\n", role, err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == 404 {
+			fmt.Fprintf(os.Stderr, "error: role %q not found — check `tetora role list` for available roles\n", role)
+			os.Exit(1)
+		}
+		if resp.StatusCode != 200 {
+			fmt.Fprintf(os.Stderr, "error: fetching role %q failed (HTTP %d)\n", role, resp.StatusCode)
+			os.Exit(1)
+		}
+		var roleData map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&roleData); err != nil {
+			fmt.Fprintf(os.Stderr, "error: parse role %q response: %v\n", role, err)
+			os.Exit(1)
+		}
+		// Inject soul content as system prompt prefix (daemon will also load it
+		// server-side via task.Role, but sending it here enables estimate mode).
+		if sc, ok := roleData["soulContent"].(string); ok && sc != "" {
+			task["systemPrompt"] = sc
+		}
+		// Use role's model if not overridden by --model flag.
+		if model == "" {
+			if rm, ok := roleData["model"].(string); ok && rm != "" {
+				task["model"] = rm
 			}
 		}
 	}

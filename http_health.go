@@ -5,10 +5,46 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
+
+	// --- Agent Count (for pre-update check) ---
+	mux.HandleFunc("/api/health/agents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		s.state.mu.Lock()
+		count := len(s.state.running)
+		draining := s.state.draining
+		type agentInfo struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Role    string `json:"role,omitempty"`
+			Source  string `json:"source,omitempty"`
+			Elapsed string `json:"elapsed"`
+		}
+		agents := make([]agentInfo, 0, count)
+		for _, ts := range s.state.running {
+			agents = append(agents, agentInfo{
+				ID:      ts.task.ID,
+				Name:    ts.task.Name,
+				Role:    ts.task.Role,
+				Source:  ts.task.Source,
+				Elapsed: time.Since(ts.startAt).Round(time.Second).String(),
+			})
+		}
+		s.state.mu.Unlock()
+		json.NewEncoder(w).Encode(map[string]any{
+			"active":   count,
+			"draining": draining,
+			"agents":   agents,
+		})
+	})
 
 	// --- Health ---
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

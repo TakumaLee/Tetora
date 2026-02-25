@@ -145,6 +145,9 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "drain":
+			cmdDrain()
+			return
 		case "upgrade":
 			cmdUpgrade()
 			return
@@ -874,12 +877,14 @@ func main() {
 		}
 
 		// HTTP server.
+		drainCh := make(chan struct{}, 1)
 		srvInstance := &Server{
 			cfg: cfg, app: app, state: state, sem: sem, cron: cron, secMon: secMon, mcpHost: mcpHost,
 			proactiveEngine: proactiveEngine, groupChatEngine: groupChatEngine, voiceEngine: voiceEngine,
 			slackBot: slackBot, whatsappBot: whatsappBot, pluginHost: pluginHost,
 			lineBot: lineBot, teamsBot: teamsBot, signalBot: signalBot, gchatBot: gchatBot, imessageBot: imessageBot,
 			DegradedServices: degradedServices,
+			drainCh:          drainCh,
 		}
 		srv := startHTTPServer(srvInstance)
 
@@ -942,9 +947,42 @@ func main() {
 
 		logInfo("tetora ready", "healthz", fmt.Sprintf("http://%s/healthz", cfg.ListenAddr))
 
-		// Wait for shutdown signal.
-		<-sigCh
-		logInfo("shutting down")
+		// Wait for shutdown signal or drain request.
+		select {
+		case <-sigCh:
+			logInfo("shutting down")
+		case <-drainCh:
+			logInfo("drain requested: waiting for active agents to complete")
+			// Wait for all running tasks to finish (poll with ticker).
+			drainTicker := time.NewTicker(2 * time.Second)
+			drainDeadline := time.Now().Add(10 * time.Minute)
+		drainLoop:
+			for {
+				select {
+				case <-sigCh:
+					// Force shutdown even during drain.
+					logInfo("force shutdown during drain")
+					drainTicker.Stop()
+					break drainLoop
+				case <-drainTicker.C:
+					state.mu.Lock()
+					active := len(state.running)
+					state.mu.Unlock()
+					if active == 0 {
+						logInfo("drain complete: all agents finished")
+						drainTicker.Stop()
+						break drainLoop
+					}
+					if time.Now().After(drainDeadline) {
+						logWarn("drain timeout: forcing shutdown", "stillActive", active)
+						drainTicker.Stop()
+						break drainLoop
+					}
+					logInfo("draining: waiting for agents", "active", active)
+				}
+			}
+			logInfo("shutting down after drain")
+		}
 
 		if signalBot != nil {
 			signalBot.Stop()

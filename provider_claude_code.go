@@ -32,7 +32,17 @@ func (p *ClaudeCodeProvider) Execute(ctx context.Context, req ProviderRequest) (
 
 	cmd := exec.CommandContext(ctx, p.binaryPath, args...)
 	cmd.Dir = req.Workdir
-	cmd.Env = os.Environ()
+
+	// Filter out CLAUDECODE to allow spawning Claude Code from within a Claude Code session.
+	// Claude Code refuses to start when CLAUDECODE env var is set (nested session guard).
+	rawEnv := os.Environ()
+	filteredEnv := make([]string, 0, len(rawEnv))
+	for _, e := range rawEnv {
+		if !strings.HasPrefix(e, "CLAUDECODE=") {
+			filteredEnv = append(filteredEnv, e)
+		}
+	}
+	cmd.Env = filteredEnv
 
 	// Pipe prompt via stdin to avoid OS ARG_MAX limits.
 	if req.Prompt != "" {
@@ -107,6 +117,20 @@ func (p *ClaudeCodeProvider) Execute(ctx context.Context, req ProviderRequest) (
 	pr.DurationMs = elapsed.Milliseconds()
 	pr.Provider = "claude-code"
 
+	// Soft-limit: log when cost exceeds per-task budget without stopping.
+	if req.Budget > 0 && pr.CostUSD >= req.Budget {
+		promptPreview := req.Prompt
+		if len(promptPreview) > 120 {
+			promptPreview = promptPreview[:120]
+		}
+		logWarn("claude-code task exceeded budget soft-limit (completed normally)",
+			"budget", req.Budget,
+			"spent", pr.CostUSD,
+			"model", req.Model,
+			"prompt_preview", promptPreview,
+		)
+	}
+
 	// Handle timeout/cancellation.
 	if ctx.Err() == context.DeadlineExceeded {
 		pr.IsError = true
@@ -143,9 +167,9 @@ func buildClaudeCodeArgs(req ProviderRequest) []string {
 		args = append(args, "--append-system-prompt", req.SystemPrompt)
 	}
 
-	if req.Budget > 0 {
-		args = append(args, "--max-budget-usd", fmt.Sprintf("%.2f", req.Budget))
-	}
+	// NOTE: --max-budget-usd is intentionally NOT passed.
+	// Tetora uses a soft-limit approach: log when budget is exceeded, but don't hard-stop.
+	// This allows large tasks to complete while surfacing cost data for optimization.
 
 	if req.PermissionMode != "" {
 		args = append(args, "--permission-mode", req.PermissionMode)

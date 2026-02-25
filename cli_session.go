@@ -103,6 +103,13 @@ func sessionShow(id string) {
 	// Support prefix matching for short IDs.
 	detail, err := querySessionDetail(cfg.HistoryDB, id)
 	if err != nil {
+		if ambig, ok := err.(*ErrAmbiguousSession); ok {
+			fmt.Fprintf(os.Stderr, "Ambiguous session ID, multiple matches:\n")
+			for _, s := range ambig.Matches {
+				fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", s.ID, s.Role, s.Title)
+			}
+			os.Exit(1)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

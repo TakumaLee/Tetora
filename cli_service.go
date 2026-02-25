@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -267,5 +268,42 @@ func serviceStatus() {
 	default:
 		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
 		os.Exit(1)
+	}
+}
+
+// cmdDrain sends a drain request to the running daemon via the REST API.
+// The daemon will stop accepting new tasks and exit after active tasks complete.
+func cmdDrain() {
+	cfg := loadConfig(findConfigPath())
+	api := newAPIClient(cfg)
+
+	resp, err := api.post("/api/admin/drain", "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot reach daemon at %s: %v\n", api.baseURL, err)
+		fmt.Fprintln(os.Stderr, "Is the daemon running? Start with: tetora serve")
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading response: %v\n", err)
+		os.Exit(1)
+	}
+
+	if resp.StatusCode != 200 {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", result["error"])
+		os.Exit(1)
+	}
+
+	active, _ := result["active"].(float64)
+	fmt.Printf("Drain initiated.\n")
+	fmt.Printf("  Active agents:  %d\n", int(active))
+	fmt.Printf("  Status:         %s\n", result["status"])
+	if int(active) == 0 {
+		fmt.Println("  No active agents — daemon will shut down immediately.")
+	} else {
+		fmt.Printf("  Daemon will exit after all %d agent(s) complete.\n", int(active))
+		fmt.Println("  Use 'tetora status' to monitor progress.")
 	}
 }
