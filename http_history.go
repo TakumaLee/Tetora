@@ -20,11 +20,12 @@ func (s *Server) registerHistoryRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/json")
 
 		q := HistoryQuery{
-			JobID:  r.URL.Query().Get("job_id"),
-			Status: r.URL.Query().Get("status"),
-			From:   r.URL.Query().Get("from"),
-			To:     r.URL.Query().Get("to"),
-			Limit:  20,
+			JobID:    r.URL.Query().Get("job_id"),
+			Status:   r.URL.Query().Get("status"),
+			From:     r.URL.Query().Get("from"),
+			To:       r.URL.Query().Get("to"),
+			Limit:    20,
+			ParentID: r.URL.Query().Get("parent_id"),
 		}
 		if l := r.URL.Query().Get("limit"); l != "" {
 			if n, err := strconv.Atoi(l); err == nil && n > 0 {
@@ -58,6 +59,32 @@ func (s *Server) registerHistoryRoutes(mux *http.ServeMux) {
 			"page":  page,
 			"limit": q.Limit,
 		})
+	})
+
+	// --- Subtask counts for decomposed parents ---
+	// GET /history/subtask-counts?parents=id1,id2,id3
+	mux.HandleFunc("/history/subtask-counts", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.HistoryDB == "" {
+			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		parentsParam := r.URL.Query().Get("parents")
+		if parentsParam == "" {
+			json.NewEncoder(w).Encode(map[string]any{})
+			return
+		}
+		ids := strings.Split(parentsParam, ",")
+		counts, err := queryParentSubtaskCounts(cfg.HistoryDB, ids)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		if counts == nil {
+			counts = map[string]SubtaskCount{}
+		}
+		json.NewEncoder(w).Encode(counts)
 	})
 
 	mux.HandleFunc("/history/", func(w http.ResponseWriter, r *http.Request) {

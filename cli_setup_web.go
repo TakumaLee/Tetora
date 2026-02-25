@@ -193,7 +193,7 @@ func writeSetupConfig(req setupSaveRequest) error {
 		"defaultBudget":         2.0,
 		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
-		"listenAddr":            "127.0.0.1:8991",
+		"listenAddr":            randomListenAddr(),
 		"jobsFile":              "jobs.json",
 		"apiToken":              apiToken,
 		"log":                   true,

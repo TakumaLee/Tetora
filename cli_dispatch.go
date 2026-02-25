@@ -10,6 +10,24 @@ import (
 )
 
 func cmdDispatch(args []string) {
+	// Subcommand routing.
+	if len(args) > 0 {
+		switch args[0] {
+		case "list":
+			cfg := loadConfig(findConfigPath())
+			cmdDispatchList(cfg, newAPIClient(cfg))
+			return
+		case "subtasks":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: tetora dispatch subtasks <parentID>")
+				os.Exit(1)
+			}
+			cfg := loadConfig(findConfigPath())
+			cmdDispatchSubtasks(cfg, newAPIClient(cfg), args[1])
+			return
+		}
+	}
+
 	// Parse flags.
 	model := ""
 	timeout := ""
@@ -19,6 +37,7 @@ func cmdDispatch(args []string) {
 	role := ""
 	notify := false
 	estimate := false
+	decompose := false
 	var prompt string
 
 	i := 0
@@ -72,6 +91,9 @@ func cmdDispatch(args []string) {
 		case "--estimate", "-e":
 			estimate = true
 			i++
+		case "--decompose":
+			decompose = true
+			i++
 		case "--help":
 			printDispatchUsage()
 			return
@@ -93,6 +115,10 @@ func cmdDispatch(args []string) {
 				prompt = strings.TrimSpace(string(data))
 			}
 		}
+	}
+
+	if decompose {
+		fmt.Fprintln(os.Stderr, "warning: --decompose is not yet implemented; dispatching as single task")
 	}
 
 	if prompt == "" {

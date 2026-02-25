@@ -145,7 +145,16 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("prompt is required")
 	}
 	if args.Timeout <= 0 {
-		args.Timeout = 300 // default 5 minutes
+		if cfg.AgentComm.DefaultTimeout > 0 {
+			args.Timeout = float64(cfg.AgentComm.DefaultTimeout)
+		} else {
+			// Use smart estimation from prompt; default 1h if no prompt.
+			estimated, err := time.ParseDuration(estimateTimeout(args.Prompt))
+			if err != nil {
+				estimated = time.Hour
+			}
+			args.Timeout = estimated.Seconds()
+		}
 	}
 
 	// --- P13.3: Enforce max nesting depth.

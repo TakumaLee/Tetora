@@ -27,6 +27,7 @@ type JobRun struct {
 	TokensIn      int     `json:"tokensIn,omitempty"`
 	TokensOut     int     `json:"tokensOut,omitempty"`
 	Role          string  `json:"role,omitempty"`
+	ParentID      string  `json:"parentId,omitempty"`
 }
 
 type CostStats struct {
@@ -68,6 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		`ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`,
 		`ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`,
 		`ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`,
+		`ALTER TABLE job_runs ADD COLUMN parent_id TEXT DEFAULT '';`,
 	} {
 		if err := execDB(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") {
@@ -83,8 +85,8 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 
 func insertJobRun(dbPath string, run JobRun) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, output_file, tokens_in, tokens_out, role)
-		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s',%d,%d,'%s')`,
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, output_file, tokens_in, tokens_out, role, parent_id)
+		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
 		escapeSQLite(run.JobID),
 		escapeSQLite(run.Name),
 		escapeSQLite(run.Source),
@@ -101,6 +103,7 @@ func insertJobRun(dbPath string, run JobRun) error {
 		run.TokensIn,
 		run.TokensOut,
 		escapeSQLite(run.Role),
+		escapeSQLite(run.ParentID),
 	)
 	return execDB(dbPath, sql)
 }
@@ -118,7 +121,7 @@ func queryHistory(dbPath, jobID string, limit int) ([]JobRun, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -137,7 +140,7 @@ func queryHistory(dbPath, jobID string, limit int) ([]JobRun, error) {
 // queryHistoryByID returns a single job run by its ID.
 func queryHistoryByID(dbPath string, id int) (*JobRun, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE id = %d`, id)
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
@@ -169,6 +172,7 @@ func jobRunFromRow(row map[string]any) JobRun {
 		TokensIn:      jsonInt(row["tokens_in"]),
 		TokensOut:     jsonInt(row["tokens_out"]),
 		Role:          jsonStr(row["role"]),
+		ParentID:      jsonStr(row["parent_id"]),
 	}
 }
 
@@ -199,12 +203,13 @@ func queryCostStats(dbPath string) (CostStats, error) {
 // --- Filtered Query ---
 
 type HistoryQuery struct {
-	JobID  string
-	Status string
-	From   string // RFC3339 or date string
-	To     string
-	Limit  int
-	Offset int
+	JobID    string
+	Status   string
+	From     string // RFC3339 or date string
+	To       string
+	Limit    int
+	Offset   int
+	ParentID string // filter subtasks by parent job_id
 }
 
 func queryHistoryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) {
@@ -225,6 +230,9 @@ func queryHistoryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) 
 	if q.To != "" {
 		conditions = append(conditions, fmt.Sprintf("started_at <= '%s'", escapeSQLite(q.To)))
 	}
+	if q.ParentID != "" {
+		conditions = append(conditions, fmt.Sprintf("parent_id = '%s'", escapeSQLite(q.ParentID)))
+	}
 
 	where := ""
 	if len(conditions) > 0 {
@@ -244,7 +252,7 @@ func queryHistoryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) 
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -292,7 +300,7 @@ func queryLastJobRun(dbPath, jobID string) *JobRun {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT 1`,
 		escapeSQLite(jobID))
 
@@ -401,7 +409,7 @@ func queryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	// Failed runs details.
 	if fail > 0 {
 		failSQL := fmt.Sprintf(
-			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
 			 FROM job_runs
 			 WHERE started_at >= '%s' AND started_at < '%s' AND status != 'success'
 			 ORDER BY id DESC LIMIT 10`,
@@ -500,6 +508,7 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 		TokensIn:      result.TokensIn,
 		TokensOut:     result.TokensOut,
 		Role:          role,
+		ParentID:      task.ParentID,
 	}
 	if err := insertJobRun(dbPath, run); err != nil {
 		// Log but don't fail the task.
@@ -691,6 +700,52 @@ func queryProviderMetrics(dbPath string, days int) ([]ProviderMetrics, error) {
 		})
 	}
 	return metrics, nil
+}
+
+// SubtaskCount holds the total and completed counts for a decomposed parent task.
+type SubtaskCount struct {
+	Total     int `json:"total"`
+	Completed int `json:"completed"`
+}
+
+// queryParentSubtaskCounts returns subtask counts grouped by parent_id for the given parent IDs.
+func queryParentSubtaskCounts(dbPath string, parentIDs []string) (map[string]SubtaskCount, error) {
+	if dbPath == "" || len(parentIDs) == 0 {
+		return nil, nil
+	}
+
+	inList := ""
+	for i, id := range parentIDs {
+		if i > 0 {
+			inList += ","
+		}
+		inList += "'" + escapeSQLite(id) + "'"
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT parent_id,
+		        COUNT(*) as total,
+		        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as completed
+		 FROM job_runs
+		 WHERE parent_id IN (%s)
+		 GROUP BY parent_id`, inList)
+
+	rows, err := queryDB(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]SubtaskCount)
+	for _, row := range rows {
+		pid := jsonStr(row["parent_id"])
+		if pid != "" {
+			result[pid] = SubtaskCount{
+				Total:     jsonInt(row["total"]),
+				Completed: jsonInt(row["completed"]),
+			}
+		}
+	}
+	return result, nil
 }
 
 // truncateStr is like truncate() but avoids name collision if truncate is in another file.

@@ -6,12 +6,26 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// randomListenAddr picks a random available port on 127.0.0.1 and returns the
+// listen address (e.g. "127.0.0.1:52341"). Called once during init so the port
+// is written to config and stays stable across restarts.
+func randomListenAddr() string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "127.0.0.1:8991"
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return addr
+}
 
 // --- Interactive menu helpers ---
 
@@ -419,7 +433,7 @@ func cmdInit() {
 		"defaultBudget":         2.0,
 		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
-		"listenAddr":            "127.0.0.1:8991",
+		"listenAddr":            randomListenAddr(),
 		"jobsFile":              "jobs.json",
 		"apiToken":              apiToken,
 		"log":                   true,
