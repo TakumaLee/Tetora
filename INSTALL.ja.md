@@ -1,7 +1,7 @@
 # Tetora のインストール
 
 <p align="center">
-  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <a href="INSTALL.zh-CN.md">简体中文</a> | <strong>日本語</strong> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.ru.md">Русский</a>
+  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <a href="INSTALL.zh-CN.md">简体中文</a> | <strong>日本語</strong> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.id.md">Bahasa Indonesia</a>
 </p>
 
 ---
@@ -71,6 +71,9 @@ source ~/.zshrc
 このパスでは **Claude Code CLI** を AI バックエンドとして使用します。Claude Pro サブスクリプション（月額 $20、[claude.ai](https://claude.ai)）が必要です。
 
 > **このパスを選ぶ理由：** API キーの管理不要、使用量の請求を心配する必要がありません。Pro サブスクリプションで Claude Code を通じた Tetora の使用がすべてカバーされます。
+
+> [!IMPORTANT]
+> **前提条件：** このパスには Claude Pro サブスクリプション（月額 $20）が必要です。まだご登録でない場合は、先に [claude.ai/upgrade](https://claude.ai/upgrade) からご登録ください。
 
 ### ステップ 1：Claude Code CLI のインストール
 

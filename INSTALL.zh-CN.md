@@ -1,7 +1,7 @@
 # 安装 Tetora
 
 <p align="center">
-  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <strong>简体中文</strong> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.ru.md">Русский</a>
+  <a href="INSTALL.md">English</a> | <a href="INSTALL.zh-TW.md">繁體中文</a> | <strong>简体中文</strong> | <a href="INSTALL.ja.md">日本語</a> | <a href="INSTALL.ko.md">한국어</a> | <a href="INSTALL.fr.md">Français</a> | <a href="INSTALL.de.md">Deutsch</a> | <a href="INSTALL.es.md">Español</a> | <a href="INSTALL.pt.md">Português</a> | <a href="INSTALL.id.md">Bahasa Indonesia</a>
 </p>
 
 ---
@@ -71,6 +71,9 @@ source ~/.zshrc
 此路径使用 **Claude Code CLI** 作为 AI 后端，需要有效的 Claude Pro 订阅（月费 $20，[claude.ai](https://claude.ai)）。
 
 > **为何选择此路径？** 无需管理 API 密钥，不用担心用量计费。Pro 订阅涵盖通过 Claude Code 使用 Tetora 的全部费用。
+
+> [!IMPORTANT]
+> **前提条件：** 此路径需要有效的 Claude Pro 订阅（月费 $20）。如果尚未订阅，请先前往 [claude.ai/upgrade](https://claude.ai/upgrade)。
 
 ### 步骤 1：安装 Claude Code CLI
 
