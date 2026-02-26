@@ -264,8 +264,11 @@ func (p *PluginProcess) readLoop() {
 			// No ID — this is a notification from the plugin.
 			var notif jsonRPCNotification
 			if err := json.Unmarshal([]byte(line), &notif); err == nil && notif.Method != "" {
-				if p.onNotify != nil {
-					p.onNotify(notif.Method, notif.Params)
+				p.mu.Lock()
+				fn := p.onNotify
+				p.mu.Unlock()
+				if fn != nil {
+					fn(notif.Method, notif.Params)
 				}
 			}
 		}

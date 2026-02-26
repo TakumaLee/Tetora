@@ -245,9 +245,11 @@ func TestPluginJSONRPCNotification(t *testing.T) {
 	host.mu.RLock()
 	proc := host.plugins["test-notif"]
 	host.mu.RUnlock()
+	proc.mu.Lock()
 	proc.onNotify = func(method string, params json.RawMessage) {
 		notified <- method
 	}
+	proc.mu.Unlock()
 
 	// Wait for notification from the mock plugin.
 	select {
@@ -310,8 +312,8 @@ func TestPluginCrashRecovery(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	// Wait a moment for the process to crash.
-	time.Sleep(500 * time.Millisecond)
+	// Wait for the process to crash (longer under -race).
+	time.Sleep(2 * time.Second)
 
 	// isRunning should return false.
 	host.mu.RLock()
@@ -398,11 +400,13 @@ func TestPluginChannelMessageRouting(t *testing.T) {
 	host.mu.RLock()
 	proc := host.plugins["test-channel"]
 	host.mu.RUnlock()
+	proc.mu.Lock()
 	proc.onNotify = func(method string, params json.RawMessage) {
 		if method == "channel/message" {
 			received <- params
 		}
 	}
+	proc.mu.Unlock()
 
 	// Wait for the initial notification from the mock.
 	select {

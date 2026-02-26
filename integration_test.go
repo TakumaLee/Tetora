@@ -108,7 +108,7 @@ func TestAgenticLoop_BasicToolCall(t *testing.T) {
 	}
 
 	cfg := testConfigWithTools(echoTool())
-	task := Task{ID: "t1", Prompt: "echo hello", Provider: "mock"}
+	task := Task{ID: "t1", Prompt: "echo hello", Provider: "mock", Source: "cron"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "",
@@ -151,7 +151,7 @@ func TestAgenticLoop_MultipleIterations(t *testing.T) {
 	}
 
 	cfg := testConfigWithTools(counterTool(&counter))
-	task := Task{ID: "t2", Prompt: "count 3 times", Provider: "mock"}
+	task := Task{ID: "t2", Prompt: "count 3 times", Provider: "mock", Source: "cron"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "",
@@ -182,7 +182,7 @@ func TestAgenticLoop_NoToolCalls(t *testing.T) {
 	}
 
 	cfg := testConfigWithTools(echoTool())
-	task := Task{ID: "t3", Prompt: "just answer", Provider: "mock"}
+	task := Task{ID: "t3", Prompt: "just answer", Provider: "mock", Source: "cron"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "",
@@ -219,7 +219,7 @@ func TestAgenticLoop_ToolNotFound(t *testing.T) {
 	}
 
 	cfg := testConfigWithTools(echoTool())
-	task := Task{ID: "t4", Prompt: "use missing tool", Provider: "mock"}
+	task := Task{ID: "t4", Prompt: "use missing tool", Provider: "mock", Source: "cron"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "",
@@ -236,7 +236,8 @@ func TestAgenticLoop_ToolNotFound(t *testing.T) {
 }
 
 func TestAgenticLoop_BudgetExceeded(t *testing.T) {
-	// Provider returns tool_use with a high cost. Task budget is low.
+	// Per-task budget is a soft limit: it logs a warning but continues.
+	// The loop should proceed past budget and finish normally.
 	provider := &mockToolProvider{
 		name: "mock",
 		results: []*ProviderResult{
@@ -246,33 +247,32 @@ func TestAgenticLoop_BudgetExceeded(t *testing.T) {
 				CostUSD:    0.50,
 				ToolCalls:  []ToolCall{{ID: "tc1", Name: "echo", Input: json.RawMessage(`{"msg":"hi"}`)}},
 			},
-			// This should never be reached because budget is exceeded.
 			{
-				Output:     "should not reach",
+				Output:     "completed despite budget",
 				StopReason: "end_turn",
 			},
 		},
 	}
 
 	cfg := testConfigWithTools(echoTool())
-	task := Task{ID: "t5", Prompt: "expensive", Provider: "mock", Budget: 0.10}
+	task := Task{ID: "t5", Prompt: "expensive", Provider: "mock", Budget: 0.10, Source: "cron"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "",
 		testRegistry(provider), nil, nil,
 	)
 
-	// Should stop due to budget exceeded (not an error, but output contains budget msg).
+	// Soft-limit: no hard error, loop continues past budget.
 	if result.IsError {
 		t.Fatalf("unexpected hard error: %s", result.Error)
 	}
-	// The output should include the budget exceeded marker.
-	if result.Output == "should not reach" {
-		t.Error("loop should have stopped before second provider call")
+	// With soft-limit, the loop continues and the second provider call is reached.
+	if result.Output != "completed despite budget" {
+		t.Errorf("unexpected output: %q", result.Output)
 	}
-	// Provider should only be called once (budget check after first iteration stops loop).
-	if provider.calls != 1 {
-		t.Errorf("expected 1 provider call (budget stop), got %d", provider.calls)
+	// Provider should be called twice (budget is soft, loop continues).
+	if provider.calls != 2 {
+		t.Errorf("expected 2 provider calls (soft budget), got %d", provider.calls)
 	}
 }
 

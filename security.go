@@ -50,7 +50,6 @@ func (sm *securityMonitor) recordEvent(ip, eventType string) {
 	}
 
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	now := time.Now()
 	cutoff := now.Add(-time.Duration(sm.windowMin) * time.Minute)
@@ -72,18 +71,20 @@ func (sm *securityMonitor) recordEvent(ip, eventType string) {
 	sm.events[key] = events
 
 	// Check threshold.
+	var alertMsg string
 	if len(events) >= sm.threshold {
 		// Dedup: don't alert same IP more than once per cooldown.
-		if last, ok := sm.lastAlert[key]; ok && now.Sub(last) < sm.alertCooldown {
-			return
+		if last, ok := sm.lastAlert[key]; !ok || now.Sub(last) >= sm.alertCooldown {
+			sm.lastAlert[key] = now
+			alertMsg = fmt.Sprintf("[Security] Suspicious activity from %s: %d %s events in %dm",
+				ip, len(events), eventType, sm.windowMin)
 		}
-		sm.lastAlert[key] = now
+	}
+	sm.mu.Unlock()
 
-		msg := fmt.Sprintf("[Security] Suspicious activity from %s: %d %s events in %dm",
-			ip, len(events), eventType, sm.windowMin)
-
-		// Send notification in goroutine to avoid holding the lock.
-		go sm.notifyFn(msg)
+	// Send notification outside of the lock to avoid holding it during I/O.
+	if alertMsg != "" {
+		sm.notifyFn(alertMsg)
 	}
 }
 

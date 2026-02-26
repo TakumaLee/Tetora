@@ -37,7 +37,7 @@ func TestBuildClaudeCodeArgs_Basic(t *testing.T) {
 	}
 	args := buildClaudeCodeArgs(req)
 
-	expected := []string{"--print", "--output-format", "stream-json", "--model", "claude-sonnet-4-5-20250929"}
+	expected := []string{"--print", "--verbose", "--output-format", "stream-json", "--model", "claude-sonnet-4-5-20250929"}
 	if len(args) != len(expected) {
 		t.Fatalf("len(args) = %d, want %d; args = %v", len(args), len(expected), args)
 	}
@@ -60,9 +60,14 @@ func TestBuildClaudeCodeArgs_AllOptions(t *testing.T) {
 	// Verify each expected flag is present.
 	assertContainsFlag(t, args, "--model", "claude-opus-4-20250514")
 	assertContainsFlag(t, args, "--append-system-prompt", "You are a helpful assistant.")
-	assertContainsFlag(t, args, "--max-budget-usd", "1.50")
 	assertContainsFlag(t, args, "--permission-mode", "bypassPermissions")
 
+	// --max-budget-usd is intentionally NOT passed (Tetora uses soft-limit approach).
+	for _, a := range args {
+		if a == "--max-budget-usd" {
+			t.Error("--max-budget-usd should not be present (Tetora uses soft-limit, not hard budget)")
+		}
+	}
 	// Verify --add-dir is NOT present.
 	for _, a := range args {
 		if a == "--add-dir" {

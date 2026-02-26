@@ -204,12 +204,13 @@ func TestQuerySessionsFiltered(t *testing.T) {
 	}
 
 	// Filter by status.
+	// initSessionDB creates a system log session (status=active), so expect +1.
 	sessions2, total2, _ := querySessions(dbPath, SessionQuery{Status: "active"})
-	if total2 != 2 {
-		t.Errorf("total active = %d, want 2", total2)
+	if total2 != 3 {
+		t.Errorf("total active = %d, want 3 (2 test + 1 system log)", total2)
 	}
-	if len(sessions2) != 2 {
-		t.Errorf("len active = %d, want 2", len(sessions2))
+	if len(sessions2) != 3 {
+		t.Errorf("len active = %d, want 3 (2 test + 1 system log)", len(sessions2))
 	}
 
 	// Pagination.
@@ -281,9 +282,10 @@ func TestCountActiveSessions(t *testing.T) {
 		ID: "a3", Role: "琥珀", Status: "active", CreatedAt: now, UpdatedAt: now,
 	})
 
+	// initSessionDB creates a system log session (status=active), so expect +1.
 	count := countActiveSessions(dbPath)
-	if count != 2 {
-		t.Errorf("active count = %d, want 2", count)
+	if count != 3 {
+		t.Errorf("active count = %d, want 3 (2 test + 1 system log)", count)
 	}
 }
 

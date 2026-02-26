@@ -458,9 +458,12 @@ func TestNotificationEngine_BatchIntervalInvalid(t *testing.T) {
 }
 
 func TestNotificationEngine_StopFlushes(t *testing.T) {
+	var mu sync.Mutex
 	var received []string
 	fallback := func(text string) {
+		mu.Lock()
 		received = append(received, text)
+		mu.Unlock()
 	}
 
 	cfg := &Config{
@@ -475,8 +478,11 @@ func TestNotificationEngine_StopFlushes(t *testing.T) {
 	// Give goroutine time to flush on stop.
 	time.Sleep(50 * time.Millisecond)
 
-	if len(received) != 1 {
-		t.Errorf("expected 1 message flushed on stop, got %d", len(received))
+	mu.Lock()
+	count := len(received)
+	mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected 1 message flushed on stop, got %d", count)
 	}
 }
 

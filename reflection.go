@@ -78,11 +78,14 @@ func shouldReflect(cfg *Config, task Task, result TaskResult) bool {
 		return false
 	}
 	// Skip failed/timeout tasks unless TriggerOnFail is set.
-	if (result.Status == "error" || result.Status == "timeout") && !cfg.Reflection.TriggerOnFail {
+	isFailed := result.Status == "error" || result.Status == "timeout"
+	if isFailed && !cfg.Reflection.TriggerOnFail {
 		return false
 	}
 	// Skip if cost is below MinCost threshold (default $0.03).
-	if result.CostUSD < cfg.Reflection.minCostOrDefault() {
+	// Bypass cost check for failed tasks when TriggerOnFail is enabled —
+	// failed tasks often have zero cost but still benefit from reflection.
+	if !isFailed && result.CostUSD < cfg.Reflection.minCostOrDefault() {
 		return false
 	}
 	return true
