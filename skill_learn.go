@@ -15,7 +15,7 @@ func initSkillUsageTable(dbPath string) error {
 		skill_name TEXT NOT NULL,
 		event_type TEXT NOT NULL,
 		task_prompt TEXT DEFAULT '',
-		role TEXT DEFAULT '',
+		agent TEXT DEFAULT '',
 		created_at TEXT NOT NULL
 	)`
 	_, err := queryDB(dbPath, sql)
@@ -26,7 +26,7 @@ func initSkillUsageTable(dbPath string) error {
 func recordSkillEvent(dbPath, skillName, eventType, taskPrompt, role string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	sql := fmt.Sprintf(
-		`INSERT INTO skill_usage (skill_name, event_type, task_prompt, role, created_at) VALUES ('%s', '%s', '%s', '%s', '%s')`,
+		`INSERT INTO skill_usage (skill_name, event_type, task_prompt, agent, created_at) VALUES ('%s', '%s', '%s', '%s', '%s')`,
 		escapeSQLite(skillName),
 		escapeSQLite(eventType),
 		escapeSQLite(taskPrompt),

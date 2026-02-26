@@ -26,7 +26,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 		switch r.Method {
 		case http.MethodGet:
 			q := SessionQuery{
-				Role:   r.URL.Query().Get("role"),
+				Agent:  r.URL.Query().Get("role"),
 				Status: r.URL.Query().Get("status"),
 				Source: r.URL.Query().Get("source"),
 				Limit:  20,
@@ -60,25 +60,25 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 
 		case http.MethodPost:
 			var body struct {
-				Role  string `json:"role"`
+				Agent string `json:"agent"`
 				Title string `json:"title"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
 				return
 			}
-			if body.Role == "" {
-				http.Error(w, `{"error":"role is required"}`, http.StatusBadRequest)
+			if body.Agent == "" {
+				http.Error(w, `{"error":"agent is required"}`, http.StatusBadRequest)
 				return
 			}
-			if _, ok := cfg.Roles[body.Role]; !ok {
-				http.Error(w, `{"error":"role not found"}`, http.StatusBadRequest)
+			if _, ok := cfg.Agents[body.Agent]; !ok {
+				http.Error(w, `{"error":"agent not found"}`, http.StatusBadRequest)
 				return
 			}
 			now := time.Now().Format(time.RFC3339)
 			sess := Session{
 				ID:        newUUID(),
-				Role:      body.Role,
+				Agent:     body.Agent,
 				Source:    "chat",
 				Status:    "active",
 				Title:     body.Title,
@@ -86,14 +86,14 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 				UpdatedAt: now,
 			}
 			if sess.Title == "" {
-				sess.Title = "New chat with " + body.Role
+				sess.Title = "New chat with " + body.Agent
 			}
 			if err := createSession(cfg.HistoryDB, sess); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
 			}
 			auditLog(cfg.HistoryDB, "session.create", "http",
-				fmt.Sprintf("session=%s role=%s", sess.ID, sess.Role), clientIP(r))
+				fmt.Sprintf("session=%s role=%s", sess.ID, sess.Agent), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(sess)
 
@@ -213,7 +213,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 
 			task := Task{
 				Prompt:    body.Prompt,
-				Role:      sess.Role,
+				Agent:     sess.Agent,
 				SessionID: sessionID,
 				Source:    "chat",
 			}
@@ -256,7 +256,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 				}()
 
 				auditLog(cfg.HistoryDB, "session.message.async", "http",
-					fmt.Sprintf("session=%s role=%s task=%s", sessionID, sess.Role, taskID), clientIP(r))
+					fmt.Sprintf("session=%s role=%s task=%s", sessionID, sess.Agent, taskID), clientIP(r))
 				w.WriteHeader(http.StatusAccepted)
 				json.NewEncoder(w).Encode(map[string]any{
 					"taskId":    taskID,
@@ -267,9 +267,9 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			}
 
 			// Sync mode (existing behavior for API consumers).
-			result := runSingleTask(r.Context(), cfg, task, sem, sess.Role)
+			result := runSingleTask(r.Context(), cfg, task, sem, sess.Agent)
 			taskStart := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-			recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, sess.Role, task, result,
+			recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, sess.Agent, task, result,
 				taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 			// Record assistant message (user message already pre-recorded above).
@@ -298,7 +298,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			updateSessionStats(cfg.HistoryDB, sessionID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
 			auditLog(cfg.HistoryDB, "session.message", "http",
-				fmt.Sprintf("session=%s role=%s", sessionID, sess.Role), clientIP(r))
+				fmt.Sprintf("session=%s role=%s", sessionID, sess.Agent), clientIP(r))
 			json.NewEncoder(w).Encode(result)
 
 		// POST /sessions/{id}/mirror — record external message (no task execution).
@@ -335,7 +335,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			if sess == nil {
 				sess = &Session{
 					ID:        sessionID,
-					Role:      "mirror",
+					Agent:     "mirror",
 					Source:    "mirror",
 					Status:    "active",
 					Title:     "Mirror session",

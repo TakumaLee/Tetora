@@ -27,7 +27,7 @@ type Workflow struct {
 type WorkflowStep struct {
 	ID        string   `json:"id"`
 	Type      string   `json:"type,omitempty"`      // "dispatch" (default), "skill", "condition", "parallel"
-	Role      string   `json:"role,omitempty"`       // agent role for dispatch steps
+	Agent      string   `json:"agent,omitempty"`       // agent role for dispatch steps
 	Prompt    string   `json:"prompt,omitempty"`     // for dispatch steps
 	Skill     string   `json:"skill,omitempty"`      // skill name for skill steps
 	SkillArgs []string `json:"skillArgs,omitempty"`  // skill arguments
@@ -237,8 +237,8 @@ func validateStep(s WorkflowStep, allIDs map[string]bool) []string {
 		} else if !allIDs[s.HandoffFrom] {
 			errs = append(errs, fmt.Sprintf("step %q: handoffFrom references unknown step %q", s.ID, s.HandoffFrom))
 		}
-		if s.Role == "" {
-			errs = append(errs, fmt.Sprintf("step %q: handoff step requires a target 'role'", s.ID))
+		if s.Agent == "" {
+			errs = append(errs, fmt.Sprintf("step %q: handoff step requires a target 'agent'", s.ID))
 		}
 	case "parallel":
 		if len(s.Parallel) == 0 {
@@ -558,7 +558,7 @@ func buildStepTask(s *WorkflowStep, wCtx *WorkflowContext, workflowName string) 
 		ID:             newUUID(),
 		Name:           fmt.Sprintf("%s/%s", workflowName, s.ID),
 		Prompt:         resolveTemplate(s.Prompt, wCtx),
-		Role:           s.Role,
+		Agent:           s.Agent,
 		Model:          s.Model,
 		Provider:       s.Provider,
 		Timeout:        s.Timeout,

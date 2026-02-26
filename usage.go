@@ -25,7 +25,7 @@ type UsageSummary struct {
 	BudgetLimit float64      `json:"budgetLimit,omitempty"`
 	BudgetPct   float64      `json:"budgetPct,omitempty"`
 	ByModel     []ModelUsage `json:"byModel,omitempty"`
-	ByRole      []RoleUsage  `json:"byRole,omitempty"`
+	ByRole      []AgentUsage  `json:"byRole,omitempty"`
 }
 
 // ModelUsage is cost/token usage breakdown for a single model.
@@ -38,9 +38,9 @@ type ModelUsage struct {
 	Pct       float64 `json:"pct"` // percentage of total cost
 }
 
-// RoleUsage is cost/token usage breakdown for a single role.
-type RoleUsage struct {
-	Role      string  `json:"role"`
+// AgentUsage is cost/token usage breakdown for a single agent.
+type AgentUsage struct {
+	Agent      string  `json:"agent"`
 	Tasks     int     `json:"tasks"`
 	Cost      float64 `json:"costUsd"`
 	TokensIn  int     `json:"tokensIn"`
@@ -51,7 +51,7 @@ type RoleUsage struct {
 // ExpensiveSession summarizes a high-cost session.
 type ExpensiveSession struct {
 	SessionID string  `json:"sessionId"`
-	Role      string  `json:"role"`
+	Agent      string  `json:"agent"`
 	Title     string  `json:"title"`
 	TotalCost float64 `json:"totalCostUsd"`
 	Messages  int     `json:"messages"`
@@ -168,8 +168,8 @@ func queryUsageByModel(dbPath string, days int) ([]ModelUsage, error) {
 	return result, nil
 }
 
-// queryUsageByRole returns cost/token breakdown grouped by role for the last N days.
-func queryUsageByRole(dbPath string, days int) ([]RoleUsage, error) {
+// queryUsageByAgent returns cost/token breakdown grouped by agent for the last N days.
+func queryUsageByAgent(dbPath string, days int) ([]AgentUsage, error) {
 	if dbPath == "" {
 		return nil, nil
 	}
@@ -179,19 +179,19 @@ func queryUsageByRole(dbPath string, days int) ([]RoleUsage, error) {
 
 	sql := fmt.Sprintf(
 		`SELECT
-			CASE WHEN role = '' THEN '(unassigned)' ELSE role END as role,
+			CASE WHEN agent = '' THEN '(unassigned)' ELSE agent END as agent,
 			COUNT(*) as tasks,
 			COALESCE(SUM(cost_usd), 0) as cost,
 			COALESCE(SUM(tokens_in), 0) as tokens_in,
 			COALESCE(SUM(tokens_out), 0) as tokens_out
 		 FROM job_runs
 		 WHERE date(started_at,'localtime') >= date('now','localtime','-%d days')
-		 GROUP BY role
+		 GROUP BY agent
 		 ORDER BY cost DESC`, days)
 
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
-		return nil, fmt.Errorf("query usage by role: %w", err)
+		return nil, fmt.Errorf("query usage by agent: %w", err)
 	}
 
 	// Calculate total cost for percentages.
@@ -200,15 +200,15 @@ func queryUsageByRole(dbPath string, days int) ([]RoleUsage, error) {
 		totalCost += jsonFloat(row["cost"])
 	}
 
-	var result []RoleUsage
+	var result []AgentUsage
 	for _, row := range rows {
 		cost := jsonFloat(row["cost"])
 		pct := 0.0
 		if totalCost > 0 {
 			pct = cost / totalCost * 100
 		}
-		result = append(result, RoleUsage{
-			Role:      jsonStr(row["role"]),
+		result = append(result, AgentUsage{
+			Agent:      jsonStr(row["agent"]),
 			Tasks:     jsonInt(row["tasks"]),
 			Cost:      cost,
 			TokensIn:  jsonInt(row["tokens_in"]),
@@ -234,7 +234,7 @@ func queryExpensiveSessions(dbPath string, limit, days int) ([]ExpensiveSession,
 
 	sql := fmt.Sprintf(
 		`SELECT
-			id, role, title, total_cost, message_count,
+			id, agent, title, total_cost, message_count,
 			total_tokens_in, total_tokens_out, created_at
 		 FROM sessions
 		 WHERE date(created_at,'localtime') >= date('now','localtime','-%d days')
@@ -251,7 +251,7 @@ func queryExpensiveSessions(dbPath string, limit, days int) ([]ExpensiveSession,
 	for _, row := range rows {
 		result = append(result, ExpensiveSession{
 			SessionID: jsonStr(row["id"]),
-			Role:      jsonStr(row["role"]),
+			Agent:      jsonStr(row["agent"]),
 			Title:     jsonStr(row["title"]),
 			TotalCost: jsonFloat(row["total_cost"]),
 			Messages:  jsonInt(row["message_count"]),
@@ -381,20 +381,20 @@ func formatModelBreakdown(models []ModelUsage) string {
 	return strings.Join(lines, "\n")
 }
 
-// formatRoleBreakdown formats role usage breakdown for CLI display.
-func formatRoleBreakdown(roles []RoleUsage) string {
+// formatAgentBreakdown formats agent usage breakdown for CLI display.
+func formatAgentBreakdown(roles []AgentUsage) string {
 	if len(roles) == 0 {
 		return "  (no data)"
 	}
 
 	var lines []string
 	lines = append(lines, fmt.Sprintf("  %-20s %6s %10s %10s %10s %6s",
-		"Role", "Tasks", "Cost", "Tokens In", "Tokens Out", "Pct"))
+		"Agent", "Tasks", "Cost", "Tokens In", "Tokens Out", "Pct"))
 	lines = append(lines, fmt.Sprintf("  %s", strings.Repeat("-", 68)))
 
 	for _, r := range roles {
 		lines = append(lines, fmt.Sprintf("  %-20s %6d $%9.4f %10d %10d %5.1f%%",
-			truncate(r.Role, 20), r.Tasks, r.Cost, r.TokensIn, r.TokensOut, r.Pct))
+			truncate(r.Agent, 20), r.Tasks, r.Cost, r.TokensIn, r.TokensOut, r.Pct))
 	}
 
 	return strings.Join(lines, "\n")

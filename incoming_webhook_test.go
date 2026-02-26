@@ -337,7 +337,7 @@ func TestHandleIncomingWebhook_NotFound(t *testing.T) {
 func TestHandleIncomingWebhook_Disabled(t *testing.T) {
 	f := false
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜", Enabled: &f},
+		"test": {Agent: "黒曜", Enabled: &f},
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`{}`))
 	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil)
@@ -348,7 +348,7 @@ func TestHandleIncomingWebhook_Disabled(t *testing.T) {
 
 func TestHandleIncomingWebhook_SignatureFail(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜", Secret: "mysecret"},
+		"test": {Agent: "黒曜", Secret: "mysecret"},
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`{"test":true}`))
 	// No signature header.
@@ -363,7 +363,7 @@ func TestHandleIncomingWebhook_SignatureFail(t *testing.T) {
 
 func TestHandleIncomingWebhook_BadJSON(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜"},
+		"test": {Agent: "黒曜"},
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`not json`))
 	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil)
@@ -377,7 +377,7 @@ func TestHandleIncomingWebhook_BadJSON(t *testing.T) {
 
 func TestHandleIncomingWebhook_Filtered(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"gh": {Role: "黒曜", Filter: "payload.action == 'opened'"},
+		"gh": {Agent: "黒曜", Filter: "payload.action == 'opened'"},
 	})
 	body := `{"action":"closed"}`
 	r := httptest.NewRequest("POST", "/hooks/gh", strings.NewReader(body))
@@ -389,7 +389,7 @@ func TestHandleIncomingWebhook_Filtered(t *testing.T) {
 
 func TestHandleIncomingWebhook_Accepted(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜", Template: "Process: {{payload.action}}"},
+		"test": {Agent: "黒曜", Template: "Process: {{payload.action}}"},
 	})
 	body := `{"action":"opened"}`
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(body))
@@ -398,8 +398,8 @@ func TestHandleIncomingWebhook_Accepted(t *testing.T) {
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted status, got %q", result.Status)
 	}
-	if result.Role != "黒曜" {
-		t.Errorf("expected role 黒曜, got %q", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("expected role 黒曜, got %q", result.Agent)
 	}
 	if result.TaskID == "" {
 		t.Error("expected non-empty taskID")
@@ -414,7 +414,7 @@ func TestHandleIncomingWebhook_WithValidSignature(t *testing.T) {
 	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"gh": {Role: "黒曜", Secret: secret, Template: "Review: {{payload.title}}"},
+		"gh": {Agent: "黒曜", Secret: secret, Template: "Review: {{payload.title}}"},
 	})
 
 	r := httptest.NewRequest("POST", "/hooks/gh", strings.NewReader(payload))
@@ -429,7 +429,7 @@ func TestHandleIncomingWebhook_WithValidSignature(t *testing.T) {
 
 func TestHandleIncomingWebhook_DefaultPrompt(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜"}, // no template
+		"test": {Agent: "黒曜"}, // no template
 	})
 	body := `{"key":"value"}`
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(body))
@@ -444,7 +444,7 @@ func TestHandleIncomingWebhook_DefaultPrompt(t *testing.T) {
 
 func TestIncomingWebhookHTTPEndpoint(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜", Template: "Test: {{payload.msg}}"},
+		"test": {Agent: "黒曜", Template: "Test: {{payload.msg}}"},
 	})
 	sem := make(chan struct{}, 5)
 
@@ -499,8 +499,8 @@ func TestIncomingWebhookHTTPEndpoint_NotFound(t *testing.T) {
 func TestWebhookListEndpoint(t *testing.T) {
 	cfg := &Config{
 		IncomingWebhooks: map[string]IncomingWebhookConfig{
-			"gh-pr":  {Role: "黒曜", Secret: "s", Filter: "payload.action == 'opened'"},
-			"sentry": {Role: "黒曜", Template: "Alert: {{payload.title}}"},
+			"gh-pr":  {Agent: "黒曜", Secret: "s", Filter: "payload.action == 'opened'"},
+			"sentry": {Agent: "黒曜", Template: "Alert: {{payload.title}}"},
 		},
 	}
 
@@ -508,7 +508,7 @@ func TestWebhookListEndpoint(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		type webhookInfo struct {
 			Name      string `json:"name"`
-			Role      string `json:"role"`
+			Agent     string `json:"agent"`
 			Enabled   bool   `json:"enabled"`
 			HasSecret bool   `json:"hasSecret"`
 		}
@@ -516,7 +516,7 @@ func TestWebhookListEndpoint(t *testing.T) {
 		for name, wh := range cfg.IncomingWebhooks {
 			list = append(list, webhookInfo{
 				Name:      name,
-				Role:      wh.Role,
+				Agent:      wh.Agent,
 				Enabled:   wh.isEnabled(),
 				HasSecret: wh.Secret != "",
 			})
@@ -546,7 +546,7 @@ func TestTriggerWebhookWorkflow_NotFound(t *testing.T) {
 		baseDir: t.TempDir(),
 	}
 	whCfg := IncomingWebhookConfig{
-		Role:     "黒曜",
+		Agent:     "黒曜",
 		Workflow: "nonexistent",
 	}
 	result := triggerWebhookWorkflow(context.Background(), cfg, "test", whCfg,
@@ -563,7 +563,7 @@ func TestTriggerWebhookWorkflow_NotFound(t *testing.T) {
 
 func TestHandleIncomingWebhook_LargeBody(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
-		"test": {Role: "黒曜"},
+		"test": {Agent: "黒曜"},
 	})
 	// Create a valid JSON that's large but under 1MB.
 	largePayload := `{"data":"` + strings.Repeat("x", 500000) + `"}`
@@ -580,7 +580,7 @@ func TestHandleIncomingWebhook_LargeBody(t *testing.T) {
 func TestHandleIncomingWebhook_FilterPassAndTemplateExpand(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
 		"gh": {
-			Role:     "黒曜",
+			Agent:     "黒曜",
 			Filter:   "payload.action == 'opened'",
 			Template: "Review PR: {{payload.pull_request.title}} ({{payload.pull_request.html_url}})",
 		},
@@ -601,7 +601,7 @@ func TestHandleIncomingWebhook_FilterPassAndTemplateExpand(t *testing.T) {
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted, got %q: %s", result.Status, result.Message)
 	}
-	if result.Role != "黒曜" {
-		t.Errorf("expected role 黒曜, got %q", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("expected role 黒曜, got %q", result.Agent)
 	}
 }

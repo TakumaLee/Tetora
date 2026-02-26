@@ -28,7 +28,7 @@ func TestShouldReflect_Enabled(t *testing.T) {
 	cfg := &Config{
 		Reflection: ReflectionConfig{Enabled: true},
 	}
-	task := Task{Role: "翡翠"}
+	task := Task{Agent: "翡翠"}
 	result := TaskResult{Status: "success", CostUSD: 0.10}
 
 	if !shouldReflect(cfg, task, result) {
@@ -40,7 +40,7 @@ func TestShouldReflect_Disabled(t *testing.T) {
 	cfg := &Config{
 		Reflection: ReflectionConfig{Enabled: false},
 	}
-	task := Task{Role: "翡翠"}
+	task := Task{Agent: "翡翠"}
 	result := TaskResult{Status: "success"}
 
 	if shouldReflect(cfg, task, result) {
@@ -49,7 +49,7 @@ func TestShouldReflect_Disabled(t *testing.T) {
 }
 
 func TestShouldReflect_NilConfig(t *testing.T) {
-	task := Task{Role: "翡翠"}
+	task := Task{Agent: "翡翠"}
 	result := TaskResult{Status: "success"}
 
 	if shouldReflect(nil, task, result) {
@@ -61,7 +61,7 @@ func TestShouldReflect_MinCost(t *testing.T) {
 	cfg := &Config{
 		Reflection: ReflectionConfig{Enabled: true, MinCost: 0.50},
 	}
-	task := Task{Role: "翡翠"}
+	task := Task{Agent: "翡翠"}
 
 	// Below threshold.
 	resultLow := TaskResult{Status: "success", CostUSD: 0.10}
@@ -87,7 +87,7 @@ func TestShouldReflect_TriggerOnFail(t *testing.T) {
 	cfg := &Config{
 		Reflection: ReflectionConfig{Enabled: true, TriggerOnFail: false},
 	}
-	task := Task{Role: "黒曜"}
+	task := Task{Agent: "黒曜"}
 
 	resultErr := TaskResult{Status: "error"}
 	if shouldReflect(cfg, task, resultErr) {
@@ -113,7 +113,7 @@ func TestShouldReflect_NoRole(t *testing.T) {
 	cfg := &Config{
 		Reflection: ReflectionConfig{Enabled: true},
 	}
-	task := Task{Role: ""}
+	task := Task{Agent: ""}
 	result := TaskResult{Status: "success"}
 
 	if shouldReflect(cfg, task, result) {
@@ -235,7 +235,7 @@ func TestStoreAndQueryReflections(t *testing.T) {
 
 	ref1 := &ReflectionResult{
 		TaskID:      "task-001",
-		Role:        "翡翠",
+		Agent:        "翡翠",
 		Score:       4,
 		Feedback:    "Good research quality",
 		Improvement: "Include more sources",
@@ -248,7 +248,7 @@ func TestStoreAndQueryReflections(t *testing.T) {
 
 	ref2 := &ReflectionResult{
 		TaskID:      "task-002",
-		Role:        "翡翠",
+		Agent:        "翡翠",
 		Score:       2,
 		Feedback:    "Incomplete analysis",
 		Improvement: "Cover all edge cases",
@@ -261,7 +261,7 @@ func TestStoreAndQueryReflections(t *testing.T) {
 
 	ref3 := &ReflectionResult{
 		TaskID:      "task-003",
-		Role:        "黒曜",
+		Agent:        "黒曜",
 		Score:       5,
 		Feedback:    "Excellent implementation",
 		Improvement: "None needed",
@@ -291,8 +291,8 @@ func TestStoreAndQueryReflections(t *testing.T) {
 	}
 	// Verify ordering (most recent first — both have same timestamp, so check both exist).
 	for _, ref := range jade {
-		if ref.Role != "翡翠" {
-			t.Errorf("expected role 翡翠, got %q", ref.Role)
+		if ref.Agent != "翡翠" {
+			t.Errorf("expected role 翡翠, got %q", ref.Agent)
 		}
 	}
 
@@ -332,7 +332,7 @@ func TestStoreReflectionSpecialChars(t *testing.T) {
 
 	ref := &ReflectionResult{
 		TaskID:      "task-special",
-		Role:        "琥珀",
+		Agent:        "琥珀",
 		Score:       3,
 		Feedback:    `She said "it's fine" and that's that`,
 		Improvement: "Use apostrophes carefully",
@@ -363,12 +363,12 @@ func TestBuildReflectionContext(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	storeReflection(dbPath, &ReflectionResult{
-		TaskID: "t1", Role: "翡翠", Score: 3,
+		TaskID: "t1", Agent: "翡翠", Score: 3,
 		Feedback: "OK", Improvement: "Be more thorough",
 		CostUSD: 0.01, CreatedAt: now,
 	})
 	storeReflection(dbPath, &ReflectionResult{
-		TaskID: "t2", Role: "翡翠", Score: 2,
+		TaskID: "t2", Agent: "翡翠", Score: 2,
 		Feedback: "Needs work", Improvement: "Check all sources",
 		CostUSD: 0.01, CreatedAt: now,
 	})
@@ -377,7 +377,7 @@ func TestBuildReflectionContext(t *testing.T) {
 	if ctx == "" {
 		t.Fatal("buildReflectionContext returned empty string")
 	}
-	if !stringContains(ctx, "Recent self-assessments for role 翡翠") {
+	if !stringContains(ctx, "Recent self-assessments for agent 翡翠") {
 		t.Errorf("missing header in context: %q", ctx)
 	}
 	if !stringContains(ctx, "Score: 3/5") {

@@ -14,7 +14,7 @@ import (
 // BudgetConfig configures cost governance budgets and auto-downgrade.
 type BudgetConfig struct {
 	Global        GlobalBudget              `json:"global,omitempty"`
-	Roles         map[string]RoleBudget     `json:"roles,omitempty"`
+	Agents         map[string]AgentBudget     `json:"agents,omitempty"`
 	Workflows     map[string]WorkflowBudget `json:"workflows,omitempty"`
 	AutoDowngrade AutoDowngradeConfig       `json:"autoDowngrade,omitempty"`
 	Paused        bool                      `json:"paused,omitempty"` // kill switch: pause all paid execution
@@ -27,8 +27,8 @@ type GlobalBudget struct {
 	Monthly float64 `json:"monthly,omitempty"`
 }
 
-// RoleBudget defines per-role daily budget cap.
-type RoleBudget struct {
+// AgentBudget defines per-agent daily budget cap.
+type AgentBudget struct {
 	Daily float64 `json:"daily,omitempty"`
 }
 
@@ -68,7 +68,7 @@ type BudgetCheckResult struct {
 type BudgetStatus struct {
 	Paused bool             `json:"paused"`
 	Global *BudgetMeter     `json:"global,omitempty"`
-	Roles  []RoleBudgetMeter `json:"roles,omitempty"`
+	Agents  []AgentBudgetMeter `json:"agents,omitempty"`
 }
 
 // BudgetMeter shows spend vs. limit for a time period.
@@ -84,9 +84,9 @@ type BudgetMeter struct {
 	MonthlyPct   float64 `json:"monthlyPct"`
 }
 
-// RoleBudgetMeter shows per-role spend vs. limit.
-type RoleBudgetMeter struct {
-	Role       string  `json:"role"`
+// AgentBudgetMeter shows per-agent spend vs. limit.
+type AgentBudgetMeter struct {
+	Agent       string  `json:"agent"`
 	DailySpend float64 `json:"dailySpend"`
 	DailyLimit float64 `json:"dailyLimit,omitempty"`
 	DailyPct   float64 `json:"dailyPct"`
@@ -95,7 +95,7 @@ type RoleBudgetMeter struct {
 // --- Spend Queries ---
 
 // querySpend returns cost sums for today, this week, and this month.
-// If role is non-empty, filters by role.
+// If role is non-empty, filters by agent.
 func querySpend(dbPath, role string) (daily, weekly, monthly float64) {
 	if dbPath == "" {
 		return
@@ -103,7 +103,7 @@ func querySpend(dbPath, role string) (daily, weekly, monthly float64) {
 
 	roleFilter := ""
 	if role != "" {
-		roleFilter = fmt.Sprintf(" AND role = '%s'", escapeSQLite(role))
+		roleFilter = fmt.Sprintf(" AND agent = '%s'", escapeSQLite(role))
 	}
 
 	sql := fmt.Sprintf(
@@ -141,7 +141,7 @@ func queryWorkflowRunSpend(dbPath string, runID int) float64 {
 
 // checkBudget performs a pre-execution budget check.
 // Returns a BudgetCheckResult indicating whether execution is allowed.
-func checkBudget(cfg *Config, roleName, workflowName string, workflowRunID int) *BudgetCheckResult {
+func checkBudget(cfg *Config, agentName, workflowName string, workflowRunID int) *BudgetCheckResult {
 	budgets := cfg.Budgets
 
 	// Kill switch check.
@@ -156,7 +156,7 @@ func checkBudget(cfg *Config, roleName, workflowName string, workflowRunID int) 
 
 	// No budgets configured = always allowed.
 	if budgets.Global.Daily == 0 && budgets.Global.Weekly == 0 && budgets.Global.Monthly == 0 &&
-		len(budgets.Roles) == 0 && len(budgets.Workflows) == 0 {
+		len(budgets.Agents) == 0 && len(budgets.Workflows) == 0 {
 		return &BudgetCheckResult{Allowed: true, AlertLevel: "ok"}
 	}
 
@@ -215,10 +215,10 @@ func checkBudget(cfg *Config, roleName, workflowName string, workflowRunID int) 
 		}
 	}
 
-	// Per-role budget check.
-	if roleName != "" {
-		if rb, ok := budgets.Roles[roleName]; ok && rb.Daily > 0 {
-			daily, _, _ := querySpend(dbPath, roleName)
+	// Per-agent budget check.
+	if agentName != "" {
+		if rb, ok := budgets.Agents[agentName]; ok && rb.Daily > 0 {
+			daily, _, _ := querySpend(dbPath, agentName)
 			u := daily / rb.Daily
 			if u > maxUtilization {
 				maxUtilization = u
@@ -229,7 +229,7 @@ func checkBudget(cfg *Config, roleName, workflowName string, workflowRunID int) 
 					Exceeded:    true,
 					Utilization: u,
 					AlertLevel:  "exceeded",
-					Message:     fmt.Sprintf("role %q daily budget exceeded: $%.2f / $%.2f", roleName, daily, rb.Daily),
+					Message:     fmt.Sprintf("agent %q daily budget exceeded: $%.2f / $%.2f", agentName, daily, rb.Daily),
 				}
 			}
 		}
@@ -328,17 +328,17 @@ func queryBudgetStatus(cfg *Config) *BudgetStatus {
 	}
 
 	// Per-role meters.
-	for roleName, rb := range cfg.Budgets.Roles {
-		daily, _, _ := querySpend(dbPath, roleName)
-		meter := RoleBudgetMeter{
-			Role:       roleName,
+	for agentName, rb := range cfg.Budgets.Agents {
+		daily, _, _ := querySpend(dbPath, agentName)
+		meter := AgentBudgetMeter{
+			Agent:       agentName,
 			DailySpend: daily,
 			DailyLimit: rb.Daily,
 		}
 		if rb.Daily > 0 {
 			meter.DailyPct = daily / rb.Daily * 100
 		}
-		status.Roles = append(status.Roles, meter)
+		status.Agents = append(status.Agents, meter)
 	}
 
 	return status
@@ -389,10 +389,10 @@ func checkAndNotifyBudgetAlerts(cfg *Config, notifyFn func(string), tracker *bud
 	}
 
 	// Per-role alerts.
-	for roleName, rb := range budgets.Roles {
+	for agentName, rb := range budgets.Agents {
 		if rb.Daily > 0 {
-			daily, _, _ := querySpend(cfg.HistoryDB, roleName)
-			checkPeriodAlert(notifyFn, tracker, "role:"+roleName, "daily", daily, rb.Daily)
+			daily, _, _ := querySpend(cfg.HistoryDB, agentName)
+			checkPeriodAlert(notifyFn, tracker, "role:"+agentName, "daily", daily, rb.Daily)
 		}
 	}
 }
@@ -485,10 +485,10 @@ func formatBudgetSummary(cfg *Config) string {
 		lines = append(lines, strings.Join(parts, " | "))
 	}
 
-	for _, r := range status.Roles {
-		line := fmt.Sprintf("  %s: $%.2f", r.Role, r.DailySpend)
+	for _, r := range status.Agents {
+		line := fmt.Sprintf("  %s: $%.2f", r.Agent, r.DailySpend)
 		if r.DailyLimit > 0 {
-			line = fmt.Sprintf("  %s: $%.2f/$%.2f (%.0f%%)", r.Role, r.DailySpend, r.DailyLimit, r.DailyPct)
+			line = fmt.Sprintf("  %s: $%.2f/$%.2f (%.0f%%)", r.Agent, r.DailySpend, r.DailyLimit, r.DailyPct)
 		}
 		lines = append(lines, line)
 	}

@@ -7,34 +7,34 @@ import (
 	"strings"
 )
 
-// loadRolePrompt reads the SOUL file for a given role name
+// loadAgentPrompt reads the SOUL file for a given agent name
 // and returns its contents as a system prompt string.
 // Resolution order:
-//  1. Per-role workspace soul file (via resolveWorkspace)
-//  2. agents/{role}/SOUL.md
+//  1. Per-agent workspace soul file (via resolveWorkspace)
+//  2. agents/{agent}/SOUL.md
 //  3. Legacy fallback: {DefaultWorkdir}/{soulFile}
-func loadRolePrompt(cfg *Config, roleName string) (string, error) {
-	_, ok := cfg.Roles[roleName]
+func loadAgentPrompt(cfg *Config, agentName string) (string, error) {
+	_, ok := cfg.Agents[agentName]
 	if !ok {
-		return "", fmt.Errorf("role %q not found in config", roleName)
+		return "", fmt.Errorf("agent %q not found in config", agentName)
 	}
 
-	// Try workspace-resolved soul file first (per-role workspace).
-	ws := resolveWorkspace(cfg, roleName)
+	// Try workspace-resolved soul file first (per-agent workspace).
+	ws := resolveWorkspace(cfg, agentName)
 	if ws.SoulFile != "" {
 		if data, err := os.ReadFile(ws.SoulFile); err == nil {
 			return string(data), nil
 		}
 	}
 
-	// Fallback: agents/{role}/SOUL.md
-	agentSoulPath := filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
+	// Fallback: agents/{agent}/SOUL.md
+	agentSoulPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
 	if data, err := os.ReadFile(agentSoulPath); err == nil {
 		return string(data), nil
 	}
 
 	// Legacy fallback: DefaultWorkdir resolution.
-	rc := cfg.Roles[roleName]
+	rc := cfg.Agents[agentName]
 	if rc.SoulFile == "" {
 		return "", nil
 	}
@@ -51,9 +51,9 @@ func loadRolePrompt(cfg *Config, roleName string) (string, error) {
 	return string(data), nil
 }
 
-// --- Role Archetypes ---
+// --- Agent Archetypes ---
 
-type RoleArchetype struct {
+type AgentArchetype struct {
 	Name           string
 	Description    string
 	Model          string
@@ -61,7 +61,7 @@ type RoleArchetype struct {
 	SoulTemplate   string
 }
 
-var builtinArchetypes = []RoleArchetype{
+var builtinArchetypes = []AgentArchetype{
 	{
 		Name:           "researcher",
 		Description:    "Research and analysis agent (read-only)",
@@ -192,11 +192,11 @@ Your specialty is system observation, anomaly detection, and status reporting.
 - Recommended actions (if applicable)
 `
 
-func generateSoulContent(archetype *RoleArchetype, roleName string) string {
-	return strings.ReplaceAll(archetype.SoulTemplate, "{{.RoleName}}", roleName)
+func generateSoulContent(archetype *AgentArchetype, agentName string) string {
+	return strings.ReplaceAll(archetype.SoulTemplate, "{{.RoleName}}", agentName)
 }
 
-func getArchetypeByName(name string) *RoleArchetype {
+func getArchetypeByName(name string) *AgentArchetype {
 	for i, a := range builtinArchetypes {
 		if a.Name == name {
 			return &builtinArchetypes[i]
@@ -205,8 +205,8 @@ func getArchetypeByName(name string) *RoleArchetype {
 	return nil
 }
 
-func writeSoulFile(cfg *Config, roleName, content string) error {
-	path := filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
+func writeSoulFile(cfg *Config, agentName, content string) error {
+	path := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	return os.WriteFile(path, []byte(content), 0o644)
 }

@@ -74,7 +74,7 @@ func quickList(cfg *Config) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tLABEL\tROLE\tSHORTCUT")
 	for _, a := range actions {
-		role := a.Role
+		role := a.Agent
 		if role == "" {
 			role = "-"
 		}
@@ -160,7 +160,7 @@ func quickSearch(cfg *Config, query string) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tLABEL\tROLE\tSHORTCUT")
 	for _, a := range actions {
-		role := a.Role
+		role := a.Agent
 		if role == "" {
 			role = "-"
 		}

@@ -31,7 +31,7 @@ func insertTestRun(t *testing.T, dbPath, role, status, startedAt, finishedAt str
 		CostUSD:    cost,
 		Model:      "sonnet",
 		SessionID:  newUUID(),
-		Role:       role,
+		Agent:       role,
 	}
 	if err := insertJobRun(dbPath, run); err != nil {
 		t.Fatalf("insertJobRun: %v", err)
@@ -55,10 +55,10 @@ func TestInitSLADB(t *testing.T) {
 		t.Fatalf("expected sla_checks table, got %d tables", len(rows))
 	}
 
-	// Verify role column exists in job_runs.
-	_, err = queryDB(dbPath, "SELECT role FROM job_runs LIMIT 0")
+	// Verify agent column exists in job_runs.
+	_, err = queryDB(dbPath, "SELECT agent FROM job_runs LIMIT 0")
 	if err != nil {
-		t.Fatalf("role column not added to job_runs: %v", err)
+		t.Fatalf("agent column not added to job_runs: %v", err)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestQuerySLAMetricsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querySLAMetrics: %v", err)
 	}
-	if m.Role != "翡翠" {
-		t.Errorf("role = %q, want %q", m.Role, "翡翠")
+	if m.Agent != "翡翠" {
+		t.Errorf("role = %q, want %q", m.Agent, "翡翠")
 	}
 	if m.Total != 0 {
 		t.Errorf("total = %d, want 0", m.Total)
@@ -194,12 +194,12 @@ func TestSLAStatusViolation(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {Description: "research"},
 		},
 		SLA: SLAConfig{
 			Enabled: true,
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"翡翠": {MinSuccessRate: 0.95},
 			},
 		},
@@ -234,12 +234,12 @@ func TestSLAStatusOK(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {Description: "research"},
 		},
 		SLA: SLAConfig{
 			Enabled: true,
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"翡翠": {MinSuccessRate: 0.90},
 			},
 		},
@@ -261,7 +261,7 @@ func TestRecordSLACheck(t *testing.T) {
 	dbPath := setupSLATestDB(t)
 
 	recordSLACheck(dbPath, SLACheckResult{
-		Role:        "翡翠",
+		Agent:        "翡翠",
 		Timestamp:   time.Now().Format(time.RFC3339),
 		SuccessRate: 0.85,
 		P95Latency:  30000,
@@ -277,8 +277,8 @@ func TestRecordSLACheck(t *testing.T) {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 	r := results[0]
-	if r.Role != "翡翠" {
-		t.Errorf("role = %q, want %q", r.Role, "翡翠")
+	if r.Agent != "翡翠" {
+		t.Errorf("role = %q, want %q", r.Agent, "翡翠")
 	}
 	if !r.Violation {
 		t.Error("violation should be true")
@@ -311,7 +311,7 @@ func TestCheckSLAViolationsNotifies(t *testing.T) {
 		SLA: SLAConfig{
 			Enabled: true,
 			Window:  "24h",
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"黒曜": {MinSuccessRate: 0.90},
 			},
 		},
@@ -351,7 +351,7 @@ func TestCheckSLAViolationsNoData(t *testing.T) {
 		HistoryDB: dbPath,
 		SLA: SLAConfig{
 			Enabled: true,
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"翡翠": {MinSuccessRate: 0.90},
 			},
 		},
@@ -394,7 +394,7 @@ func TestSLACheckerTick(t *testing.T) {
 		SLA: SLAConfig{
 			Enabled:       true,
 			CheckInterval: "1s",
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"翡翠": {MinSuccessRate: 0.90},
 			},
 		},
@@ -434,8 +434,8 @@ func TestJobRunRoleField(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
-	if runs[0].Role != "翡翠" {
-		t.Errorf("role = %q, want %q", runs[0].Role, "翡翠")
+	if runs[0].Agent != "翡翠" {
+		t.Errorf("role = %q, want %q", runs[0].Agent, "翡翠")
 	}
 }
 
@@ -444,8 +444,8 @@ func TestSLAMetricsEmptyDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if m.Role != "test" {
-		t.Errorf("role = %q, want %q", m.Role, "test")
+	if m.Agent != "test" {
+		t.Errorf("role = %q, want %q", m.Agent, "test")
 	}
 }
 
@@ -463,12 +463,12 @@ func TestSLALatencyThreshold(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"黒曜": {Description: "dev"},
 		},
 		SLA: SLAConfig{
 			Enabled: true,
-			Roles: map[string]RoleSLACfg{
+			Agents: map[string]AgentSLACfg{
 				"黒曜": {MinSuccessRate: 0.90, MaxP95LatencyMs: 60000}, // max 60s
 			},
 		},
@@ -503,11 +503,11 @@ func TestSLACheckHistoryQuery(t *testing.T) {
 	dbPath := setupSLATestDB(t)
 
 	recordSLACheck(dbPath, SLACheckResult{
-		Role: "翡翠", Timestamp: time.Now().Format(time.RFC3339),
+		Agent: "翡翠", Timestamp: time.Now().Format(time.RFC3339),
 		SuccessRate: 0.95, P95Latency: 10000, Violation: false,
 	})
 	recordSLACheck(dbPath, SLACheckResult{
-		Role: "黒曜", Timestamp: time.Now().Format(time.RFC3339),
+		Agent: "黒曜", Timestamp: time.Now().Format(time.RFC3339),
 		SuccessRate: 0.80, P95Latency: 50000, Violation: true, Detail: "low success rate",
 	})
 
@@ -528,8 +528,8 @@ func TestSLACheckHistoryQuery(t *testing.T) {
 	if len(filtered) != 1 {
 		t.Errorf("expected 1 result, got %d", len(filtered))
 	}
-	if filtered[0].Role != "黒曜" {
-		t.Errorf("role = %q, want %q", filtered[0].Role, "黒曜")
+	if filtered[0].Agent != "黒曜" {
+		t.Errorf("role = %q, want %q", filtered[0].Agent, "黒曜")
 	}
 }
 

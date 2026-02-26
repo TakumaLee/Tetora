@@ -23,7 +23,7 @@ type MatrixConfig struct {
 	UserID      string `json:"userId,omitempty"`       // e.g. "@tetora:example.com"
 	AccessToken string `json:"accessToken,omitempty"`  // $ENV_VAR supported
 	AutoJoin    bool   `json:"autoJoin,omitempty"`     // auto-join invited rooms
-	DefaultRole string `json:"defaultRole,omitempty"`  // agent role for Matrix messages
+	DefaultAgent string `json:"defaultAgent,omitempty"`  // agent role for Matrix messages
 }
 
 // --- Matrix Sync Response Types ---
@@ -243,12 +243,12 @@ func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
 	ctx := withTraceID(context.Background(), newTraceID("matrix"))
 	dbPath := mb.cfg.HistoryDB
 
-	// Route to determine role.
-	role := mb.cfg.Matrix.DefaultRole
+	// Route to determine agent.
+	role := mb.cfg.Matrix.DefaultAgent
 	if role == "" {
 		route := routeTask(ctx, mb.cfg, RouteRequest{Prompt: text, Source: "matrix"})
-		role = route.Role
-		logInfoCtx(ctx, "matrix route result", "role", role, "method", route.Method)
+		role = route.Agent
+		logInfoCtx(ctx, "matrix route result", "agent", role, "method", route.Method)
 	}
 
 	// Find or create session.
@@ -284,7 +284,7 @@ func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   role,
+		Agent:  role,
 		Source: "matrix",
 	}
 	fillDefaults(mb.cfg, &task)
@@ -292,12 +292,12 @@ func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
+	// Apply agent-specific config.
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(mb.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(mb.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := mb.cfg.Roles[role]; ok {
+		if rc, ok := mb.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}

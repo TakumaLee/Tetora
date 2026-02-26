@@ -25,7 +25,7 @@ import (
 //	{{skill.NAME}}    — output of named skill execution
 //	{{review.digest}} — activity digest for last 7 days (default)
 //	{{review.digest:N}} — activity digest for last N days (1-90)
-func expandPrompt(prompt, jobID, dbPath, roleName, knowledgeDir string, cfg *Config) string {
+func expandPrompt(prompt, jobID, dbPath, agentName, knowledgeDir string, cfg *Config) string {
 	if !strings.Contains(prompt, "{{") {
 		return prompt
 	}
@@ -76,14 +76,14 @@ func expandPrompt(prompt, jobID, dbPath, roleName, knowledgeDir string, cfg *Con
 	})
 
 	// Agent memory replacements: {{memory.KEY}}
-	if roleName != "" && cfg != nil {
+	if agentName != "" && cfg != nil {
 		memRe := regexp.MustCompile(`\{\{memory\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
 		prompt = memRe.ReplaceAllStringFunc(prompt, func(match string) string {
 			parts := memRe.FindStringSubmatch(match)
 			if len(parts) < 2 {
 				return match
 			}
-			val, _ := getMemory(cfg, roleName, parts[1])
+			val, _ := getMemory(cfg, agentName, parts[1])
 			if val != "" {
 				recordMemoryAccess(cfg, parts[1])
 			}

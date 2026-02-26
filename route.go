@@ -23,10 +23,27 @@ type RouteRequest struct {
 
 // RouteResult represents the outcome of smart dispatch routing.
 type RouteResult struct {
-	Role       string `json:"role"`              // selected role
+	Agent      string `json:"agent"`             // selected agent
 	Method     string `json:"method"`            // "keyword", "llm", "default"
 	Confidence string `json:"confidence"`        // "high", "medium", "low"
-	Reason     string `json:"reason,omitempty"`  // why this role was selected
+	Reason     string `json:"reason,omitempty"`  // why this agent was selected
+}
+
+// UnmarshalJSON implements custom unmarshalling to accept both "role" and "agent" keys.
+// This maintains backward compatibility with LLM output that uses "role".
+func (r *RouteResult) UnmarshalJSON(data []byte) error {
+	type Alias RouteResult
+	aux := &struct {
+		*Alias
+		Role string `json:"role"`
+	}{Alias: (*Alias)(r)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if r.Agent == "" && aux.Role != "" {
+		r.Agent = aux.Role
+	}
+	return nil
 }
 
 // SmartDispatchResult is the full result of a routed task.
@@ -63,7 +80,7 @@ func checkBindings(cfg *Config, req RouteRequest) *RouteResult {
 		// If channel matches and at least one ID matches, return this binding.
 		if matched {
 			return &RouteResult{
-				Role:       binding.Role,
+				Agent:       binding.Agent,
 				Method:     "binding",
 				Confidence: "high",
 				Reason:     fmt.Sprintf("matched binding rule for channel=%s", binding.Channel),
@@ -76,7 +93,7 @@ func checkBindings(cfg *Config, req RouteRequest) *RouteResult {
 
 // --- Keyword Classification (Fast Path) ---
 
-// classifyByKeywords checks routing rules and role keywords for a match.
+// classifyByKeywords checks routing rules and agent keywords for a match.
 // Returns nil if no keyword match is found.
 func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 	lower := strings.ToLower(prompt)
@@ -86,7 +103,7 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 		for _, kw := range rule.Keywords {
 			if strings.Contains(lower, strings.ToLower(kw)) {
 				return &RouteResult{
-					Role:       rule.Role,
+					Agent:       rule.Agent,
 					Method:     "keyword",
 					Confidence: "high",
 					Reason:     fmt.Sprintf("matched rule keyword %q", kw),
@@ -100,7 +117,7 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 			}
 			if re.MatchString(prompt) {
 				return &RouteResult{
-					Role:       rule.Role,
+					Agent:       rule.Agent,
 					Method:     "keyword",
 					Confidence: "high",
 					Reason:     fmt.Sprintf("matched rule pattern %q", pat),
@@ -109,15 +126,15 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 		}
 	}
 
-	// Check role-level keywords (lower priority).
-	for roleName, rc := range cfg.Roles {
+	// Check agent-level keywords (lower priority).
+	for agentName, rc := range cfg.Agents {
 		for _, kw := range rc.Keywords {
 			if strings.Contains(lower, strings.ToLower(kw)) {
 				return &RouteResult{
-					Role:       roleName,
+					Agent:       agentName,
 					Method:     "keyword",
 					Confidence: "medium",
-					Reason:     fmt.Sprintf("matched role keyword %q", kw),
+					Reason:     fmt.Sprintf("matched agent keyword %q", kw),
 				}
 			}
 		}
@@ -133,13 +150,13 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 // otherwise new messages block until running tasks complete.
 var routeSem = make(chan struct{}, 5)
 
-// classifyByLLM asks the coordinator role to classify the task.
+// classifyByLLM asks the coordinator agent to classify the task.
 func classifyByLLM(ctx context.Context, cfg *Config, prompt string) (*RouteResult, error) {
 	coordinator := cfg.SmartDispatch.Coordinator
 
-	// Build role list for the classification prompt.
+	// Build agent list for the classification prompt.
 	var roleLines []string
-	for name, rc := range cfg.Roles {
+	for name, rc := range cfg.Agents {
 		desc := rc.Description
 		if desc == "" {
 			desc = "(no description)"
@@ -155,7 +172,7 @@ func classifyByLLM(ctx context.Context, cfg *Config, prompt string) (*RouteResul
 
 	// Build valid keys list for explicit constraint.
 	var validKeys []string
-	for name := range cfg.Roles {
+	for name := range cfg.Agents {
 		validKeys = append(validKeys, name)
 	}
 	sort.Strings(validKeys)
@@ -163,7 +180,7 @@ func classifyByLLM(ctx context.Context, cfg *Config, prompt string) (*RouteResul
 	classifyPrompt := fmt.Sprintf(
 		`You are a task router. Given a user request, decide which team member should handle it.
 
-Available roles:
+Available agents:
 %s
 
 IMPORTANT: The "role" field in your response MUST be one of these exact keys: %s
@@ -174,11 +191,11 @@ User request: %s
 Reply with ONLY a JSON object (no markdown, no explanation):
 {"role":"<exact_role_key>","confidence":"high|medium|low","reason":"<brief reason>"}
 
-If no role is clearly appropriate, use %q as the default.`,
+If no agent is clearly appropriate, use %q as the default.`,
 		strings.Join(roleLines, "\n"),
 		strings.Join(validKeys, ", "),
 		prompt,
-		cfg.SmartDispatch.DefaultRole,
+		cfg.SmartDispatch.DefaultAgent,
 	)
 
 	task := Task{
@@ -197,7 +214,7 @@ If no role is clearly appropriate, use %q as the default.`,
 		return nil, fmt.Errorf("classification failed: %s", result.Error)
 	}
 
-	parsed, err := parseLLMRouteResult(result.Output, cfg.SmartDispatch.DefaultRole)
+	parsed, err := parseLLMRouteResult(result.Output, cfg.SmartDispatch.DefaultAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +225,7 @@ If no role is clearly appropriate, use %q as the default.`,
 		task.Model = "sonnet"
 		result2 := runSingleTask(ctx, cfg, task, routeSem, coordinator)
 		if result2.Status == "success" {
-			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultRole)
+			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultAgent)
 			if err2 == nil {
 				parsed2.Method = "llm-escalated"
 				return parsed2, nil
@@ -221,13 +238,13 @@ If no role is clearly appropriate, use %q as the default.`,
 }
 
 // parseLLMRouteResult extracts RouteResult from LLM output.
-func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
+func parseLLMRouteResult(output, defaultAgent string) (*RouteResult, error) {
 	// Try to find JSON in the output (LLM may wrap it in text).
 	start := strings.Index(output, "{")
 	end := strings.LastIndex(output, "}")
 	if start < 0 || end <= start {
 		return &RouteResult{
-			Role: defaultRole, Method: "llm", Confidence: "low",
+			Agent: defaultAgent, Method: "llm", Confidence: "low",
 			Reason: "could not parse LLM response",
 		}, nil
 	}
@@ -235,14 +252,14 @@ func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
 	var result RouteResult
 	if err := json.Unmarshal([]byte(output[start:end+1]), &result); err != nil {
 		return &RouteResult{
-			Role: defaultRole, Method: "llm", Confidence: "low",
+			Agent: defaultAgent, Method: "llm", Confidence: "low",
 			Reason: "JSON parse error: " + err.Error(),
 		}, nil
 	}
 	result.Method = "llm"
 
-	if result.Role == "" {
-		result.Role = defaultRole
+	if result.Agent == "" {
+		result.Agent = defaultAgent
 	}
 	if result.Confidence == "" {
 		result.Confidence = "medium"
@@ -253,23 +270,23 @@ func parseLLMRouteResult(output, defaultRole string) (*RouteResult, error) {
 
 // --- Multi-Tier Route ---
 
-// routeTask determines which role should handle the given prompt.
+// routeTask determines which agent should handle the given prompt.
 // Priority: bindings → keywords → LLM/coordinator fallback.
 func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult {
 	// Tier 1: Check bindings (highest priority).
 	if result := checkBindings(cfg, req); result != nil {
-		if _, ok := cfg.Roles[result.Role]; ok {
+		if _, ok := cfg.Agents[result.Agent]; ok {
 			return result
 		}
-		logWarnCtx(ctx, "binding matched role not in config, falling through", "role", result.Role)
+		logWarnCtx(ctx, "binding matched agent not in config, falling through", "agent", result.Agent)
 	}
 
 	// Tier 2: Keyword matching.
 	if result := classifyByKeywords(cfg, req.Prompt); result != nil {
-		if _, ok := cfg.Roles[result.Role]; ok {
+		if _, ok := cfg.Agents[result.Agent]; ok {
 			return result
 		}
-		logWarnCtx(ctx, "keyword matched role not in config, falling through", "role", result.Role)
+		logWarnCtx(ctx, "keyword matched agent not in config, falling through", "agent", result.Agent)
 	}
 
 	// Tier 3: Fallback mode.
@@ -281,7 +298,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 	if fallbackMode == "coordinator" {
 		// Direct fallback to coordinator (no LLM call).
 		return &RouteResult{
-			Role:       cfg.SmartDispatch.DefaultRole,
+			Agent:       cfg.SmartDispatch.DefaultAgent,
 			Method:     "coordinator",
 			Confidence: "high",
 			Reason:     "fallback mode set to coordinator",
@@ -293,18 +310,18 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 	if err != nil {
 		logWarnCtx(ctx, "LLM classify error, using default", "error", err)
 		return &RouteResult{
-			Role:       cfg.SmartDispatch.DefaultRole,
+			Agent:       cfg.SmartDispatch.DefaultAgent,
 			Method:     "default",
 			Confidence: "low",
 			Reason:     "LLM classification failed: " + err.Error(),
 		}
 	}
 
-	// Validate role exists.
-	if _, ok := cfg.Roles[result.Role]; !ok {
-		result.Role = cfg.SmartDispatch.DefaultRole
+	// Validate agent exists.
+	if _, ok := cfg.Agents[result.Agent]; !ok {
+		result.Agent = cfg.SmartDispatch.DefaultAgent
 		result.Confidence = "low"
-		result.Reason += " (role not found, using default)"
+		result.Reason += " (agent not found, using default)"
 	}
 
 	return result
@@ -331,7 +348,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source})
 
 	logInfoCtx(ctx, "route decision",
-		"prompt", truncate(prompt, 60), "role", route.Role,
+		"prompt", truncate(prompt, 60), "role", route.Agent,
 		"method", route.Method, "confidence", route.Confidence)
 
 	// Publish task_routing to dashboard.
@@ -340,27 +357,27 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 			Type: SSETaskRouting,
 			Data: map[string]any{
 				"source":     source,
-				"role":       route.Role,
+				"role":       route.Agent,
 				"method":     route.Method,
 				"confidence": route.Confidence,
 			},
 		})
 	}
 
-	// Step 2: Build and run task with the selected role.
+	// Step 2: Build and run task with the selected agent.
 	task := Task{
 		Prompt: prompt,
-		Role:   route.Role,
+		Agent:   route.Agent,
 		Source: "route:" + source,
 	}
 	fillDefaults(cfg, &task)
 
-	// Inject role soul prompt + model + permission mode.
-	if route.Role != "" {
-		if soulPrompt, err := loadRolePrompt(cfg, route.Role); err == nil && soulPrompt != "" {
+	// Inject agent soul prompt + model + permission mode.
+	if route.Agent != "" {
+		if soulPrompt, err := loadAgentPrompt(cfg, route.Agent); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := cfg.Roles[route.Role]; ok {
+		if rc, ok := cfg.Agents[route.Agent]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}
@@ -371,23 +388,23 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	}
 
 	// Expand template variables.
-	task.Prompt = expandPrompt(task.Prompt, "", cfg.HistoryDB, route.Role, cfg.KnowledgeDir, cfg)
+	task.Prompt = expandPrompt(task.Prompt, "", cfg.HistoryDB, route.Agent, cfg.KnowledgeDir, cfg)
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, cfg, task, sem, route.Role)
+	result := runSingleTask(ctx, cfg, task, sem, route.Agent)
 
 	// Record to history.
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
-	recordSessionActivity(cfg.HistoryDB, task, result, route.Role)
+	recordSessionActivity(cfg.HistoryDB, task, result, route.Agent)
 
 	// Step 3: Store output summary in agent memory.
 	if result.Status == "success" {
-		setMemory(cfg, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+		setMemory(cfg, route.Agent, "last_route_output", truncate(result.Output, 500))
+		setMemory(cfg, route.Agent, "last_route_prompt", truncate(prompt, 200))
+		setMemory(cfg, route.Agent, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	sdr := &SmartDispatchResult{
@@ -397,7 +414,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 
 	// Step 4: Optional coordinator review (conditional trigger).
 	if shouldReview(cfg, route, result.CostUSD) && result.Status == "success" {
-		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Role, sem)
+		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Agent, sem)
 		sdr.ReviewOK = &reviewOK
 		sdr.Review = reviewComment
 	}
@@ -405,7 +422,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	// Step 5: Audit log.
 	auditLog(cfg.HistoryDB, "route.dispatch", source,
 		fmt.Sprintf("role=%s method=%s confidence=%s prompt=%s",
-			route.Role, route.Method, route.Confidence, truncate(prompt, 100)), "")
+			route.Agent, route.Method, route.Confidence, truncate(prompt, 100)), "")
 
 	// Webhook notifications.
 	sendWebhooks(cfg, result.Status, WebhookPayload{
@@ -453,7 +470,7 @@ Is this output satisfactory? Reply with ONLY a JSON object:
 	fillDefaults(cfg, &task)
 
 	// Use coordinator's model.
-	if rc, ok := cfg.Roles[coordinator]; ok && rc.Model != "" {
+	if rc, ok := cfg.Agents[coordinator]; ok && rc.Model != "" {
 		task.Model = rc.Model
 	}
 

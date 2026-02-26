@@ -25,7 +25,7 @@ type LINEConfig struct {
 	ChannelSecret      string `json:"channelSecret,omitempty"`      // $ENV_VAR supported, for webhook signature
 	ChannelAccessToken string `json:"channelAccessToken,omitempty"` // $ENV_VAR supported, for API calls
 	WebhookPath        string `json:"webhookPath,omitempty"`        // default "/api/line/webhook"
-	DefaultRole        string `json:"defaultRole,omitempty"`        // agent role for LINE messages
+	DefaultAgent        string `json:"defaultAgent,omitempty"`        // agent role for LINE messages
 }
 
 // webhookPathOrDefault returns the configured webhook path or default "/api/line/webhook".
@@ -294,12 +294,12 @@ func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
 	ctx := withTraceID(context.Background(), newTraceID("line"))
 	dbPath := lb.cfg.HistoryDB
 
-	// Route to determine role.
-	role := lb.cfg.LINE.DefaultRole
+	// Route to determine agent.
+	role := lb.cfg.LINE.DefaultAgent
 	if role == "" {
 		route := routeTask(ctx, lb.cfg, RouteRequest{Prompt: text, Source: "line"})
-		role = route.Role
-		logInfoCtx(ctx, "line route result", "role", role, "method", route.Method)
+		role = route.Agent
+		logInfoCtx(ctx, "line route result", "agent", role, "method", route.Method)
 	}
 
 	// Find or create session.
@@ -335,7 +335,7 @@ func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   role,
+		Agent:  role,
 		Source: "line",
 	}
 	fillDefaults(lb.cfg, &task)
@@ -343,12 +343,12 @@ func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
+	// Apply agent-specific config.
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(lb.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(lb.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := lb.cfg.Roles[role]; ok {
+		if rc, ok := lb.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}

@@ -18,7 +18,7 @@ import (
 
 // IncomingWebhookConfig defines an incoming webhook that triggers agent execution.
 type IncomingWebhookConfig struct {
-	Role     string `json:"role"`               // target role for dispatch
+	Agent     string `json:"agent"`               // target agent for dispatch
 	Template string `json:"template,omitempty"`  // prompt template with {{payload.xxx}} placeholders
 	Secret   string `json:"secret,omitempty"`    // $ENV_VAR supported; HMAC-SHA256 signature verification
 	Filter   string `json:"filter,omitempty"`    // simple condition: "payload.action == 'opened'"
@@ -38,7 +38,7 @@ type IncomingWebhookResult struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"`   // "accepted", "filtered", "error", "disabled"
 	TaskID   string `json:"taskId,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Agent     string `json:"agent,omitempty"`
 	Workflow string `json:"workflow,omitempty"`
 	Message  string `json:"message,omitempty"`
 }
@@ -240,9 +240,9 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 		prompt = fmt.Sprintf("Process this webhook event (%s):\n\n%s", name, string(b))
 	}
 
-	logInfoCtx(ctx, "incoming webhook accepted", "name", name, "role", whCfg.Role)
+	logInfoCtx(ctx, "incoming webhook accepted", "name", name, "agent", whCfg.Agent)
 	auditLog(cfg.HistoryDB, "webhook.incoming", "http",
-		fmt.Sprintf("name=%s role=%s", name, whCfg.Role), clientIP(r))
+		fmt.Sprintf("name=%s agent=%s", name, whCfg.Agent), clientIP(r))
 
 	// Trigger workflow or dispatch.
 	if whCfg.Workflow != "" {
@@ -251,28 +251,28 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 	return triggerWebhookDispatch(ctx, cfg, name, whCfg, prompt, state, sem)
 }
 
-// triggerWebhookDispatch dispatches a task to the specified role.
+// triggerWebhookDispatch dispatches a task to the specified agent.
 func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg IncomingWebhookConfig,
 	prompt string, state *dispatchState, sem chan struct{}) IncomingWebhookResult {
 
 	task := Task{
 		Prompt: prompt,
-		Role:   whCfg.Role,
+		Agent:   whCfg.Agent,
 		Source: "webhook:" + name,
 	}
 	fillDefaults(cfg, &task)
 
 	// Run async.
 	go func() {
-		result := runSingleTask(ctx, cfg, task, sem, whCfg.Role)
+		result := runSingleTask(ctx, cfg, task, sem, whCfg.Agent)
 
 		// Record history.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-		recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, whCfg.Role, task, result,
+		recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, whCfg.Agent, task, result,
 			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 		// Record session activity.
-		recordSessionActivity(cfg.HistoryDB, task, result, whCfg.Role)
+		recordSessionActivity(cfg.HistoryDB, task, result, whCfg.Agent)
 
 		logInfoCtx(ctx, "incoming webhook task done", "name", name, "taskId", task.ID[:8],
 			"status", result.Status, "cost", result.CostUSD)
@@ -282,7 +282,7 @@ func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg
 		Name:   name,
 		Status: "accepted",
 		TaskID: task.ID,
-		Role:   whCfg.Role,
+		Agent:   whCfg.Agent,
 	}
 }
 
@@ -329,7 +329,7 @@ func triggerWebhookWorkflow(ctx context.Context, cfg *Config, name string, whCfg
 	return IncomingWebhookResult{
 		Name:     name,
 		Status:   "accepted",
-		Role:     whCfg.Role,
+		Agent:     whCfg.Agent,
 		Workflow: whCfg.Workflow,
 	}
 }

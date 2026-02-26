@@ -23,7 +23,7 @@ type TeamsConfig struct {
 	AppID       string `json:"appId,omitempty"`       // Azure AD App ID ($ENV_VAR)
 	AppPassword string `json:"appPassword,omitempty"` // Azure AD App Secret ($ENV_VAR)
 	TenantID    string `json:"tenantId,omitempty"`    // Azure AD Tenant ID ($ENV_VAR)
-	DefaultRole string `json:"defaultRole,omitempty"` // agent role for Teams messages
+	DefaultAgent string `json:"defaultAgent,omitempty"` // agent role for Teams messages
 }
 
 // --- Teams Activity Types ---
@@ -337,12 +337,12 @@ func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
 	ctx := withTraceID(context.Background(), newTraceID("teams"))
 	dbPath := tb.cfg.HistoryDB
 
-	// Route to determine role.
-	role := tb.cfg.Teams.DefaultRole
+	// Route to determine agent.
+	role := tb.cfg.Teams.DefaultAgent
 	if role == "" {
 		route := routeTask(ctx, tb.cfg, RouteRequest{Prompt: text, Source: "teams"})
-		role = route.Role
-		logInfoCtx(ctx, "teams route result", "role", role, "method", route.Method)
+		role = route.Agent
+		logInfoCtx(ctx, "teams route result", "agent", role, "method", route.Method)
 	}
 
 	// Find or create session.
@@ -378,7 +378,7 @@ func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   role,
+		Agent:  role,
 		Source: "teams",
 	}
 	fillDefaults(tb.cfg, &task)
@@ -386,12 +386,12 @@ func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
+	// Apply agent-specific config.
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(tb.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(tb.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := tb.cfg.Roles[role]; ok {
+		if rc, ok := tb.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}

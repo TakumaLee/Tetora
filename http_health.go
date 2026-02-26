@@ -24,7 +24,7 @@ func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 		type agentInfo struct {
 			ID      string `json:"id"`
 			Name    string `json:"name"`
-			Role    string `json:"role,omitempty"`
+			Agent    string `json:"agent,omitempty"`
 			Source  string `json:"source,omitempty"`
 			Elapsed string `json:"elapsed"`
 		}
@@ -33,7 +33,7 @@ func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 			agents = append(agents, agentInfo{
 				ID:      ts.task.ID,
 				Name:    ts.task.Name,
-				Role:    ts.task.Role,
+				Agent:    ts.task.Agent,
 				Source:  ts.task.Source,
 				Elapsed: time.Since(ts.startAt).Round(time.Second).String(),
 			})

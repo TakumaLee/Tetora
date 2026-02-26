@@ -298,14 +298,14 @@ func TestAgenticLoop_RoleFiltering(t *testing.T) {
 
 	cfg := testConfigWithTools(echoTool(), counterTool(&counter))
 	// Set up a role that only allows "echo", not "counter".
-	cfg.Roles = map[string]RoleConfig{
+	cfg.Agents = map[string]AgentConfig{
 		"limited": {
-			ToolPolicy: RoleToolPolicy{
+			ToolPolicy: AgentToolPolicy{
 				Allow: []string{"echo"},
 			},
 		},
 	}
-	task := Task{ID: "t6", Prompt: "test role filtering", Provider: "mock", Role: "limited"}
+	task := Task{ID: "t6", Prompt: "test role filtering", Provider: "mock", Agent: "limited"}
 
 	result := executeWithProviderAndTools(
 		context.Background(), cfg, task, "limited",

@@ -24,7 +24,7 @@ func TestSignalWebhookParsing(t *testing.T) {
 		MaxConcurrent: 1,
 		ClaudePath:   "claude",
 		DefaultModel: "claude-opus-4",
-		Roles:        map[string]RoleConfig{},
+		Agents:        map[string]AgentConfig{},
 		Providers:    map[string]ProviderConfig{},
 		baseDir:      "/tmp/tetora-test",
 	}
@@ -80,7 +80,7 @@ func TestSignalGroupMessageHandling(t *testing.T) {
 		MaxConcurrent: 1,
 		ClaudePath:   "claude",
 		DefaultModel: "claude-opus-4",
-		Roles:        map[string]RoleConfig{},
+		Agents:        map[string]AgentConfig{},
 		Providers:    map[string]ProviderConfig{},
 		baseDir:      "/tmp/tetora-test",
 	}
@@ -136,7 +136,7 @@ func TestSignalMessageDedup(t *testing.T) {
 		MaxConcurrent: 1,
 		ClaudePath:   "claude",
 		DefaultModel: "claude-opus-4",
-		Roles:        map[string]RoleConfig{},
+		Agents:        map[string]AgentConfig{},
 		Providers:    map[string]ProviderConfig{},
 		baseDir:      "/tmp/tetora-test",
 	}

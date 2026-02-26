@@ -867,13 +867,13 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 	go func() {
 		dbPath := b.cfg.HistoryDB
 
-		// Step 1: Route (classify which role handles this).
+		// Step 1: Route (classify which agent handles this).
 		route := routeTask(ctx, b.cfg, RouteRequest{Prompt: prompt, Source: "telegram"})
-		logInfoCtx(ctx, "route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method, "confidence", route.Confidence)
+		logInfoCtx(ctx, "route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method, "confidence", route.Confidence)
 
-		// Step 2: Find or create channel session for this role.
-		chKey := channelSessionKey("tg", route.Role)
-		sess, err := getOrCreateChannelSession(dbPath, "telegram", chKey, route.Role, "")
+		// Step 2: Find or create channel session for this agent.
+		chKey := channelSessionKey("tg", route.Agent)
+		sess, err := getOrCreateChannelSession(dbPath, "telegram", chKey, route.Agent, "")
 		if err != nil {
 			logError("telegram route session error", "error", err)
 		}
@@ -902,10 +902,10 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			updateSessionTitle(dbPath, sess.ID, title)
 		}
 
-		// Step 4: Build and run task with the selected role.
+		// Step 4: Build and run task with the selected agent.
 		task := Task{
 			Prompt: contextPrompt,
-			Role:   route.Role,
+			Agent:  route.Agent,
 			Source: "route:telegram",
 		}
 		fillDefaults(b.cfg, &task)
@@ -913,12 +913,12 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			task.SessionID = sess.ID
 		}
 
-		// Inject role soul prompt + model + permission mode.
-		if route.Role != "" {
-			if soulPrompt, err := loadRolePrompt(b.cfg, route.Role); err == nil && soulPrompt != "" {
+		// Inject agent soul prompt + model + permission mode.
+		if route.Agent != "" {
+			if soulPrompt, err := loadAgentPrompt(b.cfg, route.Agent); err == nil && soulPrompt != "" {
 				task.SystemPrompt = soulPrompt
 			}
-			if rc, ok := b.cfg.Roles[route.Role]; ok {
+			if rc, ok := b.cfg.Agents[route.Agent]; ok {
 				if rc.Model != "" {
 					task.Model = rc.Model
 				}
@@ -929,7 +929,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		// Expand template variables.
-		task.Prompt = expandPrompt(task.Prompt, "", b.cfg.HistoryDB, route.Role, b.cfg.KnowledgeDir, b.cfg)
+		task.Prompt = expandPrompt(task.Prompt, "", b.cfg.HistoryDB, route.Agent, b.cfg.KnowledgeDir, b.cfg)
 
 		// P27.3: Attach channel notifier for streaming status.
 		if b.cfg.StreamToChannels {
@@ -942,10 +942,10 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		taskStart := time.Now()
-		result := runSingleTask(ctx, b.cfg, task, b.sem, route.Role)
+		result := runSingleTask(ctx, b.cfg, task, b.sem, route.Agent)
 
 		// Record to history.
-		recordHistory(b.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+		recordHistory(b.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 			taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 		// Step 5: Record assistant response to channel session.
@@ -980,23 +980,23 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 
 		// Store output summary in agent memory.
 		if result.Status == "success" {
-			setMemory(b.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
-			setMemory(b.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
-			setMemory(b.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+			setMemory(b.cfg, route.Agent, "last_route_output", truncate(result.Output, 500))
+			setMemory(b.cfg, route.Agent, "last_route_prompt", truncate(prompt, 200))
+			setMemory(b.cfg, route.Agent, "last_route_time", time.Now().Format(time.RFC3339))
 		}
 
 		// Optional coordinator review.
 		sdr := &SmartDispatchResult{Route: *route, Task: result}
 		if b.cfg.SmartDispatch.Review && result.Status == "success" {
-			reviewOK, reviewComment := reviewOutput(ctx, b.cfg, prompt, result.Output, route.Role, b.sem)
+			reviewOK, reviewComment := reviewOutput(ctx, b.cfg, prompt, result.Output, route.Agent, b.sem)
 			sdr.ReviewOK = &reviewOK
 			sdr.Review = reviewComment
 		}
 
 		// Audit log.
 		auditLog(dbPath, "route.dispatch", "telegram",
-			fmt.Sprintf("role=%s method=%s session=%s prompt=%s",
-				route.Role, route.Method, task.SessionID, truncate(prompt, 100)), "")
+			fmt.Sprintf("agent=%s method=%s session=%s prompt=%s",
+				route.Agent, route.Method, task.SessionID, truncate(prompt, 100)), "")
 
 		// Webhook notifications.
 		sendWebhooks(b.cfg, result.Status, WebhookPayload{
@@ -1012,9 +1012,9 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		})
 
 		// Suggest mode: hold output for human approval.
-		trustLevel := resolveTrustLevel(b.cfg, route.Role)
+		trustLevel := resolveTrustLevel(b.cfg, route.Agent)
 		if trustLevel == TrustSuggest && result.Status == "success" {
-			b.sendSuggestConfirm(msg.Chat.ID, result, route.Role, prompt)
+			b.sendSuggestConfirm(msg.Chat.ID, result, route.Agent, prompt)
 			return
 		}
 
@@ -1028,7 +1028,7 @@ func (b *Bot) sendRouteResponse(chatID int64, result *SmartDispatchResult) {
 	var lines []string
 
 	lines = append(lines, fmt.Sprintf("\xf0\x9f\x8e\xaf Route \xe2\x86\x92 %s (%s, %s confidence)",
-		result.Route.Role, result.Route.Method, result.Route.Confidence))
+		result.Route.Agent, result.Route.Method, result.Route.Confidence))
 
 	if result.Task.Status == "success" {
 		lines = append(lines, "")
@@ -1076,7 +1076,7 @@ func (b *Bot) cmdModel(msg *tgMessage, args string) {
 	// /model → show current models
 	if len(parts) == 0 {
 		var lines []string
-		for name, rc := range b.cfg.Roles {
+		for name, rc := range b.cfg.Agents {
 			m := rc.Model
 			if m == "" {
 				m = b.cfg.DefaultModel
@@ -1087,30 +1087,30 @@ func (b *Bot) cmdModel(msg *tgMessage, args string) {
 		return
 	}
 
-	// /model <model> [role]
+	// /model <model> [agent]
 	model := parts[0]
-	roleName := b.cfg.SmartDispatch.DefaultRole
-	if roleName == "" {
-		roleName = "default"
+	agentName := b.cfg.SmartDispatch.DefaultAgent
+	if agentName == "" {
+		agentName = "default"
 	}
 	if len(parts) > 1 {
-		roleName = parts[1]
+		agentName = parts[1]
 	}
 
-	old, err := updateRoleModel(b.cfg, roleName, model)
+	old, err := updateAgentModel(b.cfg, agentName, model)
 	if err != nil {
 		b.reply(msg.Chat.ID, fmt.Sprintf("Error: %v", err))
 		return
 	}
-	b.reply(msg.Chat.ID, fmt.Sprintf("*%s* model: `%s` → `%s`", roleName, old, model))
+	b.reply(msg.Chat.ID, fmt.Sprintf("*%s* model: `%s` → `%s`", agentName, old, model))
 }
 
 func (b *Bot) cmdHelp(msg *tgMessage) {
 	b.reply(msg.Chat.ID, "Tetora - AI Agent Orchestrator\n\n"+
 		"/dispatch [tasks JSON] - parallel task dispatch\n"+
-		"/route <task> - smart dispatch (auto-route to best role)\n"+
-		"/ask <prompt> - quick question (no role)\n"+
-		"/new [role] - start fresh session (archives current)\n"+
+		"/route <task> - smart dispatch (auto-route to best agent)\n"+
+		"/ask <prompt> - quick question (no agent)\n"+
+		"/new [agent] - start fresh session (archives current)\n"+
 		"/status - check running tasks\n"+
 		"/cancel - cancel all running tasks\n"+
 		"/jobs - list cron jobs (with buttons)\n"+
@@ -1122,10 +1122,10 @@ func (b *Bot) cmdHelp(msg *tgMessage) {
 		"/tasks - dashboard task stats\n"+
 		"/health - trigger heartbeat\n"+
 		"/trust - show trust levels for all agents\n"+
-		"/model [model] [role] - show/switch model\n"+
+		"/model [model] [agent] - show/switch model\n"+
 		"/memory <keyword> - search memory files\n"+
 		"/help - this message\n\n"+
-		"Messages are linked to persistent sessions per role.\n"+
+		"Messages are linked to persistent sessions per agent.\n"+
 		"Conversation history is automatically maintained.\n"+
 		"Use /new to start a fresh conversation.\n\n"+
 		"Cost confirmation: tasks estimated above $"+
@@ -1139,7 +1139,7 @@ func (b *Bot) cmdHelp(msg *tgMessage) {
 func (b *Bot) cmdTrust(msg *tgMessage) {
 	statuses := getAllTrustStatuses(b.cfg)
 	if len(statuses) == 0 {
-		b.reply(msg.Chat.ID, "No roles configured.")
+		b.reply(msg.Chat.ID, "No agents configured.")
 		return
 	}
 
@@ -1155,7 +1155,7 @@ func (b *Bot) cmdTrust(msg *tgMessage) {
 		case TrustAuto:
 			icon = "[A]"
 		}
-		line := fmt.Sprintf("%s %s: %s", icon, s.Role, s.Level)
+		line := fmt.Sprintf("%s %s: %s", icon, s.Agent, s.Level)
 		if s.ConsecutiveSuccess > 0 {
 			line += fmt.Sprintf(" (streak: %d)", s.ConsecutiveSuccess)
 		}
@@ -1213,7 +1213,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgCallbackQuery) {
 			}
 			var lines []string
 			lines = append(lines, fmt.Sprintf("\xf0\x9f\x94\x80 Rerouted \xe2\x86\x92 %s (%s)",
-				result.Route.Role, result.Route.Method))
+				result.Route.Agent, result.Route.Method))
 			if result.Task.Status == "success" {
 				lines = append(lines, "")
 				lines = append(lines, truncate(result.Task.Output, 3000))
@@ -1482,9 +1482,9 @@ func (b *Bot) cmdNew(msg *tgMessage, args string) {
 	if role == "" {
 		// Archive all active Telegram channel sessions.
 		archived := 0
-		if b.cfg.Roles != nil {
-			for roleName := range b.cfg.Roles {
-				chKey := channelSessionKey("tg", roleName)
+		if b.cfg.Agents != nil {
+			for agentName := range b.cfg.Agents {
+				chKey := channelSessionKey("tg", agentName)
 				if err := archiveChannelSession(dbPath, chKey); err == nil {
 					archived++
 				}
@@ -1494,9 +1494,9 @@ func (b *Bot) cmdNew(msg *tgMessage, args string) {
 		archiveChannelSession(dbPath, channelSessionKey("tg", "ask"))
 		b.reply(msg.Chat.ID, fmt.Sprintf("Archived %d channel sessions. Fresh start!", archived))
 	} else {
-		// Archive session for specific role.
-		if _, ok := b.cfg.Roles[role]; !ok {
-			b.reply(msg.Chat.ID, fmt.Sprintf("Unknown role: %s", role))
+		// Archive session for specific agent.
+		if _, ok := b.cfg.Agents[role]; !ok {
+			b.reply(msg.Chat.ID, fmt.Sprintf("Unknown agent: %s", role))
 			return
 		}
 		chKey := channelSessionKey("tg", role)

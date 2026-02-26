@@ -115,7 +115,7 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 
 		case "POST":
 			var body struct {
-				Role  string `json:"role"`
+				Agent string `json:"agent"`
 				Key   string `json:"key"`
 				Value string `json:"value"`
 			}
@@ -123,16 +123,16 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 				http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
 				return
 			}
-			if body.Role == "" || body.Key == "" {
-				http.Error(w, `{"error":"role and key are required"}`, http.StatusBadRequest)
+			if body.Agent == "" || body.Key == "" {
+				http.Error(w, `{"error":"agent and key are required"}`, http.StatusBadRequest)
 				return
 			}
-			if err := setMemory(cfg, body.Role, body.Key, body.Value); err != nil {
+			if err := setMemory(cfg, body.Agent, body.Key, body.Value); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
 			}
 			auditLog(cfg.HistoryDB, "memory.set", "http",
-				fmt.Sprintf("role=%s key=%s", body.Role, body.Key), clientIP(r))
+				fmt.Sprintf("agent=%s key=%s", body.Agent, body.Key), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
 		default:
@@ -143,11 +143,11 @@ func (s *Server) registerMemoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/memory/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// Parse /memory/<role>/<key>
+		// Parse /memory/<agent>/<key>
 		path := strings.TrimPrefix(r.URL.Path, "/memory/")
 		parts := strings.SplitN(path, "/", 2)
 		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-			http.Error(w, `{"error":"path must be /memory/{role}/{key}"}`, http.StatusBadRequest)
+			http.Error(w, `{"error":"path must be /memory/{agent}/{key}"}`, http.StatusBadRequest)
 			return
 		}
 		role := parts[0]

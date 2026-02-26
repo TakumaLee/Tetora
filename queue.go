@@ -40,7 +40,7 @@ func (c OfflineQueueConfig) maxItemsOrDefault() int {
 type QueueItem struct {
 	ID         int    `json:"id"`
 	TaskJSON   string `json:"taskJson"`
-	RoleName   string `json:"role"`
+	AgentName   string `json:"agent"`
 	Source     string `json:"source"`
 	Priority   int    `json:"priority"`   // higher = processed sooner (0 = normal)
 	Status     string `json:"status"`     // pending, processing, completed, expired, failed
@@ -57,7 +57,7 @@ func initQueueDB(dbPath string) error {
 CREATE TABLE IF NOT EXISTS offline_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_json TEXT NOT NULL,
-    role TEXT DEFAULT '',
+    agent TEXT DEFAULT '',
     source TEXT DEFAULT '',
     priority INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -78,7 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_queue_status ON offline_queue(status);
 // --- Enqueue ---
 
 // enqueueTask adds a task to the offline queue for later retry.
-func enqueueTask(dbPath string, task Task, roleName string, priority int) error {
+func enqueueTask(dbPath string, task Task, agentName string, priority int) error {
 	if dbPath == "" {
 		return fmt.Errorf("no db path")
 	}
@@ -90,10 +90,10 @@ func enqueueTask(dbPath string, task Task, roleName string, priority int) error 
 
 	now := time.Now().Format(time.RFC3339)
 	sql := fmt.Sprintf(
-		`INSERT INTO offline_queue (task_json, role, source, priority, status, retry_count, created_at, updated_at)
+		`INSERT INTO offline_queue (task_json, agent, source, priority, status, retry_count, created_at, updated_at)
 		 VALUES ('%s','%s','%s',%d,'pending',0,'%s','%s')`,
 		escapeSQLite(string(taskBytes)),
-		escapeSQLite(roleName),
+		escapeSQLite(agentName),
 		escapeSQLite(task.Source),
 		priority,
 		escapeSQLite(now),
@@ -116,7 +116,7 @@ func dequeueNext(dbPath string) *QueueItem {
 	}
 
 	// Select highest-priority, oldest pending item.
-	selectSQL := `SELECT id, task_json, role, source, priority, status, retry_count, created_at, updated_at, error
+	selectSQL := `SELECT id, task_json, agent, source, priority, status, retry_count, created_at, updated_at, error
 		FROM offline_queue
 		WHERE status = 'pending'
 		ORDER BY priority DESC, id ASC
@@ -157,7 +157,7 @@ func queryQueue(dbPath, status string) []QueueItem {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, task_json, role, source, priority, status, retry_count, created_at, updated_at, error
+		`SELECT id, task_json, agent, source, priority, status, retry_count, created_at, updated_at, error
 		 FROM offline_queue %s
 		 ORDER BY priority DESC, id ASC`, where)
 
@@ -179,7 +179,7 @@ func queryQueueItem(dbPath string, id int) *QueueItem {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, task_json, role, source, priority, status, retry_count, created_at, updated_at, error
+		`SELECT id, task_json, agent, source, priority, status, retry_count, created_at, updated_at, error
 		 FROM offline_queue WHERE id = %d`, id)
 	rows, err := queryDB(dbPath, sql)
 	if err != nil || len(rows) == 0 {
@@ -305,7 +305,7 @@ func queueItemFromRow(row map[string]any) QueueItem {
 	return QueueItem{
 		ID:         jsonInt(row["id"]),
 		TaskJSON:   jsonStr(row["task_json"]),
-		RoleName:   jsonStr(row["role"]),
+		AgentName:   jsonStr(row["agent"]),
 		Source:     jsonStr(row["source"]),
 		Priority:   jsonInt(row["priority"]),
 		Status:     jsonStr(row["status"]),
@@ -417,7 +417,7 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 	logInfoCtx(ctx, "queue: retrying task", "queueId", item.ID, "taskId", task.ID[:8], "name", task.Name, "retry", item.RetryCount+1)
 
 	// Run the task.
-	result := runSingleTask(ctx, d.cfg, task, d.sem, item.RoleName)
+	result := runSingleTask(ctx, d.cfg, task, d.sem, item.AgentName)
 
 	if result.Status == "success" {
 		updateQueueStatus(d.cfg.HistoryDB, item.ID, "completed", "")
@@ -425,9 +425,9 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 
 		// Record to history.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.RoleName, task, result,
+		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.AgentName, task, result,
 			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
-		recordSessionActivity(d.cfg.HistoryDB, task, result, item.RoleName)
+		recordSessionActivity(d.cfg.HistoryDB, task, result, item.AgentName)
 
 		if d.notifyFn != nil {
 			d.notifyFn(fmt.Sprintf("Offline queue: task %q completed successfully (retry #%d)", task.Name, item.RetryCount+1))
@@ -452,7 +452,7 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 
 		// Record to history even on failure.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.RoleName, task, result,
+		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.AgentName, task, result,
 			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 	}
 }

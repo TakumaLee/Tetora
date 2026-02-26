@@ -80,7 +80,7 @@ type initStrings struct {
 	// Step 4
 	Step4Title string
 
-	// Role creation
+	// Agent creation
 	CreateRoleOCPrompt    string
 	CreateRolePrompt      string
 	RoleNamePrompt        string
@@ -94,6 +94,15 @@ type initStrings struct {
 	RolePermInvalid       string
 	RoleAdded             string
 	RoleError             string
+
+	// Post-agent setup
+	SetDefaultAgentPrompt   string
+	DefaultAgentSet         string
+	AutoRouteDiscordPrompt string
+	AutoRouteDiscordDone   string
+	AddAnotherRolePrompt   string
+	EnableSmartDispatch    string
+	SmartDispatchEnabled   string
 
 	// Service install
 	ServiceInstallPrompt string
@@ -194,19 +203,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Step 4/4: Generating config...",
 
-		CreateRoleOCPrompt:    "OpenClaw roles can be imported later with: tetora import openclaw\n  Create a new role now instead? [y/N]:",
-		CreateRolePrompt:      "Create a first role? [Y/n]:",
-		RoleNamePrompt:        "Role name",
+		CreateRoleOCPrompt:    "OpenClaw agents can be imported later with: tetora import openclaw\n  Create a new agent now instead? [y/N]:",
+		CreateRolePrompt:      "Create a first agent? [Y/n]:",
+		RoleNamePrompt:        "Agent name",
 		ArchetypeTitle:        "Start from a template?",
 		ArchetypeBlank:        "Start from scratch",
 		ArchetypeChoosePrompt: "Choose [1-%d]",
 		SoulFilePrompt:        "Soul file path (empty for template)",
-		RoleModelPrompt:       "Role model",
+		RoleModelPrompt:       "Agent model",
 		RoleDescPrompt:        "Description",
 		RolePermPrompt:        "Permission mode (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Unknown permission mode %q, using acceptEdits",
-		RoleAdded:             "Role %q added.",
-		RoleError:             "Error saving role: %v",
+		RoleAdded:             "Agent %q added.",
+		RoleError:             "Error saving agent: %v",
+
+		SetDefaultAgentPrompt:   "Set %q as default agent? [Y/n]:",
+		DefaultAgentSet:         "Default agent set to %q.",
+		AutoRouteDiscordPrompt: "Auto-route Discord channels to %q? [Y/n]:",
+		AutoRouteDiscordDone:   "Discord channels routed to %q.",
+		AddAnotherRolePrompt:   "Add another agent? [y/N]:",
+		EnableSmartDispatch:    "Enable smart dispatch (auto-route messages to best agent)? [Y/n]:",
+		SmartDispatchEnabled:   "Smart dispatch enabled.",
 
 		ServiceInstallPrompt: "Install as launchd service? [y/N]:",
 
@@ -302,19 +319,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "步驟 4/4：產生設定檔中...",
 
-		CreateRoleOCPrompt:    "OpenClaw 角色可稍後執行：tetora import openclaw 匯入\n  現在要建立新角色嗎？[y/N]:",
-		CreateRolePrompt:      "建立第一個角色？[Y/n]:",
-		RoleNamePrompt:        "角色名稱",
+		CreateRoleOCPrompt:    "OpenClaw 代理可稍後執行：tetora import openclaw 匯入\n  現在要建立新代理嗎？[y/N]:",
+		CreateRolePrompt:      "建立第一個代理？[Y/n]:",
+		RoleNamePrompt:        "代理名稱",
 		ArchetypeTitle:        "從範本開始？",
 		ArchetypeBlank:        "從零開始",
 		ArchetypeChoosePrompt: "選擇 [1-%d]",
 		SoulFilePrompt:        "Soul 檔案路徑（空白使用範本）",
-		RoleModelPrompt:       "角色模型",
+		RoleModelPrompt:       "代理模型",
 		RoleDescPrompt:        "描述",
 		RolePermPrompt:        "權限模式 (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "未知的權限模式 %q，改用 acceptEdits",
-		RoleAdded:             "角色 %q 已新增。",
-		RoleError:             "儲存角色時發生錯誤：%v",
+		RoleAdded:             "代理 %q 已新增。",
+		RoleError:             "儲存代理時發生錯誤：%v",
+
+		SetDefaultAgentPrompt:   "將 %q 設為預設代理？[Y/n]:",
+		DefaultAgentSet:         "已將預設代理設為 %q。",
+		AutoRouteDiscordPrompt: "自動將 Discord 頻道路由到 %q？[Y/n]:",
+		AutoRouteDiscordDone:   "Discord 頻道已路由到 %q。",
+		AddAnotherRolePrompt:   "新增另一個代理？[y/N]:",
+		EnableSmartDispatch:    "啟用智慧分派（自動路由訊息到最佳代理）？[Y/n]:",
+		SmartDispatchEnabled:   "智慧分派已啟用。",
 
 		ServiceInstallPrompt: "安裝為 launchd 服務？[y/N]:",
 
@@ -410,19 +435,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "ステップ 4/4: 設定ファイルを生成中...",
 
-		CreateRoleOCPrompt:    "OpenClaw のロールは後で tetora import openclaw でインポートできます\n  今すぐ新しいロールを作成しますか？[y/N]:",
-		CreateRolePrompt:      "最初のロールを作成しますか？[Y/n]:",
-		RoleNamePrompt:        "ロール名",
+		CreateRoleOCPrompt:    "OpenClaw のエージェントは後で tetora import openclaw でインポートできます\n  今すぐ新しいエージェントを作成しますか？[y/N]:",
+		CreateRolePrompt:      "最初のエージェントを作成しますか？[Y/n]:",
+		RoleNamePrompt:        "エージェント名",
 		ArchetypeTitle:        "テンプレートから始めますか？",
 		ArchetypeBlank:        "ゼロから始める",
 		ArchetypeChoosePrompt: "選択 [1-%d]",
 		SoulFilePrompt:        "Soul ファイルのパス（空欄でテンプレート使用）",
-		RoleModelPrompt:       "ロールのモデル",
+		RoleModelPrompt:       "エージェントのモデル",
 		RoleDescPrompt:        "説明",
 		RolePermPrompt:        "権限モード (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "不明な権限モード %q、acceptEdits を使用します",
-		RoleAdded:             "ロール %q を追加しました。",
-		RoleError:             "ロールの保存中にエラー: %v",
+		RoleAdded:             "エージェント %q を追加しました。",
+		RoleError:             "エージェントの保存中にエラー: %v",
+
+		SetDefaultAgentPrompt:   "%q をデフォルトエージェントに設定しますか？[Y/n]:",
+		DefaultAgentSet:         "デフォルトエージェントを %q に設定しました。",
+		AutoRouteDiscordPrompt: "Discord チャンネルを %q に自動ルーティングしますか？[Y/n]:",
+		AutoRouteDiscordDone:   "Discord チャンネルを %q にルーティングしました。",
+		AddAnotherRolePrompt:   "別のエージェントを追加しますか？[y/N]:",
+		EnableSmartDispatch:    "スマートディスパッチを有効にしますか（メッセージを最適なエージェントに自動ルーティング）？[Y/n]:",
+		SmartDispatchEnabled:   "スマートディスパッチを有効にしました。",
 
 		ServiceInstallPrompt: "launchd サービスとしてインストールしますか？[y/N]:",
 
@@ -518,19 +551,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "4/4단계: 설정 생성 중...",
 
-		CreateRoleOCPrompt:    "OpenClaw 역할은 나중에 tetora import openclaw로 가져올 수 있습니다\n  지금 새 역할을 만드시겠습니까? [y/N]:",
-		CreateRolePrompt:      "첫 번째 역할을 만드시겠습니까? [Y/n]:",
-		RoleNamePrompt:        "역할 이름",
+		CreateRoleOCPrompt:    "OpenClaw 에이전트는 나중에 tetora import openclaw로 가져올 수 있습니다\n  지금 새 에이전트를 만드시겠습니까? [y/N]:",
+		CreateRolePrompt:      "첫 번째 에이전트를 만드시겠습니까? [Y/n]:",
+		RoleNamePrompt:        "에이전트 이름",
 		ArchetypeTitle:        "템플릿으로 시작하시겠습니까?",
 		ArchetypeBlank:        "처음부터 시작",
 		ArchetypeChoosePrompt: "선택 [1-%d]",
 		SoulFilePrompt:        "Soul 파일 경로 (비워두면 템플릿 사용)",
-		RoleModelPrompt:       "역할 모델",
+		RoleModelPrompt:       "에이전트 모델",
 		RoleDescPrompt:        "설명",
 		RolePermPrompt:        "권한 모드 (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "알 수 없는 권한 모드 %q, acceptEdits를 사용합니다",
-		RoleAdded:             "역할 %q이(가) 추가되었습니다.",
-		RoleError:             "역할 저장 중 오류: %v",
+		RoleAdded:             "에이전트 %q이(가) 추가되었습니다.",
+		RoleError:             "에이전트 저장 중 오류: %v",
+
+		SetDefaultAgentPrompt:   "%q을(를) 기본 에이전트로 설정하시겠습니까? [Y/n]:",
+		DefaultAgentSet:         "기본 에이전트가 %q(으)로 설정되었습니다.",
+		AutoRouteDiscordPrompt: "Discord 채널을 %q(으)로 자동 라우팅하시겠습니까? [Y/n]:",
+		AutoRouteDiscordDone:   "Discord 채널이 %q(으)로 라우팅되었습니다.",
+		AddAnotherRolePrompt:   "다른 에이전트를 추가하시겠습니까? [y/N]:",
+		EnableSmartDispatch:    "스마트 디스패치를 활성화하시겠습니까 (메시지를 최적 에이전트로 자동 라우팅)? [Y/n]:",
+		SmartDispatchEnabled:   "스마트 디스패치가 활성화되었습니다.",
 
 		ServiceInstallPrompt: "launchd 서비스로 설치하시겠습니까? [y/N]:",
 
@@ -626,19 +667,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Schritt 4/4: Konfiguration wird erstellt...",
 
-		CreateRoleOCPrompt:    "OpenClaw-Rollen können später mit importiert werden: tetora import openclaw\n  Jetzt eine neue Rolle erstellen? [y/N]:",
-		CreateRolePrompt:      "Erste Rolle erstellen? [Y/n]:",
-		RoleNamePrompt:        "Rollenname",
+		CreateRoleOCPrompt:    "OpenClaw-Agenten können später importiert werden: tetora import openclaw\n  Jetzt einen neuen Agenten erstellen? [y/N]:",
+		CreateRolePrompt:      "Ersten Agenten erstellen? [Y/n]:",
+		RoleNamePrompt:        "Agentenname",
 		ArchetypeTitle:        "Von einer Vorlage starten?",
 		ArchetypeBlank:        "Von vorne beginnen",
 		ArchetypeChoosePrompt: "Auswahl [1-%d]",
 		SoulFilePrompt:        "Soul-Dateipfad (leer für Vorlage)",
-		RoleModelPrompt:       "Rollenmodell",
+		RoleModelPrompt:       "Agentenmodell",
 		RoleDescPrompt:        "Beschreibung",
 		RolePermPrompt:        "Berechtigungsmodus (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Unbekannter Berechtigungsmodus %q, verwende acceptEdits",
-		RoleAdded:             "Rolle %q hinzugefügt.",
-		RoleError:             "Fehler beim Speichern der Rolle: %v",
+		RoleAdded:             "Agent %q hinzugefügt.",
+		RoleError:             "Fehler beim Speichern des Agenten: %v",
+
+		SetDefaultAgentPrompt:   "%q als Standard-Agent festlegen? [Y/n]:",
+		DefaultAgentSet:         "Standard-Agent auf %q gesetzt.",
+		AutoRouteDiscordPrompt: "Discord-Kanäle automatisch zu %q routen? [Y/n]:",
+		AutoRouteDiscordDone:   "Discord-Kanäle zu %q geroutet.",
+		AddAnotherRolePrompt:   "Weiteren Agenten hinzufügen? [y/N]:",
+		EnableSmartDispatch:    "Smart Dispatch aktivieren (Nachrichten automatisch an besten Agent routen)? [Y/n]:",
+		SmartDispatchEnabled:   "Smart Dispatch aktiviert.",
 
 		ServiceInstallPrompt: "Als launchd-Dienst installieren? [y/N]:",
 
@@ -734,19 +783,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Paso 4/4: Generando configuración...",
 
-		CreateRoleOCPrompt:    "Los roles de OpenClaw se pueden importar más tarde con: tetora import openclaw\n  ¿Crear un nuevo rol ahora? [y/N]:",
-		CreateRolePrompt:      "¿Crear un primer rol? [Y/n]:",
-		RoleNamePrompt:        "Nombre del rol",
+		CreateRoleOCPrompt:    "Los agentes de OpenClaw se pueden importar más tarde con: tetora import openclaw\n  ¿Crear un nuevo agente ahora? [y/N]:",
+		CreateRolePrompt:      "¿Crear un primer agente? [Y/n]:",
+		RoleNamePrompt:        "Nombre del agente",
 		ArchetypeTitle:        "¿Empezar desde una plantilla?",
 		ArchetypeBlank:        "Comenzar desde cero",
 		ArchetypeChoosePrompt: "Elegir [1-%d]",
 		SoulFilePrompt:        "Ruta del archivo Soul (vacío para plantilla)",
-		RoleModelPrompt:       "Modelo del rol",
+		RoleModelPrompt:       "Modelo del agente",
 		RoleDescPrompt:        "Descripción",
 		RolePermPrompt:        "Modo de permiso (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Modo de permiso desconocido %q, usando acceptEdits",
-		RoleAdded:             "Rol %q añadido.",
-		RoleError:             "Error al guardar el rol: %v",
+		RoleAdded:             "Agente %q añadido.",
+		RoleError:             "Error al guardar el agente: %v",
+
+		SetDefaultAgentPrompt:   "¿Establecer %q como agente predeterminado? [Y/n]:",
+		DefaultAgentSet:         "Agente predeterminado establecido en %q.",
+		AutoRouteDiscordPrompt: "¿Enrutar automáticamente canales de Discord a %q? [Y/n]:",
+		AutoRouteDiscordDone:   "Canales de Discord enrutados a %q.",
+		AddAnotherRolePrompt:   "¿Agregar otro agente? [y/N]:",
+		EnableSmartDispatch:    "¿Habilitar despacho inteligente (enrutar mensajes automáticamente al mejor agente)? [Y/n]:",
+		SmartDispatchEnabled:   "Despacho inteligente habilitado.",
 
 		ServiceInstallPrompt: "¿Instalar como servicio launchd? [y/N]:",
 
@@ -842,19 +899,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Étape 4/4: Génération de la configuration...",
 
-		CreateRoleOCPrompt:    "Les rôles OpenClaw peuvent être importés plus tard avec: tetora import openclaw\n  Créer un nouveau rôle maintenant? [y/N]:",
-		CreateRolePrompt:      "Créer un premier rôle? [Y/n]:",
-		RoleNamePrompt:        "Nom du rôle",
+		CreateRoleOCPrompt:    "Les agents OpenClaw peuvent être importés plus tard avec: tetora import openclaw\n  Créer un nouvel agent maintenant? [y/N]:",
+		CreateRolePrompt:      "Créer un premier agent? [Y/n]:",
+		RoleNamePrompt:        "Nom de l'agent",
 		ArchetypeTitle:        "Commencer à partir d'un modèle?",
 		ArchetypeBlank:        "Commencer de zéro",
 		ArchetypeChoosePrompt: "Choisir [1-%d]",
 		SoulFilePrompt:        "Chemin du fichier Soul (vide pour le modèle)",
-		RoleModelPrompt:       "Modèle du rôle",
+		RoleModelPrompt:       "Modèle de l'agent",
 		RoleDescPrompt:        "Description",
 		RolePermPrompt:        "Mode de permission (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Mode de permission inconnu %q, utilisation de acceptEdits",
-		RoleAdded:             "Rôle %q ajouté.",
-		RoleError:             "Erreur lors de la sauvegarde du rôle: %v",
+		RoleAdded:             "Agent %q ajouté.",
+		RoleError:             "Erreur lors de la sauvegarde de l'agent: %v",
+
+		SetDefaultAgentPrompt:   "Définir %q comme agent par défaut ? [Y/n] :",
+		DefaultAgentSet:         "Agent par défaut défini sur %q.",
+		AutoRouteDiscordPrompt: "Router automatiquement les canaux Discord vers %q ? [Y/n] :",
+		AutoRouteDiscordDone:   "Canaux Discord routés vers %q.",
+		AddAnotherRolePrompt:   "Ajouter un autre agent ? [y/N] :",
+		EnableSmartDispatch:    "Activer le dispatch intelligent (router automatiquement les messages vers le meilleur agent) ? [Y/n] :",
+		SmartDispatchEnabled:   "Dispatch intelligent activé.",
 
 		ServiceInstallPrompt: "Installer comme service launchd? [y/N]:",
 
@@ -950,19 +1015,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Langkah 4/4: Membuat konfigurasi...",
 
-		CreateRoleOCPrompt:    "Peran OpenClaw dapat diimpor nanti dengan: tetora import openclaw\n  Buat peran baru sekarang? [y/N]:",
-		CreateRolePrompt:      "Buat peran pertama? [Y/n]:",
-		RoleNamePrompt:        "Nama peran",
+		CreateRoleOCPrompt:    "Agen OpenClaw dapat diimpor nanti dengan: tetora import openclaw\n  Buat agen baru sekarang? [y/N]:",
+		CreateRolePrompt:      "Buat agen pertama? [Y/n]:",
+		RoleNamePrompt:        "Nama agen",
 		ArchetypeTitle:        "Mulai dari template?",
 		ArchetypeBlank:        "Mulai dari awal",
 		ArchetypeChoosePrompt: "Pilih [1-%d]",
 		SoulFilePrompt:        "Jalur file Soul (kosong untuk template)",
-		RoleModelPrompt:       "Model peran",
+		RoleModelPrompt:       "Model agen",
 		RoleDescPrompt:        "Deskripsi",
 		RolePermPrompt:        "Mode izin (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Mode izin tidak dikenal %q, menggunakan acceptEdits",
-		RoleAdded:             "Peran %q ditambahkan.",
-		RoleError:             "Kesalahan menyimpan peran: %v",
+		RoleAdded:             "Agen %q ditambahkan.",
+		RoleError:             "Kesalahan menyimpan agen: %v",
+
+		SetDefaultAgentPrompt:   "Tetapkan %q sebagai agen default? [Y/n]:",
+		DefaultAgentSet:         "Agen default diatur ke %q.",
+		AutoRouteDiscordPrompt: "Otomatis arahkan channel Discord ke %q? [Y/n]:",
+		AutoRouteDiscordDone:   "Channel Discord diarahkan ke %q.",
+		AddAnotherRolePrompt:   "Tambah agen lain? [y/N]:",
+		EnableSmartDispatch:    "Aktifkan dispatch cerdas (otomatis arahkan pesan ke agen terbaik)? [Y/n]:",
+		SmartDispatchEnabled:   "Dispatch cerdas diaktifkan.",
 
 		ServiceInstallPrompt: "Instal sebagai layanan launchd? [y/N]:",
 
@@ -1058,19 +1131,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "Hakbang 4/4: Ginagawa ang config...",
 
-		CreateRoleOCPrompt:    "Maaaring i-import ang mga OpenClaw role mamaya gamit ang: tetora import openclaw\n  Gumawa ng bagong role ngayon? [y/N]:",
-		CreateRolePrompt:      "Gumawa ng unang role? [Y/n]:",
-		RoleNamePrompt:        "Pangalan ng role",
+		CreateRoleOCPrompt:    "Maaaring i-import ang mga OpenClaw agent mamaya gamit ang: tetora import openclaw\n  Gumawa ng bagong agent ngayon? [y/N]:",
+		CreateRolePrompt:      "Gumawa ng unang agent? [Y/n]:",
+		RoleNamePrompt:        "Pangalan ng agent",
 		ArchetypeTitle:        "Magsimula mula sa template?",
 		ArchetypeBlank:        "Magsimula mula sa simula",
 		ArchetypeChoosePrompt: "Pumili [1-%d]",
 		SoulFilePrompt:        "Soul file path (blangko para sa template)",
-		RoleModelPrompt:       "Role model",
+		RoleModelPrompt:       "Agent model",
 		RoleDescPrompt:        "Paglalarawan",
 		RolePermPrompt:        "Permission mode (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "Hindi kilalang permission mode %q, gagamitin ang acceptEdits",
-		RoleAdded:             "Naidagdag ang role %q.",
-		RoleError:             "Error sa pag-save ng role: %v",
+		RoleAdded:             "Naidagdag ang agent %q.",
+		RoleError:             "Error sa pag-save ng agent: %v",
+
+		SetDefaultAgentPrompt:   "Itakda ang %q bilang default agent? [Y/n]:",
+		DefaultAgentSet:         "Default agent na-set sa %q.",
+		AutoRouteDiscordPrompt: "Auto-route Discord channels sa %q? [Y/n]:",
+		AutoRouteDiscordDone:   "Discord channels na-route sa %q.",
+		AddAnotherRolePrompt:   "Magdagdag ng isa pang agent? [y/N]:",
+		EnableSmartDispatch:    "I-enable ang smart dispatch (auto-route messages sa best agent)? [Y/n]:",
+		SmartDispatchEnabled:   "Smart dispatch enabled.",
 
 		ServiceInstallPrompt: "I-install bilang launchd service? [y/N]:",
 
@@ -1166,19 +1247,27 @@ var initTranslations = map[string]initStrings{
 
 		Step4Title: "ขั้นตอน 4/4: กำลังสร้าง config...",
 
-		CreateRoleOCPrompt:    "สามารถนำเข้า roles ของ OpenClaw ภายหลังด้วย: tetora import openclaw\n  สร้าง role ใหม่ตอนนี้? [y/N]:",
-		CreateRolePrompt:      "สร้าง role แรก? [Y/n]:",
-		RoleNamePrompt:        "ชื่อ role",
+		CreateRoleOCPrompt:    "สามารถนำเข้า agents ของ OpenClaw ภายหลังด้วย: tetora import openclaw\n  สร้าง agent ใหม่ตอนนี้? [y/N]:",
+		CreateRolePrompt:      "สร้าง agent แรก? [Y/n]:",
+		RoleNamePrompt:        "ชื่อ agent",
 		ArchetypeTitle:        "เริ่มจาก template?",
 		ArchetypeBlank:        "เริ่มจากศูนย์",
 		ArchetypeChoosePrompt: "เลือก [1-%d]",
 		SoulFilePrompt:        "เส้นทาง Soul file (ว่างเปล่าเพื่อใช้ template)",
-		RoleModelPrompt:       "โมเดลของ role",
+		RoleModelPrompt:       "โมเดลของ agent",
 		RoleDescPrompt:        "คำอธิบาย",
 		RolePermPrompt:        "โหมดสิทธิ์ (plan|acceptEdits|autoEdit|bypassPermissions)",
 		RolePermInvalid:       "โหมดสิทธิ์ไม่รู้จัก %q ใช้ acceptEdits แทน",
-		RoleAdded:             "เพิ่ม role %q แล้ว",
-		RoleError:             "เกิดข้อผิดพลาดในการบันทึก role: %v",
+		RoleAdded:             "เพิ่ม agent %q แล้ว",
+		RoleError:             "เกิดข้อผิดพลาดในการบันทึก agent: %v",
+
+		SetDefaultAgentPrompt:   "ตั้ง %q เป็นเอเจนต์เริ่มต้น? [Y/n]:",
+		DefaultAgentSet:         "ตั้งค่าเอเจนต์เริ่มต้นเป็น %q แล้ว",
+		AutoRouteDiscordPrompt: "เชื่อมต่อช่อง Discord ไปยัง %q อัตโนมัติ? [Y/n]:",
+		AutoRouteDiscordDone:   "ช่อง Discord เชื่อมต่อไปยัง %q แล้ว",
+		AddAnotherRolePrompt:   "เพิ่ม agent อื่นอีกไหม? [y/N]:",
+		EnableSmartDispatch:    "เปิดใช้ smart dispatch (เชื่อมต่อข้อความไปยังเอเจนต์ที่เหมาะที่สุดอัตโนมัติ)? [Y/n]:",
+		SmartDispatchEnabled:   "เปิดใช้ smart dispatch แล้ว",
 
 		ServiceInstallPrompt: "ติดตั้งเป็น launchd service? [y/N]:",
 

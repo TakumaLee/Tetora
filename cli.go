@@ -25,19 +25,19 @@ Commands:
   serve              Start daemon (Telegram + Slack + HTTP + Cron)
   run                Dispatch tasks (CLI mode)
   dispatch           Run an ad-hoc task via the daemon
-  route              Smart dispatch (auto-route to best role)
+  route              Smart dispatch (auto-route to best agent)
   init               Interactive setup wizard
   doctor             Health checks and diagnostics
   status             Quick overview (daemon, jobs, cost)
   drain              Graceful shutdown: stop new tasks, wait for running agents to finish
   service <action>   Manage launchd service (install|uninstall|status)
   job <action>       Manage cron jobs (list|add|enable|disable|remove|trigger)
-  role <action>      Manage roles (list|add|show|set|remove)
+  agent <action>     Manage agents (list|add|show|set|remove)
   history <action>   View execution history (list|show|cost)
   config <action>    Manage config (show|set|validate|migrate)
   logs               View daemon logs ([-f] [-n N] [--err] [--trace ID] [--json])
   prompt <action>    Manage prompt templates (list|show|add|edit|remove)
-  memory <action>    Manage agent memory (list|get|set|delete [--role ROLE])
+  memory <action>    Manage agent memory (list|get|set|delete [--agent AGENT])
   mcp <action>       Manage MCP configs (list|show|add|remove|test)
   session <action>   View agent sessions (list|show)
   knowledge <action> Manage knowledge base (list|add|remove|path)
@@ -49,7 +49,7 @@ Commands:
   security <action>  Security scanning (scan|baseline)
   plugin <action>    Manage external plugins (list|start|stop)
   access <action>    Manage agent directory access (list|add|remove)
-  import <source>    Import data (openclaw)
+  import <source>    Import data (openclaw|config)
   release            Build, tag, and publish a release (atomic pipeline)
   upgrade            Upgrade to the latest version
   backup             Create backup of tetora data
@@ -62,20 +62,20 @@ Examples:
   tetora init                          Create config interactively
   tetora serve                         Start daemon
   tetora dispatch "Summarize README"    Run ad-hoc task via daemon
-  tetora route "Review code security"  Auto-route to best role
+  tetora route "Review code security"  Auto-route to best agent
   tetora run --file tasks.json         Dispatch tasks from file
   tetora job list                      List all cron jobs
   tetora job trigger heartbeat         Manually trigger a job
-  tetora role list                     List all roles
-  tetora role add                      Create a new agent/role (interactive)
-  tetora role show <name>               Show role details + soul preview
-  tetora role set <name> <field> <val> Update role field (model, permission, description)
-  tetora role remove <name>            Remove a role
+  tetora agent list                    List all agents
+  tetora agent add                     Create a new agent (interactive)
+  tetora agent show <name>             Show agent details + soul preview
+  tetora agent set <name> <field> <val> Update agent field (model, permission, description)
+  tetora agent remove <name>           Remove an agent
   tetora history list                  Show recent execution history
   tetora history cost                  Show cost summary
   tetora config migrate --dry-run      Preview config migrations
   tetora session list                  List recent sessions
-  tetora session list --role <name>    List sessions for a specific agent
+  tetora session list --agent <name>   List sessions for a specific agent
   tetora session show <id>            Show session conversation
   tetora backup                        Create backup
   tetora restore backup.tar.gz         Restore from backup

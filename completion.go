@@ -36,7 +36,7 @@ func cmdCompletion(args []string) {
 func completionSubcommands() []string {
 	return []string{
 		"serve", "run", "dispatch", "route", "init", "doctor",
-		"status", "service", "job", "role", "history", "config",
+		"status", "service", "job", "agent", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
 		"proactive", "quick", "dashboard", "compact", "plugin", "task", "version", "help", "completion",
@@ -48,7 +48,7 @@ func completionSubActions(cmd string) []string {
 	switch cmd {
 	case "job":
 		return []string{"list", "add", "enable", "disable", "remove", "trigger", "history"}
-	case "role":
+	case "agent":
 		return []string{"list", "add", "show", "remove"}
 	case "history":
 		return []string{"list", "show", "cost"}
@@ -98,13 +98,13 @@ func completionSubcommandDescriptions() map[string]string {
 		"serve":      "Start daemon (Telegram + Slack + HTTP + Cron)",
 		"run":        "Dispatch tasks (CLI mode)",
 		"dispatch":   "Run an ad-hoc task via the daemon",
-		"route":      "Smart dispatch (auto-route to best role)",
+		"route":      "Smart dispatch (auto-route to best agent)",
 		"init":       "Interactive setup wizard",
 		"doctor":     "Health checks and diagnostics",
 		"status":     "Quick overview (daemon, jobs, cost)",
 		"service":    "Manage launchd service",
 		"job":        "Manage cron jobs",
-		"role":       "Manage roles",
+		"agent":      "Manage agents",
 		"history":    "View execution history",
 		"config":     "Manage config",
 		"logs":       "View daemon logs",
@@ -143,10 +143,10 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 			"remove": "Remove a cron job", "trigger": "Manually trigger a cron job",
 			"history": "Show job execution history",
 		}
-	case "role":
+	case "agent":
 		return map[string]string{
-			"list": "List all roles", "add": "Add a new role",
-			"show": "Show role details", "remove": "Remove a role",
+			"list": "List all agents", "add": "Add a new agent",
+			"show": "Show agent details", "remove": "Remove an agent",
 		}
 	case "history":
 		return map[string]string{
@@ -211,7 +211,7 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 	case "trust":
 		return map[string]string{
 			"show":   "Show trust levels for all agents",
-			"set":    "Set trust level for a role",
+			"set":    "Set trust level for an agent",
 			"events": "Show trust event history",
 		}
 	case "webhook":
@@ -309,11 +309,11 @@ _tetora_completions() {
 
 		// Add dynamic completions for specific commands at position 3.
 		switch cmd {
-		case "role":
+		case "agent":
 			b.WriteString("            if [[ ${cword} -eq 3 && (\"${words[2]}\" == \"show\" || \"${words[2]}\" == \"remove\") ]]; then\n")
-			b.WriteString("                local roles\n")
-			b.WriteString("                roles=$(tetora role list --names 2>/dev/null)\n")
-			b.WriteString("                COMPREPLY=($(compgen -W \"${roles}\" -- \"${cur}\"))\n")
+			b.WriteString("                local agents\n")
+			b.WriteString("                agents=$(tetora agent list --names 2>/dev/null)\n")
+			b.WriteString("                COMPREPLY=($(compgen -W \"${agents}\" -- \"${cur}\"))\n")
 			b.WriteString("            fi\n")
 		case "workflow":
 			b.WriteString("            if [[ ${cword} -eq 3 && (\"${words[2]}\" == \"show\" || \"${words[2]}\" == \"run\" || \"${words[2]}\" == \"validate\" || \"${words[2]}\" == \"delete\") ]]; then\n")
@@ -414,11 +414,11 @@ _tetora() {
 
 		// Add dynamic completions for specific subcommands.
 		switch cmd {
-		case "role":
+		case "agent":
 			b.WriteString("            if (( CURRENT == 3 )) && [[ ${words[2]} == (show|remove) ]]; then\n")
-			b.WriteString("                local -a roles\n")
-			b.WriteString("                roles=(${(f)\"$(tetora role list --names 2>/dev/null)\"})\n")
-			b.WriteString("                _describe -t roles 'role name' roles && return\n")
+			b.WriteString("                local -a agents\n")
+			b.WriteString("                agents=(${(f)\"$(tetora agent list --names 2>/dev/null)\"})\n")
+			b.WriteString("                _describe -t agents 'agent name' agents && return\n")
 			b.WriteString("            fi\n")
 		case "workflow":
 			b.WriteString("            if (( CURRENT == 3 )) && [[ ${words[2]} == (show|run|validate|delete) ]]; then\n")
@@ -486,7 +486,7 @@ func generateFishCompletion() string {
 
 	// Dynamic completions for specific commands.
 	b.WriteString("\n# Dynamic completions\n")
-	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from role; and __fish_seen_subcommand_from show remove' -a '(tetora role list --names 2>/dev/null)' -d 'Role name'\n")
+	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from agent; and __fish_seen_subcommand_from show remove' -a '(tetora agent list --names 2>/dev/null)' -d 'Agent name'\n")
 	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from workflow; and __fish_seen_subcommand_from show run validate delete' -a '(tetora workflow list --names 2>/dev/null)' -d 'Workflow name'\n")
 	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from job; and __fish_seen_subcommand_from enable disable remove trigger' -a '(tetora job list --names 2>/dev/null)' -d 'Job name'\n")
 

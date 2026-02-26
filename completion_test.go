@@ -10,7 +10,7 @@ func TestCompletionSubcommands(t *testing.T) {
 
 	expected := []string{
 		"serve", "run", "dispatch", "route", "init", "doctor",
-		"status", "service", "job", "role", "history", "config",
+		"status", "service", "job", "agent", "history", "config",
 		"logs", "prompt", "memory", "mcp", "session", "knowledge",
 		"skill", "workflow", "budget", "trust", "webhook", "data", "backup", "restore",
 		"proactive", "quick", "dashboard", "compact", "plugin", "task", "version", "help", "completion",
@@ -38,7 +38,7 @@ func TestCompletionSubActions(t *testing.T) {
 		expected []string
 	}{
 		{"job", []string{"list", "add", "enable", "disable", "remove", "trigger", "history"}},
-		{"role", []string{"list", "add", "show", "remove"}},
+		{"agent", []string{"list", "add", "show", "remove"}},
 		{"workflow", []string{"list", "show", "validate", "create", "delete", "run", "runs", "status", "messages", "history", "rollback", "diff"}},
 		{"knowledge", []string{"list", "add", "remove", "path", "search"}},
 		{"history", []string{"list", "show", "cost"}},
@@ -98,7 +98,7 @@ func TestGenerateBashCompletion(t *testing.T) {
 	}
 
 	// Must contain sub-action words for key commands.
-	for _, cmd := range []string{"job", "role", "workflow", "config"} {
+	for _, cmd := range []string{"job", "agent", "workflow", "config"} {
 		for _, action := range completionSubActions(cmd) {
 			if !strings.Contains(output, action) {
 				t.Errorf("bash completion missing sub-action %q for %q", action, cmd)
@@ -107,8 +107,8 @@ func TestGenerateBashCompletion(t *testing.T) {
 	}
 
 	// Must contain dynamic completion hints.
-	if !strings.Contains(output, "tetora role list --names") {
-		t.Error("bash completion missing dynamic role completion")
+	if !strings.Contains(output, "tetora agent list --names") {
+		t.Error("bash completion missing dynamic agent completion")
 	}
 	if !strings.Contains(output, "tetora workflow list --names") {
 		t.Error("bash completion missing dynamic workflow completion")
@@ -154,8 +154,8 @@ func TestGenerateZshCompletion(t *testing.T) {
 	}
 
 	// Must contain dynamic completions.
-	if !strings.Contains(output, "tetora role list --names") {
-		t.Error("zsh completion missing dynamic role completion")
+	if !strings.Contains(output, "tetora agent list --names") {
+		t.Error("zsh completion missing dynamic agent completion")
 	}
 	if !strings.Contains(output, "tetora workflow list --names") {
 		t.Error("zsh completion missing dynamic workflow completion")

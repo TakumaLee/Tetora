@@ -16,7 +16,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 				"type": "object",
 				"properties": {
 					"query": {"type": "string", "description": "Search query"},
-					"role": {"type": "string", "description": "Filter by role name (optional)"}
+					"role": {"type": "string", "description": "Filter by agent name (optional)"}
 				},
 				"required": ["query"]
 			}`),
@@ -33,7 +33,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 				"type": "object",
 				"properties": {
 					"key": {"type": "string", "description": "Memory key"},
-					"role": {"type": "string", "description": "Role name (optional)"}
+					"role": {"type": "string", "description": "Agent name (optional)"}
 				},
 				"required": ["key"]
 			}`),
@@ -53,7 +53,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 					"namespace": {"type": "string", "description": "Category: fact, preference, episode, emotion, file, reflection"},
 					"key": {"type": "string", "description": "Canonical key for this memory"},
 					"value": {"type": "string", "description": "Memory content"},
-					"scope": {"type": "string", "description": "Role name or empty for global (optional)"},
+					"scope": {"type": "string", "description": "Agent name or empty for global (optional)"},
 					"source": {"type": "string", "description": "Origin identifier (optional)"},
 					"ttlDays": {"type": "number", "description": "Auto-expire after N days, 0=never (optional)"}
 				},
@@ -73,7 +73,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 				"properties": {
 					"namespace": {"type": "string", "description": "Category: fact, preference, episode, emotion, file, reflection"},
 					"key": {"type": "string", "description": "Memory key"},
-					"scope": {"type": "string", "description": "Role name or empty for global (optional)"}
+					"scope": {"type": "string", "description": "Agent name or empty for global (optional)"}
 				},
 				"required": ["namespace", "key"]
 			}`),
@@ -91,7 +91,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 				"properties": {
 					"query": {"type": "string", "description": "Search query (matches key and value)"},
 					"namespace": {"type": "string", "description": "Filter by namespace (optional)"},
-					"scope": {"type": "string", "description": "Filter by scope/role (optional)"},
+					"scope": {"type": "string", "description": "Filter by scope/agent (optional)"},
 					"limit": {"type": "number", "description": "Max results (default 10)"}
 				},
 				"required": ["query"]
@@ -178,7 +178,7 @@ func registerMemoryTools(r *ToolRegistry, cfg *Config, enabled func(string) bool
 func toolMemorySearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
 		Query string `json:"query"`
-		Role  string `json:"role"`
+		Agent string `json:"agent"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -187,7 +187,7 @@ func toolMemorySearch(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("query is required")
 	}
 
-	entries, err := searchMemoryFS(cfg, args.Role, args.Query)
+	entries, err := searchMemoryFS(cfg, args.Agent, args.Query)
 	if err != nil {
 		return "", fmt.Errorf("search failed: %w", err)
 	}
@@ -207,8 +207,8 @@ func toolMemorySearch(ctx context.Context, cfg *Config, input json.RawMessage) (
 // toolMemoryGet retrieves a specific memory value.
 func toolMemoryGet(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Key  string `json:"key"`
-		Role string `json:"role"`
+		Key   string `json:"key"`
+		Agent string `json:"agent"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -217,7 +217,7 @@ func toolMemoryGet(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("key is required")
 	}
 
-	val, err := getMemory(cfg, args.Role, args.Key)
+	val, err := getMemory(cfg, args.Agent, args.Key)
 	if err != nil {
 		return "", fmt.Errorf("get failed: %w", err)
 	}

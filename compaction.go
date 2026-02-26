@@ -52,7 +52,7 @@ func (c CompactionConfig) maxCost() float64 {
 type sessionMessage struct {
 	ID        int
 	SessionID string
-	Role      string
+	Agent      string
 	Content   string
 	Timestamp string
 }
@@ -168,7 +168,7 @@ func getOldestMessages(cfg *Config, sessionID string, limit int) []sessionMessag
 		}
 		if roleVal, ok := row["role"]; ok {
 			if roleStr, ok := roleVal.(string); ok {
-				msg.Role = roleStr
+				msg.Agent = roleStr
 			}
 		}
 		if contentVal, ok := row["content"]; ok {
@@ -236,7 +236,7 @@ func buildCompactionPrompt(messages []sessionMessage) string {
 		if ts == "" {
 			ts = "unknown"
 		}
-		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n\n", ts, m.Role, m.Content))
+		sb.WriteString(fmt.Sprintf("[%s] %s: %s\n\n", ts, m.Agent, m.Content))
 	}
 
 	sb.WriteString("\nProvide a concise summary that captures:\n")

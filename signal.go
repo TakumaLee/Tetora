@@ -22,7 +22,7 @@ type SignalConfig struct {
 	APIBaseURL  string `json:"apiBaseURL,omitempty"`  // default "http://localhost:8080"
 	PhoneNumber string `json:"phoneNumber,omitempty"` // +1234567890 ($ENV_VAR)
 	WebhookPath string `json:"webhookPath,omitempty"` // default "/api/signal/webhook"
-	DefaultRole string `json:"defaultRole,omitempty"` // agent role for Signal messages
+	DefaultAgent string `json:"defaultAgent,omitempty"` // agent role for Signal messages
 	PollingMode bool   `json:"pollingMode,omitempty"` // enable polling instead of webhook
 	PollInterval int   `json:"pollInterval,omitempty"` // polling interval in seconds (default 5)
 }
@@ -358,12 +358,12 @@ func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targe
 	ctx := withTraceID(context.Background(), newTraceID("signal"))
 	dbPath := sb.cfg.HistoryDB
 
-	// Route to determine role.
-	role := sb.cfg.Signal.DefaultRole
+	// Route to determine agent.
+	role := sb.cfg.Signal.DefaultAgent
 	if role == "" {
 		route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: text, Source: "signal"})
-		role = route.Role
-		logInfoCtx(ctx, "signal route result", "role", role, "method", route.Method)
+		role = route.Agent
+		logInfoCtx(ctx, "signal route result", "agent", role, "method", route.Method)
 	}
 
 	// Find or create session.
@@ -399,7 +399,7 @@ func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targe
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   role,
+		Agent:  role,
 		Source: "signal",
 	}
 	fillDefaults(sb.cfg, &task)
@@ -407,12 +407,12 @@ func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targe
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
+	// Apply agent-specific config.
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(sb.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(sb.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := sb.cfg.Roles[role]; ok {
+		if rc, ok := sb.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}

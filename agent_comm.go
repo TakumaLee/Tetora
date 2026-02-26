@@ -92,7 +92,7 @@ func maxChildrenPerTaskOrDefault(cfg *Config) int {
 func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var agents []map[string]any
 
-	for name, role := range cfg.Roles {
+	for name, role := range cfg.Agents {
 		agent := map[string]any{
 			"name":        name,
 			"description": role.Description,
@@ -129,7 +129,7 @@ func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (str
 // --- P13.3: Nested Sub-Agents --- Added depth tracking, max depth enforcement, and spawn control.
 func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Role     string  `json:"role"`
+		Agent    string  `json:"agent"`
 		Prompt   string  `json:"prompt"`
 		Timeout  float64 `json:"timeout"`
 		Depth    int     `json:"depth"`    // --- P13.3: current depth (passed by parent)
@@ -138,8 +138,8 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
-	if args.Role == "" {
-		return "", fmt.Errorf("role is required")
+	if args.Agent == "" {
+		return "", fmt.Errorf("agent is required")
 	}
 	if args.Prompt == "" {
 		return "", fmt.Errorf("prompt is required")
@@ -175,15 +175,15 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		defer globalSpawnTracker.release(args.ParentID)
 	}
 
-	// Check if role exists.
-	if _, ok := cfg.Roles[args.Role]; !ok {
-		return "", fmt.Errorf("role %q not found", args.Role)
+	// Check if agent exists.
+	if _, ok := cfg.Agents[args.Agent]; !ok {
+		return "", fmt.Errorf("agent %q not found", args.Agent)
 	}
 
 	// Build task request.
 	task := Task{
 		Prompt:   args.Prompt,
-		Role:     args.Role,
+		Agent:    args.Agent,
 		Timeout:  fmt.Sprintf("%.0fs", args.Timeout),
 		Source:   "agent_dispatch",
 		Depth:    childDepth,  // --- P13.3: propagate depth
@@ -191,7 +191,7 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 	fillDefaults(cfg, &task)
 
-	logDebug("agent_dispatch", "role", args.Role, "depth", childDepth, "parentId", args.ParentID)
+	logDebug("agent_dispatch", "agent", args.Agent, "depth", childDepth, "parentId", args.ParentID)
 
 	// Call local HTTP API.
 	requestBody, _ := json.Marshal([]Task{task})
@@ -248,7 +248,7 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	// Build result summary.
 	result := map[string]any{
-		"role":       args.Role,
+		"role":       args.Agent,
 		"status":     taskResult.Status,
 		"output":     taskResult.Output,
 		"durationMs": taskResult.DurationMs,
@@ -265,39 +265,39 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 // toolAgentMessage sends an async message to another agent's session.
 func toolAgentMessage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Role      string `json:"role"`
+		Agent     string `json:"agent"`
 		Message   string `json:"message"`
 		SessionID string `json:"sessionId"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
-	if args.Role == "" {
-		return "", fmt.Errorf("role is required")
+	if args.Agent == "" {
+		return "", fmt.Errorf("agent is required")
 	}
 	if args.Message == "" {
 		return "", fmt.Errorf("message is required")
 	}
 
-	// Check if role exists.
-	if _, ok := cfg.Roles[args.Role]; !ok {
-		return "", fmt.Errorf("role %q not found", args.Role)
+	// Check if agent exists.
+	if _, ok := cfg.Agents[args.Agent]; !ok {
+		return "", fmt.Errorf("agent %q not found", args.Agent)
 	}
 
-	// Determine sender role from context (if available).
-	fromRole := "system"
-	// TODO: extract from context if we store current role there
+	// Determine sender agent from context (if available).
+	fromAgent := "system"
+	// TODO: extract from context if we store current agent there
 
 	// Generate message ID.
 	messageID := generateMessageID()
 
 	// Store message in DB.
 	sql := fmt.Sprintf(
-		`INSERT INTO agent_messages (id, from_role, to_role, message, session_id, created_at)
+		`INSERT INTO agent_messages (id, from_agent, to_agent, message, session_id, created_at)
 		 VALUES ('%s', '%s', '%s', '%s', '%s', '%s')`,
 		escapeSQLite(messageID),
-		escapeSQLite(fromRole),
-		escapeSQLite(args.Role),
+		escapeSQLite(fromAgent),
+		escapeSQLite(args.Agent),
 		escapeSQLite(args.Message),
 		escapeSQLite(args.SessionID),
 		time.Now().Format(time.RFC3339),
@@ -310,7 +310,7 @@ func toolAgentMessage(ctx context.Context, cfg *Config, input json.RawMessage) (
 	result := map[string]any{
 		"status":    "sent",
 		"messageId": messageID,
-		"to":        args.Role,
+		"to":        args.Agent,
 	}
 
 	b, _ := json.Marshal(result)
@@ -326,18 +326,28 @@ func generateMessageID() string {
 
 // initAgentCommDB initializes the agent_messages table.
 func initAgentCommDB(dbPath string) error {
+	// Migration: rename from_role/to_role -> from_agent/to_agent.
+	for _, stmt := range []string{
+		`ALTER TABLE agent_messages RENAME COLUMN from_role TO from_agent;`,
+		`ALTER TABLE agent_messages RENAME COLUMN to_role TO to_agent;`,
+	} {
+		if err := execDB(dbPath, stmt); err != nil {
+			// Ignore expected errors (column already renamed or table doesn't exist yet).
+		}
+	}
+
 	sql := `
 CREATE TABLE IF NOT EXISTS agent_messages (
     id TEXT PRIMARY KEY,
-    from_role TEXT NOT NULL,
-    to_role TEXT NOT NULL,
+    from_agent TEXT NOT NULL,
+    to_agent TEXT NOT NULL,
     message TEXT NOT NULL,
     session_id TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     read_at TEXT DEFAULT ''
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to_role ON agent_messages(to_role, read_at);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent ON agent_messages(to_agent, read_at);
 CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id);
 `
 	_, err := queryDB(dbPath, sql)
@@ -347,9 +357,9 @@ CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_
 // getAgentMessages retrieves pending messages for a role.
 func getAgentMessages(dbPath, role string, markAsRead bool) ([]map[string]any, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, from_role, to_role, message, session_id, created_at
+		`SELECT id, from_agent, to_agent, message, session_id, created_at
 		 FROM agent_messages
-		 WHERE to_role = '%s' AND read_at = ''
+		 WHERE to_agent = '%s' AND read_at = ''
 		 ORDER BY created_at ASC
 		 LIMIT 50`,
 		escapeSQLite(role),

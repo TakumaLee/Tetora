@@ -152,37 +152,37 @@ func cmdDispatch(args []string) {
 		task["permissionMode"] = permission
 	}
 
-	// If role specified, fetch soul content and inject.
+	// If agent specified, fetch soul content and inject.
 	if role != "" {
-		// Always pass the role name to the daemon so it can apply role config
+		// Always pass the agent name to the daemon so it can apply agent config
 		// (model, permissionMode, workspace, etc.) server-side.
 		task["role"] = role
 
 		resp, err := api.get("/roles/" + role)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: cannot fetch role %q from daemon: %v\n", role, err)
+			fmt.Fprintf(os.Stderr, "error: cannot fetch agent %q from daemon: %v\n", role, err)
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode == 404 {
-			fmt.Fprintf(os.Stderr, "error: role %q not found — check `tetora role list` for available roles\n", role)
+			fmt.Fprintf(os.Stderr, "error: agent %q not found — check `tetora agent list` for available agents\n", role)
 			os.Exit(1)
 		}
 		if resp.StatusCode != 200 {
-			fmt.Fprintf(os.Stderr, "error: fetching role %q failed (HTTP %d)\n", role, resp.StatusCode)
+			fmt.Fprintf(os.Stderr, "error: fetching agent %q failed (HTTP %d)\n", role, resp.StatusCode)
 			os.Exit(1)
 		}
 		var roleData map[string]any
 		if err := json.NewDecoder(resp.Body).Decode(&roleData); err != nil {
-			fmt.Fprintf(os.Stderr, "error: parse role %q response: %v\n", role, err)
+			fmt.Fprintf(os.Stderr, "error: parse agent %q response: %v\n", role, err)
 			os.Exit(1)
 		}
 		// Inject soul content as system prompt prefix (daemon will also load it
-		// server-side via task.Role, but sending it here enables estimate mode).
+		// server-side via task.Agent, but sending it here enables estimate mode).
 		if sc, ok := roleData["soulContent"].(string); ok && sc != "" {
 			task["systemPrompt"] = sc
 		}
-		// Use role's model if not overridden by --model flag.
+		// Use agent's model if not overridden by --model flag.
 		if model == "" {
 			if rm, ok := roleData["model"].(string); ok && rm != "" {
 				task["model"] = rm
@@ -298,7 +298,7 @@ Options:
   --budget, -b      Max budget in USD (default: from config)
   --workdir, -w     Working directory
   --permission      Permission mode (acceptEdits, bypassPermissions, plan)
-  --role, -r        Role name (injects soul prompt + role model)
+  --role, -r        Agent name (injects soul prompt + agent model)
   --notify          Send Telegram notification on completion
   --estimate, -e    Show cost estimate without executing (dry-run)
 

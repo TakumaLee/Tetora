@@ -452,7 +452,7 @@ type DataExport struct {
 // ReflectionRow is a simplified reflection entry for export.
 type ReflectionRow struct {
 	TaskID      string  `json:"taskId"`
-	Role        string  `json:"role"`
+	Agent        string  `json:"agent"`
 	Score       int     `json:"score"`
 	Feedback    string  `json:"feedback"`
 	Improvement string  `json:"improvement"`
@@ -502,7 +502,7 @@ func queryReflectionsForExport(dbPath string) []ReflectionRow {
 	if dbPath == "" {
 		return nil
 	}
-	sql := `SELECT task_id, role, score, feedback, improvement, cost_usd, created_at
+	sql := `SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
 	        FROM reflections ORDER BY created_at DESC LIMIT 10000`
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
@@ -512,7 +512,7 @@ func queryReflectionsForExport(dbPath string) []ReflectionRow {
 	for _, row := range rows {
 		refs = append(refs, ReflectionRow{
 			TaskID:      jsonStr(row["task_id"]),
-			Role:        jsonStr(row["role"]),
+			Agent:        jsonStr(row["agent"]),
 			Score:       jsonInt(row["score"]),
 			Feedback:    jsonStr(row["feedback"]),
 			Improvement: jsonStr(row["improvement"]),

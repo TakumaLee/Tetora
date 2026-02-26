@@ -448,7 +448,7 @@ func TestSystemHealth(t *testing.T) {
 		MaxConcurrent: 3,
 		DefaultModel:  "sonnet",
 		Providers:     map[string]ProviderConfig{"claude": {Type: "claude-cli"}},
-		Roles:         map[string]RoleConfig{"test": {}},
+		Agents:         map[string]AgentConfig{"test": {}},
 	}
 
 	health := getSystemHealth(cfg)

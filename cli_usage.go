@@ -10,7 +10,7 @@ import (
 
 // --- P18.1: CLI Usage Command ---
 
-// cmdUsage implements `tetora usage [today|week|month] [--model] [--role] [--days N]`
+// cmdUsage implements `tetora usage [today|week|month] [--model] [--agent] [--days N]`
 // Also supports `tetora usage tokens [--days N]` for token telemetry breakdown.
 func cmdUsage(args []string) {
 	// Handle `tetora usage tokens` subcommand.
@@ -41,17 +41,17 @@ func cmdUsage(args []string) {
 				}
 			}
 		case "--help", "-h":
-			fmt.Println("Usage: tetora usage [today|week|month] [--model] [--role] [--days N]")
+			fmt.Println("Usage: tetora usage [today|week|month] [--model] [--agent] [--days N]")
 			fmt.Println("       tetora usage tokens [--days N]")
 			fmt.Println()
 			fmt.Println("Options:")
 			fmt.Println("  today|week|month  Period for summary (default: today)")
 			fmt.Println("  --model, -m       Show breakdown by model")
-			fmt.Println("  --role, -r        Show breakdown by role")
+			fmt.Println("  --agent, -r       Show breakdown by agent")
 			fmt.Println("  --days, -d N      Number of days for breakdown (default: 30)")
 			fmt.Println()
 			fmt.Println("Subcommands:")
-			fmt.Println("  tokens            Show token telemetry breakdown by complexity and role")
+			fmt.Println("  tokens            Show token telemetry breakdown by complexity and agent")
 			return
 		}
 	}
@@ -105,10 +105,10 @@ func tryUsageFromAPI(api *apiClient, period string, showModel, showRole bool, da
 		if err == nil && resp3.StatusCode == 200 {
 			defer resp3.Body.Close()
 			body3, _ := io.ReadAll(resp3.Body)
-			var roles []RoleUsage
+			var roles []AgentUsage
 			if json.Unmarshal(body3, &roles) == nil {
-				fmt.Println("By Role:")
-				fmt.Println(formatRoleBreakdown(roles))
+				fmt.Println("By Agent:")
+				fmt.Println(formatAgentBreakdown(roles))
 				fmt.Println()
 			}
 		}
@@ -170,24 +170,24 @@ func usageFromDB(cfg *Config, period string, showModel, showRole bool, days int)
 	}
 
 	if showRole {
-		roles, err := queryUsageByRole(cfg.HistoryDB, days)
+		roles, err := queryUsageByAgent(cfg.HistoryDB, days)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error querying role breakdown: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error querying agent breakdown: %v\n", err)
 		} else {
-			fmt.Println("By Role:")
-			fmt.Println(formatRoleBreakdown(roles))
+			fmt.Println("By Agent:")
+			fmt.Println(formatAgentBreakdown(roles))
 			fmt.Println()
 		}
 	}
 
 	// Always show a quick hint if no breakdown flags specified.
 	if !showModel && !showRole {
-		fmt.Println("Tip: use --model or --role for detailed breakdown")
+		fmt.Println("Tip: use --model or --agent for detailed breakdown")
 	}
 }
 
 // cmdUsageTokens implements `tetora usage tokens [--days N]`.
-// Shows token telemetry breakdown by complexity and role.
+// Shows token telemetry breakdown by complexity and agent.
 func cmdUsageTokens(args []string) {
 	days := 7
 
@@ -225,7 +225,7 @@ func cmdUsageTokens(args []string) {
 		body, _ := io.ReadAll(resp.Body)
 		var data struct {
 			Summary []TokenSummaryRow `json:"summary"`
-			ByRole  []TokenRoleRow    `json:"byRole"`
+			ByRole  []TokenAgentRow    `json:"byRole"`
 			Days    int               `json:"days"`
 		}
 		if json.Unmarshal(body, &data) == nil {
@@ -233,7 +233,7 @@ func cmdUsageTokens(args []string) {
 			fmt.Println("By Complexity:")
 			fmt.Println(formatTokenSummary(data.Summary))
 			fmt.Println()
-			fmt.Println("By Role:")
+			fmt.Println("By Agent:")
 			fmt.Println(formatTokenByRole(data.ByRole))
 			return
 		}
@@ -253,9 +253,9 @@ func cmdUsageTokens(args []string) {
 
 	roleRows, err := queryTokenUsageByRole(cfg.HistoryDB, days)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error querying token by role: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error querying token by agent: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("By Role:")
-	fmt.Println(formatTokenByRole(parseTokenRoleRows(roleRows)))
+	fmt.Println("By Agent:")
+	fmt.Println(formatTokenByRole(parseTokenAgentRows(roleRows)))
 }

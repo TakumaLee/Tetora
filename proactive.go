@@ -55,7 +55,7 @@ type ProactiveTrigger struct {
 // ProactiveAction defines what happens when a rule triggers.
 type ProactiveAction struct {
 	Type           string                 `json:"type"` // "dispatch", "notify"
-	Role           string                 `json:"role,omitempty"`
+	Agent           string                 `json:"agent,omitempty"`
 	Prompt         string                 `json:"prompt,omitempty"`
 	PromptTemplate string                 `json:"promptTemplate,omitempty"`
 	Params         map[string]interface{} `json:"params,omitempty"`
@@ -486,10 +486,10 @@ func (e *ProactiveEngine) actionDispatch(ctx context.Context, rule ProactiveRule
 	}
 
 	// TODO: integrate with dispatch system when available.
-	logInfo("proactive dispatch action", "rule", rule.Name, "role", rule.Action.Role, "prompt", truncate(prompt, 100))
+	logInfo("proactive dispatch action", "rule", rule.Name, "agent", rule.Action.Agent, "prompt", truncate(prompt, 100))
 
 	// Deliver notification about the dispatch.
-	msg := fmt.Sprintf("Proactive rule %q triggered dispatch to role %s", rule.Name, rule.Action.Role)
+	msg := fmt.Sprintf("Proactive rule %q triggered dispatch to agent %s", rule.Name, rule.Action.Agent)
 	return e.deliver(rule, msg)
 }
 
@@ -781,8 +781,8 @@ func cmdProactiveList(cfg *Config) {
 		}
 
 		fmt.Printf("\n    Action: %s", rule.Action.Type)
-		if rule.Action.Role != "" {
-			fmt.Printf(" (role=%s)", rule.Action.Role)
+		if rule.Action.Agent != "" {
+			fmt.Printf(" (role=%s)", rule.Action.Agent)
 		}
 
 		fmt.Printf("\n    Delivery: %s", rule.Delivery.Channel)

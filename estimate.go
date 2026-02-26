@@ -184,8 +184,8 @@ func resolvePricing(cfg *Config, model string) ModelPricing {
 // --- Cost Estimation ---
 
 // estimateTaskCost estimates the cost of a single task without executing it.
-func estimateTaskCost(cfg *Config, task Task, roleName string) CostEstimate {
-	providerName := resolveProviderName(cfg, task, roleName)
+func estimateTaskCost(cfg *Config, task Task, agentName string) CostEstimate {
+	providerName := resolveProviderName(cfg, task, agentName)
 
 	model := task.Model
 	if model == "" {
@@ -197,9 +197,9 @@ func estimateTaskCost(cfg *Config, task Task, roleName string) CostEstimate {
 		model = cfg.DefaultModel
 	}
 
-	// Inject role model if applicable.
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok && rc.Model != "" {
+	// Inject agent model if applicable.
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Model != "" {
 			if task.Model == "" || task.Model == cfg.DefaultModel {
 				model = rc.Model
 			}
@@ -233,19 +233,19 @@ func estimateTaskCost(cfg *Config, task Task, roleName string) CostEstimate {
 }
 
 // estimateTasks estimates cost for multiple tasks.
-// If smart dispatch is enabled and tasks have no explicit role, includes classification cost.
+// If smart dispatch is enabled and tasks have no explicit agent, includes classification cost.
 func estimateTasks(cfg *Config, tasks []Task) *EstimateResult {
 	result := &EstimateResult{}
 
 	for _, task := range tasks {
 		fillDefaults(cfg, &task)
-		roleName := task.Role
+		agentName := task.Agent
 
-		// If no role and smart dispatch enabled, classification will happen.
-		if roleName == "" && cfg.SmartDispatch.Enabled {
+		// If no agent and smart dispatch enabled, classification will happen.
+		if agentName == "" && cfg.SmartDispatch.Enabled {
 			// Estimate classification cost.
 			classifyModel := cfg.DefaultModel
-			if rc, ok := cfg.Roles[cfg.SmartDispatch.Coordinator]; ok && rc.Model != "" {
+			if rc, ok := cfg.Agents[cfg.SmartDispatch.Coordinator]; ok && rc.Model != "" {
 				classifyModel = rc.Model
 			}
 			classifyPricing := resolvePricing(cfg, classifyModel)
@@ -254,15 +254,15 @@ func estimateTasks(cfg *Config, tasks []Task) *EstimateResult {
 				float64(50)*classifyPricing.OutputPer1M/1_000_000
 			result.ClassifyCost += classifyCost
 
-			// Use keyword classification to guess likely role (no LLM call).
+			// Use keyword classification to guess likely agent (no LLM call).
 			if kr := classifyByKeywords(cfg, task.Prompt); kr != nil {
-				roleName = kr.Role
+				agentName = kr.Agent
 			} else {
-				roleName = cfg.SmartDispatch.DefaultRole
+				agentName = cfg.SmartDispatch.DefaultAgent
 			}
 		}
 
-		est := estimateTaskCost(cfg, task, roleName)
+		est := estimateTaskCost(cfg, task, agentName)
 		result.Tasks = append(result.Tasks, est)
 		result.TotalEstimatedCost += est.EstimatedCostUSD
 	}

@@ -19,7 +19,7 @@ type TaskBoard struct {
 	Title        string   `json:"title"`
 	Description  string   `json:"description"`
 	Status       string   `json:"status"`        // backlog/todo/doing/review/done/failed
-	Assignee     string   `json:"assignee"`      // role name
+	Assignee     string   `json:"assignee"`      // agent name
 	Priority     string   `json:"priority"`      // low/normal/high/urgent
 	DependsOn    []string `json:"dependsOn"`     // task IDs this task depends on
 	DiscordThread string  `json:"discordThread"` // Discord thread ID
@@ -32,7 +32,7 @@ type TaskBoard struct {
 type TaskComment struct {
 	ID        string `json:"id"`
 	TaskID    string `json:"taskId"`
-	Author    string `json:"author"` // role name or "user"
+	Author    string `json:"author"` // agent name or "user"
 	Content   string `json:"content"`
 	CreatedAt string `json:"createdAt"`
 }
@@ -356,7 +356,7 @@ func (tb *TaskBoardEngine) MoveTask(id, newStatus string) (TaskBoard, error) {
 	return task, nil
 }
 
-// AssignTask assigns a task to an agent role.
+// AssignTask assigns a task to an agent.
 func (tb *TaskBoardEngine) AssignTask(id, assignee string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		UPDATE tasks SET assignee = '%s', updated_at = '%s' WHERE id = '%s'
@@ -553,10 +553,10 @@ func cmdTask(args []string) {
 	if len(args) == 0 {
 		fmt.Println("Usage: tetora task <list|create|move|assign|comment|thread>")
 		fmt.Println("\nCommands:")
-		fmt.Println("  list [--status=STATUS] [--assignee=ROLE] [--project=PROJECT]")
-		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=ROLE]")
+		fmt.Println("  list [--status=STATUS] [--assignee=AGENT] [--project=PROJECT]")
+		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT]")
 		fmt.Println("  move TASK_ID --status=STATUS")
-		fmt.Println("  assign TASK_ID --assignee=ROLE")
+		fmt.Println("  assign TASK_ID --assignee=AGENT")
 		fmt.Println("  comment TASK_ID --author=AUTHOR --content=CONTENT")
 		fmt.Println("  thread TASK_ID")
 		os.Exit(0)
@@ -676,7 +676,7 @@ func cmdTask(args []string) {
 
 	case "assign":
 		if len(args) < 2 {
-			fmt.Println("Usage: tetora task assign TASK_ID --assignee=ROLE")
+			fmt.Println("Usage: tetora task assign TASK_ID --assignee=AGENT")
 			os.Exit(1)
 		}
 

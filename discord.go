@@ -724,6 +724,9 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 
 	if db.cfg.SmartDispatch.Enabled {
 		db.handleRoute(msg, text)
+	} else if db.cfg.DefaultAgent != "" {
+		// No smart dispatch — route directly to the system default agent.
+		db.handleDirectRoute(msg, text, db.cfg.DefaultAgent)
 	} else {
 		db.sendMessage(msg.ChannelID, "Smart dispatch is not enabled. Use `!help` for commands.")
 	}
@@ -865,13 +868,13 @@ func (db *DiscordBot) cmdModel(msg discordMessage, args string) {
 
 	// !model → show current model for default role
 	if len(parts) == 0 {
-		roleName := db.cfg.SmartDispatch.DefaultRole
-		if roleName == "" {
-			roleName = "default"
+		agentName := db.cfg.SmartDispatch.DefaultAgent
+		if agentName == "" {
+			agentName = "default"
 		}
-		rc, ok := db.cfg.Roles[roleName]
+		rc, ok := db.cfg.Agents[agentName]
 		if !ok {
-			db.sendMessage(msg.ChannelID, fmt.Sprintf("Role `%s` not found.", roleName))
+			db.sendMessage(msg.ChannelID, fmt.Sprintf("Agent `%s` not found.", agentName))
 			return
 		}
 		model := rc.Model
@@ -879,7 +882,7 @@ func (db *DiscordBot) cmdModel(msg discordMessage, args string) {
 			model = db.cfg.DefaultModel
 		}
 		var fields []discordEmbedField
-		for name, r := range db.cfg.Roles {
+		for name, r := range db.cfg.Agents {
 			m := r.Model
 			if m == "" {
 				m = db.cfg.DefaultModel
@@ -894,22 +897,22 @@ func (db *DiscordBot) cmdModel(msg discordMessage, args string) {
 		return
 	}
 
-	// !model <model> [role] → set model
+	// !model <model> [agent] → set model
 	model := parts[0]
-	roleName := db.cfg.SmartDispatch.DefaultRole
-	if roleName == "" {
-		roleName = "default"
+	agentName := db.cfg.SmartDispatch.DefaultAgent
+	if agentName == "" {
+		agentName = "default"
 	}
 	if len(parts) > 1 {
-		roleName = parts[1]
+		agentName = parts[1]
 	}
 
-	old, err := updateRoleModel(db.cfg, roleName, model)
+	old, err := updateAgentModel(db.cfg, agentName, model)
 	if err != nil {
 		db.sendMessage(msg.ChannelID, fmt.Sprintf("Error: %v", err))
 		return
 	}
-	db.sendMessage(msg.ChannelID, fmt.Sprintf("**%s** model: `%s` → `%s`", roleName, old, model))
+	db.sendMessage(msg.ChannelID, fmt.Sprintf("**%s** model: `%s` → `%s`", agentName, old, model))
 }
 
 func (db *DiscordBot) cmdCancel(msg discordMessage) {
@@ -946,20 +949,20 @@ func (db *DiscordBot) cmdAsk(msg discordMessage, prompt string) {
 	task := Task{Prompt: prompt, Source: "ask:discord"}
 	fillDefaults(db.cfg, &task)
 
-	// Use default role but no routing overhead.
-	roleName := db.cfg.SmartDispatch.DefaultRole
-	if roleName != "" {
-		if soulPrompt, err := loadRolePrompt(db.cfg, roleName); err == nil && soulPrompt != "" {
+	// Use default agent but no routing overhead.
+	agentName := db.cfg.SmartDispatch.DefaultAgent
+	if agentName != "" {
+		if soulPrompt, err := loadAgentPrompt(db.cfg, agentName); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := db.cfg.Roles[roleName]; ok {
+		if rc, ok := db.cfg.Agents[agentName]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}
 		}
 	}
 
-	result := runSingleTask(ctx, db.cfg, task, db.sem, roleName)
+	result := runSingleTask(ctx, db.cfg, task, db.sem, agentName)
 
 	output := result.Output
 	if result.Status != "success" {
@@ -1011,7 +1014,7 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 			{Name: "!status", Value: "Show daemon status"},
 			{Name: "!jobs", Value: "List cron jobs"},
 			{Name: "!cost", Value: "Show cost summary"},
-			{Name: "!model [model] [role]", Value: "Show/switch model"},
+			{Name: "!model [model] [agent]", Value: "Show/switch model"},
 			{Name: "!new", Value: "Start a new session (clear context)"},
 			{Name: "!cancel", Value: "Cancel all running tasks"},
 			{Name: "!ask <prompt>", Value: "Quick question (no routing, no session)"},
@@ -1058,9 +1061,26 @@ func (db *DiscordBot) cmdApprove(msg discordMessage, args string) {
 	db.sendMessage(msg.ChannelID, fmt.Sprintf("Auto-approved `%s` for this runtime.", args))
 }
 
+// --- Direct Route (no SmartDispatch) ---
+
+// handleDirectRoute dispatches a message directly to a known agent without smart routing.
+func (db *DiscordBot) handleDirectRoute(msg discordMessage, prompt string, role string) {
+	route := RouteResult{Agent: role, Method: "default", Confidence: "high"}
+	db.executeRoute(msg, prompt, route)
+}
+
 // --- Smart Dispatch ---
 
 func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
+	ctx := withTraceID(context.Background(), newTraceID("discord"))
+	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
+	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
+	db.executeRoute(msg, prompt, *route)
+}
+
+// executeRoute runs a routed task through the full Discord execution pipeline
+// (session, SSE events, progress messages, reply).
+func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route RouteResult) {
 	db.sendTyping(msg.ChannelID)
 
 	// P14.3: Add queued reaction.
@@ -1078,7 +1098,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	if db.state != nil {
 		db.state.setDiscordActivity(activityID, &discordActivity{
 			TaskID:    activityID,
-			Role:      "",
+			Agent:     route.Agent,
 			Phase:     "routing",
 			Author:    msg.Author.Username,
 			ChannelID: msg.ChannelID,
@@ -1088,22 +1108,18 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		defer db.state.removeDiscordActivity(activityID)
 	}
 
-	// Route.
-	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
-	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
-
-	// Update Discord activity with resolved role.
+	// Update Discord activity with resolved agent.
 	if db.state != nil {
 		db.state.mu.Lock()
 		if da, ok := db.state.discordActivities[activityID]; ok {
-			da.Role = route.Role
+			da.Agent = route.Agent
 		}
 		db.state.mu.Unlock()
 	}
 
 	// Channel session.
 	chKey := channelSessionKey("discord", msg.ChannelID)
-	sess, err := getOrCreateChannelSession(dbPath, "discord", chKey, route.Role, "")
+	sess, err := getOrCreateChannelSession(dbPath, "discord", chKey, route.Agent, "")
 	if err != nil {
 		logErrorCtx(ctx, "discord session error", "error", err)
 	}
@@ -1144,7 +1160,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 			Type: SSETaskRouting, TaskID: activityID, SessionID: sessID,
 			Data: map[string]any{
 				"source":     "discord",
-				"role":       route.Role,
+				"role":       route.Agent,
 				"method":     route.Method,
 				"confidence": route.Confidence,
 			},
@@ -1152,25 +1168,22 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 
 	// Build and run task. Pre-set ID so it matches the activityID used for dashboard tracking.
-	task := Task{ID: activityID, Prompt: contextPrompt, Role: route.Role, Source: "route:discord"}
+	task := Task{ID: activityID, Prompt: contextPrompt, Agent: route.Agent, Source: "route:discord"}
 	fillDefaults(db.cfg, &task)
 	if sess != nil {
 		task.SessionID = sess.ID
 	}
-	if route.Role != "" {
-		if soulPrompt, err := loadRolePrompt(db.cfg, route.Role); err == nil && soulPrompt != "" {
+	if task.Agent != "" {
+		if soulPrompt, err := loadAgentPrompt(db.cfg, task.Agent); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := db.cfg.Roles[route.Role]; ok {
-			if rc.Model != "" {
-				task.Model = rc.Model
-			}
-			if rc.PermissionMode != "" {
-				task.PermissionMode = rc.PermissionMode
-			}
-		}
 	}
-	task.Prompt = expandPrompt(task.Prompt, "", db.cfg.HistoryDB, route.Role, db.cfg.KnowledgeDir, db.cfg)
+	// Discord tasks run unattended — default to bypassPermissions if not set by agent.
+	if task.PermissionMode == "" {
+		task.PermissionMode = "bypassPermissions"
+	}
+
+	task.Prompt = expandPrompt(task.Prompt, "", db.cfg.HistoryDB, route.Agent, db.cfg.KnowledgeDir, db.cfg)
 
 	// P28.0: Attach approval gate.
 	if db.approvalGate != nil {
@@ -1190,7 +1203,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 				Type: SSEDiscordProcessing, TaskID: activityID, SessionID: task.SessionID,
 				Data: map[string]any{
 					"taskId":  activityID,
-					"role":    route.Role,
+					"role":    route.Agent,
 					"author":  msg.Author.Username,
 					"channel": msg.ChannelID,
 				},
@@ -1217,7 +1230,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Role)
+	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Agent)
 
 	// Stop progress updater and clean up progress message.
 	if progressStopCh != nil {
@@ -1246,7 +1259,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 				Type: SSEDiscordReplying, TaskID: activityID, SessionID: task.SessionID,
 				Data: map[string]any{
 					"taskId":  activityID,
-					"role":    route.Role,
+					"role":    route.Agent,
 					"author":  msg.Author.Username,
 					"status":  result.Status,
 				},
@@ -1263,7 +1276,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		}
 	}
 
-	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record to session.
@@ -1298,13 +1311,13 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	}
 
 	if result.Status == "success" {
-		setMemory(db.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(db.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(db.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+		setMemory(db.cfg, route.Agent, "last_route_output", truncate(result.Output, 500))
+		setMemory(db.cfg, route.Agent, "last_route_prompt", truncate(prompt, 200))
+		setMemory(db.cfg, route.Agent, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	auditLog(dbPath, "route.dispatch", "discord",
-		fmt.Sprintf("role=%s method=%s session=%s", route.Role, route.Method, task.SessionID), "")
+		fmt.Sprintf("agent=%s method=%s session=%s", route.Agent, route.Method, task.SessionID), "")
 
 	sendWebhooks(db.cfg, result.Status, WebhookPayload{
 		JobID: task.ID, Name: task.Name, Source: task.Source,
@@ -1313,7 +1326,7 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	})
 
 	// Send response embed.
-	db.sendRouteResponse(msg.ChannelID, route, result, task)
+	db.sendRouteResponse(msg.ChannelID, &route, result, task)
 }
 
 func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task) {
@@ -1363,7 +1376,7 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 	db.sendEmbed(channelID, discordEmbed{
 		Color: color,
 		Fields: []discordEmbedField{
-			{Name: "Role", Value: fmt.Sprintf("%s (%s)", route.Role, route.Method), Inline: true},
+			{Name: "Agent", Value: fmt.Sprintf("%s (%s)", route.Agent, route.Method), Inline: true},
 			{Name: "Status", Value: result.Status, Inline: true},
 			{Name: "Cost", Value: fmt.Sprintf("$%.4f", result.CostUSD), Inline: true},
 			{Name: "Duration", Value: fmt.Sprintf("%dms", result.DurationMs), Inline: true},

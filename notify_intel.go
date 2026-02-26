@@ -59,14 +59,14 @@ func isValidPriority(p string) bool {
 type NotifyMessage struct {
 	Priority  string    // "critical", "high", "normal", "low"
 	EventType string    // e.g. "task.complete", "sla.violation", "budget.warning"
-	Role      string    // agent role (for dedup)
+	Agent      string    // agent name (for dedup)
 	Text      string    // notification text
 	Timestamp time.Time // when the event occurred
 }
 
 // dedupKey returns a key for deduplication within a batch window.
 func (m NotifyMessage) dedupKey() string {
-	return m.EventType + ":" + m.Role
+	return m.EventType + ":" + m.Agent
 }
 
 // --- Notification Engine ---
@@ -168,7 +168,7 @@ func (ne *NotificationEngine) Notify(msg NotifyMessage) {
 	ne.mu.Lock()
 	defer ne.mu.Unlock()
 
-	// Dedup check: same event_type+role within batch window.
+	// Dedup check: same event_type+agent within batch window.
 	key := msg.dedupKey()
 	if lastSeen, exists := ne.dedupSeen[key]; exists {
 		if time.Since(lastSeen) < ne.batchInterval {
@@ -186,7 +186,7 @@ func (ne *NotificationEngine) NotifyText(priority, eventType, role, text string)
 	ne.Notify(NotifyMessage{
 		Priority:  priority,
 		EventType: eventType,
-		Role:      role,
+		Agent:     role,
 		Text:      text,
 		Timestamp: time.Now(),
 	})

@@ -49,15 +49,15 @@ var builtinProfiles = map[string]ToolProfile{
 	},
 }
 
-// --- Per-Role Tool Policy ---
+// --- Per-Agent Tool Policy ---
 
-// RoleToolPolicy configures tool access for a specific role.
-type RoleToolPolicy struct {
+// AgentToolPolicy configures tool access for a specific agent.
+type AgentToolPolicy struct {
 	Profile      string   `json:"profile,omitempty"`      // profile name (minimal, standard, full, or custom)
 	Allow        []string `json:"allow,omitempty"`        // additional allowed tools
 	Deny         []string `json:"deny,omitempty"`         // explicitly denied tools
 	Sandbox      string   `json:"sandbox,omitempty"`      // "required" | "optional" | "never" (default: "never") --- P13.2: Sandbox Plugin ---
-	SandboxImage string   `json:"sandboxImage,omitempty"` // custom Docker image per role --- P13.2: Sandbox Plugin ---
+	SandboxImage string   `json:"sandboxImage,omitempty"` // custom Docker image per agent --- P13.2: Sandbox Plugin ---
 }
 
 // --- Tool Trust Override ---
@@ -92,23 +92,23 @@ func getProfile(cfg *Config, profileName string) ToolProfile {
 	return builtinProfiles["standard"]
 }
 
-// getRoleToolPolicy returns the tool policy for a role.
-func getRoleToolPolicy(cfg *Config, roleName string) RoleToolPolicy {
-	if roleName == "" {
-		return RoleToolPolicy{}
+// getAgentToolPolicy returns the tool policy for an agent.
+func getAgentToolPolicy(cfg *Config, agentName string) AgentToolPolicy {
+	if agentName == "" {
+		return AgentToolPolicy{}
 	}
 
-	if rc, ok := cfg.Roles[roleName]; ok {
+	if rc, ok := cfg.Agents[agentName]; ok {
 		return rc.ToolPolicy
 	}
 
-	return RoleToolPolicy{}
+	return AgentToolPolicy{}
 }
 
-// resolveAllowedTools returns the set of tool names allowed for a role.
+// resolveAllowedTools returns the set of tool names allowed for an agent.
 // Resolution order: profile → +allow → -deny
-func resolveAllowedTools(cfg *Config, roleName string) map[string]bool {
-	policy := getRoleToolPolicy(cfg, roleName)
+func resolveAllowedTools(cfg *Config, agentName string) map[string]bool {
+	policy := getAgentToolPolicy(cfg, agentName)
 	profile := getProfile(cfg, policy.Profile)
 
 	allowed := make(map[string]bool)
@@ -130,12 +130,12 @@ func resolveAllowedTools(cfg *Config, roleName string) map[string]bool {
 		delete(allowed, toolName)
 	}
 
-	// Add extra allows from role policy.
+	// Add extra allows from agent policy.
 	for _, toolName := range policy.Allow {
 		allowed[toolName] = true
 	}
 
-	// Remove role-level denies.
+	// Remove agent-level denies.
 	for _, toolName := range policy.Deny {
 		delete(allowed, toolName)
 	}
@@ -143,17 +143,17 @@ func resolveAllowedTools(cfg *Config, roleName string) map[string]bool {
 	return allowed
 }
 
-// isToolAllowed checks if a tool is allowed for a role.
-func isToolAllowed(cfg *Config, roleName, toolName string) bool {
-	allowed := resolveAllowedTools(cfg, roleName)
+// isToolAllowed checks if a tool is allowed for an agent.
+func isToolAllowed(cfg *Config, agentName, toolName string) bool {
+	allowed := resolveAllowedTools(cfg, agentName)
 	return allowed[toolName]
 }
 
 // --- Trust-Level Tool Filtering ---
 
 // getToolTrustLevel returns the effective trust level for a tool call.
-// Priority: tool-specific override → role trust level → RequireAuth check → default "auto"
-func getToolTrustLevel(cfg *Config, roleName, toolName string) string {
+// Priority: tool-specific override → agent trust level → RequireAuth check → default "auto"
+func getToolTrustLevel(cfg *Config, agentName, toolName string) string {
 	// Check tool-specific trust override in config.
 	if cfg.Tools.TrustOverride != nil {
 		if level, ok := cfg.Tools.TrustOverride[toolName]; ok && isValidTrustLevel(level) {
@@ -161,8 +161,8 @@ func getToolTrustLevel(cfg *Config, roleName, toolName string) string {
 		}
 	}
 
-	// Check role trust level.
-	if rc, ok := cfg.Roles[roleName]; ok {
+	// Check agent trust level.
+	if rc, ok := cfg.Agents[agentName]; ok {
 		if rc.TrustLevel != "" && isValidTrustLevel(rc.TrustLevel) {
 			return rc.TrustLevel
 		}
@@ -184,13 +184,13 @@ func getToolTrustLevel(cfg *Config, roleName, toolName string) string {
 // - observe: return mock result, don't execute
 // - suggest: return approval-needed result, don't execute
 // - auto: return nil, execute normally
-func filterToolCall(cfg *Config, roleName string, call ToolCall) (*ToolResult, bool) {
-	trustLevel := getToolTrustLevel(cfg, roleName, call.Name)
+func filterToolCall(cfg *Config, agentName string, call ToolCall) (*ToolResult, bool) {
+	trustLevel := getToolTrustLevel(cfg, agentName, call.Name)
 
 	switch trustLevel {
 	case TrustObserve:
 		// Log but don't execute.
-		logInfo("tool call observed (not executed)", "tool", call.Name, "role", roleName)
+		logInfo("tool call observed (not executed)", "tool", call.Name, "agent", agentName)
 		return &ToolResult{
 			ToolUseID: call.ID,
 			Content:   fmt.Sprintf("[OBSERVE MODE: tool %s would execute with input: %s]", call.Name, truncateJSON(call.Input, 100)),
@@ -199,7 +199,7 @@ func filterToolCall(cfg *Config, roleName string, call ToolCall) (*ToolResult, b
 
 	case TrustSuggest:
 		// Log and return approval-needed message.
-		logInfo("tool call requires approval", "tool", call.Name, "role", roleName)
+		logInfo("tool call requires approval", "tool", call.Name, "agent", agentName)
 		return &ToolResult{
 			ToolUseID: call.ID,
 			Content:   fmt.Sprintf("[APPROVAL REQUIRED: tool %s with input: %s]", call.Name, truncateJSON(call.Input, 200)),
@@ -354,7 +354,7 @@ func (d *LoopDetector) hasRepeatingPattern(entries []loopEntry, patternLen int) 
 // --- Tool Policy Validation ---
 
 // validateToolPolicy checks if a tool policy is valid.
-func validateToolPolicy(cfg *Config, policy RoleToolPolicy) error {
+func validateToolPolicy(cfg *Config, policy AgentToolPolicy) error {
 	// Check if profile exists.
 	if policy.Profile != "" {
 		profile := getProfile(cfg, policy.Profile)
@@ -458,7 +458,7 @@ func requestToolApproval(ctx context.Context, cfg *Config, task Task, tc ToolCal
 		Input:   tc.Input,
 		Summary: summarizeToolCall(tc),
 		TaskID:  task.ID,
-		Role:    task.Role,
+		Role:    task.Agent,
 	}
 
 	return task.approvalGate.RequestApproval(gateCtx, req)
@@ -495,10 +495,10 @@ func gateReason(err error, approved bool) string {
 	return "approved"
 }
 
-// getToolPolicySummary returns a human-readable summary of a role's tool policy.
-func getToolPolicySummary(cfg *Config, roleName string) string {
-	policy := getRoleToolPolicy(cfg, roleName)
-	allowed := resolveAllowedTools(cfg, roleName)
+// getToolPolicySummary returns a human-readable summary of an agent's tool policy.
+func getToolPolicySummary(cfg *Config, agentName string) string {
+	policy := getAgentToolPolicy(cfg, agentName)
+	allowed := resolveAllowedTools(cfg, agentName)
 
 	var parts []string
 

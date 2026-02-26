@@ -255,7 +255,7 @@ func TestWhatsAppDedupMessages(t *testing.T) {
 		},
 		SmartDispatch: SmartDispatchConfig{
 			Enabled:     false,
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 		},
 		HistoryDB: ":memory:",
 	}

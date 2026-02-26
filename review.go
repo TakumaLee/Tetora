@@ -57,7 +57,7 @@ func buildReviewDigest(cfg *Config, days int) string {
 	} else {
 		for _, r := range refs {
 			b.WriteString(fmt.Sprintf("- Score: %d/5 | Role: %s | %s | Improve: %s\n",
-				r.Score, r.Role, r.Feedback, r.Improvement))
+				r.Score, r.Agent, r.Feedback, r.Improvement))
 		}
 		b.WriteString("\n")
 	}
@@ -182,7 +182,7 @@ func queryReviewMessages(dbPath, cutoff string, limit int) []SessionMessage {
 // queryReviewReflections returns recent reflections.
 func queryReviewReflections(dbPath, cutoff string, limit int) []ReflectionResult {
 	sql := fmt.Sprintf(
-		`SELECT task_id, role, score, feedback, improvement, cost_usd, created_at
+		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
 		 FROM reflections
 		 WHERE created_at >= '%s'
 		 ORDER BY created_at DESC LIMIT %d`,
@@ -198,7 +198,7 @@ func queryReviewReflections(dbPath, cutoff string, limit int) []ReflectionResult
 	for _, row := range rows {
 		results = append(results, ReflectionResult{
 			TaskID:      jsonStr(row["task_id"]),
-			Role:        jsonStr(row["role"]),
+			Agent:       jsonStr(row["agent"]),
 			Score:       jsonInt(row["score"]),
 			Feedback:    jsonStr(row["feedback"]),
 			Improvement: jsonStr(row["improvement"]),
@@ -212,7 +212,7 @@ func queryReviewReflections(dbPath, cutoff string, limit int) []ReflectionResult
 // queryReviewJobRuns returns recent job runs.
 func queryReviewJobRuns(dbPath, cutoff string, limit int) []JobRun {
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent
 		 FROM job_runs
 		 WHERE started_at >= '%s'
 		 ORDER BY started_at DESC LIMIT %d`,

@@ -76,7 +76,7 @@ func mirrorStart(args []string) {
 		now := time.Now().Format(time.RFC3339)
 		if err := createSession(cfg.HistoryDB, Session{
 			ID:        sessionID,
-			Role:      role,
+			Agent:     role,
 			Source:    "mirror",
 			Status:    "active",
 			Title:     title,
@@ -389,7 +389,7 @@ func mirrorWatchHistory(addr, token, sessionID string, tail int) {
 
 	var detail struct {
 		Session struct {
-			Role  string `json:"role"`
+			Agent string `json:"agent"`
 			Title string `json:"title"`
 		} `json:"session"`
 		Messages []struct {
@@ -403,7 +403,7 @@ func mirrorWatchHistory(addr, token, sessionID string, tail int) {
 	}
 
 	if detail.Session.Title != "" {
-		fmt.Printf("Session: %s (%s)\n", detail.Session.Title, detail.Session.Role)
+		fmt.Printf("Session: %s (%s)\n", detail.Session.Title, detail.Session.Agent)
 		fmt.Println(strings.Repeat("-", 60))
 	}
 

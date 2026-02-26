@@ -516,7 +516,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 	t.Run("primary only", func(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider: "claude",
-			Roles:           map[string]RoleConfig{},
+			Agents:           map[string]AgentConfig{},
 		}
 		task := Task{Provider: ""}
 		candidates := buildProviderCandidates(cfg, task, "")
@@ -531,7 +531,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 	t.Run("task provider overrides default", func(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider: "claude",
-			Roles:           map[string]RoleConfig{},
+			Agents:           map[string]AgentConfig{},
 		}
 		task := Task{Provider: "openai"}
 		candidates := buildProviderCandidates(cfg, task, "")
@@ -543,7 +543,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 	t.Run("role provider overrides config default", func(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider: "claude",
-			Roles: map[string]RoleConfig{
+			Agents: map[string]AgentConfig{
 				"dev": {Provider: "gemini"},
 			},
 		}
@@ -557,7 +557,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 	t.Run("role fallbacks appended", func(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider: "claude",
-			Roles: map[string]RoleConfig{
+			Agents: map[string]AgentConfig{
 				"dev": {
 					Provider:          "openai",
 					FallbackProviders: []string{"gemini", "local"},
@@ -581,7 +581,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider:   "claude",
 			FallbackProviders: []string{"openai", "gemini"},
-			Roles:             map[string]RoleConfig{},
+			Agents:             map[string]AgentConfig{},
 		}
 		task := Task{}
 		candidates := buildProviderCandidates(cfg, task, "")
@@ -600,7 +600,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider:   "claude",
 			FallbackProviders: []string{"openai", "gemini", "claude"},
-			Roles: map[string]RoleConfig{
+			Agents: map[string]AgentConfig{
 				"dev": {
 					Provider:          "openai",
 					FallbackProviders: []string{"gemini", "local"},
@@ -627,7 +627,7 @@ func TestBuildProviderCandidates(t *testing.T) {
 		cfg := &Config{
 			DefaultProvider:   "claude",
 			FallbackProviders: []string{},
-			Roles: map[string]RoleConfig{
+			Agents: map[string]AgentConfig{
 				"dev": {
 					FallbackProviders: []string{},
 				},

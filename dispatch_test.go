@@ -541,7 +541,7 @@ func TestListFailedTasks_Empty(t *testing.T) {
 func TestListFailedTasks_WithEntries(t *testing.T) {
 	s := newDispatchState()
 	s.failedTasks["task-1"] = &failedTask{
-		task:     Task{ID: "task-1", Name: "failed-job", Prompt: "do something", Role: "琉璃", Source: "route:telegram"},
+		task:     Task{ID: "task-1", Name: "failed-job", Prompt: "do something", Agent: "琉璃", Source: "route:telegram"},
 		failedAt: time.Now(),
 		errorMsg: "rate limited",
 	}
@@ -564,8 +564,8 @@ func TestListFailedTasks_WithEntries(t *testing.T) {
 			if ft.Name != "failed-job" {
 				t.Errorf("Name = %q, want %q", ft.Name, "failed-job")
 			}
-			if ft.Role != "琉璃" {
-				t.Errorf("Role = %q, want %q", ft.Role, "琉璃")
+			if ft.Agent != "琉璃" {
+				t.Errorf("Role = %q, want %q", ft.Agent, "琉璃")
 			}
 			if ft.Error != "rate limited" {
 				t.Errorf("Error = %q, want %q", ft.Error, "rate limited")
@@ -703,7 +703,7 @@ func TestFailedTaskInfo_JSONSerialization(t *testing.T) {
 		ID:       "abc-123",
 		Name:     "test-task",
 		Prompt:   "do something",
-		Role:     "琉璃",
+		Agent:     "琉璃",
 		Source:   "telegram",
 		Error:    "timed out",
 		FailedAt: "2026-02-22T10:00:00Z",
@@ -725,8 +725,8 @@ func TestFailedTaskInfo_JSONSerialization(t *testing.T) {
 	if decoded.Name != info.Name {
 		t.Errorf("Name = %q, want %q", decoded.Name, info.Name)
 	}
-	if decoded.Role != info.Role {
-		t.Errorf("Role = %q, want %q", decoded.Role, info.Role)
+	if decoded.Agent != info.Agent {
+		t.Errorf("Role = %q, want %q", decoded.Agent, info.Agent)
 	}
 	if decoded.Error != info.Error {
 		t.Errorf("Error = %q, want %q", decoded.Error, info.Error)

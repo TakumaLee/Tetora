@@ -272,23 +272,23 @@ func configValidate() {
 		check(hasCreds, "ERROR", "dashboardAuth credentials set")
 	}
 
-	// Roles — check soul files exist.
+	// Agents — check soul files exist.
 	fmt.Println()
-	fmt.Println("=== Roles ===")
-	for name, rc := range cfg.Roles {
+	fmt.Println("=== Agents ===")
+	for name, rc := range cfg.Agents {
 		if rc.SoulFile != "" {
 			path := rc.SoulFile
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(cfg.DefaultWorkdir, path)
 			}
 			_, err := os.Stat(path)
-			check(err == nil, "WARN", fmt.Sprintf("role %q soul file: %s", name, rc.SoulFile))
+			check(err == nil, "WARN", fmt.Sprintf("agent %q soul file: %s", name, rc.SoulFile))
 		} else {
-			fmt.Printf("  OK    role %q (no soul file)\n", name)
+			fmt.Printf("  OK    agent %q (no soul file)\n", name)
 		}
 	}
-	if len(cfg.Roles) == 0 {
-		fmt.Println("  (no roles configured)")
+	if len(cfg.Agents) == 0 {
+		fmt.Println("  (no agents configured)")
 	}
 
 	// Jobs — validate cron expressions.
@@ -308,10 +308,10 @@ func configValidate() {
 				_, err := parseCronExpr(j.Schedule)
 				check(err == nil, "ERROR", fmt.Sprintf("job %q schedule: %s", j.ID, j.Schedule))
 
-				// Check role exists if specified.
-				if j.Role != "" {
-					_, ok := cfg.Roles[j.Role]
-					check(ok, "WARN", fmt.Sprintf("job %q role %q exists", j.ID, j.Role))
+				// Check agent exists if specified.
+				if j.Agent != "" {
+					_, ok := cfg.Agents[j.Agent]
+					check(ok, "WARN", fmt.Sprintf("job %q agent %q exists", j.ID, j.Agent))
 				}
 			}
 			if len(jf.Jobs) == 0 {

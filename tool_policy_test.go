@@ -79,16 +79,16 @@ func TestProfileResolution(t *testing.T) {
 func TestAllowDenyMerge(t *testing.T) {
 	cfg := &Config{
 		Tools: ToolConfig{},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test1": {
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "minimal",
 					Allow:   []string{"read", "write"},
 					Deny:    []string{"memory_search"},
 				},
 			},
 			"test2": {
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "standard",
 					Deny:    []string{"exec", "edit"},
 				},
@@ -129,7 +129,7 @@ func TestAllowDenyMerge(t *testing.T) {
 func TestTrustLevelFiltering(t *testing.T) {
 	cfg := &Config{
 		Tools: ToolConfig{},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"observer": {TrustLevel: TrustObserve},
 			"suggester": {TrustLevel: TrustSuggest},
 			"auto": {TrustLevel: TrustAuto},
@@ -184,7 +184,7 @@ func TestToolTrustOverride(t *testing.T) {
 				"exec": TrustSuggest,
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {TrustLevel: TrustAuto},
 		},
 	}
@@ -287,9 +287,9 @@ func TestLoopHistoryLimit(t *testing.T) {
 func TestFullProfileWildcard(t *testing.T) {
 	cfg := &Config{
 		Tools: ToolConfig{},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"admin": {
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "full",
 				},
 			},
@@ -316,9 +316,9 @@ func TestFullProfileWildcard(t *testing.T) {
 func TestToolPolicySummary(t *testing.T) {
 	cfg := &Config{
 		Tools: ToolConfig{},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "standard",
 					Allow:   []string{"extra_tool"},
 					Deny:    []string{"exec"},

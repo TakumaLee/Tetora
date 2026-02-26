@@ -74,7 +74,7 @@ func jobList() {
 		if j.Enabled {
 			status = "on"
 		}
-		role := j.Role
+		role := j.Agent
 		if role == "" {
 			role = "-"
 		}
@@ -143,7 +143,7 @@ func jobAdd() {
 	if budget <= 0 {
 		budget = 2.0
 	}
-	role := prompt("Role (optional)", "")
+	role := prompt("Agent (optional)", "")
 
 	fmt.Println()
 	fmt.Println("  Permission modes:")
@@ -174,7 +174,7 @@ func jobAdd() {
 		Enabled:  true,
 		Schedule: schedule,
 		TZ:       tz,
-		Role:     role,
+		Agent:     role,
 		Task: CronTaskConfig{
 			Prompt:         promptText,
 			Model:          model,

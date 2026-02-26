@@ -148,7 +148,7 @@ func TestMaxDepthEnforcement(t *testing.T) {
 			Enabled:  true,
 			MaxDepth: 3,
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test-role": {Description: "test"},
 		},
 	}
@@ -172,7 +172,7 @@ func TestMaxDepthEnforcement(t *testing.T) {
 			globalSpawnTracker = &spawnTracker{children: make(map[string]int)}
 
 			input, _ := json.Marshal(map[string]any{
-				"role":     "test-role",
+				"agent":    "test-role",
 				"prompt":   "test task",
 				"timeout":  10,
 				"depth":    tt.depth,
@@ -212,7 +212,7 @@ func TestMaxChildrenEnforcement(t *testing.T) {
 			MaxDepth:           10,
 			MaxChildrenPerTask: 2,
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test-role": {Description: "test"},
 		},
 	}
@@ -224,7 +224,7 @@ func TestMaxChildrenEnforcement(t *testing.T) {
 	globalSpawnTracker.trySpawn(parentID, 2)
 
 	input, _ := json.Marshal(map[string]any{
-		"role":     "test-role",
+		"agent":    "test-role",
 		"prompt":   "test task",
 		"timeout":  10,
 		"depth":    0,
@@ -258,14 +258,14 @@ func TestDepthTracking(t *testing.T) {
 			Enabled:  true,
 			MaxDepth: 5,
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test-role": {Description: "test"},
 		},
 	}
 
 	parentDepth := 2
 	input, _ := json.Marshal(map[string]any{
-		"role":     "test-role",
+		"agent":    "test-role",
 		"prompt":   "test task",
 		"timeout":  10,
 		"depth":    parentDepth,
@@ -289,7 +289,7 @@ func TestParentIDPropagation(t *testing.T) {
 			Enabled:  true,
 			MaxDepth: 5,
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"worker": {Description: "worker agent"},
 		},
 	}
@@ -351,7 +351,7 @@ func TestTaskDepthAndParentIDFields(t *testing.T) {
 	task := Task{
 		ID:       "child-001",
 		Prompt:   "test",
-		Role:     "worker",
+		Agent:     "worker",
 		Depth:    2,
 		ParentID: "parent-001",
 	}

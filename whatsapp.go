@@ -216,17 +216,17 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 
 	logInfo("whatsapp: received message", "from", from, "text", truncate(text, 100))
 
-	// Determine role via smart dispatch.
+	// Determine agent via smart dispatch.
 	ctx := withTraceID(context.Background(), newTraceID("whatsapp"))
 	dbPath := wb.cfg.HistoryDB
 
-	// Route to determine role.
+	// Route to determine agent.
 	route := routeTask(ctx, wb.cfg, RouteRequest{Prompt: text, Source: "whatsapp"})
-	logInfoCtx(ctx, "whatsapp route result", "from", from, "role", route.Role, "method", route.Method)
+	logInfoCtx(ctx, "whatsapp route result", "from", from, "agent", route.Agent, "method", route.Method)
 
 	// Find or create session for this phone number.
 	chKey := channelSessionKey("whatsapp", from, "")
-	sess, err := getOrCreateChannelSession(dbPath, "whatsapp", chKey, route.Role, "")
+	sess, err := getOrCreateChannelSession(dbPath, "whatsapp", chKey, route.Agent, "")
 	if err != nil {
 		logErrorCtx(ctx, "whatsapp session error", "error", err)
 	}
@@ -257,7 +257,7 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   route.Role,
+		Agent:  route.Agent,
 		Source: "whatsapp",
 	}
 	fillDefaults(wb.cfg, &task)
@@ -265,12 +265,12 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
-	if route.Role != "" {
-		if soulPrompt, err := loadRolePrompt(wb.cfg, route.Role); err == nil && soulPrompt != "" {
+	// Apply agent-specific config.
+	if route.Agent != "" {
+		if soulPrompt, err := loadAgentPrompt(wb.cfg, route.Agent); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := wb.cfg.Roles[route.Role]; ok {
+		if rc, ok := wb.cfg.Agents[route.Agent]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}
@@ -280,15 +280,15 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 		}
 	}
 
-	task.Prompt = expandPrompt(task.Prompt, "", wb.cfg.HistoryDB, route.Role, wb.cfg.KnowledgeDir, wb.cfg)
+	task.Prompt = expandPrompt(task.Prompt, "", wb.cfg.HistoryDB, route.Agent, wb.cfg.KnowledgeDir, wb.cfg)
 
 	// Run task asynchronously.
 	go func() {
 		taskStart := time.Now()
-		result := runSingleTask(ctx, wb.cfg, task, wb.sem, route.Role)
+		result := runSingleTask(ctx, wb.cfg, task, wb.sem, route.Agent)
 
 		// Record to history.
-		recordHistory(wb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+		recordHistory(wb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 			taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 		// Record assistant response to session.

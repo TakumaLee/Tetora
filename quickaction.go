@@ -13,7 +13,7 @@ type QuickAction struct {
 	Name           string                     `json:"name"`
 	Label          string                     `json:"label"`
 	Icon           string                     `json:"icon,omitempty"`
-	Role           string                     `json:"role,omitempty"`
+	Agent           string                     `json:"agent,omitempty"`
 	Prompt         string                     `json:"prompt,omitempty"`          // static prompt
 	PromptTemplate string                     `json:"promptTemplate,omitempty"` // Go template
 	Params         map[string]QuickActionParam `json:"params,omitempty"`
@@ -98,9 +98,9 @@ func (e *QuickActionEngine) BuildPrompt(name string, params map[string]any) (str
 		return "", "", fmt.Errorf("no prompt or template defined for action: %s", name)
 	}
 
-	role := action.Role
+	role := action.Agent
 	if role == "" {
-		role = e.cfg.SmartDispatch.DefaultRole
+		role = e.cfg.SmartDispatch.DefaultAgent
 	}
 
 	return prompt, role, nil

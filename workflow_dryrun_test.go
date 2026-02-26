@@ -42,7 +42,7 @@ func TestDryRunNoProviderCall(t *testing.T) {
 		Steps: []WorkflowStep{
 			{
 				ID:     "analyze",
-				Role:   "翡翠",
+				Agent:   "翡翠",
 				Prompt: "Analyze the Go codebase for potential improvements",
 			},
 		},
@@ -302,7 +302,7 @@ func TestDryRunHandoffStep(t *testing.T) {
 
 	exec := &workflowExecutor{
 		cfg:      cfg,
-		workflow: &Workflow{Name: "test-handoff-dry", Steps: []WorkflowStep{{ID: "src", Role: "翡翠"}}},
+		workflow: &Workflow{Name: "test-handoff-dry", Steps: []WorkflowStep{{ID: "src", Agent: "翡翠"}}},
 		run:      &WorkflowRun{ID: "run-1", StepResults: map[string]*StepRunResult{}},
 		wCtx: &WorkflowContext{
 			Input: map[string]string{},
@@ -319,7 +319,7 @@ func TestDryRunHandoffStep(t *testing.T) {
 		ID:          "handoff-1",
 		Type:        "handoff",
 		HandoffFrom: "src",
-		Role:        "黒曜",
+		Agent:        "黒曜",
 		Prompt:      "Implement based on research",
 	}
 	result := &StepRunResult{StepID: "handoff-1"}
@@ -362,7 +362,7 @@ func TestDryRunHandoffSourceFailed(t *testing.T) {
 		ID:          "handoff-1",
 		Type:        "handoff",
 		HandoffFrom: "src",
-		Role:        "黒曜",
+		Agent:        "黒曜",
 	}
 	result := &StepRunResult{StepID: "handoff-1"}
 	exec.runHandoffStepDryRun(step, result, exec.wCtx)
@@ -382,9 +382,9 @@ func TestDryRunMultiStepWorkflow(t *testing.T) {
 	wf := &Workflow{
 		Name: "multi-step-dry",
 		Steps: []WorkflowStep{
-			{ID: "research", Prompt: "Research topic A", Role: "翡翠"},
-			{ID: "analyze", Prompt: "Analyze {{steps.research.output}}", Role: "翡翠", DependsOn: []string{"research"}},
-			{ID: "report", Prompt: "Write final report", Role: "琥珀", DependsOn: []string{"analyze"}},
+			{ID: "research", Prompt: "Research topic A", Agent: "翡翠"},
+			{ID: "analyze", Prompt: "Analyze {{steps.research.output}}", Agent: "翡翠", DependsOn: []string{"research"}},
+			{ID: "report", Prompt: "Write final report", Agent: "琥珀", DependsOn: []string{"analyze"}},
 		},
 	}
 

@@ -527,28 +527,16 @@ func cmdInit() {
 	fmt.Printf("%s %s\n", L.APITokenLabel, apiToken)
 	fmt.Println(L.APITokenNote)
 
-	// OpenClaw workspace/roles migration is now handled by `tetora import openclaw`.
+	// OpenClaw workspace/agents migration is now handled by `tetora import openclaw`.
 	_ = ocMigrated
 
-	// --- Optional: Create first role ---
-	if ocMigrated {
+	// --- Optional: Create agents ---
+	var createdAgents []string
+	var initDefaultAgent string
+
+	createRole := func() string {
 		fmt.Println()
-		fmt.Print("  " + L.CreateRoleOCPrompt + " ")
-		scanner.Scan()
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
-			goto afterRole
-		}
-	} else {
-		fmt.Println()
-		fmt.Print("  " + L.CreateRolePrompt + " ")
-		scanner.Scan()
-		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "n" {
-			goto afterRole
-		}
-	}
-	{
-		fmt.Println()
-		roleName := prompt(L.RoleNamePrompt, "default")
+		agentName := prompt(L.RoleNamePrompt, "default")
 
 		// Archetype selection.
 		fmt.Println()
@@ -559,7 +547,7 @@ func cmdInit() {
 		fmt.Printf("    %d. %-12s %s\n", len(builtinArchetypes)+1, "blank", L.ArchetypeBlank)
 		archChoice := prompt(fmt.Sprintf(L.ArchetypeChoosePrompt, len(builtinArchetypes)+1), fmt.Sprintf("%d", len(builtinArchetypes)+1))
 
-		var archetype *RoleArchetype
+		var archetype *AgentArchetype
 		if n, err := strconv.Atoi(archChoice); err == nil && n >= 1 && n <= len(builtinArchetypes) {
 			archetype = &builtinArchetypes[n-1]
 		}
@@ -572,7 +560,7 @@ func cmdInit() {
 		}
 
 		roleModel := prompt(L.RoleModelPrompt, archModel)
-		roleDesc := prompt(L.RoleDescPrompt, "Default agent role")
+		roleDesc := prompt(L.RoleDescPrompt, "Default agent")
 		rolePerm := prompt(L.RolePermPrompt, defaultPerm)
 
 		// Validate permission mode.
@@ -589,21 +577,20 @@ func cmdInit() {
 			rolePerm = "acceptEdits"
 		}
 
-		// Per-role agent directory: ~/.tetora/agents/{roleName}/
-		agentDir := filepath.Join(configDir, "agents", roleName)
+		// Per-agent directory: ~/.tetora/agents/{agentName}/
+		agentDir := filepath.Join(configDir, "agents", agentName)
 		os.MkdirAll(agentDir, 0o755)
 
 		soulDst := filepath.Join(agentDir, "SOUL.md")
 		if archetype != nil {
 			if _, err := os.Stat(soulDst); os.IsNotExist(err) {
-				content := generateSoulContent(archetype, roleName)
+				content := generateSoulContent(archetype, agentName)
 				os.WriteFile(soulDst, []byte(content), 0o644)
 				fmt.Printf("  Created soul file: %s\n", soulDst)
 			}
 		} else {
 			customPath := prompt(L.SoulFilePrompt, "")
 			if customPath != "" {
-				// Copy custom soul file to workspace.
 				if data, err := os.ReadFile(customPath); err == nil {
 					os.WriteFile(soulDst, data, 0o644)
 					fmt.Printf("  Copied soul file to: %s\n", soulDst)
@@ -614,7 +601,7 @@ func cmdInit() {
 			}
 			if customPath == "" {
 				if _, err := os.Stat(soulDst); os.IsNotExist(err) {
-					content := generateSoulContent(&RoleArchetype{SoulTemplate: `# {{.RoleName}} — Soul File
+					content := generateSoulContent(&AgentArchetype{SoulTemplate: `# {{.RoleName}} — Soul File
 
 ## Identity
 You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system.
@@ -633,24 +620,106 @@ You are {{.RoleName}}, a specialized AI agent in the Tetora orchestration system
 - Start with a brief summary of what was accomplished
 - Include key findings or deliverables
 - Note any issues or follow-up items
-`}, roleName)
+`}, agentName)
 					os.WriteFile(soulDst, []byte(content), 0o644)
 					fmt.Printf("  Created soul file: %s\n", soulDst)
 				}
 			}
 		}
 
-		// Add role to config.
-		rc := RoleConfig{
+		// Add agent to config.
+		rc := AgentConfig{
 			SoulFile:       "SOUL.md",
 			Model:          roleModel,
 			Description:    roleDesc,
 			PermissionMode: rolePerm,
 		}
-		if err := updateConfigRoles(configPath, roleName, &rc); err != nil {
+		if err := updateConfigAgents(configPath, agentName, &rc); err != nil {
 			fmt.Fprintf(os.Stderr, "  "+L.RoleError+"\n", err)
-		} else {
-			fmt.Printf("  "+L.RoleAdded+"\n", roleName)
+			return ""
+		}
+		fmt.Printf("  "+L.RoleAdded+"\n", agentName)
+		return agentName
+	}
+
+	if ocMigrated {
+		fmt.Println()
+		fmt.Print("  " + L.CreateRoleOCPrompt + " ")
+		scanner.Scan()
+		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
+			goto afterRole
+		}
+	} else {
+		fmt.Println()
+		fmt.Print("  " + L.CreateRolePrompt + " ")
+		scanner.Scan()
+		if strings.ToLower(strings.TrimSpace(scanner.Text())) == "n" {
+			goto afterRole
+		}
+	}
+
+	// Create first agent.
+	if name := createRole(); name != "" {
+		createdAgents = append(createdAgents, name)
+
+		// Ask to set as default agent.
+		fmt.Println()
+		fmt.Printf("  "+L.SetDefaultAgentPrompt+" ", name)
+		scanner.Scan()
+		if strings.ToLower(strings.TrimSpace(scanner.Text())) != "n" {
+			initDefaultAgent = name
+			updateConfigField(configPath, func(raw map[string]any) {
+				raw["defaultAgent"] = name
+			})
+			fmt.Printf("  "+L.DefaultAgentSet+"\n", name)
+		}
+
+		// If Discord was chosen and a default agent is set, offer auto-routing.
+		if channelIdx == 1 && initDefaultAgent != "" && discordChannelID != "" {
+			fmt.Println()
+			fmt.Printf("  "+L.AutoRouteDiscordPrompt+" ", initDefaultAgent)
+			scanner.Scan()
+			if strings.ToLower(strings.TrimSpace(scanner.Text())) != "n" {
+				updateConfigDiscordRoutes(configPath, discordChannelID, initDefaultAgent)
+				fmt.Printf("  "+L.AutoRouteDiscordDone+"\n", initDefaultAgent)
+			}
+		}
+
+		// "Add another agent?" loop.
+		for {
+			fmt.Println()
+			fmt.Printf("  %s ", L.AddAnotherRolePrompt)
+			scanner.Scan()
+			if strings.ToLower(strings.TrimSpace(scanner.Text())) != "y" {
+				break
+			}
+			if name := createRole(); name != "" {
+				createdAgents = append(createdAgents, name)
+			}
+		}
+
+		// Auto-enable SmartDispatch when 2+ agents exist.
+		if len(createdAgents) >= 2 {
+			fmt.Println()
+			fmt.Printf("  %s ", L.EnableSmartDispatch)
+			scanner.Scan()
+			if strings.ToLower(strings.TrimSpace(scanner.Text())) != "n" {
+				coordinator := initDefaultAgent
+				if coordinator == "" {
+					coordinator = createdAgents[0]
+				}
+				updateConfigField(configPath, func(raw map[string]any) {
+					sd, _ := raw["smartDispatch"].(map[string]any)
+					if sd == nil {
+						sd = map[string]any{}
+					}
+					sd["enabled"] = true
+					sd["coordinator"] = coordinator
+					sd["defaultAgent"] = coordinator
+					raw["smartDispatch"] = sd
+				})
+				fmt.Printf("  %s\n", L.SmartDispatchEnabled)
+			}
 		}
 	}
 afterRole:
@@ -693,6 +762,33 @@ func enableSmartDispatch(configPath string) {
 	raw["smartDispatch"] = sd
 	out, _ := json.MarshalIndent(raw, "", "  ")
 	os.WriteFile(configPath, append(out, '\n'), 0o644)
+}
+
+// updateConfigDiscordRoutes adds a channelID→role route to the discord config.
+func updateConfigDiscordRoutes(configPath, channelID, role string) {
+	updateConfigField(configPath, func(raw map[string]any) {
+		discord, _ := raw["discord"].(map[string]any)
+		if discord == nil {
+			return
+		}
+		// Ensure channelIDs includes this channel.
+		var channelIDs []any
+		if existing, ok := discord["channelIDs"].([]any); ok {
+			channelIDs = existing
+		}
+		found := false
+		for _, id := range channelIDs {
+			if fmt.Sprint(id) == channelID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			channelIDs = append(channelIDs, channelID)
+			discord["channelIDs"] = channelIDs
+		}
+		raw["discord"] = discord
+	})
 }
 
 // cmdImportOpenClaw is now defined in import_openclaw.go (3-stage pipeline).

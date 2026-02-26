@@ -16,7 +16,7 @@ func TestGroupChat_ShouldRespond_Mention(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -49,7 +49,7 @@ func TestGroupChat_ShouldRespond_Keyword(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -81,7 +81,7 @@ func TestGroupChat_ShouldRespond_All(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -105,7 +105,7 @@ func TestGroupChat_RateLimit_PerGroup(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -138,7 +138,7 @@ func TestGroupChat_RateLimit_Global(t *testing.T) {
 				PerGroup:  false, // Global rate limit.
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -172,7 +172,7 @@ func TestGroupChat_IsAllowedGroup(t *testing.T) {
 				"discord": {"G789"},
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -211,7 +211,7 @@ func TestGroupChat_IsAllowedGroup_NoWhitelist(t *testing.T) {
 			},
 			// No AllowedGroups configured = allow all.
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -235,7 +235,7 @@ func TestGroupChat_ContextWindow_Record(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -265,7 +265,7 @@ func TestGroupChat_ContextWindow_RingBuffer(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -297,7 +297,7 @@ func TestGroupChat_ContextWindow_Limit(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -324,7 +324,7 @@ func TestGroupChat_Status(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -363,7 +363,7 @@ func TestGroupChat_Activation_CaseInsensitive(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)
@@ -390,7 +390,7 @@ func TestGroupChat_ConfigDefaults(t *testing.T) {
 		GroupChat: GroupChatConfig{
 			// No explicit settings → should apply defaults.
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {},
 			"翡翠": {},
 		},
@@ -432,7 +432,7 @@ func TestGroupChat_RateLimitSlidingWindow(t *testing.T) {
 				PerGroup:  true,
 			},
 		},
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	engine := newGroupChatEngine(cfg)

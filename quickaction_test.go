@@ -53,9 +53,9 @@ func TestQuickAction_Get_NotFound(t *testing.T) {
 func TestQuickAction_BuildPrompt_Static(t *testing.T) {
 	cfg := &Config{
 		QuickActions: []QuickAction{
-			{Name: "hello", Prompt: "Say hello", Role: "琉璃"},
+			{Name: "hello", Prompt: "Say hello", Agent: "琉璃"},
 		},
-		SmartDispatch: SmartDispatchConfig{DefaultRole: "琉璃"},
+		SmartDispatch: SmartDispatchConfig{DefaultAgent: "琉璃"},
 	}
 	engine := newQuickActionEngine(cfg)
 
@@ -77,10 +77,10 @@ func TestQuickAction_BuildPrompt_Template(t *testing.T) {
 			{
 				Name:           "greet",
 				PromptTemplate: "Hello {{.name}}!",
-				Role:           "琉璃",
+				Agent:           "琉璃",
 			},
 		},
-		SmartDispatch: SmartDispatchConfig{DefaultRole: "琉璃"},
+		SmartDispatch: SmartDispatchConfig{DefaultAgent: "琉璃"},
 	}
 	engine := newQuickActionEngine(cfg)
 
@@ -107,10 +107,10 @@ func TestQuickAction_BuildPrompt_Defaults(t *testing.T) {
 					"name": {Type: "string", Default: "Guest"},
 					"age":  {Type: "number", Default: 18},
 				},
-				Role: "琉璃",
+				Agent: "琉璃",
 			},
 		},
-		SmartDispatch: SmartDispatchConfig{DefaultRole: "琉璃"},
+		SmartDispatch: SmartDispatchConfig{DefaultAgent: "琉璃"},
 	}
 	engine := newQuickActionEngine(cfg)
 

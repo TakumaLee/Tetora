@@ -397,7 +397,7 @@ func TestBuildStepTask(t *testing.T) {
 
 	step := &WorkflowStep{
 		ID:     "review",
-		Role:   "黒曜",
+		Agent:   "黒曜",
 		Prompt: "Review {{file}}",
 		Model:  "sonnet",
 	}
@@ -409,8 +409,8 @@ func TestBuildStepTask(t *testing.T) {
 	if task.Prompt != "Review main.go" {
 		t.Errorf("prompt = %q", task.Prompt)
 	}
-	if task.Role != "黒曜" {
-		t.Errorf("role = %q", task.Role)
+	if task.Agent != "黒曜" {
+		t.Errorf("role = %q", task.Agent)
 	}
 	if task.Source != "workflow:code-review" {
 		t.Errorf("source = %q", task.Source)
@@ -482,9 +482,9 @@ func TestWorkflowJSONRoundTrip(t *testing.T) {
 		Name:        "pipeline",
 		Description: "Test pipeline",
 		Steps: []WorkflowStep{
-			{ID: "analyze", Role: "黒曜", Prompt: "analyze {{input}}"},
-			{ID: "security", Role: "黒曜", Prompt: "audit", DependsOn: []string{"analyze"}},
-			{ID: "report", Role: "琥珀", Prompt: "write report", DependsOn: []string{"analyze", "security"}},
+			{ID: "analyze", Agent: "黒曜", Prompt: "analyze {{input}}"},
+			{ID: "security", Agent: "黒曜", Prompt: "audit", DependsOn: []string{"analyze"}},
+			{ID: "report", Agent: "琥珀", Prompt: "write report", DependsOn: []string{"analyze", "security"}},
 		},
 		Variables: map[string]string{"input": ""},
 		Timeout:   "30m",

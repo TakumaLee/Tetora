@@ -14,7 +14,7 @@ import (
 // TokenTelemetryEntry holds the token breakdown for a single task execution.
 type TokenTelemetryEntry struct {
 	TaskID             string
-	Role               string
+	Agent               string
 	Complexity         string
 	Provider           string
 	Model              string
@@ -34,10 +34,13 @@ func initTokenTelemetry(dbPath string) error {
 	if dbPath == "" {
 		return nil
 	}
+	// Migration: rename role -> agent in token_telemetry.
+	_ = execDB(dbPath, `ALTER TABLE token_telemetry RENAME COLUMN role TO agent;`)
+
 	sql := `CREATE TABLE IF NOT EXISTS token_telemetry (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		task_id TEXT,
-		role TEXT,
+		agent TEXT,
 		complexity TEXT,
 		provider TEXT,
 		model TEXT,
@@ -62,11 +65,11 @@ func recordTokenTelemetry(dbPath string, entry TokenTelemetryEntry) {
 	}
 	sql := fmt.Sprintf(
 		`INSERT INTO token_telemetry
-			(task_id, role, complexity, provider, model, system_prompt_tokens, context_tokens,
+			(task_id, agent, complexity, provider, model, system_prompt_tokens, context_tokens,
 			 tool_defs_tokens, input_tokens, output_tokens, cost_usd, duration_ms, source, created_at)
 		 VALUES ('%s', '%s', '%s', '%s', '%s', %d, %d, %d, %d, %d, %.6f, %d, '%s', '%s');`,
 		escapeSQLite(entry.TaskID),
-		escapeSQLite(entry.Role),
+		escapeSQLite(entry.Agent),
 		escapeSQLite(entry.Complexity),
 		escapeSQLite(entry.Provider),
 		escapeSQLite(entry.Model),
@@ -113,7 +116,7 @@ func queryTokenUsageSummary(dbPath string, days int) ([]map[string]any, error) {
 	return queryDB(dbPath, sql)
 }
 
-// queryTokenUsageByRole returns token usage grouped by role and complexity.
+// queryTokenUsageByRole returns token usage grouped by agent and complexity.
 func queryTokenUsageByRole(dbPath string, days int) ([]map[string]any, error) {
 	if dbPath == "" {
 		return nil, nil
@@ -124,7 +127,7 @@ func queryTokenUsageByRole(dbPath string, days int) ([]map[string]any, error) {
 	since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 	sql := fmt.Sprintf(
 		`SELECT
-			CASE WHEN role = '' THEN '(unassigned)' ELSE role END as role,
+			CASE WHEN agent = '' THEN '(unassigned)' ELSE agent END as agent,
 			complexity,
 			COUNT(*) as request_count,
 			COALESCE(SUM(input_tokens), 0) as total_input,
@@ -132,7 +135,7 @@ func queryTokenUsageByRole(dbPath string, days int) ([]map[string]any, error) {
 			COALESCE(SUM(cost_usd), 0) as total_cost
 		 FROM token_telemetry
 		 WHERE date(created_at) >= '%s'
-		 GROUP BY role, complexity
+		 GROUP BY agent, complexity
 		 ORDER BY total_cost DESC;`, since)
 	return queryDB(dbPath, sql)
 }
@@ -153,9 +156,9 @@ type TokenSummaryRow struct {
 	AvgOutput         int     `json:"avgOutput"`
 }
 
-// TokenRoleRow is a parsed row from queryTokenUsageByRole.
-type TokenRoleRow struct {
-	Role         string  `json:"role"`
+// TokenAgentRow is a parsed row from queryTokenUsageByRole.
+type TokenAgentRow struct {
+	Agent         string  `json:"agent"`
 	Complexity   string  `json:"complexity"`
 	RequestCount int     `json:"requestCount"`
 	TotalInput   int     `json:"totalInput"`
@@ -183,12 +186,12 @@ func parseTokenSummaryRows(rows []map[string]any) []TokenSummaryRow {
 	return result
 }
 
-// parseTokenRoleRows converts raw DB rows to typed structs.
-func parseTokenRoleRows(rows []map[string]any) []TokenRoleRow {
-	var result []TokenRoleRow
+// parseTokenAgentRows converts raw DB rows to typed structs.
+func parseTokenAgentRows(rows []map[string]any) []TokenAgentRow {
+	var result []TokenAgentRow
 	for _, row := range rows {
-		result = append(result, TokenRoleRow{
-			Role:         jsonStr(row["role"]),
+		result = append(result, TokenAgentRow{
+			Agent:         jsonStr(row["agent"]),
 			Complexity:   jsonStr(row["complexity"]),
 			RequestCount: jsonInt(row["request_count"]),
 			TotalInput:   jsonInt(row["total_input"]),
@@ -217,20 +220,20 @@ func formatTokenSummary(rows []TokenSummaryRow) string {
 	return strings.Join(lines, "\n")
 }
 
-// formatTokenByRole formats token usage by role for CLI display.
-func formatTokenByRole(rows []TokenRoleRow) string {
+// formatTokenByRole formats token usage by agent for CLI display.
+func formatTokenByRole(rows []TokenAgentRow) string {
 	if len(rows) == 0 {
 		return "  (no data)"
 	}
 
 	lines := []string{
 		fmt.Sprintf("  %-15s %-12s %6s %10s %10s %10s",
-			"Role", "Complexity", "Reqs", "Total In", "Total Out", "Cost"),
+			"Agent", "Complexity", "Reqs", "Total In", "Total Out", "Cost"),
 		fmt.Sprintf("  %s", "-------------------------------------------------------------------"),
 	}
 	for _, r := range rows {
 		lines = append(lines, fmt.Sprintf("  %-15s %-12s %6d %10d %10d $%9.4f",
-			truncate(r.Role, 15), r.Complexity, r.RequestCount, r.TotalInput, r.TotalOutput, r.TotalCost))
+			truncate(r.Agent, 15), r.Complexity, r.RequestCount, r.TotalInput, r.TotalOutput, r.TotalCost))
 	}
 	return strings.Join(lines, "\n")
 }

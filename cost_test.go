@@ -82,7 +82,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 		FinishedAt: now.Add(time.Minute).Format(time.RFC3339),
 		Status:    "success",
 		CostUSD:   5.0,
-		Role:      "翡翠",
+		Agent:      "翡翠",
 	})
 	insertJobRun(dbPath, JobRun{
 		JobID:     "test2",
@@ -92,7 +92,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 		FinishedAt: now.Add(time.Minute).Format(time.RFC3339),
 		Status:    "success",
 		CostUSD:   3.0,
-		Role:      "黒曜",
+		Agent:      "黒曜",
 	})
 
 	// Test global daily budget exceeded.
@@ -145,7 +145,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 
 	// Test per-role budget exceeded.
 	cfg.Budgets.Global.Daily = 100.0 // global OK
-	cfg.Budgets.Roles = map[string]RoleBudget{
+	cfg.Budgets.Agents = map[string]AgentBudget{
 		"翡翠": {Daily: 3.0}, // $5 spent by 翡翠, limit $3
 	}
 	result = checkBudget(cfg, "翡翠", "", 0)
@@ -220,7 +220,7 @@ func TestQuerySpend(t *testing.T) {
 		FinishedAt: now.Add(time.Minute).Format(time.RFC3339),
 		Status:    "success",
 		CostUSD:   2.5,
-		Role:      "翡翠",
+		Agent:      "翡翠",
 	})
 	insertJobRun(dbPath, JobRun{
 		JobID:     "t2",
@@ -230,7 +230,7 @@ func TestQuerySpend(t *testing.T) {
 		FinishedAt: now.Add(time.Minute).Format(time.RFC3339),
 		Status:    "success",
 		CostUSD:   1.5,
-		Role:      "黒曜",
+		Agent:      "黒曜",
 	})
 
 	// Total spend.
@@ -315,7 +315,7 @@ func TestQueryBudgetStatus(t *testing.T) {
 		HistoryDB: dbPath,
 		Budgets: BudgetConfig{
 			Global: GlobalBudget{Daily: 10.0, Weekly: 50.0},
-			Roles: map[string]RoleBudget{
+			Agents: map[string]AgentBudget{
 				"翡翠": {Daily: 3.0},
 			},
 		},
@@ -331,8 +331,8 @@ func TestQueryBudgetStatus(t *testing.T) {
 	if status.Global.WeeklyLimit != 50.0 {
 		t.Errorf("expected weekly limit 50.0, got %.2f", status.Global.WeeklyLimit)
 	}
-	if len(status.Roles) != 1 {
-		t.Errorf("expected 1 role meter, got %d", len(status.Roles))
+	if len(status.Agents) != 1 {
+		t.Errorf("expected 1 role meter, got %d", len(status.Agents))
 	}
 }
 

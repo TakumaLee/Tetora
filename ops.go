@@ -393,7 +393,7 @@ func getSystemHealth(cfg *Config) map[string]any {
 		"defaultModel":   cfg.DefaultModel,
 		"defaultTimeout": cfg.DefaultTimeout,
 		"providers":      len(cfg.Providers),
-		"roles":          len(cfg.Roles),
+		"roles":          len(cfg.Agents),
 	}
 
 	return health

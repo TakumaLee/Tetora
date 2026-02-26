@@ -119,13 +119,13 @@ func (r *providerRegistry) get(name string) (Provider, error) {
 // --- Provider Resolution ---
 
 // resolveProviderName determines which provider to use for a task.
-// Chain: task.Provider → role provider → config.DefaultProvider → "claude"
-func resolveProviderName(cfg *Config, task Task, roleName string) string {
+// Chain: task.Provider → agent provider → config.DefaultProvider → "claude"
+func resolveProviderName(cfg *Config, task Task, agentName string) string {
 	if task.Provider != "" {
 		return task.Provider
 	}
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok && rc.Provider != "" {
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
 			return rc.Provider
 		}
 	}
@@ -211,15 +211,15 @@ func initProviders(cfg *Config) *providerRegistry {
 // --- Execute Helper ---
 
 // buildProviderCandidates returns an ordered list of provider names to try.
-// Order: primary → role fallbacks → config fallbacks (deduplicated).
-func buildProviderCandidates(cfg *Config, task Task, roleName string) []string {
-	primary := resolveProviderName(cfg, task, roleName)
+// Order: primary → agent fallbacks → config fallbacks (deduplicated).
+func buildProviderCandidates(cfg *Config, task Task, agentName string) []string {
+	primary := resolveProviderName(cfg, task, agentName)
 	seen := map[string]bool{primary: true}
 	candidates := []string{primary}
 
-	// Role-level fallbacks.
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok {
+	// Agent-level fallbacks.
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok {
 			for _, fb := range rc.FallbackProviders {
 				if !seen[fb] {
 					seen[fb] = true
@@ -261,7 +261,7 @@ func isTransientError(errMsg string) bool {
 }
 
 // buildProviderRequest constructs a ProviderRequest from task, config, and provider name.
-func buildProviderRequest(cfg *Config, task Task, roleName, providerName string, eventCh chan<- SSEEvent) ProviderRequest {
+func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) ProviderRequest {
 	model := task.Model
 	if model == "" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
@@ -277,8 +277,8 @@ func buildProviderRequest(cfg *Config, task Task, roleName, providerName string,
 	var docker *bool
 	if task.Docker != nil {
 		docker = task.Docker
-	} else if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok && rc.Docker != nil {
+	} else if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Docker != nil {
 			docker = rc.Docker
 		}
 	}
@@ -317,10 +317,10 @@ func buildProviderRequest(cfg *Config, task Task, roleName, providerName string,
 }
 
 // executeWithProvider runs a task through the resolved provider with circuit breaker
-// and failover support. It tries providers in order: primary → role fallbacks → config fallbacks.
+// and failover support. It tries providers in order: primary → agent fallbacks → config fallbacks.
 // eventCh is optional — when non-nil, the provider will stream output chunks.
-func executeWithProvider(ctx context.Context, cfg *Config, task Task, roleName string, registry *providerRegistry, eventCh chan<- SSEEvent) *ProviderResult {
-	candidates := buildProviderCandidates(cfg, task, roleName)
+func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName string, registry *providerRegistry, eventCh chan<- SSEEvent) *ProviderResult {
+	candidates := buildProviderCandidates(cfg, task, agentName)
 
 	var lastErr string
 	for i, providerName := range candidates {
@@ -343,7 +343,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, roleName s
 			continue
 		}
 
-		req := buildProviderRequest(cfg, task, roleName, providerName, eventCh)
+		req := buildProviderRequest(cfg, task, agentName, providerName, eventCh)
 		result, execErr := p.Execute(ctx, req)
 
 		// Determine if this is a failure.

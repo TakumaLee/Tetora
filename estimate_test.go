@@ -126,7 +126,7 @@ func TestEstimateTaskCostWithRole(t *testing.T) {
 		Providers: map[string]ProviderConfig{
 			"claude": {Type: "claude-cli", Path: "claude"},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"黒曜": {Model: "opus", Provider: "claude"},
 		},
 		Estimate: EstimateConfig{DefaultOutputTokens: 500},
@@ -149,9 +149,9 @@ func TestEstimateTasksWithSmartDispatch(t *testing.T) {
 		SmartDispatch: SmartDispatchConfig{
 			Enabled:     true,
 			Coordinator: "琉璃",
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet"},
 		},
 		Estimate: EstimateConfig{DefaultOutputTokens: 500},
@@ -176,13 +176,13 @@ func TestEstimateTasksWithExplicitRole(t *testing.T) {
 		Providers: map[string]ProviderConfig{
 			"claude": {Type: "claude-cli", Path: "claude"},
 		},
-		SmartDispatch: SmartDispatchConfig{Enabled: true, Coordinator: "琉璃", DefaultRole: "琉璃"},
-		Roles: map[string]RoleConfig{
+		SmartDispatch: SmartDispatchConfig{Enabled: true, Coordinator: "琉璃", DefaultAgent: "琉璃"},
+		Agents: map[string]AgentConfig{
 			"黒曜": {Model: "sonnet", Provider: "claude"},
 		},
 		Estimate: EstimateConfig{DefaultOutputTokens: 500},
 	}
-	tasks := []Task{{Prompt: "Fix the bug", Role: "黒曜"}}
+	tasks := []Task{{Prompt: "Fix the bug", Agent: "黒曜"}}
 	result := estimateTasks(cfg, tasks)
 	if result.ClassifyCost > 0 {
 		t.Error("expected no classification cost with explicit role")

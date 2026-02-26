@@ -18,7 +18,7 @@ func TestResolveProviderName_TaskOverride(t *testing.T) {
 func TestResolveProviderName_RoleFallback(t *testing.T) {
 	cfg := &Config{
 		DefaultProvider: "claude",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"helper": {Provider: "ollama"},
 		},
 	}
@@ -51,7 +51,7 @@ func TestResolveProviderName_PriorityChain(t *testing.T) {
 	// Task > role > config default
 	cfg := &Config{
 		DefaultProvider: "default-provider",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"r": {Provider: "role-provider"},
 		},
 	}
@@ -72,7 +72,7 @@ func TestResolveProviderName_PriorityChain(t *testing.T) {
 func TestResolveProviderName_RoleWithoutProvider(t *testing.T) {
 	cfg := &Config{
 		DefaultProvider: "mydefault",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"norole": {Model: "some-model"},
 		},
 	}

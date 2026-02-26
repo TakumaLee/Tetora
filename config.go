@@ -21,12 +21,13 @@ type Config struct {
 	DefaultTimeout        string                     `json:"defaultTimeout"`
 	DefaultBudget         float64                    `json:"defaultBudget"`
 	DefaultPermissionMode string                     `json:"defaultPermissionMode"`
+	DefaultAgent           string                     `json:"defaultAgent,omitempty"` // system-wide default agent
 	DefaultWorkdir        string                     `json:"defaultWorkdir"`
 	ListenAddr            string                     `json:"listenAddr"`
 	Telegram              TelegramConfig             `json:"telegram"`
 	MCPConfigs            map[string]json.RawMessage `json:"mcpConfigs"`
 	MCPServers            map[string]MCPServerConfig `json:"mcpServers,omitempty"`
-	Roles                 map[string]RoleConfig      `json:"roles"`
+	Agents                 map[string]AgentConfig      `json:"agents"`
 	DashboardDB           string                     `json:"dashboardDB"`
 	HistoryDB             string                     `json:"historyDB"`
 	JobsFile              string                     `json:"jobsFile"`
@@ -348,7 +349,7 @@ type TelegramConfig struct {
 	PollTimeout int    `json:"pollTimeout"`
 }
 
-type RoleConfig struct {
+type AgentConfig struct {
 	SoulFile          string          `json:"soulFile"`
 	Model             string          `json:"model"`
 	Description       string          `json:"description"`
@@ -356,10 +357,10 @@ type RoleConfig struct {
 	PermissionMode    string          `json:"permissionMode,omitempty"`
 	AllowedDirs       []string        `json:"allowedDirs,omitempty"`
 	Provider          string          `json:"provider,omitempty"`
-	Docker            *bool           `json:"docker,omitempty"`            // per-role Docker sandbox override
+	Docker            *bool           `json:"docker,omitempty"`            // per-agent Docker sandbox override
 	FallbackProviders []string        `json:"fallbackProviders,omitempty"` // failover chain
 	TrustLevel        string          `json:"trustLevel,omitempty"`        // "observe", "suggest", "auto" (default "auto")
-	ToolPolicy        RoleToolPolicy  `json:"tools,omitempty"`             // tool access policy
+	ToolPolicy        AgentToolPolicy  `json:"tools,omitempty"`             // tool access policy
 	ToolProfile       string          `json:"toolProfile,omitempty"`       // "minimal"|"standard"|"full"
 	Workspace         WorkspaceConfig `json:"workspace,omitempty"`         // workspace isolation config
 }
@@ -427,31 +428,31 @@ type SecurityAlertConfig struct {
 // SmartDispatchConfig configures the smart dispatch routing engine.
 type SmartDispatchConfig struct {
 	Enabled         bool             `json:"enabled"`
-	Coordinator     string           `json:"coordinator,omitempty"`     // role name for LLM classification (default "琉璃")
-	DefaultRole     string           `json:"defaultRole,omitempty"`     // fallback if no match (default "琉璃")
+	Coordinator     string           `json:"coordinator,omitempty"`     // agent name for LLM classification (default "琉璃")
+	DefaultAgent     string           `json:"defaultAgent,omitempty"`     // fallback if no match (default "琉璃")
 	ClassifyBudget  float64          `json:"classifyBudget,omitempty"`  // budget for classification LLM call (default 0.1)
 	ClassifyTimeout string           `json:"classifyTimeout,omitempty"` // timeout for classification (default "30s")
 	Review          bool             `json:"review,omitempty"`          // if true, coordinator reviews output
 	ReviewBudget    float64          `json:"reviewBudget,omitempty"`    // budget for review LLM call (default 0.2)
 	Rules           []RoutingRule    `json:"rules,omitempty"`           // explicit keyword rules (fast path)
 	Bindings        []RoutingBinding `json:"bindings,omitempty"`        // channel/user bindings (highest priority)
-	Fallback        string           `json:"fallback,omitempty"`        // "smart" (LLM routing) | "coordinator" (always default role)
+	Fallback        string           `json:"fallback,omitempty"`        // "smart" (LLM routing) | "coordinator" (always default agent)
 }
 
 // RoutingRule is a keyword-based routing rule for fast-path matching.
 type RoutingRule struct {
-	Role     string   `json:"role"`                // target role name
+	Agent     string   `json:"agent"`                // target agent name
 	Keywords []string `json:"keywords"`            // case-insensitive keyword match (any = match)
 	Patterns []string `json:"patterns,omitempty"`  // regex patterns (any = match)
 }
 
-// RoutingBinding binds a channel/user/channelId/guildId to a specific role.
+// RoutingBinding binds a channel/user/channelId/guildId to a specific agent.
 type RoutingBinding struct {
 	Channel   string `json:"channel"`             // "telegram", "slack", "discord", etc.
 	UserID    string `json:"userId,omitempty"`    // user ID (telegram, discord, etc.)
 	ChannelID string `json:"channelId,omitempty"` // channel/chat ID (slack, telegram group, etc.)
 	GuildID   string `json:"guildId,omitempty"`   // guild/server ID (discord)
-	Role      string `json:"role"`                // target role name
+	Agent      string `json:"agent"`                // target agent name
 }
 
 // EstimateConfig configures pre-execution cost estimation.
@@ -757,16 +758,16 @@ func tryLoadConfig(path string) (*Config, error) {
 		}
 	}
 
-	// Smart dispatch defaults — use first role from roles map, never hardcode.
-	if cfg.SmartDispatch.Coordinator == "" && len(cfg.Roles) > 0 {
-		for k := range cfg.Roles {
+	// Smart dispatch defaults — use first agent from agents map, never hardcode.
+	if cfg.SmartDispatch.Coordinator == "" && len(cfg.Agents) > 0 {
+		for k := range cfg.Agents {
 			cfg.SmartDispatch.Coordinator = k
 			break
 		}
 	}
-	if cfg.SmartDispatch.DefaultRole == "" && len(cfg.Roles) > 0 {
-		for k := range cfg.Roles {
-			cfg.SmartDispatch.DefaultRole = k
+	if cfg.SmartDispatch.DefaultAgent == "" && len(cfg.Agents) > 0 {
+		for k := range cfg.Agents {
+			cfg.SmartDispatch.DefaultAgent = k
 			break
 		}
 	}
@@ -960,12 +961,12 @@ func (cfg *Config) validate() {
 
 	// Validate smart dispatch config.
 	if cfg.SmartDispatch.Enabled {
-		if _, ok := cfg.Roles[cfg.SmartDispatch.Coordinator]; !ok && cfg.SmartDispatch.Coordinator != "" {
-			logWarn("smartDispatch.coordinator role not found in roles", "coordinator", cfg.SmartDispatch.Coordinator)
+		if _, ok := cfg.Agents[cfg.SmartDispatch.Coordinator]; !ok && cfg.SmartDispatch.Coordinator != "" {
+			logWarn("smartDispatch.coordinator agent not found in agents", "coordinator", cfg.SmartDispatch.Coordinator)
 		}
 		for _, rule := range cfg.SmartDispatch.Rules {
-			if _, ok := cfg.Roles[rule.Role]; !ok {
-				logWarn("smartDispatch rule references unknown role", "role", rule.Role)
+			if _, ok := cfg.Agents[rule.Agent]; !ok {
+				logWarn("smartDispatch rule references unknown agent", "agent", rule.Agent)
 			}
 		}
 	}

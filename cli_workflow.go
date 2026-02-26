@@ -157,8 +157,8 @@ func workflowShowCmd(name string) {
 			prefix = "  "
 		}
 		fmt.Printf("%s[%s] %s (type=%s", prefix, s.ID, stepSummary(&s), st)
-		if s.Role != "" {
-			fmt.Printf(", role=%s", s.Role)
+		if s.Agent != "" {
+			fmt.Printf(", agent=%s", s.Agent)
 		}
 		if len(s.DependsOn) > 0 {
 			fmt.Printf(", after=%s", strings.Join(s.DependsOn, ","))
@@ -449,7 +449,7 @@ func workflowMessagesCmd(runID string) {
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			fmt.Printf("  [%s] %s → %s  status=%s\n", id, h.FromRole, h.ToRole, h.Status)
+			fmt.Printf("  [%s] %s → %s  status=%s\n", id, h.FromAgent, h.ToAgent, h.Status)
 			if h.Instruction != "" {
 				inst := h.Instruction
 				if len(inst) > 80 {
@@ -473,7 +473,7 @@ func workflowMessagesCmd(runID string) {
 			if len(content) > 100 {
 				content = content[:100] + "..."
 			}
-			fmt.Printf("  %s  [%s] %s → %s: %s\n", ts, m.Type, m.FromRole, m.ToRole, content)
+			fmt.Printf("  %s  [%s] %s → %s: %s\n", ts, m.Type, m.FromAgent, m.ToAgent, content)
 		}
 	}
 }

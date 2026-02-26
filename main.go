@@ -34,8 +34,8 @@ func main() {
 		case "history":
 			cmdHistory(os.Args[2:])
 			return
-		case "role":
-			cmdRole(os.Args[2:])
+		case "agent":
+			cmdAgent(os.Args[2:])
 			return
 		case "status":
 			cmdStatus(os.Args[2:])
@@ -144,10 +144,18 @@ func main() {
 			cmdAccess(os.Args[2:])
 			return
 		case "import":
-			if len(os.Args) > 2 && os.Args[2] == "openclaw" {
-				cmdImportOpenClaw()
+			if len(os.Args) > 2 {
+				switch os.Args[2] {
+				case "openclaw":
+					cmdImportOpenClaw()
+				case "config":
+					cmdImportConfig(os.Args[3:])
+				default:
+					fmt.Fprintln(os.Stderr, "Usage: tetora import <openclaw|config>")
+					os.Exit(1)
+				}
 			} else {
-				fmt.Fprintln(os.Stderr, "Usage: tetora import <openclaw>")
+				fmt.Fprintln(os.Stderr, "Usage: tetora import <openclaw|config>")
 				os.Exit(1)
 			}
 			return
@@ -468,7 +476,7 @@ func main() {
 		if err := initDirectories(cfg); err != nil {
 			logWarn("init directories failed", "error", err)
 		} else {
-			logInfo("directories initialized", "roles", len(cfg.Roles))
+			logInfo("directories initialized", "roles", len(cfg.Agents))
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -591,7 +599,7 @@ func main() {
 		}
 
 		// Start budget alert goroutine.
-		if cfg.Budgets.Global.Daily > 0 || cfg.Budgets.Global.Weekly > 0 || cfg.Budgets.Global.Monthly > 0 || len(cfg.Budgets.Roles) > 0 {
+		if cfg.Budgets.Global.Daily > 0 || cfg.Budgets.Global.Weekly > 0 || cfg.Budgets.Global.Monthly > 0 || len(cfg.Budgets.Agents) > 0 {
 			go func() {
 				ticker := time.NewTicker(5 * time.Minute) // check every 5m
 				defer ticker.Stop()
@@ -1139,8 +1147,8 @@ func logConfigDiff(old, new *Config) {
 	if old.DefaultBudget != new.DefaultBudget {
 		changes = append(changes, fmt.Sprintf("defaultBudget: %.2f → %.2f", old.DefaultBudget, new.DefaultBudget))
 	}
-	if len(old.Roles) != len(new.Roles) {
-		changes = append(changes, fmt.Sprintf("roles: %d → %d", len(old.Roles), len(new.Roles)))
+	if len(old.Agents) != len(new.Agents) {
+		changes = append(changes, fmt.Sprintf("roles: %d → %d", len(old.Agents), len(new.Agents)))
 	}
 	if old.Security.InjectionDefense.Level != new.Security.InjectionDefense.Level {
 		changes = append(changes, fmt.Sprintf("injectionDefense.level: %s → %s", old.Security.InjectionDefense.Level, new.Security.InjectionDefense.Level))

@@ -262,13 +262,13 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	ctx := withTraceID(context.Background(), newTraceID("slack"))
 	dbPath := sb.cfg.HistoryDB
 
-	// Step 1: Route to determine role.
+	// Step 1: Route to determine agent.
 	route := routeTask(ctx, sb.cfg, RouteRequest{Prompt: prompt, Source: "slack"})
-	logInfoCtx(ctx, "slack route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
+	logInfoCtx(ctx, "slack route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
 
 	// Step 2: Find or create channel session for this thread.
 	chKey := channelSessionKey("slack", event.Channel, ts)
-	sess, err := getOrCreateChannelSession(dbPath, "slack", chKey, route.Role, "")
+	sess, err := getOrCreateChannelSession(dbPath, "slack", chKey, route.Agent, "")
 	if err != nil {
 		logErrorCtx(ctx, "slack route session error", "error", err)
 	}
@@ -299,7 +299,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	// Step 4: Build and run task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   route.Role,
+		Agent:  route.Agent,
 		Source: "route:slack",
 	}
 	fillDefaults(sb.cfg, &task)
@@ -307,11 +307,11 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 		task.SessionID = sess.ID
 	}
 
-	if route.Role != "" {
-		if soulPrompt, err := loadRolePrompt(sb.cfg, route.Role); err == nil && soulPrompt != "" {
+	if route.Agent != "" {
+		if soulPrompt, err := loadAgentPrompt(sb.cfg, route.Agent); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := sb.cfg.Roles[route.Role]; ok {
+		if rc, ok := sb.cfg.Agents[route.Agent]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}
@@ -321,7 +321,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 		}
 	}
 
-	task.Prompt = expandPrompt(task.Prompt, "", sb.cfg.HistoryDB, route.Role, sb.cfg.KnowledgeDir, sb.cfg)
+	task.Prompt = expandPrompt(task.Prompt, "", sb.cfg.HistoryDB, route.Agent, sb.cfg.KnowledgeDir, sb.cfg)
 
 	// P28.0: Attach approval gate.
 	if sb.approvalGate != nil {
@@ -329,10 +329,10 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	}
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, sb.cfg, task, sb.sem, route.Role)
+	result := runSingleTask(ctx, sb.cfg, task, sb.sem, route.Agent)
 
 	// Record to history.
-	recordHistory(sb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Role, task, result,
+	recordHistory(sb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Step 5: Record assistant response to session.
@@ -366,14 +366,14 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 
 	// Store in agent memory.
 	if result.Status == "success" {
-		setMemory(sb.cfg, route.Role, "last_route_output", truncate(result.Output, 500))
-		setMemory(sb.cfg, route.Role, "last_route_prompt", truncate(prompt, 200))
-		setMemory(sb.cfg, route.Role, "last_route_time", time.Now().Format(time.RFC3339))
+		setMemory(sb.cfg, route.Agent, "last_route_output", truncate(result.Output, 500))
+		setMemory(sb.cfg, route.Agent, "last_route_prompt", truncate(prompt, 200))
+		setMemory(sb.cfg, route.Agent, "last_route_time", time.Now().Format(time.RFC3339))
 	}
 
 	// Audit log.
 	auditLog(dbPath, "route.dispatch", "slack",
-		fmt.Sprintf("role=%s method=%s session=%s", route.Role, route.Method, task.SessionID), "")
+		fmt.Sprintf("agent=%s method=%s session=%s", route.Agent, route.Method, task.SessionID), "")
 
 	// Webhook notifications.
 	sendWebhooks(sb.cfg, result.Status, WebhookPayload{
@@ -385,7 +385,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	// Format response.
 	var text strings.Builder
 	fmt.Fprintf(&text, "*Route:* %s (%s, %s confidence)\n",
-		route.Role, route.Method, route.Confidence)
+		route.Agent, route.Method, route.Confidence)
 
 	if result.Status == "success" {
 		fmt.Fprintf(&text, "\n%s", truncate(result.Output, 3000))
@@ -510,7 +510,7 @@ func (sb *SlackBot) slackCmdModel(event slackEvent, args string) {
 
 	if len(parts) == 0 {
 		var lines []string
-		for name, rc := range sb.cfg.Roles {
+		for name, rc := range sb.cfg.Agents {
 			m := rc.Model
 			if m == "" {
 				m = sb.cfg.DefaultModel
@@ -522,20 +522,20 @@ func (sb *SlackBot) slackCmdModel(event slackEvent, args string) {
 	}
 
 	model := parts[0]
-	roleName := sb.cfg.SmartDispatch.DefaultRole
-	if roleName == "" {
-		roleName = "default"
+	agentName := sb.cfg.SmartDispatch.DefaultAgent
+	if agentName == "" {
+		agentName = "default"
 	}
 	if len(parts) > 1 {
-		roleName = parts[1]
+		agentName = parts[1]
 	}
 
-	old, err := updateRoleModel(sb.cfg, roleName, model)
+	old, err := updateAgentModel(sb.cfg, agentName, model)
 	if err != nil {
 		sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("Error: %v", err))
 		return
 	}
-	sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("*%s* model: `%s` → `%s`", roleName, old, model))
+	sb.slackReply(event.Channel, threadTS(event), fmt.Sprintf("*%s* model: `%s` → `%s`", agentName, old, model))
 }
 
 func (sb *SlackBot) slackCmdHelp(event slackEvent) {
@@ -544,7 +544,7 @@ func (sb *SlackBot) slackCmdHelp(event slackEvent) {
 			"`!status` -- Check running tasks\n"+
 			"`!jobs` -- List cron jobs\n"+
 			"`!cost` -- Cost summary\n"+
-			"`!model [model] [role]` -- Show/switch model\n"+
+			"`!model [model] [agent]` -- Show/switch model\n"+
 			"`!new` -- Start fresh session in this thread\n"+
 			"`!help` -- This message\n"+
 			"\nMessages in a thread share conversation context.\n"+

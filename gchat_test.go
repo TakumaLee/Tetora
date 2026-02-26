@@ -387,7 +387,7 @@ func TestGChatWebhookHandler(t *testing.T) {
 		GoogleChat: GoogleChatConfig{
 			Enabled:           true,
 			ServiceAccountKey: keyPath,
-			DefaultRole:       "琉璃",
+			DefaultAgent:       "琉璃",
 		},
 	}
 

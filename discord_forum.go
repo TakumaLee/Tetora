@@ -190,22 +190,22 @@ func (fb *discordForumBoard) tagsForStatus(status string) []string {
 
 // --- Agent Assignment ---
 
-// handleAssign assigns an agent role to a forum thread.
-// It binds the thread to the role (using P14.2 threadBindingStore) and sets status to "doing".
+// handleAssign assigns an agent to a forum thread.
+// It binds the thread to the agent (using P14.2 threadBindingStore) and sets status to "doing".
 func (fb *discordForumBoard) handleAssign(threadID, guildID, role string) error {
 	if threadID == "" {
 		return fmt.Errorf("thread ID is required")
 	}
 	if role == "" {
-		return fmt.Errorf("role is required")
+		return fmt.Errorf("agent is required")
 	}
 
-	// Validate role exists in config.
-	if fb.bot == nil || fb.bot.cfg == nil || fb.bot.cfg.Roles == nil {
-		return fmt.Errorf("unknown role %q (no roles configured)", role)
+	// Validate agent exists in config.
+	if fb.bot == nil || fb.bot.cfg == nil || fb.bot.cfg.Agents == nil {
+		return fmt.Errorf("unknown agent %q (no agents configured)", role)
 	}
-	if _, ok := fb.bot.cfg.Roles[role]; !ok {
-		return fmt.Errorf("unknown role %q", role)
+	if _, ok := fb.bot.cfg.Agents[role]; !ok {
+		return fmt.Errorf("unknown agent %q", role)
 	}
 
 	// Bind thread to agent via P14.2 thread binding store.
@@ -213,7 +213,7 @@ func (fb *discordForumBoard) handleAssign(threadID, guildID, role string) error 
 		ttl := fb.bot.cfg.Discord.ThreadBindings.threadBindingsTTL()
 		sessionID := fb.bot.threads.bind(guildID, threadID, role, ttl)
 		logInfo("discord forum thread assigned",
-			"thread", threadID, "role", role, "session", sessionID)
+			"thread", threadID, "agent", role, "session", sessionID)
 	}
 
 	// Set status to "doing".
@@ -248,13 +248,13 @@ func (fb *discordForumBoard) handleCompletion(threadID string, success bool) {
 
 // --- Command Handlers ---
 
-// handleAssignCommand processes the /assign <role> command in a forum thread.
+// handleAssignCommand processes the /assign <agent> command in a forum thread.
 // Returns a user-facing message string.
 func (fb *discordForumBoard) handleAssignCommand(channelID, guildID, args string) string {
 	role := strings.TrimSpace(strings.ToLower(args))
 	if role == "" {
 		available := fb.bot.availableRoleNames()
-		return fmt.Sprintf("Usage: `/assign <role>` -- Available roles: %s", strings.Join(available, ", "))
+		return fmt.Sprintf("Usage: `/assign <agent>` -- Available agents: %s", strings.Join(available, ", "))
 	}
 
 	if err := fb.handleAssign(channelID, guildID, role); err != nil {

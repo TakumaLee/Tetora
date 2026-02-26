@@ -39,7 +39,7 @@ type Task struct {
 	AddDirs        []string `json:"addDirs"`
 	SystemPrompt   string   `json:"systemPrompt"`
 	SessionID      string   `json:"sessionId"`
-	Role           string   `json:"role,omitempty"`    // role name for smart dispatch
+	Agent           string   `json:"agent,omitempty"`    // role name for smart dispatch
 	Source         string   `json:"source,omitempty"`  // "dispatch", "cron", "ask", "route:*"
 	TraceID        string   `json:"traceId,omitempty"` // trace ID for request correlation
 	Depth          int      `json:"depth,omitempty"`    // --- P13.3: Nested Sub-Agents --- nesting depth (0 = top-level)
@@ -68,7 +68,7 @@ type TaskResult struct {
 	TraceID    string `json:"traceId,omitempty"`
 	Provider   string `json:"provider,omitempty"`
 	TrustLevel string `json:"trustLevel,omitempty"`
-	Role       string `json:"role,omitempty"`
+	Agent       string `json:"agent,omitempty"`
 }
 
 type DispatchResult struct {
@@ -111,7 +111,7 @@ type dispatchState struct {
 // discordActivity tracks a Discord-initiated task for dashboard visibility.
 type discordActivity struct {
 	TaskID    string    `json:"taskId"`
-	Role      string    `json:"role"`
+	Agent      string    `json:"agent"`
 	Phase     string    `json:"phase"`     // "routing", "processing", "replying"
 	Author    string    `json:"author"`
 	ChannelID string    `json:"channelId"`
@@ -204,7 +204,7 @@ func (s *dispatchState) statusJSON() []byte {
 		Prompt   string  `json:"prompt,omitempty"`
 		PID      int     `json:"pid,omitempty"`
 		Source   string  `json:"source,omitempty"`
-		Role     string  `json:"role,omitempty"`
+		Agent     string  `json:"agent,omitempty"`
 		ParentID string  `json:"parentId,omitempty"`
 		Depth    int     `json:"depth,omitempty"`
 	}
@@ -238,7 +238,7 @@ func (s *dispatchState) statusJSON() []byte {
 			Prompt:   prompt,
 			PID:      pid,
 			Source:   ts.task.Source,
-			Role:     ts.task.Role,
+			Agent:     ts.task.Agent,
 			ParentID: ts.task.ParentID,
 			Depth:    ts.task.Depth,
 		})
@@ -251,14 +251,14 @@ func (s *dispatchState) statusJSON() []byte {
 			Duration: (time.Duration(r.DurationMs) * time.Millisecond).Round(time.Second).String(),
 			CostUSD:  r.CostUSD,
 			Model:    r.Model,
-			Role:     r.Role,
+			Agent:     r.Agent,
 		})
 	}
 
 	// Discord activities.
 	type discordActivityStatus struct {
 		TaskID    string `json:"taskId"`
-		Role      string `json:"role"`
+		Agent      string `json:"agent"`
 		Phase     string `json:"phase"`
 		Author    string `json:"author"`
 		ChannelID string `json:"channelId"`
@@ -273,7 +273,7 @@ func (s *dispatchState) statusJSON() []byte {
 		}
 		discord = append(discord, discordActivityStatus{
 			TaskID:    da.TaskID,
-			Role:      da.Role,
+			Agent:      da.Agent,
 			Phase:     da.Phase,
 			Author:    da.Author,
 			ChannelID: da.ChannelID,
@@ -400,6 +400,30 @@ func fillDefaults(cfg *Config, t *Task) {
 	if t.Prompt != "" {
 		t.Prompt = sanitizePrompt(t.Prompt, cfg.MaxPromptLen)
 	}
+	// Resolve agent from system-wide default (not SmartDispatch — that's handled by the routing engine).
+	if t.Agent == "" && cfg.DefaultAgent != "" {
+		t.Agent = cfg.DefaultAgent
+	}
+	// Apply agent-specific overrides.
+	applyAgentDefaults(cfg, t)
+}
+
+// applyAgentDefaults applies agent-specific model and permission overrides to a task,
+// but only if the task still has the global defaults (i.e. not explicitly set).
+func applyAgentDefaults(cfg *Config, t *Task) {
+	if t.Agent == "" {
+		return
+	}
+	rc, ok := cfg.Agents[t.Agent]
+	if !ok {
+		return
+	}
+	if rc.Model != "" && t.Model == cfg.DefaultModel {
+		t.Model = rc.Model
+	}
+	if rc.PermissionMode != "" && t.PermissionMode == cfg.DefaultPermissionMode {
+		t.PermissionMode = rc.PermissionMode
+	}
 }
 
 // --- Prompt Sanitization ---
@@ -452,12 +476,12 @@ func loadWritingStyle(cfg *Config) string {
 
 // validateDirs checks that the task's workdir and addDirs are within allowed directories.
 // If allowedDirs is empty, no restriction is applied (backward compatible).
-// Role-level allowedDirs takes precedence over config-level.
-func validateDirs(cfg *Config, task Task, roleName string) error {
+// Agent-level allowedDirs takes precedence over config-level.
+func validateDirs(cfg *Config, task Task, agentName string) error {
 	// Determine which allowedDirs to use.
 	var allowed []string
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok && len(rc.AllowedDirs) > 0 {
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && len(rc.AllowedDirs) > 0 {
 			allowed = rc.AllowedDirs
 		}
 	}
@@ -610,9 +634,9 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 }
 
 // runSingleTask runs one task using the shared semaphore. Used by cron engine.
-func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{}, roleName string) TaskResult {
+func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{}, agentName string) TaskResult {
 	// Apply trust level.
-	applyTrustToTask(cfg, &task, roleName)
+	applyTrustToTask(cfg, &task, agentName)
 
 	// --- P16.3: Prompt Injection Defense v2 --- Apply before execution.
 	if err := applyInjectionDefense(ctx, cfg, &task); err != nil {
@@ -625,11 +649,11 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Classify request complexity and build tiered system prompt.
 	complexity := classifyComplexity(task.Prompt, task.Source)
 	if task.Source != "route-classify" {
-		buildTieredPrompt(cfg, &task, roleName, complexity)
+		buildTieredPrompt(cfg, &task, agentName, complexity)
 	} else {
 		// For routing classification, only set up workspace dir and baseDir.
-		if roleName != "" {
-			ws := resolveWorkspace(cfg, roleName)
+		if agentName != "" {
+			ws := resolveWorkspace(cfg, agentName)
 			if ws.Dir != "" {
 				task.Workdir = ws.Dir
 			}
@@ -638,7 +662,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	}
 
 	// Validate directories before running.
-	if err := validateDirs(cfg, task, roleName); err != nil {
+	if err := validateDirs(cfg, task, agentName); err != nil {
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: err.Error(), Model: task.Model, SessionID: task.SessionID,
@@ -649,7 +673,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	defer func() { <-sem }()
 
 	// Budget check before execution.
-	if budgetResult := checkBudget(cfg, roleName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -662,12 +686,12 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		task.Model = budgetResult.DowngradeModel
 	}
 
-	providerName := resolveProviderName(cfg, task, roleName)
+	providerName := resolveProviderName(cfg, task, agentName)
 
 	logDebugCtx(ctx, "task start",
 		"source", task.Source, "taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName,
-		"role", roleName, "workdir", task.Workdir)
+		"agent", agentName, "workdir", task.Workdir)
 
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {
@@ -690,7 +714,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 			SessionID: task.SessionID,
 			Data: map[string]any{
 				"name":  task.Name,
-				"role":  roleName,
+				"role":  agentName,
 				"model": task.Model,
 			},
 		})
@@ -703,7 +727,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	}
 
 	start := time.Now()
-	pr := executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, eventCh)
+	pr := executeWithProvider(taskCtx, cfg, task, agentName, cfg.registry, eventCh)
 	if eventCh != nil {
 		close(eventCh)
 	}
@@ -721,7 +745,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		TokensOut:  pr.TokensOut,
 		ProviderMs: pr.ProviderMs,
 		Provider:   pr.Provider,
-		Role:       roleName,
+		Agent:       agentName,
 	}
 	if result.SessionID == "" {
 		result.SessionID = task.SessionID
@@ -743,7 +767,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
 		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.maxItemsOrDefault()) {
-			if err := enqueueTask(cfg.HistoryDB, task, roleName, 0); err == nil {
+			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
 				result.Status = "queued"
 				logInfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
@@ -762,7 +786,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 	// Record token telemetry (async).
 	go recordTokenTelemetry(cfg.HistoryDB, TokenTelemetryEntry{
 		TaskID:             task.ID,
-		Role:               roleName,
+		Agent:               agentName,
 		Complexity:         complexity.String(),
 		Provider:           pr.Provider,
 		Model:              task.Model,
@@ -814,7 +838,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		task.TraceID = traceIDFromContext(ctx)
 	}
 
-	roleName := task.Role
+	agentName := task.Agent
 
 	// --- P19.5: Unified Presence/Typing Indicators --- Start typing in source channel.
 	if globalPresence != nil && task.Source != "" {
@@ -832,24 +856,24 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	// Classify request complexity and build tiered system prompt.
 	complexity := classifyComplexity(task.Prompt, task.Source)
-	buildTieredPrompt(cfg, &task, roleName, complexity)
+	buildTieredPrompt(cfg, &task, agentName, complexity)
 
 	// Apply trust level (may override permissionMode for observe mode).
-	trustLevel, _ := applyTrustToTask(cfg, &task, roleName)
+	trustLevel, _ := applyTrustToTask(cfg, &task, agentName)
 	if trustLevel == TrustObserve {
-		logDebugCtx(ctx, "trust: observe mode, forcing plan permission", "role", roleName)
+		logDebugCtx(ctx, "trust: observe mode, forcing plan permission", "agent", agentName)
 	}
 
 	// Validate directories before running.
-	if err := validateDirs(cfg, task, roleName); err != nil {
+	if err := validateDirs(cfg, task, agentName); err != nil {
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: err.Error(), Model: task.Model, SessionID: task.SessionID,
 		}
 	}
 
-	// --- P13.2: Sandbox Plugin --- Check sandbox policy for this role.
-	useSandbox, sandboxErr := shouldUseSandbox(cfg, roleName, state.sandboxMgr)
+	// --- P13.2: Sandbox Plugin --- Check sandbox policy for this agent.
+	useSandbox, sandboxErr := shouldUseSandbox(cfg, agentName, state.sandboxMgr)
 	if sandboxErr != nil {
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -858,12 +882,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 	var sandboxID string
 	if useSandbox && state.sandboxMgr != nil {
-		image := sandboxImageForRole(cfg, roleName)
+		image := sandboxImageForAgent(cfg, agentName)
 		sbID, err := state.sandboxMgr.EnsureSandboxWithImage(task.SessionID, task.Workdir, image)
 		if err != nil {
 			logWarnCtx(ctx, "sandbox creation failed", "taskId", task.ID[:8], "error", err)
 			// If policy is "required", this is fatal; if "optional", fall through.
-			if sandboxPolicyForRole(cfg, roleName) == "required" {
+			if sandboxPolicyForAgent(cfg, agentName) == "required" {
 				return TaskResult{
 					ID: task.ID, Name: task.Name, Status: "error",
 					Error: fmt.Sprintf("sandbox required but creation failed: %v", err),
@@ -894,7 +918,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	state.mu.Unlock()
 
 	// Budget check before execution.
-	if budgetResult := checkBudget(cfg, roleName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -907,12 +931,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		task.Model = budgetResult.DowngradeModel
 	}
 
-	providerName := resolveProviderName(cfg, task, roleName)
+	providerName := resolveProviderName(cfg, task, agentName)
 
 	logDebugCtx(ctx, "task start",
 		"taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName,
-		"role", roleName, "workdir", task.Workdir)
+		"role", agentName, "workdir", task.Workdir)
 
 	// Discord thread-per-task notification (top-level tasks only).
 	doDiscordNotify := task.Depth == 0 && state.discordBot != nil && state.discordBot.notifier != nil
@@ -927,7 +951,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		SessionID: task.SessionID,
 		Data: map[string]any{
 			"name":  task.Name,
-			"role":  roleName,
+			"role":  agentName,
 			"model": task.Model,
 		},
 	})
@@ -953,9 +977,9 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	var pr *ProviderResult
 	if complexity == ComplexitySimple {
 		// Simple requests skip the tool engine entirely.
-		pr = executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, eventCh)
+		pr = executeWithProvider(taskCtx, cfg, task, agentName, cfg.registry, eventCh)
 	} else {
-		pr = executeWithProviderAndTools(taskCtx, cfg, task, roleName, cfg.registry, eventCh, state.broker)
+		pr = executeWithProviderAndTools(taskCtx, cfg, task, agentName, cfg.registry, eventCh, state.broker)
 	}
 	if eventCh != nil {
 		close(eventCh)
@@ -974,7 +998,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		TokensOut:  pr.TokensOut,
 		ProviderMs: pr.ProviderMs,
 		Provider:   pr.Provider,
-		Role:       roleName,
+		Agent:       agentName,
 	}
 	if result.SessionID == "" {
 		result.SessionID = task.SessionID
@@ -996,7 +1020,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
 		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.maxItemsOrDefault()) {
-			if err := enqueueTask(cfg.HistoryDB, task, roleName, 0); err == nil {
+			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
 				result.Status = "queued"
 				logInfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
@@ -1008,7 +1032,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 					SessionID: task.SessionID,
 					Data: map[string]any{
 						"name":  task.Name,
-						"role":  roleName,
+						"role":  agentName,
 						"error": result.Error,
 					},
 				})
@@ -1043,7 +1067,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// Record token telemetry (async).
 	go recordTokenTelemetry(cfg.HistoryDB, TokenTelemetryEntry{
 		TaskID:             task.ID,
-		Role:               roleName,
+		Agent:               agentName,
 		Complexity:         complexity.String(),
 		Provider:           pr.Provider,
 		Model:              task.Model,
@@ -1064,13 +1088,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	// Record to history DB.
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Role, task, result,
+	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
 		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity (skip for chat source — handled by HTTP handler).
 	if !strings.HasPrefix(task.Source, "chat") {
-		recordSessionActivity(cfg.HistoryDB, task, result, task.Role)
-		logSystemDispatch(cfg.HistoryDB, task, result, task.Role)
+		recordSessionActivity(cfg.HistoryDB, task, result, task.Agent)
+		logSystemDispatch(cfg.HistoryDB, task, result, task.Agent)
 	}
 
 	// Publish SSE completed/error/queued event.
@@ -1121,7 +1145,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			if err := storeReflection(cfg.HistoryDB, ref); err != nil {
 				logDebugCtx(ctx, "reflection store failed", "taskId", task.ID[:8], "error", err)
 			} else {
-				logDebugCtx(ctx, "reflection stored", "taskId", task.ID[:8], "role", ref.Role, "score", ref.Score)
+				logDebugCtx(ctx, "reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
 			}
 		}()
 	}
@@ -1134,14 +1158,14 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	// Check trust promotion after successful task.
-	if result.Status == "success" && roleName != "" {
-		if promoMsg := checkTrustPromotion(ctx, cfg, roleName); promoMsg != "" {
+	if result.Status == "success" && agentName != "" {
+		if promoMsg := checkTrustPromotion(ctx, cfg, agentName); promoMsg != "" {
 			// Publish SSE event for dashboard.
 			if state.broker != nil {
 				state.broker.Publish("trust", SSEEvent{
 					Type: "trust_promotion",
 					Data: map[string]any{
-						"role":    roleName,
+						"role":    agentName,
 						"message": promoMsg,
 					},
 				})
@@ -1176,16 +1200,16 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 	task.Source = "retry:" + task.Source
 	fillDefaults(cfg, &task)
 
-	result := runSingleTask(ctx, cfg, task, sem, task.Role)
+	result := runSingleTask(ctx, cfg, task, sem, task.Agent)
 
 	// Record to history.
 	start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Role, task, result,
+	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
 		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
-	recordSessionActivity(cfg.HistoryDB, task, result, task.Role)
-	logSystemDispatch(cfg.HistoryDB, task, result, task.Role)
+	recordSessionActivity(cfg.HistoryDB, task, result, task.Agent)
+	logSystemDispatch(cfg.HistoryDB, task, result, task.Agent)
 
 	// If retry succeeded, remove from failed tasks.
 	if result.Status == "success" {
@@ -1210,7 +1234,7 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 }
 
 // rerouteTask re-dispatches a previously failed task through smart dispatch,
-// allowing a different role to handle it.
+// allowing a different agent to handle it.
 func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatchState, sem chan struct{}) (*SmartDispatchResult, error) {
 	state.mu.Lock()
 	ft, ok := state.failedTasks[taskID]
@@ -1233,7 +1257,7 @@ func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatc
 	}
 
 	auditLog(cfg.HistoryDB, "task.reroute", "reroute",
-		fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Role, result.Task.Status), "")
+		fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Agent, result.Task.Status), "")
 
 	return result, nil
 }
@@ -1243,7 +1267,7 @@ type failedTaskInfo struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Prompt   string `json:"prompt,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Agent     string `json:"agent,omitempty"`
 	Source   string `json:"source,omitempty"`
 	Error    string `json:"error"`
 	FailedAt string `json:"failedAt"`
@@ -1264,7 +1288,7 @@ func listFailedTasks(state *dispatchState) []failedTaskInfo {
 			ID:       id,
 			Name:     ft.task.Name,
 			Prompt:   prompt,
-			Role:     ft.task.Role,
+			Agent:     ft.task.Agent,
 			Source:   ft.task.Source,
 			Error:    ft.errorMsg,
 			FailedAt: ft.failedAt.Format(time.RFC3339),
@@ -1330,14 +1354,14 @@ func truncateToolOutput(output string, limit int) string {
 // 4. Inject tool results back as messages
 // 5. Call provider again
 // 6. Repeat until no more tool_use or max iterations
-func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, roleName string, registry *providerRegistry, eventCh chan<- SSEEvent, broker *sseBroker) *ProviderResult {
+func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, agentName string, registry *providerRegistry, eventCh chan<- SSEEvent, broker *sseBroker) *ProviderResult {
 	// Check if tool engine is enabled and we have a tool registry.
 	if cfg.toolRegistry == nil {
-		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+		return executeWithProvider(ctx, cfg, task, agentName, registry, eventCh)
 	}
 
 	// Resolve provider.
-	providerName := resolveProviderName(cfg, task, roleName)
+	providerName := resolveProviderName(cfg, task, agentName)
 	p, err := registry.get(providerName)
 	if err != nil {
 		return &ProviderResult{IsError: true, Error: err.Error()}
@@ -1347,13 +1371,13 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	toolProvider, supportsTools := p.(ToolCapableProvider)
 	if !supportsTools {
 		// Fallback to regular execution.
-		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+		return executeWithProvider(ctx, cfg, task, agentName, registry, eventCh)
 	}
 
-	// Get available tools (filtered by role policy and complexity).
+	// Get available tools (filtered by agent policy and complexity).
 	var allowed map[string]bool
-	if task.Role != "" {
-		allowed = resolveAllowedTools(cfg, task.Role)
+	if task.Agent != "" {
+		allowed = resolveAllowedTools(cfg, task.Agent)
 	}
 	// Apply complexity-based tool filtering.
 	complexity := classifyComplexity(task.Prompt, task.Source)
@@ -1376,11 +1400,11 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 	tools := cfg.toolRegistry.ListFiltered(allowed)
 	if len(tools) == 0 {
 		// No tools available, use regular execution.
-		return executeWithProvider(ctx, cfg, task, roleName, registry, eventCh)
+		return executeWithProvider(ctx, cfg, task, agentName, registry, eventCh)
 	}
 
 	// Build initial request.
-	req := buildProviderRequest(cfg, task, roleName, providerName, eventCh)
+	req := buildProviderRequest(cfg, task, agentName, providerName, eventCh)
 	// Convert []*ToolDef to []ToolDef for the provider request.
 	toolDefs := make([]ToolDef, len(tools))
 	for i, t := range tools {
@@ -1454,12 +1478,12 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 		// Execute tools.
 		toolResults := make([]ToolResult, 0, len(result.ToolCalls))
 		for _, tc := range result.ToolCalls {
-			// Check tool policy - is tool allowed for this role?
-			if task.Role != "" && !isToolAllowed(cfg, task.Role, tc.Name) {
-				logWarnCtx(ctx, "tool call blocked by policy", "tool", tc.Name, "role", task.Role)
+			// Check tool policy - is tool allowed for this agent?
+			if task.Agent != "" && !isToolAllowed(cfg, task.Agent, tc.Name) {
+				logWarnCtx(ctx, "tool call blocked by policy", "tool", tc.Name, "agent", task.Agent)
 				toolResults = append(toolResults, ToolResult{
 					ToolUseID: tc.ID,
-					Content:   fmt.Sprintf("error: tool %q not allowed by policy for role %q", tc.Name, task.Role),
+					Content:   fmt.Sprintf("error: tool %q not allowed by policy for agent %q", tc.Name, task.Agent),
 					IsError:   true,
 				})
 				continue
@@ -1494,7 +1518,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			detector.Record(tc.Name, tc.Input)
 
 			// Apply trust-level filtering.
-			if mockResult, shouldExec := filterToolCall(cfg, task.Role, tc); !shouldExec {
+			if mockResult, shouldExec := filterToolCall(cfg, task.Agent, tc); !shouldExec {
 				// Tool call filtered by trust level (observe or suggest mode).
 				toolResults = append(toolResults, *mockResult)
 				continue
@@ -1615,14 +1639,14 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 			logWarnCtx(ctx, "task budget soft-limit exceeded (continuing)",
 				"budget", task.Budget,
 				"spent", totalCostUSD,
-				"role", task.Role,
+				"role", task.Agent,
 				"task_id", task.ID,
 				"task_prompt_preview", task.Prompt[:min(120, len(task.Prompt))],
 			)
 		}
 
 		// Global budget check.
-		if br := checkBudget(cfg, roleName, "", 0); br != nil && !br.Allowed {
+		if br := checkBudget(cfg, agentName, "", 0); br != nil && !br.Allowed {
 			logWarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
 			finalResult = &ProviderResult{
 				Output: result.Output + "\n[stopped: global budget exceeded]",
@@ -1672,9 +1696,9 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ro
 
 // injectWorkspaceContent applies the three-tier workspace injection:
 // always: workspace/rules/ directory
-// role: role-specific rules from workspace/rules/{roleName}*
+// agent: agent-specific rules from workspace/rules/{agentName}*
 // on-demand: memory only via {{memory.KEY}} template
-func injectWorkspaceContent(cfg *Config, task *Task, roleName string) {
+func injectWorkspaceContent(cfg *Config, task *Task, agentName string) {
 	if cfg.WorkspaceDir == "" {
 		return
 	}
@@ -1713,9 +1737,9 @@ func injectWorkspaceContent(cfg *Config, task *Task, roleName string) {
 	injectDir(filepath.Join(cfg.WorkspaceDir, "rules"))
 	injectDir(filepath.Join(cfg.WorkspaceDir, "knowledge"))
 
-	// Role tier: find role-specific rules and append to system prompt.
-	if roleName != "" {
-		roleRules := findRoleSpecificRules(filepath.Join(cfg.WorkspaceDir, "rules"), roleName)
+	// Agent tier: find agent-specific rules and append to system prompt.
+	if agentName != "" {
+		roleRules := findAgentSpecificRules(filepath.Join(cfg.WorkspaceDir, "rules"), agentName)
 		if roleRules != "" {
 			task.SystemPrompt += "\n\n" + roleRules
 		}
@@ -1762,8 +1786,8 @@ func buildDirIndex(dir string) string {
 	return b.String()
 }
 
-// findRoleSpecificRules reads files in rulesDir whose name contains roleName.
-func findRoleSpecificRules(rulesDir, roleName string) string {
+// findAgentSpecificRules reads files in rulesDir whose name contains agentName.
+func findAgentSpecificRules(rulesDir, agentName string) string {
 	entries, err := os.ReadDir(rulesDir)
 	if err != nil {
 		return ""
@@ -1773,7 +1797,7 @@ func findRoleSpecificRules(rulesDir, roleName string) string {
 		if e.IsDir() {
 			continue
 		}
-		if strings.Contains(strings.ToLower(e.Name()), strings.ToLower(roleName)) {
+		if strings.Contains(strings.ToLower(e.Name()), strings.ToLower(agentName)) {
 			data, err := os.ReadFile(filepath.Join(rulesDir, e.Name()))
 			if err == nil {
 				parts = append(parts, string(data))

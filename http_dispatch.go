@@ -92,14 +92,14 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 			go func() {
 				ctx := withTraceID(context.Background(), newTraceID("queue"))
-				result := runSingleTask(ctx, cfg, task, sem, item.RoleName)
+				result := runSingleTask(ctx, cfg, task, sem, item.AgentName)
 				if result.Status == "success" {
 					updateQueueStatus(cfg.HistoryDB, id, "completed", "")
 				} else {
 					incrementQueueRetry(cfg.HistoryDB, id, "failed", result.Error)
 				}
 				startAt := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-				recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, item.RoleName, task, result,
+				recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, item.AgentName, task, result,
 					startAt.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 			}()
 
@@ -265,7 +265,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			Prompt   string `json:"prompt,omitempty"`
 			PID      int    `json:"pid,omitempty"`
 			PIDAlive bool   `json:"pidAlive"`
-			Role     string `json:"role,omitempty"`
+			Agent     string `json:"agent,omitempty"`
 			ParentID string `json:"parentId,omitempty"`
 			Depth    int    `json:"depth,omitempty"`
 		}
@@ -298,7 +298,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				Prompt:   prompt,
 				PID:      pid,
 				PIDAlive: pidAlive,
-				Role:     ts.task.Role,
+				Agent:     ts.task.Agent,
 				ParentID: ts.task.ParentID,
 				Depth:    ts.task.Depth,
 			})
@@ -589,7 +589,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				return
 			}
 			auditLog(cfg.HistoryDB, "task.reroute", "http",
-				fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Role, result.Task.Status), clientIP(r))
+				fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Agent, result.Task.Status), clientIP(r))
 			json.NewEncoder(w).Encode(result)
 
 		default:
@@ -664,7 +664,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"enabled":     cfg.SmartDispatch.Enabled,
 				"coordinator": cfg.SmartDispatch.Coordinator,
-				"defaultRole": cfg.SmartDispatch.DefaultRole,
+				"defaultAgent": cfg.SmartDispatch.DefaultAgent,
 				"rules":       cfg.SmartDispatch.Rules,
 			})
 			return

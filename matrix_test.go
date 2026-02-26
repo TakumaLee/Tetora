@@ -689,7 +689,7 @@ func TestMatrixBotCreation(t *testing.T) {
 			UserID:      "@tetora:example.com",
 			AccessToken: "token_abc",
 			AutoJoin:    true,
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 		},
 	}
 

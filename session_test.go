@@ -26,7 +26,7 @@ func TestCreateAndQuerySession(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	s := Session{
 		ID:        "sess-001",
-		Role:      "翡翠",
+		Agent:      "翡翠",
 		Source:    "telegram",
 		Status:    "active",
 		Title:     "Research Go concurrency",
@@ -44,8 +44,8 @@ func TestCreateAndQuerySession(t *testing.T) {
 	if got == nil {
 		t.Fatal("session not found")
 	}
-	if got.Role != "翡翠" {
-		t.Errorf("role = %q, want %q", got.Role, "翡翠")
+	if got.Agent != "翡翠" {
+		t.Errorf("role = %q, want %q", got.Agent, "翡翠")
 	}
 	if got.Status != "active" {
 		t.Errorf("status = %q, want %q", got.Status, "active")
@@ -62,7 +62,7 @@ func TestCreateSessionIdempotent(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	s := Session{
-		ID: "sess-dup", Role: "黒曜", Source: "http", Status: "active",
+		ID: "sess-dup", Agent: "黒曜", Source: "http", Status: "active",
 		Title: "Original title", CreatedAt: now, UpdatedAt: now,
 	}
 	createSession(dbPath, s)
@@ -87,7 +87,7 @@ func TestAddAndQuerySessionMessages(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "sess-msg", Role: "琥珀", Source: "cli", Status: "active",
+		ID: "sess-msg", Agent: "琥珀", Source: "cli", Status: "active",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -130,7 +130,7 @@ func TestUpdateSessionStats(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "sess-stats", Role: "翡翠", Source: "http", Status: "active",
+		ID: "sess-stats", Agent: "翡翠", Source: "http", Status: "active",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -160,7 +160,7 @@ func TestUpdateSessionStatus(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "sess-status", Role: "琉璃", Source: "http", Status: "active",
+		ID: "sess-status", Agent: "琉璃", Source: "http", Status: "active",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -179,20 +179,20 @@ func TestQuerySessionsFiltered(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "s1", Role: "翡翠", Source: "http", Status: "active",
+		ID: "s1", Agent: "翡翠", Source: "http", Status: "active",
 		Title: "Research task", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "s2", Role: "黒曜", Source: "telegram", Status: "completed",
+		ID: "s2", Agent: "黒曜", Source: "telegram", Status: "completed",
 		Title: "Dev task", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "s3", Role: "翡翠", Source: "cron", Status: "active",
+		ID: "s3", Agent: "翡翠", Source: "cron", Status: "active",
 		Title: "Auto research", CreatedAt: now, UpdatedAt: now,
 	})
 
 	// Filter by role.
-	sessions, total, err := querySessions(dbPath, SessionQuery{Role: "翡翠"})
+	sessions, total, err := querySessions(dbPath, SessionQuery{Agent: "翡翠"})
 	if err != nil {
 		t.Fatalf("querySessions: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestQuerySessionDetail(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "sess-detail", Role: "琥珀", Source: "http", Status: "active",
+		ID: "sess-detail", Agent: "琥珀", Source: "http", Status: "active",
 		Title: "Creative session", CreatedAt: now, UpdatedAt: now,
 	})
 	addSessionMessage(dbPath, SessionMessage{
@@ -244,8 +244,8 @@ func TestQuerySessionDetail(t *testing.T) {
 	if detail == nil {
 		t.Fatal("detail is nil")
 	}
-	if detail.Session.Role != "琥珀" {
-		t.Errorf("session role = %q, want %q", detail.Session.Role, "琥珀")
+	if detail.Session.Agent != "琥珀" {
+		t.Errorf("session role = %q, want %q", detail.Session.Agent, "琥珀")
 	}
 	if len(detail.Messages) != 2 {
 		t.Errorf("messages count = %d, want 2", len(detail.Messages))
@@ -273,13 +273,13 @@ func TestCountActiveSessions(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "a1", Role: "翡翠", Status: "active", CreatedAt: now, UpdatedAt: now,
+		ID: "a1", Agent: "翡翠", Status: "active", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "a2", Role: "黒曜", Status: "completed", CreatedAt: now, UpdatedAt: now,
+		ID: "a2", Agent: "黒曜", Status: "completed", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "a3", Role: "琥珀", Status: "active", CreatedAt: now, UpdatedAt: now,
+		ID: "a3", Agent: "琥珀", Status: "active", CreatedAt: now, UpdatedAt: now,
 	})
 
 	// initSessionDB creates a system log session (status=active), so expect +1.
@@ -296,7 +296,7 @@ func TestSessionSpecialChars(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "sess-special", Role: "琥珀", Source: "http", Status: "active",
+		ID: "sess-special", Agent: "琥珀", Source: "http", Status: "active",
 		Title: `He said "it's fine" & <ok>`, CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -356,7 +356,7 @@ func TestFindChannelSession(t *testing.T) {
 
 	// Create a channel session.
 	createSession(dbPath, Session{
-		ID: "ch-001", Role: "翡翠", Source: "telegram", Status: "active",
+		ID: "ch-001", Agent: "翡翠", Source: "telegram", Status: "active",
 		ChannelKey: "tg:翡翠", Title: "Research", CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -403,8 +403,8 @@ func TestGetOrCreateChannelSession(t *testing.T) {
 		t.Fatal("expected session, got nil")
 	}
 	firstID := sess.ID
-	if sess.Role != "琥珀" {
-		t.Errorf("role = %q, want %q", sess.Role, "琥珀")
+	if sess.Agent != "琥珀" {
+		t.Errorf("role = %q, want %q", sess.Agent, "琥珀")
 	}
 
 	// Second call finds the existing one.
@@ -424,7 +424,7 @@ func TestBuildSessionContext(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "ctx-001", Role: "翡翠", Source: "telegram", Status: "active",
+		ID: "ctx-001", Agent: "翡翠", Source: "telegram", Status: "active",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -496,7 +496,7 @@ func TestArchiveChannelSession(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "arch-001", Role: "翡翠", Source: "telegram", Status: "active",
+		ID: "arch-001", Agent: "翡翠", Source: "telegram", Status: "active",
 		ChannelKey: "tg:翡翠", CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -546,12 +546,12 @@ func TestChannelKeyInQuerySessions(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "chq-001", Role: "翡翠", Source: "telegram", Status: "active",
+		ID: "chq-001", Agent: "翡翠", Source: "telegram", Status: "active",
 		ChannelKey: "tg:翡翠", Title: "Research", CreatedAt: now, UpdatedAt: now,
 	})
 
 	// querySessions should include channel_key.
-	sessions, _, _ := querySessions(dbPath, SessionQuery{Role: "翡翠"})
+	sessions, _, _ := querySessions(dbPath, SessionQuery{Agent: "翡翠"})
 	if len(sessions) == 0 {
 		t.Fatal("expected sessions")
 	}
@@ -568,15 +568,15 @@ func TestQuerySessionDetailPrefixMatch(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	// Use realistic UUID-like IDs to exercise the prefix path (len < 36 check).
 	s1 := Session{
-		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000001", Role: "翡翠", Source: "http", Status: "active",
+		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000001", Agent: "翡翠", Source: "http", Status: "active",
 		Title: "Research session", CreatedAt: now, UpdatedAt: now,
 	}
 	s2 := Session{
-		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000002", Role: "黒曜", Source: "cli", Status: "active",
+		ID: "9c1bbafa-6cc8-4b1a-9f5e-000000000002", Agent: "黒曜", Source: "cli", Status: "active",
 		Title: "Dev session", CreatedAt: now, UpdatedAt: now,
 	}
 	s3 := Session{
-		ID: "deadbeef-1234-5678-abcd-000000000003", Role: "琥珀", Source: "http", Status: "active",
+		ID: "deadbeef-1234-5678-abcd-000000000003", Agent: "琥珀", Source: "http", Status: "active",
 		Title: "Creative session", CreatedAt: now, UpdatedAt: now,
 	}
 	createSession(dbPath, s1)
@@ -625,8 +625,8 @@ func TestQuerySessionDetailPrefixMatch(t *testing.T) {
 	if detail3 == nil {
 		t.Fatal("expected detail for exact ID, got nil")
 	}
-	if detail3.Session.Role != "翡翠" {
-		t.Errorf("role = %q, want %q", detail3.Session.Role, "翡翠")
+	if detail3.Session.Agent != "翡翠" {
+		t.Errorf("role = %q, want %q", detail3.Session.Agent, "翡翠")
 	}
 }
 
@@ -637,15 +637,15 @@ func TestQuerySessionsByPrefix(t *testing.T) {
 
 	now := time.Now().Format(time.RFC3339)
 	createSession(dbPath, Session{
-		ID: "aaaa-0001", Role: "翡翠", Source: "http", Status: "active",
+		ID: "aaaa-0001", Agent: "翡翠", Source: "http", Status: "active",
 		Title: "First", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "aaaa-0002", Role: "黒曜", Source: "cli", Status: "active",
+		ID: "aaaa-0002", Agent: "黒曜", Source: "cli", Status: "active",
 		Title: "Second", CreatedAt: now, UpdatedAt: now,
 	})
 	createSession(dbPath, Session{
-		ID: "bbbb-0001", Role: "琥珀", Source: "http", Status: "active",
+		ID: "bbbb-0001", Agent: "琥珀", Source: "http", Status: "active",
 		Title: "Third", CreatedAt: now, UpdatedAt: now,
 	})
 

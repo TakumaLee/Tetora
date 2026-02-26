@@ -34,7 +34,7 @@ var migrations = []Migration{
 				sd := SmartDispatchConfig{
 					Enabled:         false,
 					Coordinator:     "琉璃",
-					DefaultRole:     "琉璃",
+					DefaultAgent:     "琉璃",
 					ClassifyBudget:  0.1,
 					ClassifyTimeout: "30s",
 				}

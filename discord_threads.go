@@ -38,9 +38,9 @@ const (
 
 // --- Thread Binding ---
 
-// threadBinding represents a Discord thread bound to a specific agent role session.
+// threadBinding represents a Discord thread bound to a specific agent session.
 type threadBinding struct {
-	Role      string
+	Agent      string
 	GuildID   string
 	ThreadID  string
 	SessionID string
@@ -83,7 +83,7 @@ func (s *threadBindingStore) bind(guildID, threadID, role string, ttl time.Durat
 	sessionID := threadSessionKey(role, guildID, threadID)
 
 	s.bindings[key] = &threadBinding{
-		Role:      role,
+		Agent:     role,
 		GuildID:   guildID,
 		ThreadID:  threadID,
 		SessionID: sessionID,
@@ -144,7 +144,7 @@ func (s *threadBindingStore) count() int {
 // --- Session Key ---
 
 // threadSessionKey generates a deterministic session key for a thread binding.
-// Format: agent:{role}:discord:thread:{guildId}:{threadId}
+// Format: agent:{agent}:discord:thread:{guildId}:{threadId}
 func threadSessionKey(role, guildID, threadID string) string {
 	return fmt.Sprintf("agent:%s:discord:thread:%s:%s", role, guildID, threadID)
 }
@@ -184,20 +184,20 @@ func isThreadChannel(channelType int) bool {
 
 // --- /focus and /unfocus Command Handlers ---
 
-// availableRoleNames returns sorted role names from config.
+// availableRoleNames returns sorted agent names from config.
 func (db *DiscordBot) availableRoleNames() []string {
-	if db == nil || db.cfg == nil || db.cfg.Roles == nil {
+	if db == nil || db.cfg == nil || db.cfg.Agents == nil {
 		return nil
 	}
-	names := make([]string, 0, len(db.cfg.Roles))
-	for r := range db.cfg.Roles {
+	names := make([]string, 0, len(db.cfg.Agents))
+	for r := range db.cfg.Agents {
 		names = append(names, r)
 	}
 	sort.Strings(names)
 	return names
 }
 
-// handleFocusCommand processes the /focus <role> command to bind a thread to an agent.
+// handleFocusCommand processes the /focus <agent> command to bind a thread to an agent.
 func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channelType int) bool {
 	if !isThreadChannel(channelType) {
 		db.sendMessage(msg.ChannelID, "The `/focus` command can only be used inside a thread.")
@@ -207,15 +207,15 @@ func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channe
 	role := strings.TrimSpace(strings.ToLower(args))
 	if role == "" {
 		available := db.availableRoleNames()
-		db.sendMessage(msg.ChannelID, fmt.Sprintf("Usage: `/focus <role>` — Available roles: %s", strings.Join(available, ", ")))
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Usage: `/focus <agent>` — Available agents: %s", strings.Join(available, ", ")))
 		return true
 	}
 
-	// Validate role exists in config.
-	_, roleExists := db.cfg.Roles[role]
-	if db.cfg.Roles == nil || !roleExists {
+	// Validate agent exists in config.
+	_, roleExists := db.cfg.Agents[role]
+	if db.cfg.Agents == nil || !roleExists {
 		available := db.availableRoleNames()
-		db.sendMessage(msg.ChannelID, fmt.Sprintf("Unknown role `%s`. Available: %s", role, strings.Join(available, ", ")))
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Unknown agent `%s`. Available: %s", role, strings.Join(available, ", ")))
 		return true
 	}
 
@@ -224,7 +224,7 @@ func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channe
 	ttl := db.cfg.Discord.ThreadBindings.threadBindingsTTL()
 
 	sessionID := db.threads.bind(guildID, threadID, role, ttl)
-	logInfo("discord thread bound", "guild", guildID, "thread", threadID, "role", role, "session", sessionID)
+	logInfo("discord thread bound", "guild", guildID, "thread", threadID, "agent", role, "session", sessionID)
 
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       fmt.Sprintf("Thread focused on %s", role),
@@ -252,11 +252,11 @@ func (db *DiscordBot) handleUnfocusCommand(msg discordMessage, channelType int) 
 	}
 
 	db.threads.unbind(guildID, threadID)
-	logInfo("discord thread unbound", "guild", guildID, "thread", threadID, "wasRole", existing.Role)
+	logInfo("discord thread unbound", "guild", guildID, "thread", threadID, "wasRole", existing.Agent)
 
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       "Thread unfocused",
-		Description: fmt.Sprintf("Agent **%s** has been unbound from this thread.", existing.Role),
+		Description: fmt.Sprintf("Agent **%s** has been unbound from this thread.", existing.Agent),
 		Color:       0xFEE75C,
 		Timestamp:   time.Now().Format(time.RFC3339),
 	})
@@ -309,11 +309,11 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 
 	ctx := withTraceID(context.Background(), newTraceID("discord-thread"))
 	dbPath := db.cfg.HistoryDB
-	role := binding.Role
+	role := binding.Agent
 	sessionID := binding.SessionID
 
 	logInfoCtx(ctx, "discord thread dispatch",
-		"thread", msg.ChannelID, "role", role, "session", sessionID, "prompt", truncate(prompt, 60))
+		"thread", msg.ChannelID, "agent", role, "session", sessionID, "prompt", truncate(prompt, 60))
 
 	// Get or create session using the thread binding's session ID as channel key.
 	sess, err := getOrCreateChannelSession(dbPath, "discord", sessionID, role, "")
@@ -339,16 +339,16 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 	}
 
 	// Build and run task.
-	task := Task{Prompt: contextPrompt, Role: role, Source: "route:discord:thread"}
+	task := Task{Prompt: contextPrompt, Agent: role, Source: "route:discord:thread"}
 	fillDefaults(db.cfg, &task)
 	if sess != nil {
 		task.SessionID = sess.ID
 	}
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(db.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(db.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := db.cfg.Roles[role]; ok {
+		if rc, ok := db.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}
@@ -394,9 +394,9 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 	}
 
 	auditLog(dbPath, "thread.dispatch", "discord",
-		fmt.Sprintf("role=%s thread=%s session=%s", role, msg.ChannelID, task.SessionID), "")
+		fmt.Sprintf("agent=%s thread=%s session=%s", role, msg.ChannelID, task.SessionID), "")
 
 	// Send response embed.
-	route := &RouteResult{Role: role, Method: "thread-binding"}
+	route := &RouteResult{Agent: role, Method: "thread-binding"}
 	db.sendRouteResponse(msg.ChannelID, route, result, task)
 }

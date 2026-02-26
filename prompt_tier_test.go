@@ -56,7 +56,7 @@ func TestTruncateToCharsNewlineBoundary(t *testing.T) {
 func TestBuildTieredPromptNoPanic(t *testing.T) {
 	// Minimal config that should not panic.
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {Model: "sonnet"},
 		},
 		Providers: map[string]ProviderConfig{},
@@ -76,7 +76,7 @@ func TestBuildTieredPromptNoPanic(t *testing.T) {
 
 func TestBuildTieredPromptSimpleShorterThanComplex(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {Model: "sonnet"},
 		},
 		Providers:    map[string]ProviderConfig{},
@@ -110,7 +110,7 @@ func TestBuildTieredPromptSimpleShorterThanComplex(t *testing.T) {
 func TestBuildTieredPromptSimpleClearsAddDirs(t *testing.T) {
 	cfg := &Config{
 		baseDir: "/tmp/tetora",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 		Providers:      map[string]ProviderConfig{},
@@ -134,7 +134,7 @@ func TestBuildTieredPromptSimpleClearsAddDirs(t *testing.T) {
 func TestBuildTieredPromptClaudeCodeSkipsInjection(t *testing.T) {
 	cfg := &Config{
 		baseDir: "/tmp/tetora",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {Provider: "cc"},
 		},
 		Providers: map[string]ProviderConfig{
@@ -164,7 +164,7 @@ func TestBuildTieredPromptClaudeCodeSkipsInjection(t *testing.T) {
 
 func TestBuildTieredPromptTotalBudget(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 		Providers: map[string]ProviderConfig{},

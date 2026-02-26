@@ -19,7 +19,7 @@ type MigrationReport struct {
 	SkillsImported int      `json:"skillsImported"`
 	WorkspaceFiles int      `json:"workspaceFiles"`
 	CronJobs       int      `json:"cronJobs"`
-	RolesImported  int      `json:"rolesImported"`
+	AgentsImported int      `json:"agentsImported"`
 	Warnings       []string `json:"warnings,omitempty"`
 	Errors         []string `json:"errors,omitempty"`
 }
@@ -801,14 +801,14 @@ func parseSoulDescription(path string) string {
 }
 
 // migrateOpenClawRoles finds SOUL files in OpenClaw workspace and creates
-// corresponding Tetora roles with soul files in per-role workspaces.
-// Role names are derived from the character's romanized name in the SOUL file
+// corresponding Tetora agents with soul files in per-agent workspaces.
+// Agent names are derived from the character's romanized name in the SOUL file
 // (e.g. "Kohaku" → "kohaku"), not from directory names.
-// Each role gets: ~/.tetora/agents/{role}/SOUL.md
+// Each agent gets: ~/.tetora/agents/{agent}/SOUL.md
 func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
 	wsDir := filepath.Join(ocDir, "workspace")
 	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
-		report.Warnings = append(report.Warnings, "no workspace/ directory, skipping roles")
+		report.Warnings = append(report.Warnings, "no workspace/ directory, skipping agents")
 		return nil
 	}
 
@@ -819,7 +819,7 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 	type soulEntry struct {
 		name    string // romanized character name (lowercase)
 		srcPath string
-		isRoot  bool // root SOUL = coordinator/default role
+		isRoot  bool // root SOUL = coordinator/default agent
 	}
 	var souls []soulEntry
 
@@ -863,7 +863,7 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 	}
 
 	for _, s := range souls {
-		// Per-role agent directory: ~/.tetora/agents/{roleName}/
+		// Per-agent directory: ~/.tetora/agents/{agentName}/
 		agentDir := filepath.Join(cfg.AgentsDir, s.name)
 		dstPath := filepath.Join(agentDir, "SOUL.md")
 
@@ -883,28 +883,28 @@ func migrateOpenClawRoles(cfg *Config, ocDir string, dryRun bool, report *Migrat
 				desc = fmt.Sprintf("Imported from OpenClaw (%s)", s.name)
 			}
 
-			rc := RoleConfig{
+			rc := AgentConfig{
 				SoulFile:       "SOUL.md",
 				Model:          defaultModel,
 				Description:    desc,
 				PermissionMode: "acceptEdits",
 			}
-			if err := updateConfigRoles(configPath, s.name, &rc); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("adding role %q: %v", s.name, err))
+			if err := updateConfigAgents(configPath, s.name, &rc); err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("adding agent %q: %v", s.name, err))
 				continue
 			}
 
-			// Set root soul as smartDispatch default role.
+			// Set root soul as smartDispatch default agent.
 			if s.isRoot {
 				if err := updateConfigSmartDispatchDefault(configPath, s.name); err != nil {
-					report.Warnings = append(report.Warnings, fmt.Sprintf("setting defaultRole: %v", err))
+					report.Warnings = append(report.Warnings, fmt.Sprintf("setting defaultAgent: %v", err))
 				}
 			}
 		}
 		count++
 	}
 
-	report.RolesImported = count
+	report.AgentsImported = count
 	return nil
 }
 

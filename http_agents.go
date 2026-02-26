@@ -44,8 +44,8 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}
-			if msg.FromRole == "" || msg.ToRole == "" || msg.Content == "" {
-				http.Error(w, `{"error":"fromRole, toRole, and content are required"}`, http.StatusBadRequest)
+			if msg.FromAgent == "" || msg.ToAgent == "" || msg.Content == "" {
+				http.Error(w, `{"error":"fromAgent, toAgent, and content are required"}`, http.StatusBadRequest)
 				return
 			}
 			if msg.Type == "" {
@@ -56,7 +56,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			auditLog(cfg.HistoryDB, "agent.message", "http",
-				fmt.Sprintf("%s→%s type=%s", msg.FromRole, msg.ToRole, msg.Type), clientIP(r))
+				fmt.Sprintf("%s→%s type=%s", msg.FromAgent, msg.ToAgent, msg.Type), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "sent", "id": msg.ID})
 
 		default:
@@ -286,7 +286,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 		task := Task{
 			Name:   "quick:" + req.Name,
 			Prompt: prompt,
-			Role:   role,
+			Agent:   role,
 			Source: "quick:" + req.Name,
 		}
 		fillDefaults(cfg, &task)
@@ -366,7 +366,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 		}
 
 		var req struct {
-			Role      string `json:"role"`
+			Agent      string `json:"agent"`
 			Message   string `json:"message"`
 			SessionID string `json:"sessionId"`
 		}
@@ -396,7 +396,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 		type runningTask struct {
 			ID       string `json:"id"`
 			Name     string `json:"name"`
-			Role     string `json:"role,omitempty"`
+			Agent     string `json:"agent,omitempty"`
 			Source   string `json:"source,omitempty"`
 			Prompt   string `json:"prompt,omitempty"`
 			Elapsed  string `json:"elapsed"`
@@ -415,7 +415,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				tasks = append(tasks, runningTask{
 					ID:       ts.task.ID,
 					Name:     ts.task.Name,
-					Role:     ts.task.Role,
+					Agent:     ts.task.Agent,
 					Source:   ts.task.Source,
 					Prompt:   prompt,
 					Elapsed:  time.Since(ts.startAt).Round(time.Second).String(),
@@ -446,22 +446,22 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/trust/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		roleName := strings.TrimPrefix(r.URL.Path, "/trust/")
-		roleName = strings.TrimSuffix(roleName, "/")
-		if roleName == "" {
-			http.Error(w, `{"error":"role name required"}`, http.StatusBadRequest)
+		agentName := strings.TrimPrefix(r.URL.Path, "/trust/")
+		agentName = strings.TrimSuffix(agentName, "/")
+		if agentName == "" {
+			http.Error(w, `{"error":"agent name required"}`, http.StatusBadRequest)
 			return
 		}
 
-		// Check if role exists.
-		if _, ok := cfg.Roles[roleName]; !ok {
-			http.Error(w, `{"error":"role not found"}`, http.StatusNotFound)
+		// Check if agent exists.
+		if _, ok := cfg.Agents[agentName]; !ok {
+			http.Error(w, `{"error":"agent not found"}`, http.StatusNotFound)
 			return
 		}
 
 		switch r.Method {
 		case http.MethodGet:
-			status := getTrustStatus(cfg, roleName)
+			status := getTrustStatus(cfg, agentName)
 			json.NewEncoder(w).Encode(status)
 
 		case http.MethodPost, http.MethodPut:
@@ -478,26 +478,26 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 
-			oldLevel := resolveTrustLevel(cfg, roleName)
-			if err := updateRoleTrustLevel(cfg, roleName, body.Level); err != nil {
+			oldLevel := resolveTrustLevel(cfg, agentName)
+			if err := updateAgentTrustLevel(cfg, agentName, body.Level); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 				return
 			}
 
 			// Persist to config.json.
 			configPath := filepath.Join(cfg.baseDir, "config.json")
-			if err := saveRoleTrustLevel(configPath, roleName, body.Level); err != nil {
-				logWarn("persist trust level failed", "role", roleName, "error", err)
+			if err := saveAgentTrustLevel(configPath, agentName, body.Level); err != nil {
+				logWarn("persist trust level failed", "agent", agentName, "error", err)
 			}
 
 			// Record trust event.
-			recordTrustEvent(cfg.HistoryDB, roleName, "set", oldLevel, body.Level, 0,
+			recordTrustEvent(cfg.HistoryDB, agentName, "set", oldLevel, body.Level, 0,
 				"set via API")
 
 			auditLog(cfg.HistoryDB, "trust.set", "http",
-				fmt.Sprintf("role=%s from=%s to=%s", roleName, oldLevel, body.Level), clientIP(r))
+				fmt.Sprintf("agent=%s from=%s to=%s", agentName, oldLevel, body.Level), clientIP(r))
 
-			json.NewEncoder(w).Encode(getTrustStatus(cfg, roleName))
+			json.NewEncoder(w).Encode(getTrustStatus(cfg, agentName))
 
 		default:
 			http.Error(w, `{"error":"GET or POST"}`, http.StatusMethodNotAllowed)

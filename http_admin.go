@@ -48,7 +48,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		}
 		type webhookInfo struct {
 			Name      string `json:"name"`
-			Role      string `json:"role"`
+			Agent      string `json:"agent"`
 			Enabled   bool   `json:"enabled"`
 			Template  string `json:"template,omitempty"`
 			Filter    string `json:"filter,omitempty"`
@@ -59,7 +59,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		for name, wh := range cfg.IncomingWebhooks {
 			list = append(list, webhookInfo{
 				Name:      name,
-				Role:      wh.Role,
+				Agent:      wh.Agent,
 				Enabled:   wh.isEnabled(),
 				Template:  wh.Template,
 				Filter:    wh.Filter,
@@ -606,7 +606,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		}
 
 		rows, err := queryDB(cfg.HistoryDB,
-			fmt.Sprintf(`SELECT id, skill_name, event_type, task_prompt, role, created_at FROM skill_usage ORDER BY id DESC LIMIT %d`, limit))
+			fmt.Sprintf(`SELECT id, skill_name, event_type, task_prompt, agent, created_at FROM skill_usage ORDER BY id DESC LIMIT %d`, limit))
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return

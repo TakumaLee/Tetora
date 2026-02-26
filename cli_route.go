@@ -75,7 +75,7 @@ func cmdRouteDispatch(args []string) {
 	if dryRun {
 		var route RouteResult
 		json.NewDecoder(resp.Body).Decode(&route)
-		fmt.Printf("Role:       %s\n", route.Role)
+		fmt.Printf("Agent:      %s\n", route.Agent)
 		fmt.Printf("Method:     %s\n", route.Method)
 		fmt.Printf("Confidence: %s\n", route.Confidence)
 		if route.Reason != "" {
@@ -89,7 +89,7 @@ func cmdRouteDispatch(args []string) {
 
 	dur := time.Duration(result.Task.DurationMs) * time.Millisecond
 	fmt.Fprintf(os.Stderr, "Route: %s (%s, %s) $%.2f %s\n",
-		result.Route.Role, result.Route.Method, result.Route.Confidence,
+		result.Route.Agent, result.Route.Method, result.Route.Confidence,
 		result.Task.CostUSD, dur.Round(time.Second))
 
 	if result.ReviewOK != nil {
@@ -115,7 +115,7 @@ func cmdRouteDispatch(args []string) {
 }
 
 func printRouteUsage() {
-	fmt.Fprintf(os.Stderr, `tetora route — Smart dispatch (auto-route to best role)
+	fmt.Fprintf(os.Stderr, `tetora route — Smart dispatch (auto-route to best agent)
 
 Usage:
   tetora route "your task description" [options]

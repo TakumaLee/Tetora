@@ -26,7 +26,7 @@ func setupTrustTestDB(t *testing.T) string {
 func testCfgWithTrust(dbPath string) *Config {
 	return &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {Model: "sonnet", TrustLevel: "suggest"},
 			"黒曜": {Model: "opus", TrustLevel: "auto"},
 			"琥珀": {Model: "sonnet", TrustLevel: "observe"},
@@ -105,7 +105,7 @@ func TestResolveTrustLevel(t *testing.T) {
 func TestResolveTrustLevelDisabled(t *testing.T) {
 	cfg := &Config{
 		Trust: TrustConfig{Enabled: false},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {TrustLevel: "observe"},
 		},
 	}
@@ -118,7 +118,7 @@ func TestResolveTrustLevelDisabled(t *testing.T) {
 func TestResolveTrustLevelDefault(t *testing.T) {
 	cfg := &Config{
 		Trust: TrustConfig{Enabled: true},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {Model: "sonnet"}, // no TrustLevel set
 		},
 	}
@@ -327,8 +327,8 @@ func TestGetAllTrustStatuses(t *testing.T) {
 func TestUpdateRoleTrustLevel(t *testing.T) {
 	cfg := testCfgWithTrust("")
 
-	if err := updateRoleTrustLevel(cfg, "翡翠", "auto"); err != nil {
-		t.Fatalf("updateRoleTrustLevel: %v", err)
+	if err := updateAgentTrustLevel(cfg, "翡翠", "auto"); err != nil {
+		t.Fatalf("updateAgentTrustLevel: %v", err)
 	}
 	if level := resolveTrustLevel(cfg, "翡翠"); level != "auto" {
 		t.Errorf("level = %q, want auto", level)
@@ -338,7 +338,7 @@ func TestUpdateRoleTrustLevel(t *testing.T) {
 func TestUpdateRoleTrustLevelInvalid(t *testing.T) {
 	cfg := testCfgWithTrust("")
 
-	if err := updateRoleTrustLevel(cfg, "翡翠", "invalid"); err == nil {
+	if err := updateAgentTrustLevel(cfg, "翡翠", "invalid"); err == nil {
 		t.Error("expected error for invalid trust level")
 	}
 }
@@ -346,7 +346,7 @@ func TestUpdateRoleTrustLevelInvalid(t *testing.T) {
 func TestUpdateRoleTrustLevelUnknownRole(t *testing.T) {
 	cfg := testCfgWithTrust("")
 
-	if err := updateRoleTrustLevel(cfg, "unknown", "auto"); err == nil {
+	if err := updateAgentTrustLevel(cfg, "unknown", "auto"); err == nil {
 		t.Error("expected error for unknown role")
 	}
 }
@@ -368,8 +368,8 @@ func TestSaveRoleTrustLevel(t *testing.T) {
 	os.WriteFile(configPath, data, 0o644)
 
 	// Update trust level.
-	if err := saveRoleTrustLevel(configPath, "翡翠", "auto"); err != nil {
-		t.Fatalf("saveRoleTrustLevel: %v", err)
+	if err := saveAgentTrustLevel(configPath, "翡翠", "auto"); err != nil {
+		t.Fatalf("saveAgentTrustLevel: %v", err)
 	}
 
 	// Read back and verify.
@@ -432,7 +432,7 @@ func TestTrustAPIGetSingle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/trust/", func(w http.ResponseWriter, r *http.Request) {
 		role := strings.TrimPrefix(r.URL.Path, "/trust/")
-		if _, ok := cfg.Roles[role]; !ok {
+		if _, ok := cfg.Agents[role]; !ok {
 			http.Error(w, `{"error":"not found"}`, 404)
 			return
 		}
@@ -474,14 +474,14 @@ func TestTrustAPISetLevel(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/trust/", func(w http.ResponseWriter, r *http.Request) {
 		role := strings.TrimPrefix(r.URL.Path, "/trust/")
-		if _, ok := cfg.Roles[role]; !ok {
+		if _, ok := cfg.Agents[role]; !ok {
 			http.Error(w, `{"error":"not found"}`, 404)
 			return
 		}
 		var body struct{ Level string `json:"level"` }
 		json.NewDecoder(r.Body).Decode(&body)
-		updateRoleTrustLevel(cfg, role, body.Level)
-		saveRoleTrustLevel(configPath, role, body.Level)
+		updateAgentTrustLevel(cfg, role, body.Level)
+		saveAgentTrustLevel(configPath, role, body.Level)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(getTrustStatus(cfg, role))
 	})

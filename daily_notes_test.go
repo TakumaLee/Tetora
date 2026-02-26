@@ -44,7 +44,7 @@ func TestGenerateDailyNote(t *testing.T) {
 		id TEXT PRIMARY KEY,
 		name TEXT,
 		source TEXT,
-		role TEXT,
+		agent TEXT,
 		status TEXT,
 		duration_ms INTEGER,
 		cost_usd REAL,
@@ -65,7 +65,7 @@ func TestGenerateDailyNote(t *testing.T) {
 	// Insert test tasks.
 	yesterday := time.Now().AddDate(0, 0, -1)
 	startedAt := yesterday.Format("2006-01-02 10:00:00")
-	sql := `INSERT INTO history (id, name, source, role, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at, finished_at)
+	sql := `INSERT INTO history (id, name, source, agent, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at, finished_at)
 	        VALUES ('test1', 'Test Task 1', 'cron', '琉璃', 'success', 1000, 0.05, 100, 200, '` + escapeSQLite(startedAt) + `', '` + escapeSQLite(startedAt) + `')`
 	if _, err := queryDB(dbPath, sql); err != nil {
 		t.Fatalf("insert test data: %v", err)

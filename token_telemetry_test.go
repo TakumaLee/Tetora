@@ -52,7 +52,7 @@ func TestRecordAndQueryTokenTelemetry(t *testing.T) {
 	// Record two entries with different complexity levels.
 	recordTokenTelemetry(dbPath, TokenTelemetryEntry{
 		TaskID:             "task-001",
-		Role:               "ruri",
+		Agent:               "ruri",
 		Complexity:         "simple",
 		Provider:           "anthropic",
 		Model:              "haiku",
@@ -69,7 +69,7 @@ func TestRecordAndQueryTokenTelemetry(t *testing.T) {
 
 	recordTokenTelemetry(dbPath, TokenTelemetryEntry{
 		TaskID:             "task-002",
-		Role:               "kohaku",
+		Agent:               "kohaku",
 		Complexity:         "complex",
 		Provider:           "anthropic",
 		Model:              "sonnet",
@@ -86,7 +86,7 @@ func TestRecordAndQueryTokenTelemetry(t *testing.T) {
 
 	recordTokenTelemetry(dbPath, TokenTelemetryEntry{
 		TaskID:             "task-003",
-		Role:               "ruri",
+		Agent:               "ruri",
 		Complexity:         "complex",
 		Provider:           "anthropic",
 		Model:              "sonnet",
@@ -143,15 +143,15 @@ func TestRecordAndQueryTokenTelemetry(t *testing.T) {
 		t.Fatalf("queryTokenUsageByRole failed: %v", err)
 	}
 
-	roles := parseTokenRoleRows(roleRows)
+	roles := parseTokenAgentRows(roleRows)
 
 	if len(roles) != 3 {
 		t.Fatalf("expected 3 role/complexity groups, got %d", len(roles))
 	}
 
 	// First entry should be the highest cost (ruri/complex: $0.06).
-	if roles[0].Role != "ruri" || roles[0].Complexity != "complex" {
-		t.Errorf("expected first entry ruri/complex, got %s/%s", roles[0].Role, roles[0].Complexity)
+	if roles[0].Agent != "ruri" || roles[0].Complexity != "complex" {
+		t.Errorf("expected first entry ruri/complex, got %s/%s", roles[0].Agent, roles[0].Complexity)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestQueryTokenUsageByRoleNoDBPath(t *testing.T) {
 func TestRecordTokenTelemetryEmptyPath(t *testing.T) {
 	// Should be a no-op, not panic.
 	recordTokenTelemetry("", TokenTelemetryEntry{
-		TaskID: "test", Role: "ruri", Complexity: "simple",
+		TaskID: "test", Agent: "ruri", Complexity: "simple",
 	})
 }
 
@@ -255,9 +255,9 @@ func TestFormatTokenSummaryWithData(t *testing.T) {
 }
 
 func TestFormatTokenByRoleWithData(t *testing.T) {
-	rows := []TokenRoleRow{
+	rows := []TokenAgentRow{
 		{
-			Role: "ruri", Complexity: "complex", RequestCount: 3,
+			Agent: "ruri", Complexity: "complex", RequestCount: 3,
 			TotalInput: 9000, TotalOutput: 3600, TotalCost: 0.18,
 		},
 	}
@@ -303,15 +303,15 @@ func TestParseTokenSummaryRows(t *testing.T) {
 	}
 }
 
-func TestParseTokenRoleRows(t *testing.T) {
-	result := parseTokenRoleRows(nil)
+func TestParseTokenAgentRows(t *testing.T) {
+	result := parseTokenAgentRows(nil)
 	if result != nil {
 		t.Errorf("expected nil for nil input, got %v", result)
 	}
 
 	rows := []map[string]any{
 		{
-			"role":          "kohaku",
+			"agent":         "kohaku",
 			"complexity":    "complex",
 			"request_count": float64(3),
 			"total_input":   float64(9000),
@@ -320,12 +320,12 @@ func TestParseTokenRoleRows(t *testing.T) {
 		},
 	}
 
-	parsed := parseTokenRoleRows(rows)
+	parsed := parseTokenAgentRows(rows)
 	if len(parsed) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(parsed))
 	}
-	if parsed[0].Role != "kohaku" {
-		t.Errorf("expected role=kohaku, got %s", parsed[0].Role)
+	if parsed[0].Agent != "kohaku" {
+		t.Errorf("expected role=kohaku, got %s", parsed[0].Agent)
 	}
 	if parsed[0].TotalCost < 0.14 || parsed[0].TotalCost > 0.16 {
 		t.Errorf("expected totalCost ~0.15, got %.4f", parsed[0].TotalCost)

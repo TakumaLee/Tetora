@@ -54,9 +54,9 @@ func TestIsValidPriority(t *testing.T) {
 // --- Dedup Key Tests ---
 
 func TestNotifyMessageDedupKey(t *testing.T) {
-	m1 := NotifyMessage{EventType: "task.complete", Role: "琉璃"}
-	m2 := NotifyMessage{EventType: "task.complete", Role: "琉璃"}
-	m3 := NotifyMessage{EventType: "task.complete", Role: "黒曜"}
+	m1 := NotifyMessage{EventType: "task.complete", Agent: "琉璃"}
+	m2 := NotifyMessage{EventType: "task.complete", Agent: "琉璃"}
+	m3 := NotifyMessage{EventType: "task.complete", Agent: "黒曜"}
 
 	if m1.dedupKey() != m2.dedupKey() {
 		t.Error("same event+role should have same dedup key")
@@ -203,13 +203,13 @@ func TestNotificationEngine_Dedup(t *testing.T) {
 	ne.Notify(NotifyMessage{
 		Priority:  PriorityNormal,
 		EventType: "task.complete",
-		Role:      "琉璃",
+		Agent:      "琉璃",
 		Text:      "First",
 	})
 	ne.Notify(NotifyMessage{
 		Priority:  PriorityNormal,
 		EventType: "task.complete",
-		Role:      "琉璃",
+		Agent:      "琉璃",
 		Text:      "Second (should be deduped)",
 	})
 
@@ -221,7 +221,7 @@ func TestNotificationEngine_Dedup(t *testing.T) {
 	ne.Notify(NotifyMessage{
 		Priority:  PriorityNormal,
 		EventType: "task.complete",
-		Role:      "黒曜",
+		Agent:      "黒曜",
 		Text:      "Different role",
 	})
 	if ne.BufferedCount() != 2 {
@@ -238,13 +238,13 @@ func TestNotificationEngine_DedupDifferentEvent(t *testing.T) {
 	ne.Notify(NotifyMessage{
 		Priority:  PriorityNormal,
 		EventType: "task.complete",
-		Role:      "琉璃",
+		Agent:      "琉璃",
 		Text:      "Task done",
 	})
 	ne.Notify(NotifyMessage{
 		Priority:  PriorityNormal,
 		EventType: "job.complete",
-		Role:      "琉璃",
+		Agent:      "琉璃",
 		Text:      "Job done",
 	})
 

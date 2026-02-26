@@ -15,19 +15,19 @@ func initDB(dbPath string) {
 	sql := `
 CREATE TABLE IF NOT EXISTS agent_memory (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL,
+  agent TEXT NOT NULL,
   key TEXT NOT NULL,
   value TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memory_role_key ON agent_memory(role, key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memory_agent_key ON agent_memory(agent, key);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   session_id TEXT,
   channel_type TEXT NOT NULL DEFAULT '',
   channel_id TEXT NOT NULL DEFAULT '',
-  role TEXT NOT NULL DEFAULT '',
+  agent TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
   message_count INTEGER DEFAULT 0,

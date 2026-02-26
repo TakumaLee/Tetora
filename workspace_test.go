@@ -10,7 +10,7 @@ func TestResolveWorkspace_Defaults(t *testing.T) {
 	cfg := &Config{
 		WorkspaceDir: "/home/user/.tetora/workspace",
 		AgentsDir:    "/home/user/.tetora/agents",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {Model: "opus"},
 		},
 	}
@@ -33,7 +33,7 @@ func TestResolveWorkspace_CustomConfig(t *testing.T) {
 	cfg := &Config{
 		WorkspaceDir: "/home/user/.tetora/workspace",
 		AgentsDir:    "/home/user/.tetora/agents",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Model: "opus",
 				Workspace: WorkspaceConfig{
@@ -61,7 +61,7 @@ func TestResolveWorkspace_CustomConfig(t *testing.T) {
 func TestResolveWorkspace_UnknownRole(t *testing.T) {
 	cfg := &Config{
 		WorkspaceDir: "/tmp/tetora/workspace",
-		Roles:        map[string]RoleConfig{},
+		Agents:        map[string]AgentConfig{},
 	}
 
 	ws := resolveWorkspace(cfg, "unknown")
@@ -76,11 +76,11 @@ func TestResolveSessionScope_Main(t *testing.T) {
 		Tools: ToolConfig{
 			DefaultProfile: "standard",
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "full",
 				},
 				Workspace: WorkspaceConfig{
@@ -111,11 +111,11 @@ func TestResolveSessionScope_DM(t *testing.T) {
 		Tools: ToolConfig{
 			DefaultProfile: "standard",
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "standard",
 				},
 			},
@@ -142,11 +142,11 @@ func TestResolveSessionScope_DM(t *testing.T) {
 
 func TestResolveSessionScope_Group(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Model:      "opus",
 				TrustLevel: "auto",
-				ToolPolicy: RoleToolPolicy{
+				ToolPolicy: AgentToolPolicy{
 					Profile: "full",
 				},
 			},
@@ -203,7 +203,7 @@ func TestResolveMCPServers_Explicit(t *testing.T) {
 			"server2": {},
 			"server3": {},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Workspace: WorkspaceConfig{
 					MCPServers: []string{"server1", "server2"},
@@ -235,7 +235,7 @@ func TestResolveMCPServers_Default(t *testing.T) {
 			"server2": {},
 			"server3": {},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {}, // No explicit MCP servers
 		},
 	}
@@ -271,7 +271,7 @@ func TestInitWorkspaces(t *testing.T) {
 		WorkspaceDir: filepath.Join(tmpDir, "workspace"),
 		RuntimeDir:   filepath.Join(tmpDir, "runtime"),
 		VaultDir:     filepath.Join(tmpDir, "vault"),
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri":  {Model: "opus"},
 			"hisui": {Model: "sonnet"},
 		},
@@ -333,7 +333,7 @@ func TestLoadSoulFile(t *testing.T) {
 	}
 
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Workspace: WorkspaceConfig{
 					SoulFile: soulFile,
@@ -350,7 +350,7 @@ func TestLoadSoulFile(t *testing.T) {
 
 func TestLoadSoulFile_NotExist(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"ruri": {
 				Workspace: WorkspaceConfig{
 					SoulFile: "/nonexistent/soul.md",

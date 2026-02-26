@@ -14,8 +14,8 @@ import (
 type Handoff struct {
 	ID            string `json:"id"`
 	WorkflowRunID string `json:"workflowRunId,omitempty"`
-	FromRole      string `json:"fromRole"`
-	ToRole        string `json:"toRole"`
+	FromAgent     string `json:"fromAgent"`
+	ToAgent       string `json:"toAgent"`
 	FromStepID    string `json:"fromStepId,omitempty"`
 	ToStepID      string `json:"toStepId,omitempty"`
 	FromSessionID string `json:"fromSessionId,omitempty"`
@@ -30,8 +30,8 @@ type Handoff struct {
 type AgentMessage struct {
 	ID            string `json:"id"`
 	WorkflowRunID string `json:"workflowRunId,omitempty"`
-	FromRole      string `json:"fromRole"`
-	ToRole        string `json:"toRole"`
+	FromAgent     string `json:"fromAgent"`
+	ToAgent       string `json:"toAgent"`
 	Type          string `json:"type"` // handoff, request, response, note
 	Content       string `json:"content"`
 	RefID         string `json:"refId,omitempty"` // references another message
@@ -40,9 +40,26 @@ type AgentMessage struct {
 
 // AutoDelegation is a parsed delegation marker from agent output.
 type AutoDelegation struct {
-	Role   string `json:"role"`
+	Agent  string `json:"agent"`
 	Task   string `json:"task"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshalling to accept both "role" and "agent" keys.
+// This maintains backward compatibility with LLM output that uses "role".
+func (d *AutoDelegation) UnmarshalJSON(data []byte) error {
+	type Alias AutoDelegation
+	aux := &struct {
+		*Alias
+		Role string `json:"role"`
+	}{Alias: (*Alias)(d)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if d.Agent == "" && aux.Role != "" {
+		d.Agent = aux.Role
+	}
+	return nil
 }
 
 // maxAutoDelegations limits runaway delegation chains per step.
@@ -54,8 +71,8 @@ const handoffTablesSQL = `
 CREATE TABLE IF NOT EXISTS handoffs (
   id TEXT PRIMARY KEY,
   workflow_run_id TEXT DEFAULT '',
-  from_role TEXT NOT NULL DEFAULT '',
-  to_role TEXT NOT NULL DEFAULT '',
+  from_agent TEXT NOT NULL DEFAULT '',
+  to_agent TEXT NOT NULL DEFAULT '',
   from_step_id TEXT DEFAULT '',
   to_step_id TEXT DEFAULT '',
   from_session_id TEXT DEFAULT '',
@@ -71,15 +88,15 @@ CREATE INDEX IF NOT EXISTS idx_handoffs_status ON handoffs(status);
 CREATE TABLE IF NOT EXISTS agent_messages (
   id TEXT PRIMARY KEY,
   workflow_run_id TEXT DEFAULT '',
-  from_role TEXT NOT NULL DEFAULT '',
-  to_role TEXT NOT NULL DEFAULT '',
+  from_agent TEXT NOT NULL DEFAULT '',
+  to_agent TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT 'note',
   content TEXT NOT NULL DEFAULT '',
   ref_id TEXT DEFAULT '',
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_messages_workflow ON agent_messages(workflow_run_id);
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to ON agent_messages(to_role);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to ON agent_messages(to_agent);
 `
 
 func initHandoffTables(dbPath string) {
@@ -98,6 +115,19 @@ func initHandoffTables(dbPath string) {
 			}
 		}
 	}
+	// Migration: rename from_role/to_role -> from_agent/to_agent.
+	for _, stmt := range []string{
+		`ALTER TABLE handoffs RENAME COLUMN from_role TO from_agent;`,
+		`ALTER TABLE handoffs RENAME COLUMN to_role TO to_agent;`,
+		`ALTER TABLE agent_messages RENAME COLUMN from_role TO from_agent;`,
+		`ALTER TABLE agent_messages RENAME COLUMN to_role TO to_agent;`,
+	} {
+		if err := execDB(dbPath, stmt); err != nil {
+			if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+				logWarn("handoff rename migration", "sql", stmt, "error", err)
+			}
+		}
+	}
 	if _, err := queryDB(dbPath, handoffTablesSQL); err != nil {
 		logWarn("init handoff tables failed", "error", err)
 	}
@@ -112,12 +142,12 @@ func recordHandoff(dbPath string, h Handoff) error {
 	initHandoffTables(dbPath)
 
 	sql := fmt.Sprintf(
-		`INSERT INTO handoffs (id, workflow_run_id, from_role, to_role, from_step_id, to_step_id, from_session_id, to_session_id, context, instruction, status, created_at)
+		`INSERT INTO handoffs (id, workflow_run_id, from_agent, to_agent, from_step_id, to_step_id, from_session_id, to_session_id, context, instruction, status, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s')`,
 		escapeSQLite(h.ID),
 		escapeSQLite(h.WorkflowRunID),
-		escapeSQLite(h.FromRole),
-		escapeSQLite(h.ToRole),
+		escapeSQLite(h.FromAgent),
+		escapeSQLite(h.ToAgent),
 		escapeSQLite(h.FromStepID),
 		escapeSQLite(h.ToStepID),
 		escapeSQLite(h.FromSessionID),
@@ -159,7 +189,7 @@ func queryHandoffs(dbPath, workflowRunID string) ([]Handoff, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, workflow_run_id, from_role, to_role, from_step_id, to_step_id,
+		`SELECT id, workflow_run_id, from_agent, to_agent, from_step_id, to_step_id,
 		        from_session_id, to_session_id, context, instruction, status, created_at
 		 FROM handoffs %s ORDER BY created_at ASC`, where)
 
@@ -182,8 +212,8 @@ func handoffFromRow(row map[string]any) Handoff {
 	return Handoff{
 		ID:            jsonStr(row["id"]),
 		WorkflowRunID: jsonStr(row["workflow_run_id"]),
-		FromRole:      jsonStr(row["from_role"]),
-		ToRole:        jsonStr(row["to_role"]),
+		FromAgent:      jsonStr(row["from_agent"]),
+		ToAgent:        jsonStr(row["to_agent"]),
 		FromStepID:    jsonStr(row["from_step_id"]),
 		ToStepID:      jsonStr(row["to_step_id"]),
 		FromSessionID: jsonStr(row["from_session_id"]),
@@ -211,12 +241,12 @@ func sendAgentMessage(dbPath string, msg AgentMessage) error {
 	}
 
 	sql := fmt.Sprintf(
-		`INSERT INTO agent_messages (id, workflow_run_id, from_role, to_role, type, content, ref_id, created_at)
+		`INSERT INTO agent_messages (id, workflow_run_id, from_agent, to_agent, type, content, ref_id, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','%s')`,
 		escapeSQLite(msg.ID),
 		escapeSQLite(msg.WorkflowRunID),
-		escapeSQLite(msg.FromRole),
-		escapeSQLite(msg.ToRole),
+		escapeSQLite(msg.FromAgent),
+		escapeSQLite(msg.ToAgent),
 		escapeSQLite(msg.Type),
 		escapeSQLite(msg.Content),
 		escapeSQLite(msg.RefID),
@@ -243,7 +273,7 @@ func queryAgentMessages(dbPath, workflowRunID, role string, limit int) ([]AgentM
 		conditions = append(conditions, fmt.Sprintf("workflow_run_id = '%s'", escapeSQLite(workflowRunID)))
 	}
 	if role != "" {
-		conditions = append(conditions, fmt.Sprintf("(from_role = '%s' OR to_role = '%s')",
+		conditions = append(conditions, fmt.Sprintf("(from_agent = '%s' OR to_agent = '%s')",
 			escapeSQLite(role), escapeSQLite(role)))
 	}
 
@@ -253,7 +283,7 @@ func queryAgentMessages(dbPath, workflowRunID, role string, limit int) ([]AgentM
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, workflow_run_id, from_role, to_role, type, content, ref_id, created_at
+		`SELECT id, workflow_run_id, from_agent, to_agent, type, content, ref_id, created_at
 		 FROM agent_messages %s ORDER BY created_at ASC LIMIT %d`, where, limit)
 
 	rows, err := queryDB(dbPath, sql)
@@ -275,8 +305,8 @@ func agentMessageFromRow(row map[string]any) AgentMessage {
 	return AgentMessage{
 		ID:            jsonStr(row["id"]),
 		WorkflowRunID: jsonStr(row["workflow_run_id"]),
-		FromRole:      jsonStr(row["from_role"]),
-		ToRole:        jsonStr(row["to_role"]),
+		FromAgent:      jsonStr(row["from_agent"]),
+		ToAgent:        jsonStr(row["to_agent"]),
 		Type:          jsonStr(row["type"]),
 		Content:       jsonStr(row["content"]),
 		RefID:         jsonStr(row["ref_id"]),
@@ -325,7 +355,7 @@ func parseAutoDelegate(output string) []AutoDelegation {
 			continue
 		}
 
-		if wrapper.Delegate.Role == "" || wrapper.Delegate.Task == "" {
+		if wrapper.Delegate.Agent == "" || wrapper.Delegate.Task == "" {
 			continue
 		}
 
@@ -376,7 +406,7 @@ func findMatchingBrace(s string) int {
 
 // --- Handoff Execution ---
 
-// executeHandoff creates a new task for the target role with handoff context.
+// executeHandoff creates a new task for the target agent with handoff context.
 // Returns the task result and updates the handoff status.
 func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	state *dispatchState, sem chan struct{}) TaskResult {
@@ -386,26 +416,18 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 
 	task := Task{
 		ID:        newUUID(),
-		Name:      fmt.Sprintf("handoff:%s→%s", h.FromRole, h.ToRole),
+		Name:      fmt.Sprintf("handoff:%s→%s", h.FromAgent, h.ToAgent),
 		Prompt:    prompt,
-		Role:      h.ToRole,
-		Source:    "handoff:" + h.FromRole,
+		Agent:      h.ToAgent,
+		Source:    "handoff:" + h.FromAgent,
 		SessionID: h.ToSessionID,
 	}
 	fillDefaults(cfg, &task)
 
-	// Inject role settings.
-	if task.Role != "" {
-		if soulPrompt, err := loadRolePrompt(cfg, task.Role); err == nil && soulPrompt != "" {
+	// Inject agent SOUL prompt (model/permission already applied by fillDefaults→applyAgentDefaults).
+	if task.Agent != "" {
+		if soulPrompt, err := loadAgentPrompt(cfg, task.Agent); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
-		}
-		if rc, ok := cfg.Roles[task.Role]; ok {
-			if rc.Model != "" {
-				task.Model = rc.Model
-			}
-			if rc.PermissionMode != "" {
-				task.PermissionMode = rc.PermissionMode
-			}
 		}
 	}
 
@@ -413,10 +435,10 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	now := time.Now().Format(time.RFC3339)
 	createSession(cfg.HistoryDB, Session{
 		ID:        task.SessionID,
-		Role:      h.ToRole,
-		Source:    "handoff:" + h.FromRole,
+		Agent:      h.ToAgent,
+		Source:    "handoff:" + h.FromAgent,
 		Status:    "active",
-		Title:     fmt.Sprintf("Handoff from %s", h.FromRole),
+		Title:     fmt.Sprintf("Handoff from %s", h.FromAgent),
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
@@ -426,10 +448,10 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	updateHandoffStatus(cfg.HistoryDB, h.ID, "active")
 
 	// Execute.
-	result := runSingleTask(ctx, cfg, task, sem, h.ToRole)
+	result := runSingleTask(ctx, cfg, task, sem, h.ToAgent)
 
 	// Record session activity.
-	recordSessionActivity(cfg.HistoryDB, task, result, h.ToRole)
+	recordSessionActivity(cfg.HistoryDB, task, result, h.ToAgent)
 
 	// Update handoff status based on result.
 	if result.Status == "success" {
@@ -439,7 +461,7 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	}
 
 	if cfg.Log {
-		logInfo("handoff completed", "from", h.FromRole, "to", h.ToRole, "handoff", h.ID[:8], "status", result.Status)
+		logInfo("handoff completed", "from", h.FromAgent, "to", h.ToAgent, "handoff", h.ID[:8], "status", result.Status)
 	}
 
 	return result
@@ -463,7 +485,7 @@ func buildHandoffPrompt(contextOutput, instruction string) string {
 // processAutoDelegations handles delegation markers from a dispatch step's output.
 // It executes delegated tasks and returns the combined output.
 func processAutoDelegations(ctx context.Context, cfg *Config, delegations []AutoDelegation,
-	originalOutput, workflowRunID, fromRole, fromStepID string,
+	originalOutput, workflowRunID, fromAgent, fromStepID string,
 	state *dispatchState, sem chan struct{}, broker *sseBroker) string {
 
 	if len(delegations) == 0 {
@@ -473,9 +495,9 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 	combinedOutput := originalOutput
 
 	for _, d := range delegations {
-		// Validate role exists.
-		if _, ok := cfg.Roles[d.Role]; !ok {
-			logWarn("auto-delegate role not found, skipping", "role", d.Role)
+		// Validate agent exists.
+		if _, ok := cfg.Agents[d.Agent]; !ok {
+			logWarn("auto-delegate agent not found, skipping", "agent", d.Agent)
 			continue
 		}
 
@@ -487,8 +509,8 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 		h := Handoff{
 			ID:            handoffID,
 			WorkflowRunID: workflowRunID,
-			FromRole:      fromRole,
-			ToRole:        d.Role,
+			FromAgent:      fromAgent,
+			ToAgent:        d.Agent,
 			FromStepID:    fromStepID,
 			Context:       truncateStr(originalOutput, 5000),
 			Instruction:   d.Task,
@@ -501,8 +523,8 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 		// Record agent message.
 		sendAgentMessage(cfg.HistoryDB, AgentMessage{
 			WorkflowRunID: workflowRunID,
-			FromRole:      fromRole,
-			ToRole:        d.Role,
+			FromAgent:      fromAgent,
+			ToAgent:        d.Agent,
 			Type:          "handoff",
 			Content:       fmt.Sprintf("Auto-delegated: %s (reason: %s)", d.Task, d.Reason),
 			RefID:         handoffID,
@@ -517,8 +539,8 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 				Type: "auto_delegation",
 				Data: map[string]any{
 					"handoffId": handoffID,
-					"fromRole":  fromRole,
-					"toRole":    d.Role,
+					"fromAgent":  fromAgent,
+					"toAgent":    d.Agent,
 					"task":      d.Task,
 					"reason":    d.Reason,
 				},
@@ -526,7 +548,7 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 		}
 
 		if cfg.Log {
-			logInfo("auto-delegate executing", "from", fromRole, "to", d.Role, "task", truncate(d.Task, 60))
+			logInfo("auto-delegate executing", "from", fromAgent, "to", d.Agent, "task", truncate(d.Task, 60))
 		}
 
 		// Execute handoff.
@@ -534,14 +556,14 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 
 		// Append delegated result.
 		if result.Output != "" {
-			combinedOutput += fmt.Sprintf("\n---\n[Delegated to %s]\n%s", d.Role, result.Output)
+			combinedOutput += fmt.Sprintf("\n---\n[Delegated to %s]\n%s", d.Agent, result.Output)
 		}
 
 		// Record response message.
 		sendAgentMessage(cfg.HistoryDB, AgentMessage{
 			WorkflowRunID: workflowRunID,
-			FromRole:      d.Role,
-			ToRole:        fromRole,
+			FromAgent:      d.Agent,
+			ToAgent:        fromAgent,
 			Type:          "response",
 			Content:       truncateStr(result.Output, 2000),
 			RefID:         handoffID,

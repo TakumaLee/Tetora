@@ -8,7 +8,7 @@ import (
 
 // SkillMatcher defines conditions for when a skill should be injected into a prompt.
 type SkillMatcher struct {
-	Roles    []string `json:"roles,omitempty"`    // inject for these roles
+	Agents    []string `json:"agents,omitempty"`    // inject for these roles
 	Keywords []string `json:"keywords,omitempty"` // inject when prompt matches
 	Channels []string `json:"channels,omitempty"` // inject for these channels (telegram, slack, discord, etc.)
 }
@@ -51,10 +51,10 @@ func shouldInjectSkill(skill SkillConfig, task Task) bool {
 	matcher := skill.Matcher
 
 	// Check role match.
-	if len(matcher.Roles) > 0 {
+	if len(matcher.Agents) > 0 {
 		roleMatch := false
-		for _, role := range matcher.Roles {
-			if role == task.Role {
+		for _, role := range matcher.Agents {
+			if role == task.Agent {
 				roleMatch = true
 				break
 			}
@@ -145,7 +145,7 @@ func buildSkillsPrompt(cfg *Config, task Task) string {
 // skillMatchesContext is a helper for testing skill selection logic.
 func skillMatchesContext(skill SkillConfig, role, prompt, source string) bool {
 	task := Task{
-		Role:   role,
+		Agent:  role,
 		Prompt: prompt,
 		Source: source,
 	}

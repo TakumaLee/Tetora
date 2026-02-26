@@ -50,7 +50,7 @@ func cmdWebhookList() {
 		body, _ := io.ReadAll(resp.Body)
 		var list []struct {
 			Name      string `json:"name"`
-			Role      string `json:"role"`
+			Agent      string `json:"agent"`
 			Enabled   bool   `json:"enabled"`
 			Template  string `json:"template,omitempty"`
 			Filter    string `json:"filter,omitempty"`
@@ -73,7 +73,7 @@ func cmdWebhookList() {
 				if wh.HasSecret {
 					secret = "yes"
 				}
-				fmt.Printf("  %-20s  role=%-8s  status=%-8s  secret=%s\n", wh.Name, wh.Role, status, secret)
+				fmt.Printf("  %-20s  agent=%-8s  status=%-8s  secret=%s\n", wh.Name, wh.Agent, status, secret)
 				if wh.Filter != "" {
 					fmt.Printf("  %20s  filter: %s\n", "", wh.Filter)
 				}
@@ -106,7 +106,7 @@ func cmdWebhookList() {
 		if wh.Secret != "" {
 			secret = "yes"
 		}
-		fmt.Printf("  %-20s  role=%-8s  status=%-8s  secret=%s\n", name, wh.Role, status, secret)
+		fmt.Printf("  %-20s  agent=%-8s  status=%-8s  secret=%s\n", name, wh.Agent, status, secret)
 		if wh.Filter != "" {
 			fmt.Printf("  %20s  filter: %s\n", "", wh.Filter)
 		}
@@ -128,7 +128,7 @@ func cmdWebhookShow(name string) {
 	}
 
 	fmt.Printf("Incoming Webhook: %s\n\n", name)
-	fmt.Printf("  Role:     %s\n", wh.Role)
+	fmt.Printf("  Agent:     %s\n", wh.Agent)
 	fmt.Printf("  Enabled:  %v\n", wh.isEnabled())
 	fmt.Printf("  Secret:   %v\n", wh.Secret != "")
 	if wh.Filter != "" {

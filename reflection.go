@@ -24,7 +24,7 @@ type ReflectionConfig struct {
 // ReflectionResult holds the reflection output.
 type ReflectionResult struct {
 	TaskID      string  `json:"taskId"`
-	Role        string  `json:"role"`
+	Agent        string  `json:"agent"`
 	Score       int     `json:"score"`
 	Feedback    string  `json:"feedback"`
 	Improvement string  `json:"improvement"`
@@ -40,14 +40,14 @@ func initReflectionDB(dbPath string) error {
 CREATE TABLE IF NOT EXISTS reflections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL,
-  role TEXT NOT NULL,
+  agent TEXT NOT NULL,
   score INTEGER NOT NULL DEFAULT 3,
   feedback TEXT DEFAULT '',
   improvement TEXT DEFAULT '',
   cost_usd REAL DEFAULT 0,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_reflections_role ON reflections(role);
+CREATE INDEX IF NOT EXISTS idx_reflections_agent ON reflections(agent);
 `
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -73,8 +73,8 @@ func shouldReflect(cfg *Config, task Task, result TaskResult) bool {
 	if cfg == nil || !cfg.Reflection.Enabled {
 		return false
 	}
-	// Skip if role is empty — reflection needs a role context.
-	if task.Role == "" {
+	// Skip if agent is empty — reflection needs an agent context.
+	if task.Agent == "" {
 		return false
 	}
 	// Skip failed/timeout tasks unless TriggerOnFail is set.
@@ -117,10 +117,10 @@ func performReflection(ctx context.Context, cfg *Config, task Task, result TaskR
 Respond ONLY with JSON: {"score":N,"feedback":"brief assessment","improvement":"specific suggestion"}
 
 Task: %s
-Role: %s
+Agent: %s
 Status: %s
 Output: %s`,
-		promptSnippet, task.Role, result.Status, outputSnippet)
+		promptSnippet, task.Agent, result.Status, outputSnippet)
 
 	budget := reflectionBudgetOrDefault(cfg)
 
@@ -132,7 +132,7 @@ Output: %s`,
 		Budget:         budget,
 		Timeout:        "30s",
 		PermissionMode: "plan",
-		Role:           task.Role,
+		Agent:           task.Agent,
 		Source:         "reflection",
 	}
 	fillDefaults(cfg, &reflTask)
@@ -152,7 +152,7 @@ Output: %s`,
 	}
 
 	ref.TaskID = task.ID
-	ref.Role = task.Role
+	ref.Agent = task.Agent
 	ref.CostUSD = reflResult.CostUSD
 	ref.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 
@@ -235,10 +235,10 @@ func extractJSON(s string) string {
 // storeReflection persists a reflection result to the database.
 func storeReflection(dbPath string, ref *ReflectionResult) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, score, feedback, improvement, cost_usd, created_at)
+		`INSERT INTO reflections (task_id, agent, score, feedback, improvement, cost_usd, created_at)
 		 VALUES ('%s','%s',%d,'%s','%s',%f,'%s')`,
 		escapeSQLite(ref.TaskID),
-		escapeSQLite(ref.Role),
+		escapeSQLite(ref.Agent),
 		ref.Score,
 		escapeSQLite(ref.Feedback),
 		escapeSQLite(ref.Improvement),
@@ -255,19 +255,19 @@ func storeReflection(dbPath string, ref *ReflectionResult) error {
 
 // --- Query Reflections ---
 
-// queryReflections returns recent reflections, optionally filtered by role.
-func queryReflections(dbPath, role string, limit int) ([]ReflectionResult, error) {
+// queryReflections returns recent reflections, optionally filtered by agent.
+func queryReflections(dbPath, agent string, limit int) ([]ReflectionResult, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 
 	where := ""
-	if role != "" {
-		where = fmt.Sprintf("WHERE role = '%s'", escapeSQLite(role))
+	if agent != "" {
+		where = fmt.Sprintf("WHERE agent = '%s'", escapeSQLite(agent))
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT task_id, role, score, feedback, improvement, cost_usd, created_at
+		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
 		 FROM reflections %s ORDER BY created_at DESC LIMIT %d`,
 		where, limit)
 
@@ -280,7 +280,7 @@ func queryReflections(dbPath, role string, limit int) ([]ReflectionResult, error
 	for _, row := range rows {
 		results = append(results, ReflectionResult{
 			TaskID:      jsonStr(row["task_id"]),
-			Role:        jsonStr(row["role"]),
+			Agent:       jsonStr(row["agent"]),
 			Score:       jsonInt(row["score"]),
 			Feedback:    jsonStr(row["feedback"]),
 			Improvement: jsonStr(row["improvement"]),
@@ -309,7 +309,7 @@ func buildReflectionContext(dbPath, role string, limit int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Recent self-assessments for role %s:\n", role))
+	b.WriteString(fmt.Sprintf("Recent self-assessments for agent %s:\n", role))
 	for _, ref := range refs {
 		b.WriteString(fmt.Sprintf("- Score: %d/5 - %s\n", ref.Score, ref.Improvement))
 	}

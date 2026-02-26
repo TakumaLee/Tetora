@@ -69,9 +69,9 @@ func (c TrustConfig) promoteThresholdOrDefault() int {
 
 // --- Trust Status ---
 
-// TrustStatus holds the trust state for a single role.
+// TrustStatus holds the trust state for a single agent.
 type TrustStatus struct {
-	Role               string `json:"role"`
+	Agent               string `json:"agent"`
 	Level              string `json:"level"`
 	ConsecutiveSuccess int    `json:"consecutiveSuccess"`
 	PromoteReady       bool   `json:"promoteReady"`       // true if enough consecutive successes for promotion
@@ -86,9 +86,14 @@ func initTrustDB(dbPath string) {
 	if dbPath == "" {
 		return
 	}
+	// Migration: rename role -> agent in trust_events.
+	migrateSQL := `ALTER TABLE trust_events RENAME COLUMN role TO agent;`
+	migrateCmd := exec.Command("sqlite3", dbPath, migrateSQL)
+	migrateCmd.CombinedOutput() // ignore errors (column may already be renamed or table may not exist)
+
 	sql := `CREATE TABLE IF NOT EXISTS trust_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL,
+  agent TEXT NOT NULL,
   event_type TEXT NOT NULL,
   from_level TEXT DEFAULT '',
   to_level TEXT DEFAULT '',
@@ -96,7 +101,7 @@ func initTrustDB(dbPath string) {
   created_at TEXT NOT NULL,
   note TEXT DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_trust_events_role ON trust_events(role);
+CREATE INDEX IF NOT EXISTS idx_trust_events_agent ON trust_events(agent);
 CREATE INDEX IF NOT EXISTS idx_trust_events_time ON trust_events(created_at);`
 
 	cmd := exec.Command("sqlite3", dbPath, sql)
@@ -107,16 +112,16 @@ CREATE INDEX IF NOT EXISTS idx_trust_events_time ON trust_events(created_at);`
 
 // --- Trust Level Resolution ---
 
-// resolveTrustLevel returns the effective trust level for a role.
-// Priority: role config → default "auto".
-func resolveTrustLevel(cfg *Config, roleName string) string {
+// resolveTrustLevel returns the effective trust level for an agent.
+// Priority: agent config → default "auto".
+func resolveTrustLevel(cfg *Config, agentName string) string {
 	if !cfg.Trust.Enabled {
 		return TrustAuto
 	}
-	if roleName == "" {
+	if agentName == "" {
 		return TrustAuto
 	}
-	if rc, ok := cfg.Roles[roleName]; ok && rc.TrustLevel != "" {
+	if rc, ok := cfg.Agents[agentName]; ok && rc.TrustLevel != "" {
 		if isValidTrustLevel(rc.TrustLevel) {
 			return rc.TrustLevel
 		}
@@ -126,7 +131,7 @@ func resolveTrustLevel(cfg *Config, roleName string) string {
 
 // --- Consecutive Success Tracking ---
 
-// queryConsecutiveSuccess counts consecutive successful tasks for a role
+// queryConsecutiveSuccess counts consecutive successful tasks for an agent
 // (most recent first, stopping at the first non-success).
 func queryConsecutiveSuccess(dbPath, role string) int {
 	if dbPath == "" || role == "" {
@@ -135,7 +140,7 @@ func queryConsecutiveSuccess(dbPath, role string) int {
 
 	sql := fmt.Sprintf(
 		`SELECT status FROM job_runs
-		 WHERE role = '%s'
+		 WHERE agent = '%s'
 		 ORDER BY id DESC LIMIT 50`,
 		escapeSQLite(role))
 
@@ -164,7 +169,7 @@ func recordTrustEvent(dbPath, role, eventType, fromLevel, toLevel string, consec
 	}
 
 	sql := fmt.Sprintf(
-		`INSERT INTO trust_events (role, event_type, from_level, to_level, consecutive_success, created_at, note)
+		`INSERT INTO trust_events (agent, event_type, from_level, to_level, consecutive_success, created_at, note)
 		 VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s')`,
 		escapeSQLite(role),
 		escapeSQLite(eventType),
@@ -191,11 +196,11 @@ func queryTrustEvents(dbPath, role string, limit int) ([]map[string]any, error) 
 
 	where := ""
 	if role != "" {
-		where = fmt.Sprintf("WHERE role = '%s'", escapeSQLite(role))
+		where = fmt.Sprintf("WHERE agent = '%s'", escapeSQLite(role))
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT role, event_type, from_level, to_level, consecutive_success, created_at, note
+		`SELECT agent, event_type, from_level, to_level, consecutive_success, created_at, note
 		 FROM trust_events %s ORDER BY id DESC LIMIT %d`, where, limit)
 
 	return queryDB(dbPath, sql)
@@ -214,7 +219,7 @@ func getTrustStatus(cfg *Config, role string) TrustStatus {
 	// Count total tasks.
 	totalTasks := 0
 	if cfg.HistoryDB != "" {
-		sql := fmt.Sprintf(`SELECT COUNT(*) as cnt FROM job_runs WHERE role = '%s'`, escapeSQLite(role))
+		sql := fmt.Sprintf(`SELECT COUNT(*) as cnt FROM job_runs WHERE agent = '%s'`, escapeSQLite(role))
 		if rows, err := queryDB(cfg.HistoryDB, sql); err == nil && len(rows) > 0 {
 			totalTasks = jsonInt(rows[0]["cnt"])
 		}
@@ -227,7 +232,7 @@ func getTrustStatus(cfg *Config, role string) TrustStatus {
 	}
 
 	return TrustStatus{
-		Role:               role,
+		Agent:               role,
 		Level:              level,
 		ConsecutiveSuccess: consecutiveSuccess,
 		PromoteReady:       promoteReady,
@@ -239,8 +244,8 @@ func getTrustStatus(cfg *Config, role string) TrustStatus {
 
 // getAllTrustStatuses returns trust statuses for all configured roles.
 func getAllTrustStatuses(cfg *Config) []TrustStatus {
-	roles := make([]string, 0, len(cfg.Roles))
-	for name := range cfg.Roles {
+	roles := make([]string, 0, len(cfg.Agents))
+	for name := range cfg.Agents {
 		roles = append(roles, name)
 	}
 	sort.Strings(roles)
@@ -254,10 +259,10 @@ func getAllTrustStatuses(cfg *Config) []TrustStatus {
 
 // --- Trust-Aware Task Modification ---
 
-// applyTrustToTask modifies a task based on the trust level of its role.
+// applyTrustToTask modifies a task based on the trust level of its agent.
 // Returns the trust level applied and whether the task needs human confirmation.
-func applyTrustToTask(cfg *Config, task *Task, roleName string) (level string, needsConfirm bool) {
-	level = resolveTrustLevel(cfg, roleName)
+func applyTrustToTask(cfg *Config, task *Task, agentName string) (level string, needsConfirm bool) {
+	level = resolveTrustLevel(cfg, agentName)
 
 	switch level {
 	case TrustObserve:
@@ -279,20 +284,20 @@ func applyTrustToTask(cfg *Config, task *Task, roleName string) (level string, n
 
 // --- Trust Promotion Check ---
 
-// checkTrustPromotion checks if a role should be promoted after a successful task.
+// checkTrustPromotion checks if an agent should be promoted after a successful task.
 // Returns a notification message if promotion is suggested, or "" if not.
-func checkTrustPromotion(ctx context.Context, cfg *Config, roleName string) string {
-	if !cfg.Trust.Enabled || roleName == "" {
+func checkTrustPromotion(ctx context.Context, cfg *Config, agentName string) string {
+	if !cfg.Trust.Enabled || agentName == "" {
 		return ""
 	}
 
-	level := resolveTrustLevel(cfg, roleName)
+	level := resolveTrustLevel(cfg, agentName)
 	next := nextTrustLevel(level)
 	if next == "" {
 		return "" // already at max
 	}
 
-	consecutiveSuccess := queryConsecutiveSuccess(cfg.HistoryDB, roleName)
+	consecutiveSuccess := queryConsecutiveSuccess(cfg.HistoryDB, agentName)
 	threshold := cfg.Trust.promoteThresholdOrDefault()
 
 	if consecutiveSuccess < threshold {
@@ -300,7 +305,7 @@ func checkTrustPromotion(ctx context.Context, cfg *Config, roleName string) stri
 	}
 
 	// Check if we already suggested promotion recently (within 24h).
-	if events, err := queryTrustEvents(cfg.HistoryDB, roleName, 5); err == nil {
+	if events, err := queryTrustEvents(cfg.HistoryDB, agentName, 5); err == nil {
 		for _, e := range events {
 			if jsonStr(e["event_type"]) == "promote_suggest" {
 				if t, err := time.Parse(time.RFC3339, jsonStr(e["created_at"])); err == nil {
@@ -314,50 +319,50 @@ func checkTrustPromotion(ctx context.Context, cfg *Config, roleName string) stri
 
 	if cfg.Trust.AutoPromote {
 		// Auto-promote: update config and record.
-		if err := updateRoleTrustLevel(cfg, roleName, next); err != nil {
-			logWarnCtx(ctx, "auto-promote failed", "role", roleName, "error", err)
+		if err := updateAgentTrustLevel(cfg, agentName, next); err != nil {
+			logWarnCtx(ctx, "auto-promote failed", "agent", agentName, "error", err)
 			return ""
 		}
-		recordTrustEvent(cfg.HistoryDB, roleName, "promote", level, next, consecutiveSuccess,
+		recordTrustEvent(cfg.HistoryDB, agentName, "promote", level, next, consecutiveSuccess,
 			fmt.Sprintf("auto-promoted after %d consecutive successes", consecutiveSuccess))
-		logInfoCtx(ctx, "trust auto-promoted", "role", roleName, "from", level, "to", next)
+		logInfoCtx(ctx, "trust auto-promoted", "agent", agentName, "from", level, "to", next)
 		return fmt.Sprintf("Trust Auto-Promoted [%s]\n%s → %s (%d consecutive successes)",
-			roleName, level, next, consecutiveSuccess)
+			agentName, level, next, consecutiveSuccess)
 	}
 
 	// Suggest promotion.
-	recordTrustEvent(cfg.HistoryDB, roleName, "promote_suggest", level, next, consecutiveSuccess,
+	recordTrustEvent(cfg.HistoryDB, agentName, "promote_suggest", level, next, consecutiveSuccess,
 		fmt.Sprintf("suggested after %d consecutive successes", consecutiveSuccess))
 
 	return fmt.Sprintf("Trust Promotion Ready [%s]\n%s → %s available (%d consecutive successes)\nUse: tetora trust set %s %s",
-		roleName, level, next, consecutiveSuccess, roleName, next)
+		agentName, level, next, consecutiveSuccess, agentName, next)
 }
 
 // --- Config Update ---
 
-// updateRoleTrustLevel updates the trust level for a role in the live config.
-// Note: This modifies the in-memory config only. To persist, call saveRoleTrustLevel.
-func updateRoleTrustLevel(cfg *Config, roleName, newLevel string) error {
+// updateAgentTrustLevel updates the trust level for an agent in the live config.
+// Note: This modifies the in-memory config only. To persist, call saveAgentTrustLevel.
+func updateAgentTrustLevel(cfg *Config, agentName, newLevel string) error {
 	if !isValidTrustLevel(newLevel) {
 		return fmt.Errorf("invalid trust level %q (valid: %s)", newLevel, strings.Join(validTrustLevels, ", "))
 	}
-	rc, ok := cfg.Roles[roleName]
+	rc, ok := cfg.Agents[agentName]
 	if !ok {
-		return fmt.Errorf("role %q not found", roleName)
+		return fmt.Errorf("agent %q not found", agentName)
 	}
 	rc.TrustLevel = newLevel
-	cfg.Roles[roleName] = rc
+	cfg.Agents[agentName] = rc
 	return nil
 }
 
-// saveRoleTrustLevel persists a trust level change to config.json.
-func saveRoleTrustLevel(configPath, roleName, newLevel string) error {
+// saveAgentTrustLevel persists a trust level change to config.json.
+func saveAgentTrustLevel(configPath, agentName, newLevel string) error {
 	return updateConfigField(configPath, func(raw map[string]any) {
 		roles, ok := raw["roles"].(map[string]any)
 		if !ok {
 			return
 		}
-		rc, ok := roles[roleName].(map[string]any)
+		rc, ok := roles[agentName].(map[string]any)
 		if !ok {
 			return
 		}

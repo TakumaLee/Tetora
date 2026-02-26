@@ -55,8 +55,8 @@ func TestEnqueueDequeue(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 pending item, got %d", len(items))
 	}
-	if items[0].RoleName != "翡翠" {
-		t.Errorf("role = %q, want %q", items[0].RoleName, "翡翠")
+	if items[0].AgentName != "翡翠" {
+		t.Errorf("role = %q, want %q", items[0].AgentName, "翡翠")
 	}
 	if items[0].Source != "test" {
 		t.Errorf("source = %q, want %q", items[0].Source, "test")
@@ -122,7 +122,7 @@ func TestCleanupExpired(t *testing.T) {
 	taskBytes, _ := json.Marshal(task)
 	oldTime := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
 
-	sql := "INSERT INTO offline_queue (task_json, role, source, priority, status, retry_count, created_at, updated_at) " +
+	sql := "INSERT INTO offline_queue (task_json, agent, source, priority, status, retry_count, created_at, updated_at) " +
 		"VALUES ('" + escapeSQLite(string(taskBytes)) + "','','test',0,'pending',0,'" + oldTime + "','" + oldTime + "')"
 	execSQL(dbPath, sql)
 

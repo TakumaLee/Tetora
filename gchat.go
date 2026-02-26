@@ -29,7 +29,7 @@ type GoogleChatConfig struct {
 	Enabled           bool   `json:"enabled,omitempty"`
 	ServiceAccountKey string `json:"serviceAccountKey,omitempty"` // JSON key file path or $ENV_VAR
 	WebhookPath       string `json:"webhookPath,omitempty"`       // default "/api/gchat/webhook"
-	DefaultRole       string `json:"defaultRole,omitempty"`       // agent role for Google Chat messages
+	DefaultAgent       string `json:"defaultAgent,omitempty"`       // agent role for Google Chat messages
 }
 
 // webhookPathOrDefault returns the configured webhook path or default.
@@ -361,10 +361,10 @@ func (bot *GoogleChatBot) handleMessage(w http.ResponseWriter, event *gchatEvent
 		return
 	}
 
-	// Determine role.
-	role := bot.cfg.GoogleChat.DefaultRole
+	// Determine agent.
+	role := bot.cfg.GoogleChat.DefaultAgent
 	if role == "" {
-		role = bot.cfg.SmartDispatch.DefaultRole
+		role = bot.cfg.SmartDispatch.DefaultAgent
 	}
 
 	// Dispatch task.
@@ -420,10 +420,10 @@ func (bot *GoogleChatBot) dispatchTask(spaceName, threadName, role, text, userNa
 		return
 	}
 
-	// Build task from role config.
-	roleConfig, exists := bot.cfg.Roles[role]
+	// Build task from agent config.
+	roleConfig, exists := bot.cfg.Agents[role]
 	if !exists {
-		bot.sendTextMessage(spaceName, threadName, fmt.Sprintf("Unknown role: %s", role))
+		bot.sendTextMessage(spaceName, threadName, fmt.Sprintf("Unknown agent: %s", role))
 		return
 	}
 

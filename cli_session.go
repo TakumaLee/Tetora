@@ -12,7 +12,7 @@ func cmdSession(args []string) {
 		fmt.Println("Usage: tetora session <list|show> [options]")
 		fmt.Println()
 		fmt.Println("Commands:")
-		fmt.Println("  list    List sessions [--role ROLE] [--status STATUS] [--limit N]")
+		fmt.Println("  list    List sessions [--agent AGENT] [--status STATUS] [--limit N]")
 		fmt.Println("  show    Show session conversation [session-id]")
 		return
 	}
@@ -42,7 +42,7 @@ func sessionList(args []string) {
 	limit := 20
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--role", "-r":
+		case "--agent", "--role", "-r":
 			if i+1 < len(args) {
 				i++
 				role = args[i]
@@ -63,7 +63,7 @@ func sessionList(args []string) {
 	}
 
 	sessions, total, err := querySessions(cfg.HistoryDB, SessionQuery{
-		Role: role, Status: status, Limit: limit,
+		Agent: role, Status: status, Limit: limit,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -87,7 +87,7 @@ func sessionList(args []string) {
 			shortID = shortID[:12]
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n",
-			shortID, s.Role, s.Status, s.MessageCount, cost, title, formatTime(s.UpdatedAt))
+			shortID, s.Agent, s.Status, s.MessageCount, cost, title, formatTime(s.UpdatedAt))
 	}
 	w.Flush()
 	fmt.Printf("\n%d sessions (of %d total)\n", len(sessions), total)
@@ -106,7 +106,7 @@ func sessionShow(id string) {
 		if ambig, ok := err.(*ErrAmbiguousSession); ok {
 			fmt.Fprintf(os.Stderr, "Ambiguous session ID, multiple matches:\n")
 			for _, s := range ambig.Matches {
-				fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", s.ID, s.Role, s.Title)
+				fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", s.ID, s.Agent, s.Title)
 			}
 			os.Exit(1)
 		}
@@ -120,7 +120,7 @@ func sessionShow(id string) {
 
 	s := detail.Session
 	fmt.Printf("Session %s\n", s.ID)
-	fmt.Printf("  Role:     %s\n", s.Role)
+	fmt.Printf("  Role:     %s\n", s.Agent)
 	fmt.Printf("  Source:   %s\n", s.Source)
 	fmt.Printf("  Status:   %s\n", s.Status)
 	fmt.Printf("  Title:    %s\n", s.Title)

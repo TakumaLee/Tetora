@@ -34,7 +34,7 @@ type ImportMapping struct {
 // ImportResult tracks the import outcome.
 type ImportResult struct {
 	Mappings       []ImportMapping `json:"mappings"`
-	RolesImported  int             `json:"rolesImported"`
+	AgentsImported int             `json:"agentsImported"`
 	RulesImported  int             `json:"rulesImported"`
 	MemoryFiles    int             `json:"memoryFiles"`
 	SkillsImported int             `json:"skillsImported"`
@@ -1121,7 +1121,7 @@ func trackImportCategory(result *ImportResult, m ImportMapping) {
 	switch m.Category {
 	case "agent":
 		if strings.HasSuffix(m.Destination, "SOUL.md") {
-			result.RolesImported++
+			result.AgentsImported++
 		}
 	case "rules", "team":
 		result.RulesImported++
@@ -1140,30 +1140,30 @@ func registerImportedRoles(cfg *Config, configPath string, result *ImportResult)
 		if m.Action != "copy" || m.Category != "agent" || !strings.HasSuffix(m.Destination, "SOUL.md") {
 			continue
 		}
-		roleName := filepath.Base(filepath.Dir(m.Destination))
-		if _, exists := cfg.Roles[roleName]; exists {
+		agentName := filepath.Base(filepath.Dir(m.Destination))
+		if _, exists := cfg.Agents[agentName]; exists {
 			continue // already registered
 		}
 		desc := parseSoulDescription(m.Source)
 		if desc == "" {
-			desc = fmt.Sprintf("Imported from OpenClaw (%s)", roleName)
+			desc = fmt.Sprintf("Imported from OpenClaw (%s)", agentName)
 		}
-		rc := RoleConfig{
+		rc := AgentConfig{
 			SoulFile:       "SOUL.md",
 			Model:          cfg.DefaultModel,
 			Description:    desc,
 			PermissionMode: "acceptEdits",
 			ToolProfile:    "standard",
 		}
-		if err := updateConfigRoles(configPath, roleName, &rc); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("register role %s: %v", roleName, err))
+		if err := updateConfigAgents(configPath, agentName, &rc); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("register role %s: %v", agentName, err))
 		} else {
-			fmt.Printf("  [role] registered: %s\n", roleName)
+			fmt.Printf("  [role] registered: %s\n", agentName)
 		}
 	}
 
 	// Enable smart dispatch when multiple roles exist.
-	if result.RolesImported > 1 {
+	if result.AgentsImported > 1 {
 		enableSmartDispatch(configPath)
 	}
 }
@@ -1367,7 +1367,7 @@ func convertOpenClawJob(job map[string]any) (*CronJobConfig, string) {
 		Enabled:  enabled,
 		Schedule: schedule,
 		TZ:       tz,
-		Role:     role,
+		Agent:    role,
 		Task:     task,
 		Notify:   notify,
 	}, ""
@@ -1512,7 +1512,7 @@ func printMappings(mappings []ImportMapping) {
 
 func printImportReport(result *ImportResult, dryRun bool) {
 	fmt.Println("\n=== Import Report ===")
-	fmt.Printf("Roles imported:   %d\n", result.RolesImported)
+	fmt.Printf("Agents imported:  %d\n", result.AgentsImported)
 	fmt.Printf("Rules imported:   %d\n", result.RulesImported)
 	fmt.Printf("Memory files:     %d\n", result.MemoryFiles)
 	fmt.Printf("Skills imported:  %d\n", result.SkillsImported)

@@ -175,7 +175,7 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 					"name": {"type": "string", "description": "Job name"},
 					"schedule": {"type": "string", "description": "Cron schedule or interval (e.g., '@hourly', '*/5m')"},
 					"prompt": {"type": "string", "description": "Task prompt"},
-					"role": {"type": "string", "description": "Agent role (optional)"}
+					"role": {"type": "string", "description": "Agent name (optional)"}
 				},
 				"required": ["name", "schedule", "prompt"]
 			}`),
@@ -205,7 +205,7 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 	if enabled("agent_list") {
 		r.Register(&ToolDef{
 			Name:        "agent_list",
-			Description: "List available agents/roles with their capabilities",
+			Description: "List available agents with their capabilities",
 			InputSchema: json.RawMessage(`{"type": "object", "properties": {}}`),
 			Handler:     toolAgentList,
 			Builtin:     true,
@@ -219,7 +219,7 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"role": {"type": "string", "description": "Target agent role name"},
+					"role": {"type": "string", "description": "Target agent name"},
 					"prompt": {"type": "string", "description": "Task prompt to send"},
 					"timeout": {"type": "number", "description": "Timeout in seconds (default 300)"}
 				},
@@ -237,7 +237,7 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"role": {"type": "string", "description": "Target agent role name"},
+					"role": {"type": "string", "description": "Target agent name"},
 					"message": {"type": "string", "description": "Message content"},
 					"sessionId": {"type": "string", "description": "Target session ID (optional)"}
 				},
@@ -693,7 +693,7 @@ func toolCronList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 			"name":     j.Name,
 			"schedule": j.Schedule,
 			"enabled":  j.Enabled,
-			"role":     j.Role,
+			"role":     j.Agent,
 		})
 	}
 
@@ -707,7 +707,7 @@ func toolCronCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		Name     string `json:"name"`
 		Schedule string `json:"schedule"`
 		Prompt   string `json:"prompt"`
-		Role     string `json:"role"`
+		Agent    string `json:"agent"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -727,7 +727,7 @@ func toolCronCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		if jobs[i].Name == args.Name {
 			jobs[i].Schedule = args.Schedule
 			jobs[i].Task.Prompt = args.Prompt
-			jobs[i].Role = args.Role
+			jobs[i].Agent = args.Agent
 			jobs[i].Enabled = true
 			found = true
 			break
@@ -740,7 +740,7 @@ func toolCronCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 			Name:     args.Name,
 			Schedule: args.Schedule,
 			Enabled:  true,
-			Role:     args.Role,
+			Agent:    args.Agent,
 			Task: CronTaskConfig{
 				Prompt: args.Prompt,
 			},

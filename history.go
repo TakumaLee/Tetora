@@ -26,7 +26,7 @@ type JobRun struct {
 	OutputFile    string  `json:"outputFile,omitempty"`
 	TokensIn      int     `json:"tokensIn,omitempty"`
 	TokensOut     int     `json:"tokensOut,omitempty"`
-	Role          string  `json:"role,omitempty"`
+	Agent          string  `json:"agent,omitempty"`
 	ParentID      string  `json:"parentId,omitempty"`
 }
 
@@ -68,13 +68,20 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		`ALTER TABLE job_runs ADD COLUMN output_file TEXT DEFAULT '';`,
 		`ALTER TABLE job_runs ADD COLUMN tokens_in INTEGER DEFAULT 0;`,
 		`ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`,
-		`ALTER TABLE job_runs ADD COLUMN role TEXT DEFAULT '';`,
+		`ALTER TABLE job_runs ADD COLUMN agent TEXT DEFAULT '';`,
 		`ALTER TABLE job_runs ADD COLUMN parent_id TEXT DEFAULT '';`,
 	} {
 		if err := execDB(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") {
 				logWarn("history migration failed", "sql", col, "error", err)
 			}
+		}
+	}
+
+	// Migration: rename role -> agent in job_runs (for existing DBs with old column name).
+	if err := execDB(dbPath, `ALTER TABLE job_runs RENAME COLUMN role TO agent;`); err != nil {
+		if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") {
+			// Ignore expected errors silently.
 		}
 	}
 
@@ -85,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 
 func insertJobRun(dbPath string, run JobRun) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, output_file, tokens_in, tokens_out, role, parent_id)
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
 		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
 		escapeSQLite(run.JobID),
 		escapeSQLite(run.Name),
@@ -102,7 +109,7 @@ func insertJobRun(dbPath string, run JobRun) error {
 		escapeSQLite(run.OutputFile),
 		run.TokensIn,
 		run.TokensOut,
-		escapeSQLite(run.Role),
+		escapeSQLite(run.Agent),
 		escapeSQLite(run.ParentID),
 	)
 	return execDB(dbPath, sql)
@@ -121,7 +128,7 @@ func queryHistory(dbPath, jobID string, limit int) ([]JobRun, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -140,7 +147,7 @@ func queryHistory(dbPath, jobID string, limit int) ([]JobRun, error) {
 // queryHistoryByID returns a single job run by its ID.
 func queryHistoryByID(dbPath string, id int) (*JobRun, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE id = %d`, id)
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
@@ -171,7 +178,7 @@ func jobRunFromRow(row map[string]any) JobRun {
 		OutputFile:    jsonStr(row["output_file"]),
 		TokensIn:      jsonInt(row["tokens_in"]),
 		TokensOut:     jsonInt(row["tokens_out"]),
-		Role:          jsonStr(row["role"]),
+		Agent:          jsonStr(row["agent"]),
 		ParentID:      jsonStr(row["parent_id"]),
 	}
 }
@@ -252,7 +259,7 @@ func queryHistoryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) 
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -300,7 +307,7 @@ func queryLastJobRun(dbPath, jobID string) *JobRun {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT 1`,
 		escapeSQLite(jobID))
 
@@ -409,7 +416,7 @@ func queryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	// Failed runs details.
 	if fail > 0 {
 		failSQL := fmt.Sprintf(
-			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(role,'') as role, COALESCE(parent_id,'') as parent_id
+			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 			 FROM job_runs
 			 WHERE started_at >= '%s' AND started_at < '%s' AND status != 'success'
 			 ORDER BY id DESC LIMIT 10`,
@@ -507,7 +514,7 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 		OutputFile:    outputFile,
 		TokensIn:      result.TokensIn,
 		TokensOut:     result.TokensOut,
-		Role:          role,
+		Agent:          role,
 		ParentID:      task.ParentID,
 	}
 	if err := insertJobRun(dbPath, run); err != nil {

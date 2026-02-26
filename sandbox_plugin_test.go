@@ -118,91 +118,91 @@ func TestSandboxManager_AutoDiscover(t *testing.T) {
 	}
 }
 
-// --- sandboxPolicyForRole ---
+// --- sandboxPolicyForAgent ---
 
 func TestSandboxPolicyForRole_Default(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"test": {ToolPolicy: RoleToolPolicy{}},
+		Agents: map[string]AgentConfig{
+			"test": {ToolPolicy: AgentToolPolicy{}},
 		},
 	}
-	if sandboxPolicyForRole(cfg, "test") != "never" {
-		t.Errorf("expected never, got %s", sandboxPolicyForRole(cfg, "test"))
+	if sandboxPolicyForAgent(cfg, "test") != "never" {
+		t.Errorf("expected never, got %s", sandboxPolicyForAgent(cfg, "test"))
 	}
 }
 
 func TestSandboxPolicyForRole_Required(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"dev": {ToolPolicy: RoleToolPolicy{Sandbox: "required"}},
+		Agents: map[string]AgentConfig{
+			"dev": {ToolPolicy: AgentToolPolicy{Sandbox: "required"}},
 		},
 	}
-	if sandboxPolicyForRole(cfg, "dev") != "required" {
-		t.Errorf("expected required, got %s", sandboxPolicyForRole(cfg, "dev"))
+	if sandboxPolicyForAgent(cfg, "dev") != "required" {
+		t.Errorf("expected required, got %s", sandboxPolicyForAgent(cfg, "dev"))
 	}
 }
 
 func TestSandboxPolicyForRole_Optional(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"test": {ToolPolicy: RoleToolPolicy{Sandbox: "optional"}},
+		Agents: map[string]AgentConfig{
+			"test": {ToolPolicy: AgentToolPolicy{Sandbox: "optional"}},
 		},
 	}
-	if sandboxPolicyForRole(cfg, "test") != "optional" {
-		t.Errorf("expected optional, got %s", sandboxPolicyForRole(cfg, "test"))
+	if sandboxPolicyForAgent(cfg, "test") != "optional" {
+		t.Errorf("expected optional, got %s", sandboxPolicyForAgent(cfg, "test"))
 	}
 }
 
 func TestSandboxPolicyForRole_Unknown(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"test": {ToolPolicy: RoleToolPolicy{Sandbox: "bogus"}},
+		Agents: map[string]AgentConfig{
+			"test": {ToolPolicy: AgentToolPolicy{Sandbox: "bogus"}},
 		},
 	}
-	if sandboxPolicyForRole(cfg, "test") != "never" {
-		t.Errorf("expected never for unknown value, got %s", sandboxPolicyForRole(cfg, "test"))
+	if sandboxPolicyForAgent(cfg, "test") != "never" {
+		t.Errorf("expected never for unknown value, got %s", sandboxPolicyForAgent(cfg, "test"))
 	}
 }
 
 func TestSandboxPolicyForRole_EmptyRole(t *testing.T) {
 	cfg := &Config{}
-	if sandboxPolicyForRole(cfg, "") != "never" {
+	if sandboxPolicyForAgent(cfg, "") != "never" {
 		t.Errorf("expected never for empty role")
 	}
 }
 
 func TestSandboxPolicyForRole_MissingRole(t *testing.T) {
-	cfg := &Config{Roles: map[string]RoleConfig{}}
-	if sandboxPolicyForRole(cfg, "nonexistent") != "never" {
+	cfg := &Config{Agents: map[string]AgentConfig{}}
+	if sandboxPolicyForAgent(cfg, "nonexistent") != "never" {
 		t.Errorf("expected never for missing role")
 	}
 }
 
-// --- sandboxImageForRole ---
+// --- sandboxImageForAgent ---
 
 func TestSandboxImageForRole_Default(t *testing.T) {
 	cfg := &Config{}
-	if sandboxImageForRole(cfg, "") != "ubuntu:22.04" {
-		t.Errorf("expected ubuntu:22.04, got %s", sandboxImageForRole(cfg, ""))
+	if sandboxImageForAgent(cfg, "") != "ubuntu:22.04" {
+		t.Errorf("expected ubuntu:22.04, got %s", sandboxImageForAgent(cfg, ""))
 	}
 }
 
 func TestSandboxImageForRole_ConfigDefault(t *testing.T) {
 	cfg := &Config{Sandbox: SandboxConfig{DefaultImage: "debian:12"}}
-	if sandboxImageForRole(cfg, "") != "debian:12" {
-		t.Errorf("expected debian:12, got %s", sandboxImageForRole(cfg, ""))
+	if sandboxImageForAgent(cfg, "") != "debian:12" {
+		t.Errorf("expected debian:12, got %s", sandboxImageForAgent(cfg, ""))
 	}
 }
 
 func TestSandboxImageForRole_RoleOverride(t *testing.T) {
 	cfg := &Config{
 		Sandbox: SandboxConfig{DefaultImage: "debian:12"},
-		Roles: map[string]RoleConfig{
-			"dev": {ToolPolicy: RoleToolPolicy{SandboxImage: "node:20"}},
+		Agents: map[string]AgentConfig{
+			"dev": {ToolPolicy: AgentToolPolicy{SandboxImage: "node:20"}},
 		},
 	}
-	if sandboxImageForRole(cfg, "dev") != "node:20" {
-		t.Errorf("expected node:20, got %s", sandboxImageForRole(cfg, "dev"))
+	if sandboxImageForAgent(cfg, "dev") != "node:20" {
+		t.Errorf("expected node:20, got %s", sandboxImageForAgent(cfg, "dev"))
 	}
 }
 
@@ -210,8 +210,8 @@ func TestSandboxImageForRole_RoleOverride(t *testing.T) {
 
 func TestShouldUseSandbox_Never(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"test": {ToolPolicy: RoleToolPolicy{}},
+		Agents: map[string]AgentConfig{
+			"test": {ToolPolicy: AgentToolPolicy{}},
 		},
 	}
 	use, err := shouldUseSandbox(cfg, "test", nil)
@@ -225,8 +225,8 @@ func TestShouldUseSandbox_Never(t *testing.T) {
 
 func TestShouldUseSandbox_RequiredNoPlugin(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"dev": {ToolPolicy: RoleToolPolicy{Sandbox: "required"}},
+		Agents: map[string]AgentConfig{
+			"dev": {ToolPolicy: AgentToolPolicy{Sandbox: "required"}},
 		},
 	}
 	_, err := shouldUseSandbox(cfg, "dev", nil)
@@ -237,8 +237,8 @@ func TestShouldUseSandbox_RequiredNoPlugin(t *testing.T) {
 
 func TestShouldUseSandbox_OptionalNoPlugin(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
-			"dev": {ToolPolicy: RoleToolPolicy{Sandbox: "optional"}},
+		Agents: map[string]AgentConfig{
+			"dev": {ToolPolicy: AgentToolPolicy{Sandbox: "optional"}},
 		},
 	}
 	use, err := shouldUseSandbox(cfg, "dev", nil)
@@ -284,10 +284,10 @@ func TestSandboxManager_DestroyBySessionNotFound(t *testing.T) {
 	}
 }
 
-// --- RoleToolPolicy JSON serialization ---
+// --- AgentToolPolicy JSON serialization ---
 
-func TestRoleToolPolicy_SandboxJSON(t *testing.T) {
-	policy := RoleToolPolicy{
+func TestAgentToolPolicy_SandboxJSON(t *testing.T) {
+	policy := AgentToolPolicy{
 		Profile:      "standard",
 		Sandbox:      "required",
 		SandboxImage: "node:20",
@@ -296,7 +296,7 @@ func TestRoleToolPolicy_SandboxJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal error: %v", err)
 	}
-	var decoded RoleToolPolicy
+	var decoded AgentToolPolicy
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}

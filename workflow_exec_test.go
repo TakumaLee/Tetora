@@ -482,8 +482,8 @@ func TestHandoffDB(t *testing.T) {
 	h := Handoff{
 		ID:            "h-001",
 		WorkflowRunID: "run-001",
-		FromRole:      "翡翠",
-		ToRole:        "黒曜",
+		FromAgent:      "翡翠",
+		ToAgent:        "黒曜",
 		FromStepID:    "research",
 		ToStepID:      "implement",
 		Context:       "Research results here",
@@ -504,8 +504,8 @@ func TestHandoffDB(t *testing.T) {
 	if len(handoffs) != 1 {
 		t.Fatalf("expected 1 handoff, got %d", len(handoffs))
 	}
-	if handoffs[0].FromRole != "翡翠" || handoffs[0].ToRole != "黒曜" {
-		t.Errorf("roles = %s→%s", handoffs[0].FromRole, handoffs[0].ToRole)
+	if handoffs[0].FromAgent != "翡翠" || handoffs[0].ToAgent != "黒曜" {
+		t.Errorf("roles = %s→%s", handoffs[0].FromAgent, handoffs[0].ToAgent)
 	}
 	if handoffs[0].Status != "pending" {
 		t.Errorf("status = %q, want pending", handoffs[0].Status)
@@ -547,8 +547,8 @@ func TestAgentMessageDB(t *testing.T) {
 
 	msg := AgentMessage{
 		WorkflowRunID: "run-001",
-		FromRole:      "翡翠",
-		ToRole:        "黒曜",
+		FromAgent:      "翡翠",
+		ToAgent:        "黒曜",
 		Type:          "handoff",
 		Content:       "Here are the research results for you to implement",
 		RefID:         "h-001",
@@ -561,8 +561,8 @@ func TestAgentMessageDB(t *testing.T) {
 	// Send a response.
 	resp := AgentMessage{
 		WorkflowRunID: "run-001",
-		FromRole:      "黒曜",
-		ToRole:        "翡翠",
+		FromAgent:      "黒曜",
+		ToAgent:        "翡翠",
 		Type:          "response",
 		Content:       "Implementation complete",
 		RefID:         "h-001",
@@ -669,8 +669,8 @@ Also need:
 				t.Errorf("got %d delegations, want %d", len(delegations), tt.expected)
 			}
 			if tt.role != "" && len(delegations) > 0 {
-				if delegations[0].Role != tt.role {
-					t.Errorf("role = %q, want %q", delegations[0].Role, tt.role)
+				if delegations[0].Agent != tt.role {
+					t.Errorf("role = %q, want %q", delegations[0].Agent, tt.role)
 				}
 			}
 		})
@@ -743,8 +743,8 @@ func TestWorkflowValidateHandoffStep(t *testing.T) {
 	w := &Workflow{
 		Name: "test-handoff",
 		Steps: []WorkflowStep{
-			{ID: "research", Role: "翡翠", Prompt: "Research this"},
-			{ID: "implement", Type: "handoff", HandoffFrom: "research", Role: "黒曜",
+			{ID: "research", Agent: "翡翠", Prompt: "Research this"},
+			{ID: "implement", Type: "handoff", HandoffFrom: "research", Agent: "黒曜",
 				Prompt: "Implement based on research", DependsOn: []string{"research"}},
 		},
 	}
@@ -757,8 +757,8 @@ func TestWorkflowValidateHandoffStep(t *testing.T) {
 	w2 := &Workflow{
 		Name: "test-handoff-bad",
 		Steps: []WorkflowStep{
-			{ID: "step1", Role: "翡翠", Prompt: "Do something"},
-			{ID: "step2", Type: "handoff", Role: "黒曜"},
+			{ID: "step1", Agent: "翡翠", Prompt: "Do something"},
+			{ID: "step2", Type: "handoff", Agent: "黒曜"},
 		},
 	}
 	errs2 := validateWorkflow(w2)
@@ -772,31 +772,31 @@ func TestWorkflowValidateHandoffStep(t *testing.T) {
 		t.Errorf("expected handoffFrom error, got: %v", errs2)
 	}
 
-	// Missing role.
+	// Missing agent.
 	w3 := &Workflow{
-		Name: "test-handoff-no-role",
+		Name: "test-handoff-no-agent",
 		Steps: []WorkflowStep{
-			{ID: "step1", Role: "翡翠", Prompt: "Do something"},
+			{ID: "step1", Agent: "翡翠", Prompt: "Do something"},
 			{ID: "step2", Type: "handoff", HandoffFrom: "step1"},
 		},
 	}
 	errs3 := validateWorkflow(w3)
-	foundRole := false
+	foundAgent := false
 	for _, e := range errs3 {
-		if contains(e, "target 'role'") {
-			foundRole = true
+		if contains(e, "target 'agent'") {
+			foundAgent = true
 		}
 	}
-	if !foundRole {
-		t.Errorf("expected role error, got: %v", errs3)
+	if !foundAgent {
+		t.Errorf("expected agent error, got: %v", errs3)
 	}
 
 	// Unknown handoffFrom reference.
 	w4 := &Workflow{
 		Name: "test-handoff-bad-ref",
 		Steps: []WorkflowStep{
-			{ID: "step1", Role: "翡翠", Prompt: "Do something"},
-			{ID: "step2", Type: "handoff", HandoffFrom: "nonexistent", Role: "黒曜"},
+			{ID: "step1", Agent: "翡翠", Prompt: "Do something"},
+			{ID: "step2", Type: "handoff", HandoffFrom: "nonexistent", Agent: "黒曜"},
 		},
 	}
 	errs4 := validateWorkflow(w4)
@@ -814,7 +814,7 @@ func TestWorkflowValidateHandoffStep(t *testing.T) {
 func TestRunHandoffStepSourceFailed(t *testing.T) {
 	exec := &workflowExecutor{
 		cfg:      &Config{},
-		workflow: &Workflow{Name: "test", Steps: []WorkflowStep{{ID: "src", Role: "翡翠"}}},
+		workflow: &Workflow{Name: "test", Steps: []WorkflowStep{{ID: "src", Agent: "翡翠"}}},
 		run:      &WorkflowRun{ID: "run-1", StepResults: map[string]*StepRunResult{}},
 		wCtx: &WorkflowContext{
 			Input: map[string]string{},
@@ -829,7 +829,7 @@ func TestRunHandoffStepSourceFailed(t *testing.T) {
 		ID:          "handoff-1",
 		Type:        "handoff",
 		HandoffFrom: "src",
-		Role:        "黒曜",
+		Agent:        "黒曜",
 		Prompt:      "Implement this",
 	}
 	result := &StepRunResult{StepID: "handoff-1"}
@@ -859,7 +859,7 @@ func TestRunHandoffStepSourceMissing(t *testing.T) {
 		ID:          "handoff-1",
 		Type:        "handoff",
 		HandoffFrom: "nonexistent",
-		Role:        "黒曜",
+		Agent:        "黒曜",
 	}
 	result := &StepRunResult{StepID: "handoff-1"}
 	exec.runHandoffStep(context.Background(), step, result, exec.wCtx)
@@ -890,8 +890,8 @@ func TestAgentMessageAutoID(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 
 	msg := AgentMessage{
-		FromRole: "翡翠",
-		ToRole:   "黒曜",
+		FromAgent: "翡翠",
+		ToAgent:   "黒曜",
 		Type:     "note",
 		Content:  "test message",
 	}

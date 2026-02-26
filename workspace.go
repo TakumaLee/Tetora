@@ -7,7 +7,7 @@ import (
 
 // --- Workspace Types ---
 
-// WorkspaceConfig defines the isolated workspace for an agent role.
+// WorkspaceConfig defines the isolated workspace for an agent.
 type WorkspaceConfig struct {
 	Dir        string       `json:"dir,omitempty"`        // workspace directory path
 	SoulFile   string       `json:"soulFile,omitempty"`   // agent personality file
@@ -23,17 +23,17 @@ type SandboxMode struct {
 // SessionScope defines trust and tool constraints per session type.
 type SessionScope struct {
 	SessionType string // "main", "dm", "group"
-	TrustLevel  string // from role config or session-type default
-	ToolProfile string // from role config or session-type default
-	Sandbox     bool   // from role config + session type
+	TrustLevel  string // from agent config or session-type default
+	ToolProfile string // from agent config or session-type default
+	Sandbox     bool   // from agent config + session type
 }
 
 // --- Workspace Resolution ---
 
-// resolveWorkspace returns the effective workspace config for a role.
-// Falls back to defaultWorkspace if the role is not found or workspace not configured.
-func resolveWorkspace(cfg *Config, roleName string) WorkspaceConfig {
-	role, ok := cfg.Roles[roleName]
+// resolveWorkspace returns the effective workspace config for an agent.
+// Falls back to defaultWorkspace if the agent is not found or workspace not configured.
+func resolveWorkspace(cfg *Config, agentName string) WorkspaceConfig {
+	role, ok := cfg.Agents[agentName]
 	if !ok {
 		return defaultWorkspace(cfg)
 	}
@@ -47,7 +47,7 @@ func resolveWorkspace(cfg *Config, roleName string) WorkspaceConfig {
 
 	// Set default soul file path if not specified
 	if ws.SoulFile == "" {
-		ws.SoulFile = filepath.Join(cfg.AgentsDir, roleName, "SOUL.md")
+		ws.SoulFile = filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
 	}
 
 	return ws
@@ -66,7 +66,7 @@ func defaultWorkspace(cfg *Config) WorkspaceConfig {
 // v1.3.0 directory layout:
 //
 //	~/.tetora/
-//	  agents/{name}/          — role identity (SOUL.md)
+//	  agents/{name}/          — agent identity (SOUL.md)
 //	  workspace/              — shared workspace
 //	    rules/                — governance rules (injected into system prompt)
 //	    memory/               — shared memory (.md files)
@@ -122,7 +122,7 @@ func initDirectories(cfg *Config) error {
 		}
 	}
 	// Create agent directories for configured roles.
-	for name := range cfg.Roles {
+	for name := range cfg.Agents {
 		agentDir := filepath.Join(cfg.AgentsDir, name)
 		if err := os.MkdirAll(agentDir, 0o755); err != nil {
 			return err
@@ -136,12 +136,12 @@ func initDirectories(cfg *Config) error {
 
 // resolveSessionScope determines the trust, tool, and sandbox settings for a session.
 // Session types: "main" (dashboard/CLI), "dm" (DM), "group" (group chat).
-func resolveSessionScope(cfg *Config, roleName string, sessionType string) SessionScope {
+func resolveSessionScope(cfg *Config, agentName string, sessionType string) SessionScope {
 	scope := SessionScope{SessionType: sessionType}
 
-	role, ok := cfg.Roles[roleName]
+	role, ok := cfg.Agents[agentName]
 	if !ok {
-		// Default scope for unknown roles
+		// Default scope for unknown agents
 		scope.TrustLevel = "auto"
 		scope.ToolProfile = defaultToolProfile(cfg)
 		return scope
@@ -149,18 +149,18 @@ func resolveSessionScope(cfg *Config, roleName string, sessionType string) Sessi
 
 	switch sessionType {
 	case "main": // Dashboard/CLI - most trusted
-		scope.TrustLevel = getRoleConfigTrustLevel(role)
+		scope.TrustLevel = getAgentConfigTrustLevel(role)
 		scope.ToolProfile = role.ToolPolicy.Profile
 		if scope.ToolProfile == "" {
 			scope.ToolProfile = defaultToolProfile(cfg)
 		}
-		// Sandbox based on role config
+		// Sandbox based on agent config
 		if role.Workspace.Sandbox != nil {
 			scope.Sandbox = role.Workspace.Sandbox.Mode == "on"
 		}
 
 	case "dm": // Direct message - moderate trust
-		scope.TrustLevel = minTrust(getRoleConfigTrustLevel(role), "suggest")
+		scope.TrustLevel = minTrust(getAgentConfigTrustLevel(role), "suggest")
 		scope.ToolProfile = role.ToolPolicy.Profile
 		if scope.ToolProfile == "" {
 			scope.ToolProfile = "standard"
@@ -180,8 +180,8 @@ func resolveSessionScope(cfg *Config, roleName string, sessionType string) Sessi
 	return scope
 }
 
-// getRoleConfigTrustLevel returns the trust level from role config, defaulting to "auto".
-func getRoleConfigTrustLevel(role RoleConfig) string {
+// getAgentConfigTrustLevel returns the trust level from agent config, defaulting to "auto".
+func getAgentConfigTrustLevel(role AgentConfig) string {
 	if role.TrustLevel != "" {
 		return role.TrustLevel
 	}
@@ -232,13 +232,13 @@ func minTrust(a, b string) string {
 
 // --- MCP Server Scoping ---
 
-// resolveMCPServers returns the MCP servers available to a role.
+// resolveMCPServers returns the MCP servers available to an agent.
 // If explicitly configured in workspace, use those.
 // Otherwise, return all configured MCP servers.
-func resolveMCPServers(cfg *Config, roleName string) []string {
-	role, ok := cfg.Roles[roleName]
+func resolveMCPServers(cfg *Config, agentName string) []string {
+	role, ok := cfg.Agents[agentName]
 	if !ok {
-		return nil // no role = no MCP servers
+		return nil // no agent = no MCP servers
 	}
 
 	ws := role.Workspace
@@ -258,8 +258,8 @@ func resolveMCPServers(cfg *Config, roleName string) []string {
 
 // loadSoulFile reads the agent's soul/personality file from the workspace.
 // Returns empty string if the file doesn't exist or can't be read.
-func loadSoulFile(cfg *Config, roleName string) string {
-	ws := resolveWorkspace(cfg, roleName)
+func loadSoulFile(cfg *Config, agentName string) string {
+	ws := resolveWorkspace(cfg, agentName)
 	if ws.SoulFile == "" {
 		return ""
 	}
@@ -268,13 +268,13 @@ func loadSoulFile(cfg *Config, roleName string) string {
 	if err != nil {
 		// No soul file is OK, just log debug
 		logDebug("no soul file found",
-			"role", roleName,
+			"agent", agentName,
 			"path", ws.SoulFile)
 		return ""
 	}
 
 	logInfo("loaded soul file",
-		"role", roleName,
+		"agent", agentName,
 		"path", ws.SoulFile,
 		"size", len(data))
 

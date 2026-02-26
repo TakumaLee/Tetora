@@ -31,7 +31,7 @@ func newDiscordTaskNotifier(bot *DiscordBot, channelID string) *discordTaskNotif
 // Errors are logged but never surfaced — notification is best-effort.
 func (n *discordTaskNotifier) NotifyStart(task Task) {
 	// Build the parent message shown in the main channel.
-	role := task.Role
+	role := task.Agent
 	if role == "" {
 		role = "default"
 	}
@@ -41,7 +41,7 @@ func (n *discordTaskNotifier) NotifyStart(task Task) {
 	}
 	promptSnippet := truncate(task.Prompt, 120)
 
-	parentMsg := fmt.Sprintf("⏳ **%s** | role: `%s` | id: `%s`\n> %s",
+	parentMsg := fmt.Sprintf("⏳ **%s** | agent: `%s` | id: `%s`\n> %s",
 		name, role, task.ID[:8], promptSnippet)
 
 	msgID, err := n.bot.sendMessageReturningID(n.channelID, parentMsg)

@@ -49,9 +49,9 @@ func newGroupChatEngine(cfg *Config) *GroupChatEngine {
 		cfg.GroupChat.Activation = "mention"
 	}
 
-	// Default mention names = role names.
+	// Default mention names = agent names.
 	if len(cfg.GroupChat.MentionNames) == 0 {
-		for name := range cfg.Roles {
+		for name := range cfg.Agents {
 			cfg.GroupChat.MentionNames = append(cfg.GroupChat.MentionNames, name)
 		}
 		// Also add "tetora" and "テトラ" as defaults.

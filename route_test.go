@@ -11,11 +11,11 @@ func TestClassifyByKeywords_RuleMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Rules: []RoutingRule{
-				{Role: "黒曜", Keywords: []string{"security", "code review"}},
-				{Role: "琥珀", Keywords: []string{"寫文", "content"}},
+				{Agent: "黒曜", Keywords: []string{"security", "code review"}},
+				{Agent: "琥珀", Keywords: []string{"寫文", "content"}},
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"黒曜": {Model: "sonnet"},
 			"琥珀": {Model: "opus"},
 		},
@@ -46,8 +46,8 @@ func TestClassifyByKeywords_RuleMatch(t *testing.T) {
 			t.Errorf("classifyByKeywords(%q) = nil, want role=%q", tt.prompt, tt.wantRole)
 			continue
 		}
-		if result.Role != tt.wantRole {
-			t.Errorf("classifyByKeywords(%q).Role = %q, want %q", tt.prompt, result.Role, tt.wantRole)
+		if result.Agent != tt.wantRole {
+			t.Errorf("classifyByKeywords(%q).Agent = %q, want %q", tt.prompt, result.Agent, tt.wantRole)
 		}
 		if result.Method != "keyword" {
 			t.Errorf("classifyByKeywords(%q).Method = %q, want keyword", tt.prompt, result.Method)
@@ -59,10 +59,10 @@ func TestClassifyByKeywords_PatternMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Rules: []RoutingRule{
-				{Role: "翡翠", Patterns: []string{`market\s+research`, `competitor\s+analysis`}},
+				{Agent: "翡翠", Patterns: []string{`market\s+research`, `competitor\s+analysis`}},
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"翡翠": {Model: "sonnet"},
 		},
 	}
@@ -90,8 +90,8 @@ func TestClassifyByKeywords_PatternMatch(t *testing.T) {
 			t.Errorf("classifyByKeywords(%q) = nil, want role=%q", tt.prompt, tt.wantRole)
 			continue
 		}
-		if result.Role != tt.wantRole {
-			t.Errorf("classifyByKeywords(%q).Role = %q, want %q", tt.prompt, result.Role, tt.wantRole)
+		if result.Agent != tt.wantRole {
+			t.Errorf("classifyByKeywords(%q).Agent = %q, want %q", tt.prompt, result.Agent, tt.wantRole)
 		}
 	}
 }
@@ -101,7 +101,7 @@ func TestClassifyByKeywords_RoleKeywords(t *testing.T) {
 		SmartDispatch: SmartDispatchConfig{
 			Rules: []RoutingRule{}, // no explicit rules
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet", Keywords: []string{"管理", "status"}},
 			"翡翠": {Model: "sonnet", Keywords: []string{"情報", "research"}},
 		},
@@ -111,8 +111,8 @@ func TestClassifyByKeywords_RoleKeywords(t *testing.T) {
 	if result == nil {
 		t.Fatal("classifyByKeywords returned nil, want role=琉璃")
 	}
-	if result.Role != "琉璃" {
-		t.Errorf("Role = %q, want 琉璃", result.Role)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃", result.Agent)
 	}
 	if result.Confidence != "medium" {
 		t.Errorf("Confidence = %q, want medium (role keyword match)", result.Confidence)
@@ -123,10 +123,10 @@ func TestClassifyByKeywords_RulePriorityOverRole(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Rules: []RoutingRule{
-				{Role: "黒曜", Keywords: []string{"security"}},
+				{Agent: "黒曜", Keywords: []string{"security"}},
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet", Keywords: []string{"security"}}, // same keyword on role
 			"黒曜": {Model: "sonnet"},
 		},
@@ -137,8 +137,8 @@ func TestClassifyByKeywords_RulePriorityOverRole(t *testing.T) {
 		t.Fatal("classifyByKeywords returned nil")
 	}
 	// Rule should take priority over role keyword.
-	if result.Role != "黒曜" {
-		t.Errorf("Role = %q, want 黒曜 (rule priority)", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (rule priority)", result.Agent)
 	}
 	if result.Confidence != "high" {
 		t.Errorf("Confidence = %q, want high (rule match)", result.Confidence)
@@ -148,13 +148,13 @@ func TestClassifyByKeywords_RulePriorityOverRole(t *testing.T) {
 // --- parseLLMRouteResult ---
 
 func TestParseLLMRouteResult_ValidJSON(t *testing.T) {
-	output := `{"role":"翡翠","confidence":"high","reason":"market analysis task"}`
+	output := `{"agent":"翡翠","confidence":"high","reason":"market analysis task"}`
 	result, err := parseLLMRouteResult(output, "琉璃")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Role != "翡翠" {
-		t.Errorf("Role = %q, want 翡翠", result.Role)
+	if result.Agent != "翡翠" {
+		t.Errorf("Role = %q, want 翡翠", result.Agent)
 	}
 	if result.Confidence != "high" {
 		t.Errorf("Confidence = %q, want high", result.Confidence)
@@ -166,15 +166,15 @@ func TestParseLLMRouteResult_ValidJSON(t *testing.T) {
 
 func TestParseLLMRouteResult_WrappedJSON(t *testing.T) {
 	output := `Here's my analysis:
-{"role":"黒曜","confidence":"medium","reason":"looks like code"}
+{"agent":"黒曜","confidence":"medium","reason":"looks like code"}
 That's my recommendation.`
 
 	result, err := parseLLMRouteResult(output, "琉璃")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Role != "黒曜" {
-		t.Errorf("Role = %q, want 黒曜", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜", result.Agent)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestParseLLMRouteResult_Garbage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Should fall back to default.
-	if result.Role != "琉璃" {
-		t.Errorf("Role = %q, want 琉璃 (default)", result.Role)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default)", result.Agent)
 	}
 	if result.Confidence != "low" {
 		t.Errorf("Confidence = %q, want low", result.Confidence)
@@ -199,8 +199,8 @@ func TestParseLLMRouteResult_EmptyRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Role != "琉璃" {
-		t.Errorf("Role = %q, want 琉璃 (default when empty)", result.Role)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default when empty)", result.Agent)
 	}
 }
 
@@ -210,8 +210,8 @@ func TestParseLLMRouteResult_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Role != "琉璃" {
-		t.Errorf("Role = %q, want 琉璃 (default on parse error)", result.Role)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default on parse error)", result.Agent)
 	}
 	if result.Confidence != "low" {
 		t.Errorf("Confidence = %q, want low", result.Confidence)
@@ -235,8 +235,8 @@ func TestCheckBindings_UserIDMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Bindings: []RoutingBinding{
-				{Channel: "telegram", UserID: "12345", Role: "黒曜"},
-				{Channel: "slack", UserID: "U999", Role: "翡翠"},
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
+				{Channel: "slack", UserID: "U999", Agent: "翡翠"},
 			},
 		},
 	}
@@ -264,8 +264,8 @@ func TestCheckBindings_UserIDMatch(t *testing.T) {
 			t.Errorf("checkBindings(%+v) = nil, want role=%q", tt.req, tt.wantRole)
 			continue
 		}
-		if result.Role != tt.wantRole {
-			t.Errorf("checkBindings(%+v).Role = %q, want %q", tt.req, result.Role, tt.wantRole)
+		if result.Agent != tt.wantRole {
+			t.Errorf("checkBindings(%+v).Agent = %q, want %q", tt.req, result.Agent, tt.wantRole)
 		}
 		if result.Method != "binding" {
 			t.Errorf("checkBindings(%+v).Method = %q, want binding", tt.req, result.Method)
@@ -280,8 +280,8 @@ func TestCheckBindings_ChannelIDMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Bindings: []RoutingBinding{
-				{Channel: "slack", ChannelID: "C123", Role: "翡翠"},
-				{Channel: "telegram", ChannelID: "-1001234567890", Role: "琥珀"},
+				{Channel: "slack", ChannelID: "C123", Agent: "翡翠"},
+				{Channel: "telegram", ChannelID: "-1001234567890", Agent: "琥珀"},
 			},
 		},
 	}
@@ -308,8 +308,8 @@ func TestCheckBindings_ChannelIDMatch(t *testing.T) {
 			t.Errorf("checkBindings(%+v) = nil, want role=%q", tt.req, tt.wantRole)
 			continue
 		}
-		if result.Role != tt.wantRole {
-			t.Errorf("checkBindings(%+v).Role = %q, want %q", tt.req, result.Role, tt.wantRole)
+		if result.Agent != tt.wantRole {
+			t.Errorf("checkBindings(%+v).Agent = %q, want %q", tt.req, result.Agent, tt.wantRole)
 		}
 	}
 }
@@ -318,7 +318,7 @@ func TestCheckBindings_GuildIDMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Bindings: []RoutingBinding{
-				{Channel: "discord", GuildID: "G456", Role: "琥珀"},
+				{Channel: "discord", GuildID: "G456", Agent: "琥珀"},
 			},
 		},
 	}
@@ -327,8 +327,8 @@ func TestCheckBindings_GuildIDMatch(t *testing.T) {
 	if result == nil {
 		t.Fatal("checkBindings returned nil, want role=琥珀")
 	}
-	if result.Role != "琥珀" {
-		t.Errorf("Role = %q, want 琥珀", result.Role)
+	if result.Agent != "琥珀" {
+		t.Errorf("Role = %q, want 琥珀", result.Agent)
 	}
 }
 
@@ -336,24 +336,24 @@ func TestCheckBindings_MultipleIDFields(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Bindings: []RoutingBinding{
-				{Channel: "telegram", UserID: "12345", ChannelID: "-100999", Role: "黒曜"},
+				{Channel: "telegram", UserID: "12345", ChannelID: "-100999", Agent: "黒曜"},
 			},
 		},
 	}
 
 	// Should match if ANY of the ID fields match.
 	result1 := checkBindings(cfg, RouteRequest{Source: "telegram", UserID: "12345"})
-	if result1 == nil || result1.Role != "黒曜" {
+	if result1 == nil || result1.Agent != "黒曜" {
 		t.Errorf("checkBindings with UserID match failed")
 	}
 
 	result2 := checkBindings(cfg, RouteRequest{Source: "telegram", ChannelID: "-100999"})
-	if result2 == nil || result2.Role != "黒曜" {
+	if result2 == nil || result2.Agent != "黒曜" {
 		t.Errorf("checkBindings with ChannelID match failed")
 	}
 
 	result3 := checkBindings(cfg, RouteRequest{Source: "telegram", UserID: "12345", ChannelID: "-100999"})
-	if result3 == nil || result3.Role != "黒曜" {
+	if result3 == nil || result3.Agent != "黒曜" {
 		t.Errorf("checkBindings with both IDs match failed")
 	}
 }
@@ -362,7 +362,7 @@ func TestCheckBindings_NoMatch(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
 			Bindings: []RoutingBinding{
-				{Channel: "telegram", UserID: "12345", Role: "黒曜"},
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
 			},
 		},
 	}
@@ -378,16 +378,16 @@ func TestCheckBindings_NoMatch(t *testing.T) {
 func TestRouteTask_BindingPriority(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 			Coordinator: "琉璃",
 			Bindings: []RoutingBinding{
-				{Channel: "telegram", UserID: "12345", Role: "黒曜"},
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
 			},
 			Rules: []RoutingRule{
-				{Role: "翡翠", Keywords: []string{"research"}}, // this keyword will be in prompt
+				{Agent: "翡翠", Keywords: []string{"research"}}, // this keyword will be in prompt
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet"},
 			"黒曜": {Model: "opus"},
 			"翡翠": {Model: "sonnet"},
@@ -403,8 +403,8 @@ func TestRouteTask_BindingPriority(t *testing.T) {
 	}
 
 	result := routeTask(ctx, cfg, req)
-	if result.Role != "黒曜" {
-		t.Errorf("Role = %q, want 黒曜 (binding should override keyword)", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (binding should override keyword)", result.Agent)
 	}
 	if result.Method != "binding" {
 		t.Errorf("Method = %q, want binding", result.Method)
@@ -414,11 +414,11 @@ func TestRouteTask_BindingPriority(t *testing.T) {
 func TestRouteTask_FallbackCoordinator(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 			Coordinator: "琉璃",
 			Fallback:    "coordinator", // bypass LLM routing
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet"},
 		},
 	}
@@ -430,8 +430,8 @@ func TestRouteTask_FallbackCoordinator(t *testing.T) {
 	}
 
 	result := routeTask(ctx, cfg, req)
-	if result.Role != "琉璃" {
-		t.Errorf("Role = %q, want 琉璃 (fallback coordinator)", result.Role)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (fallback coordinator)", result.Agent)
 	}
 	if result.Method != "coordinator" {
 		t.Errorf("Method = %q, want coordinator", result.Method)
@@ -444,14 +444,14 @@ func TestRouteTask_FallbackCoordinator(t *testing.T) {
 func TestRouteTask_FallbackSmartWithKeyword(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 			Coordinator: "琉璃",
 			Fallback:    "smart",
 			Rules: []RoutingRule{
-				{Role: "翡翠", Keywords: []string{"research"}},
+				{Agent: "翡翠", Keywords: []string{"research"}},
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet"},
 			"翡翠": {Model: "sonnet"},
 		},
@@ -465,8 +465,8 @@ func TestRouteTask_FallbackSmartWithKeyword(t *testing.T) {
 
 	// With fallback="smart", keyword matching should still work.
 	result := routeTask(ctx, cfg, req)
-	if result.Role != "翡翠" {
-		t.Errorf("Role = %q, want 翡翠 (keyword should work with smart fallback)", result.Role)
+	if result.Agent != "翡翠" {
+		t.Errorf("Role = %q, want 翡翠 (keyword should work with smart fallback)", result.Agent)
 	}
 	if result.Method != "keyword" {
 		t.Errorf("Method = %q, want keyword", result.Method)
@@ -476,12 +476,12 @@ func TestRouteTask_FallbackSmartWithKeyword(t *testing.T) {
 func TestRouteTask_NoBindingsUsesKeywords(t *testing.T) {
 	cfg := &Config{
 		SmartDispatch: SmartDispatchConfig{
-			DefaultRole: "琉璃",
+			DefaultAgent: "琉璃",
 			Rules: []RoutingRule{
-				{Role: "黒曜", Keywords: []string{"security"}},
+				{Agent: "黒曜", Keywords: []string{"security"}},
 			},
 		},
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {Model: "sonnet"},
 			"黒曜": {Model: "opus"},
 		},
@@ -495,8 +495,8 @@ func TestRouteTask_NoBindingsUsesKeywords(t *testing.T) {
 	}
 
 	result := routeTask(ctx, cfg, req)
-	if result.Role != "黒曜" {
-		t.Errorf("Role = %q, want 黒曜 (keyword match)", result.Role)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (keyword match)", result.Agent)
 	}
 	if result.Method != "keyword" {
 		t.Errorf("Method = %q, want keyword", result.Method)

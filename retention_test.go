@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS job_runs (
   error TEXT DEFAULT '', model TEXT DEFAULT '',
   session_id TEXT DEFAULT '', output_file TEXT DEFAULT '',
   tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
-  role TEXT DEFAULT '', parent_id TEXT DEFAULT ''
+  agent TEXT DEFAULT '', parent_id TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   source TEXT NOT NULL DEFAULT '', detail TEXT DEFAULT '', ip TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY, role TEXT NOT NULL DEFAULT '',
+  id TEXT PRIMARY KEY, agent TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
   title TEXT NOT NULL DEFAULT '', total_cost REAL DEFAULT 0,
   total_tokens_in INTEGER DEFAULT 0, total_tokens_out INTEGER DEFAULT 0,
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 );
 CREATE TABLE IF NOT EXISTS handoffs (
   id TEXT PRIMARY KEY, workflow_run_id TEXT DEFAULT '',
-  from_role TEXT NOT NULL, to_role TEXT NOT NULL,
+  from_agent TEXT NOT NULL, to_agent TEXT NOT NULL,
   from_step_id TEXT DEFAULT '', to_step_id TEXT DEFAULT '',
   from_session_id TEXT DEFAULT '', to_session_id TEXT DEFAULT '',
   context TEXT DEFAULT '', instruction TEXT DEFAULT '',
@@ -136,26 +136,26 @@ CREATE TABLE IF NOT EXISTS handoffs (
 );
 CREATE TABLE IF NOT EXISTS agent_messages (
   id TEXT PRIMARY KEY, workflow_run_id TEXT DEFAULT '',
-  from_role TEXT NOT NULL, to_role TEXT NOT NULL,
+  from_agent TEXT NOT NULL, to_agent TEXT NOT NULL,
   type TEXT NOT NULL, content TEXT NOT NULL DEFAULT '',
   ref_id TEXT DEFAULT '', created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS reflections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT '',
+  task_id TEXT NOT NULL, agent TEXT NOT NULL DEFAULT '',
   score INTEGER DEFAULT 0, feedback TEXT DEFAULT '',
   improvement TEXT DEFAULT '', cost_usd REAL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sla_checks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL, checked_at TEXT NOT NULL,
+  agent TEXT NOT NULL, checked_at TEXT NOT NULL,
   success_rate REAL DEFAULT 0, p95_latency_ms INTEGER DEFAULT 0,
   violation INTEGER DEFAULT 0, detail TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS trust_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL, event_type TEXT NOT NULL,
+  agent TEXT NOT NULL, event_type TEXT NOT NULL,
   from_level TEXT DEFAULT '', to_level TEXT DEFAULT '',
   consecutive_success INTEGER DEFAULT 0,
   created_at TEXT NOT NULL, note TEXT DEFAULT ''
@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS config_versions (
 );
 CREATE TABLE IF NOT EXISTS agent_memory (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL DEFAULT '',
+  agent TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS offline_queue (
@@ -233,11 +233,11 @@ func TestCleanupHandoffs(t *testing.T) {
 	recent := time.Now().Format(time.RFC3339)
 
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO handoffs (id, from_role, to_role, status, created_at) VALUES ('h1','a','b','done','%s')`, old))
+		`INSERT INTO handoffs (id, from_agent, to_agent, status, created_at) VALUES ('h1','a','b','done','%s')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO agent_messages (id, from_role, to_role, type, content, created_at) VALUES ('m1','a','b','note','hi','%s')`, old))
+		`INSERT INTO agent_messages (id, from_agent, to_agent, type, content, created_at) VALUES ('m1','a','b','note','hi','%s')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO handoffs (id, from_role, to_role, status, created_at) VALUES ('h2','a','b','done','%s')`, recent))
+		`INSERT INTO handoffs (id, from_agent, to_agent, status, created_at) VALUES ('h2','a','b','done','%s')`, recent))
 
 	n, err := cleanupHandoffs(dbPath, 30)
 	if err != nil {
@@ -260,9 +260,9 @@ func TestCleanupReflections(t *testing.T) {
 	recent := time.Now().Format(time.RFC3339)
 
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, score, created_at) VALUES ('t1','r1',4,'%s')`, old))
+		`INSERT INTO reflections (task_id, agent, score, created_at) VALUES ('t1','r1',4,'%s')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, score, created_at) VALUES ('t2','r1',5,'%s')`, recent))
+		`INSERT INTO reflections (task_id, agent, score, created_at) VALUES ('t2','r1',5,'%s')`, recent))
 
 	n, err := cleanupReflections(dbPath, 30)
 	if err != nil {
@@ -282,9 +282,9 @@ func TestCleanupSLAChecks(t *testing.T) {
 	recent := time.Now().Format(time.RFC3339)
 
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO sla_checks (role, checked_at) VALUES ('r1','%s')`, old))
+		`INSERT INTO sla_checks (agent, checked_at) VALUES ('r1','%s')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO sla_checks (role, checked_at) VALUES ('r1','%s')`, recent))
+		`INSERT INTO sla_checks (agent, checked_at) VALUES ('r1','%s')`, recent))
 
 	n, err := cleanupSLAChecks(dbPath, 30)
 	if err != nil {
@@ -301,9 +301,9 @@ func TestCleanupTrustEvents(t *testing.T) {
 	recent := time.Now().Format(time.RFC3339)
 
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO trust_events (role, event_type, created_at) VALUES ('r1','promote','%s')`, old))
+		`INSERT INTO trust_events (agent, event_type, created_at) VALUES ('r1','promote','%s')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO trust_events (role, event_type, created_at) VALUES ('r1','promote','%s')`, recent))
+		`INSERT INTO trust_events (agent, event_type, created_at) VALUES ('r1','promote','%s')`, recent))
 
 	n, err := cleanupTrustEvents(dbPath, 30)
 	if err != nil {
@@ -400,7 +400,7 @@ func TestQueryRetentionStats(t *testing.T) {
 	insertTestRow(t, dbPath, fmt.Sprintf(
 		`INSERT INTO audit_log (timestamp, action) VALUES ('%s','test')`, now))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, created_at) VALUES ('t1','r1','%s')`, now))
+		`INSERT INTO reflections (task_id, agent, created_at) VALUES ('t1','r1','%s')`, now))
 
 	stats := queryRetentionStats(dbPath)
 	if stats["job_runs"] != 1 {
@@ -482,7 +482,7 @@ func TestPurgeDataBefore(t *testing.T) {
 	insertTestRow(t, dbPath, fmt.Sprintf(
 		`INSERT INTO audit_log (timestamp, action) VALUES ('%s','old')`, old))
 	insertTestRow(t, dbPath, fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, created_at) VALUES ('t1','r1','%s')`, old))
+		`INSERT INTO reflections (task_id, agent, created_at) VALUES ('t1','r1','%s')`, old))
 
 	results, err := purgeDataBefore(&Config{HistoryDB: dbPath}, "2025-01-01")
 	if err != nil {

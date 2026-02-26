@@ -19,7 +19,7 @@ func cmdTrust(args []string) {
 		cmdTrustShow()
 	case "set":
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "Usage: tetora trust set <role> <level>\n")
+			fmt.Fprintf(os.Stderr, "Usage: tetora trust set <agent> <level>\n")
 			fmt.Fprintf(os.Stderr, "Levels: %s\n", strings.Join(validTrustLevels, ", "))
 			os.Exit(1)
 		}
@@ -60,11 +60,11 @@ func cmdTrustShow() {
 
 func printTrustStatuses(statuses []TrustStatus) {
 	if len(statuses) == 0 {
-		fmt.Println("No roles configured.")
+		fmt.Println("No agents configured.")
 		return
 	}
 
-	fmt.Printf("%-10s %-10s %-8s %-12s %s\n", "Role", "Trust", "Streak", "Tasks", "Status")
+	fmt.Printf("%-10s %-10s %-8s %-12s %s\n", "Agent", "Trust", "Streak", "Tasks", "Status")
 	fmt.Println(strings.Repeat("-", 55))
 
 	for _, s := range statuses {
@@ -73,7 +73,7 @@ func printTrustStatuses(statuses []TrustStatus) {
 			status = fmt.Sprintf("-> %s ready", s.NextLevel)
 		}
 		fmt.Printf("%-10s %-10s %-8d %-12d %s\n",
-			s.Role, s.Level, s.ConsecutiveSuccess, s.TotalTasks, status)
+			s.Agent, s.Level, s.ConsecutiveSuccess, s.TotalTasks, status)
 	}
 }
 
@@ -97,14 +97,14 @@ func cmdTrustSet(role, level string) {
 	}
 
 	// Fallback: update config directly.
-	if _, ok := cfg.Roles[role]; !ok {
-		fmt.Fprintf(os.Stderr, "Error: role %q not found\n", role)
+	if _, ok := cfg.Agents[role]; !ok {
+		fmt.Fprintf(os.Stderr, "Error: agent %q not found\n", role)
 		os.Exit(1)
 	}
 
 	oldLevel := resolveTrustLevel(cfg, role)
 	configPath := filepath.Join(cfg.baseDir, "config.json")
-	if err := saveRoleTrustLevel(configPath, role, level); err != nil {
+	if err := saveAgentTrustLevel(configPath, role, level); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -150,7 +150,7 @@ func printTrustEvents(events []map[string]any) {
 		return
 	}
 
-	fmt.Printf("%-10s %-16s %-12s %-12s %-6s %s\n", "Role", "Event", "From", "To", "Streak", "Time")
+	fmt.Printf("%-10s %-16s %-12s %-12s %-6s %s\n", "Agent", "Event", "From", "To", "Streak", "Time")
 	fmt.Println(strings.Repeat("-", 75))
 
 	for _, e := range events {

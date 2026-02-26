@@ -332,13 +332,13 @@ func (sm *SandboxManager) DestroyAll() {
 
 // --- Sandbox Dispatch Helpers ---
 
-// sandboxPolicyForRole returns the sandbox policy setting for a role.
+// sandboxPolicyForAgent returns the sandbox policy setting for an agent.
 // Returns "required", "optional", or "never" (default).
-func sandboxPolicyForRole(cfg *Config, roleName string) string {
-	if roleName == "" {
+func sandboxPolicyForAgent(cfg *Config, agentName string) string {
+	if agentName == "" {
 		return "never"
 	}
-	rc, ok := cfg.Roles[roleName]
+	rc, ok := cfg.Agents[agentName]
 	if !ok {
 		return "never"
 	}
@@ -350,11 +350,11 @@ func sandboxPolicyForRole(cfg *Config, roleName string) string {
 	}
 }
 
-// sandboxImageForRole returns the sandbox image for a role.
-// Priority: role SandboxImage -> config Sandbox.DefaultImage -> "ubuntu:22.04"
-func sandboxImageForRole(cfg *Config, roleName string) string {
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok {
+// sandboxImageForAgent returns the sandbox image for an agent.
+// Priority: agent SandboxImage -> config Sandbox.DefaultImage -> "ubuntu:22.04"
+func sandboxImageForAgent(cfg *Config, agentName string) string {
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok {
 			if rc.ToolPolicy.SandboxImage != "" {
 				return rc.ToolPolicy.SandboxImage
 			}
@@ -364,16 +364,16 @@ func sandboxImageForRole(cfg *Config, roleName string) string {
 }
 
 // shouldUseSandbox determines whether a task should use a sandbox,
-// given the role policy and sandbox availability.
+// given the agent policy and sandbox availability.
 // Returns (useSandbox bool, err error).
 // err is non-nil only when sandbox is required but unavailable.
-func shouldUseSandbox(cfg *Config, roleName string, sm *SandboxManager) (bool, error) {
-	policy := sandboxPolicyForRole(cfg, roleName)
+func shouldUseSandbox(cfg *Config, agentName string, sm *SandboxManager) (bool, error) {
+	policy := sandboxPolicyForAgent(cfg, agentName)
 
 	switch policy {
 	case "required":
 		if sm == nil || !sm.Available() {
-			return false, fmt.Errorf("sandbox required for role %q but sandbox plugin is unavailable", roleName)
+			return false, fmt.Errorf("sandbox required for agent %q but sandbox plugin is unavailable", agentName)
 		}
 		return true, nil
 	case "optional":

@@ -30,18 +30,18 @@ func TestExtractChannelFromSource(t *testing.T) {
 func TestShouldInjectSkill(t *testing.T) {
 	// No matcher — always inject.
 	skill := SkillConfig{Name: "test"}
-	task := Task{Role: "琉璃", Prompt: "hello", Source: "telegram"}
+	task := Task{Agent: "琉璃", Prompt: "hello", Source: "telegram"}
 	if !shouldInjectSkill(skill, task) {
 		t.Error("skill without matcher should always inject")
 	}
 
 	// Role match.
-	skill.Matcher = &SkillMatcher{Roles: []string{"琉璃"}}
+	skill.Matcher = &SkillMatcher{Agents: []string{"琉璃"}}
 	if !shouldInjectSkill(skill, task) {
 		t.Error("skill should match role 琉璃")
 	}
 
-	skill.Matcher.Roles = []string{"翡翠"}
+	skill.Matcher.Agents = []string{"翡翠"}
 	if shouldInjectSkill(skill, task) {
 		t.Error("skill should not match role 翡翠")
 	}
@@ -72,18 +72,18 @@ func TestShouldInjectSkill(t *testing.T) {
 
 	// Multiple conditions (any match).
 	skill.Matcher = &SkillMatcher{
-		Roles:    []string{"琥珀"},
+		Agents:    []string{"琥珀"},
 		Keywords: []string{"image"},
 		Channels: []string{"discord"},
 	}
-	task.Role = "琥珀"
+	task.Agent = "琥珀"
 	task.Prompt = "hello"
 	task.Source = "telegram"
 	if !shouldInjectSkill(skill, task) {
 		t.Error("skill should match role 琥珀")
 	}
 
-	task.Role = "琉璃"
+	task.Agent = "琉璃"
 	task.Prompt = "generate an image"
 	if !shouldInjectSkill(skill, task) {
 		t.Error("skill should match keyword 'image'")
@@ -100,13 +100,13 @@ func TestSelectSkills(t *testing.T) {
 	cfg := &Config{
 		Skills: []SkillConfig{
 			{Name: "deploy", Matcher: &SkillMatcher{Keywords: []string{"deploy"}}},
-			{Name: "creative", Matcher: &SkillMatcher{Roles: []string{"琥珀"}}},
+			{Name: "creative", Matcher: &SkillMatcher{Agents: []string{"琥珀"}}},
 			{Name: "slack-only", Matcher: &SkillMatcher{Channels: []string{"slack"}}},
 			{Name: "always", Matcher: nil}, // no matcher = always inject
 		},
 	}
 
-	task := Task{Role: "琉璃", Prompt: "deploy the app", Source: "telegram"}
+	task := Task{Agent: "琉璃", Prompt: "deploy the app", Source: "telegram"}
 	skills := selectSkills(cfg, task)
 
 	if len(skills) != 2 {

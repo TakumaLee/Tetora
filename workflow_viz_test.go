@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuildStepSummaries(t *testing.T) {
 	steps := []WorkflowStep{
-		{ID: "a", Role: "翡翠", DependsOn: nil},
-		{ID: "b", Type: "handoff", Role: "黒曜", DependsOn: []string{"a"}},
+		{ID: "a", Agent: "翡翠", DependsOn: nil},
+		{ID: "b", Type: "handoff", Agent: "黒曜", DependsOn: []string{"a"}},
 	}
 	summaries := buildStepSummaries(steps)
 	if len(summaries) != 2 {

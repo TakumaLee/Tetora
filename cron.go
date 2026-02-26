@@ -25,7 +25,7 @@ type CronJobConfig struct {
 	Enabled         bool           `json:"enabled"`
 	Schedule        string         `json:"schedule"`
 	TZ              string         `json:"tz,omitempty"`
-	Role            string         `json:"role,omitempty"`
+	Agent            string         `json:"agent,omitempty"`
 	Task            CronTaskConfig `json:"task"`
 	Notify          bool           `json:"notify,omitempty"`
 	NotifyChannel   string         `json:"notifyChannel,omitempty"`   // Discord channel name, e.g. "stock"
@@ -432,25 +432,25 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	fillDefaults(ce.cfg, &task)
 	task.Name = j.Name
 
-	// Inject role system prompt if specified.
-	if j.Role != "" {
-		prompt, err := loadRolePrompt(ce.cfg, j.Role)
+	// Inject agent system prompt if specified.
+	if j.Agent != "" {
+		prompt, err := loadAgentPrompt(ce.cfg, j.Agent)
 		if err != nil {
-			logWarnCtx(ctx, "cron job role load failed", "jobId", j.ID, "role", j.Role, "error", err)
+			logWarnCtx(ctx, "cron job agent load failed", "jobId", j.ID, "agent", j.Agent, "error", err)
 		} else if prompt != "" {
 			task.SystemPrompt = prompt
 		}
 
-		// Use role's model if task doesn't override.
+		// Use agent's model if task doesn't override.
 		if j.Task.Model == "" {
-			if rc, ok := ce.cfg.Roles[j.Role]; ok && rc.Model != "" {
+			if rc, ok := ce.cfg.Agents[j.Agent]; ok && rc.Model != "" {
 				task.Model = rc.Model
 			}
 		}
 
-		// Use role's permission mode if job didn't set one.
+		// Use agent's permission mode if job didn't set one.
 		if j.Task.PermissionMode == "" {
-			if rc, ok := ce.cfg.Roles[j.Role]; ok && rc.PermissionMode != "" {
+			if rc, ok := ce.cfg.Agents[j.Agent]; ok && rc.PermissionMode != "" {
 				task.PermissionMode = rc.PermissionMode
 			}
 		}
@@ -466,7 +466,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	}
 
 	// Expand template variables in prompt.
-	task.Prompt = expandPrompt(task.Prompt, j.ID, ce.cfg.HistoryDB, j.Role, ce.cfg.KnowledgeDir, ce.cfg)
+	task.Prompt = expandPrompt(task.Prompt, j.ID, ce.cfg.HistoryDB, j.Agent, ce.cfg.KnowledgeDir, ce.cfg)
 
 	// Skip jobs with empty prompts (e.g. missing promptFile or blank inline prompt).
 	if strings.TrimSpace(task.Prompt) == "" {
@@ -569,12 +569,12 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 			task.SessionID = newUUID()
 
 			// Record the retry attempt in history.
-			recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Role, task, result,
+			recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Agent, task, result,
 				jobStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 		}
 
 		attemptStart := time.Now()
-		result = runSingleTask(ctx, ce.cfg, task, ce.sem, j.Role)
+		result = runSingleTask(ctx, ce.cfg, task, ce.sem, j.Agent)
 
 		if result.Status == "success" {
 			break
@@ -589,11 +589,11 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	}
 
 	// Record final result to history DB.
-	recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Role, task, result,
+	recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Agent, task, result,
 		jobStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
-	recordSessionActivity(ce.cfg.HistoryDB, task, result, j.Role)
+	recordSessionActivity(ce.cfg.HistoryDB, task, result, j.Agent)
 
 	ce.mu.Lock()
 	j.lastRun = time.Now()
@@ -861,7 +861,7 @@ func (ce *CronEngine) ListJobs() []CronJobInfo {
 			Enabled:   j.Enabled,
 			Schedule:  j.Schedule,
 			TZ:        j.TZ,
-			Role:      j.Role,
+			Agent:      j.Agent,
 			Running:   j.running,
 			NextRun:   j.nextRun,
 			LastRun:   j.lastRun,
@@ -894,7 +894,7 @@ type CronJobInfo struct {
 	Enabled  bool      `json:"enabled"`
 	Schedule string    `json:"schedule"`
 	TZ       string    `json:"tz"`
-	Role     string    `json:"role"`
+	Agent     string    `json:"agent"`
 	Running  bool      `json:"running"`
 	NextRun  time.Time `json:"nextRun"`
 	LastRun  time.Time `json:"lastRun"`

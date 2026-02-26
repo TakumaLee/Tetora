@@ -83,7 +83,7 @@ func TestBuildCompactionPrompt(t *testing.T) {
 		{
 			name: "single message",
 			messages: []sessionMessage{
-				{ID: 1, Role: "user", Content: "Hello", Timestamp: "2026-01-01 10:00:00"},
+				{ID: 1, Agent: "user", Content: "Hello", Timestamp: "2026-01-01 10:00:00"},
 			},
 			contains: []string{
 				"Summarize this conversation",
@@ -94,9 +94,9 @@ func TestBuildCompactionPrompt(t *testing.T) {
 		{
 			name: "multiple messages",
 			messages: []sessionMessage{
-				{ID: 1, Role: "user", Content: "What's the weather?", Timestamp: "2026-01-01 10:00:00"},
-				{ID: 2, Role: "assistant", Content: "It's sunny.", Timestamp: "2026-01-01 10:01:00"},
-				{ID: 3, Role: "user", Content: "Great!", Timestamp: "2026-01-01 10:02:00"},
+				{ID: 1, Agent: "user", Content: "What's the weather?", Timestamp: "2026-01-01 10:00:00"},
+				{ID: 2, Agent: "assistant", Content: "It's sunny.", Timestamp: "2026-01-01 10:01:00"},
+				{ID: 3, Agent: "user", Content: "Great!", Timestamp: "2026-01-01 10:02:00"},
 			},
 			contains: []string{
 				"user: What's the weather?",
@@ -107,7 +107,7 @@ func TestBuildCompactionPrompt(t *testing.T) {
 		{
 			name: "missing timestamp",
 			messages: []sessionMessage{
-				{ID: 1, Role: "system", Content: "Init", Timestamp: ""},
+				{ID: 1, Agent: "system", Content: "Init", Timestamp: ""},
 			},
 			contains: []string{
 				"[unknown] system: Init",
@@ -141,7 +141,7 @@ func TestCountSessionMessages(t *testing.T) {
 
 	// Insert test session.
 	sessionID := "test-session-1"
-	sql := fmt.Sprintf("INSERT INTO sessions (id, role, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
+	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
 	queryDB(dbPath, sql)
 
 	// Insert messages.
@@ -174,7 +174,7 @@ func TestGetOldestMessages(t *testing.T) {
 	}
 
 	sessionID := "test-session-2"
-	sql := fmt.Sprintf("INSERT INTO sessions (id, role, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
+	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
 	queryDB(dbPath, sql)
 
 	// Insert 10 messages.
@@ -216,7 +216,7 @@ func TestReplaceWithSummary(t *testing.T) {
 	}
 
 	sessionID := "test-session-3"
-	sql := fmt.Sprintf("INSERT INTO sessions (id, role, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
+	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
 	queryDB(dbPath, sql)
 
 	// Insert 5 messages.
@@ -282,7 +282,7 @@ func TestSessionExists(t *testing.T) {
 
 	// Create session.
 	sessionID := "test-session-exists"
-	sql := fmt.Sprintf("INSERT INTO sessions (id, role, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
+	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
 	queryDB(dbPath, sql)
 
 	// Should exist now.

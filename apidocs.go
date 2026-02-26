@@ -63,7 +63,7 @@ func buildTags() []map[string]any {
 		{"name": "Infrastructure", "description": "Circuit breakers, queue, budget, and SLA"},
 		{"name": "Cron", "description": "Scheduled job management"},
 		{"name": "Agent", "description": "Agent messages, handoffs, and reflections"},
-		{"name": "Roles", "description": "Agent role configuration"},
+		{"name": "Agents", "description": "Agent configuration"},
 		{"name": "Stats", "description": "Cost and performance statistics"},
 		{"name": "Audit", "description": "Audit log and backup"},
 	}
@@ -77,7 +77,7 @@ func buildPaths() map[string]any {
 
 	paths["/dispatch"] = map[string]any{
 		"post": opPost("Dispatch tasks", "Core",
-			"Submit one or more tasks for concurrent execution. Each task is routed to the appropriate agent role and provider.",
+			"Submit one or more tasks for concurrent execution. Each task is routed to the appropriate agent and provider.",
 			reqBody(ref("TaskArray")),
 			resp200(ref("DispatchResult")),
 			resp400(), resp401(), resp409("dispatch already running"),
@@ -104,12 +104,12 @@ func buildPaths() map[string]any {
 
 	paths["/dispatch/{taskId}"] = map[string]any{
 		"post": opPost("Retry or reroute failed task", "Core",
-			"Retry a failed task with original params or reroute to a different role.",
+			"Retry a failed task with original params or reroute to a different agent.",
 			reqBody(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"action": prop("string", "Action to perform: retry or reroute"),
-					"role":   prop("string", "Target role for reroute (required if action=reroute)"),
+					"role":   prop("string", "Target agent for reroute (required if action=reroute)"),
 				},
 			}),
 			resp200(map[string]any{"type": "object", "properties": map[string]any{
@@ -217,7 +217,7 @@ func buildPaths() map[string]any {
 
 	paths["/stats/metrics"] = map[string]any{
 		"get": opGet("Performance metrics", "Stats",
-			"Get performance metrics (success rate, latency, throughput) per role.",
+			"Get performance metrics (success rate, latency, throughput) per agent.",
 			[]map[string]any{queryParam("days", "integer", "Number of days (default 7)")},
 			resp200(map[string]any{"type": "object"}),
 			resp401(),
@@ -226,7 +226,7 @@ func buildPaths() map[string]any {
 
 	paths["/stats/routing"] = map[string]any{
 		"get": opGet("Routing statistics", "Stats",
-			"Get smart dispatch routing statistics by role.",
+			"Get smart dispatch routing statistics by agent.",
 			[]map[string]any{queryParam("days", "integer", "Number of days (default 7)")},
 			resp200(map[string]any{"type": "object"}),
 			resp401(),
@@ -235,9 +235,9 @@ func buildPaths() map[string]any {
 
 	paths["/stats/sla"] = map[string]any{
 		"get": opGet("SLA statistics", "Stats",
-			"Get SLA metrics per role (success rate, latency, cost).",
+			"Get SLA metrics per agent (success rate, latency, cost).",
 			[]map[string]any{
-				queryParam("role", "string", "Filter by role"),
+				queryParam("role", "string", "Filter by agent"),
 				queryParam("days", "integer", "Window in days (default from SLA config)"),
 			},
 			resp200(schemaArray(ref("SLAMetrics"))),
@@ -251,7 +251,7 @@ func buildPaths() map[string]any {
 		"get": opGet("List sessions", "Sessions",
 			"List conversational sessions with optional filtering.",
 			[]map[string]any{
-				queryParam("role", "string", "Filter by agent role"),
+				queryParam("role", "string", "Filter by agent"),
 				queryParam("status", "string", "Filter by status (active, archived)"),
 				queryParam("source", "string", "Filter by source"),
 				queryParam("limit", "integer", "Results per page (default 20)"),
@@ -271,7 +271,7 @@ func buildPaths() map[string]any {
 			reqBody(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"role":   prop("string", "Agent role"),
+					"role":   prop("string", "Agent name"),
 					"title":  prop("string", "Session title"),
 					"source": prop("string", "Source identifier"),
 				},
@@ -521,7 +521,7 @@ func buildPaths() map[string]any {
 
 	paths["/budget"] = map[string]any{
 		"get": opGet("Budget status", "Infrastructure",
-			"Get current budget utilization across global, role, and workflow scopes.",
+			"Get current budget utilization across global, agent, and workflow scopes.",
 			nil,
 			resp200(map[string]any{"type": "object", "description": "Budget status with daily/weekly/monthly usage and caps"}),
 			resp401(),
@@ -579,7 +579,7 @@ func buildPaths() map[string]any {
 			"List inter-agent communication messages.",
 			[]map[string]any{
 				queryParam("workflowRun", "string", "Filter by workflow run ID"),
-				queryParam("role", "string", "Filter by role"),
+				queryParam("role", "string", "Filter by agent"),
 				queryParam("limit", "integer", "Max results (default 50)"),
 			},
 			resp200(schemaArray(ref("AgentMessage"))),
@@ -590,14 +590,14 @@ func buildPaths() map[string]any {
 			reqBody(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"fromRole":      prop("string", "Sender role"),
-					"toRole":        prop("string", "Recipient role"),
+					"fromAgent":      prop("string", "Sender agent"),
+					"toAgent":        prop("string", "Recipient agent"),
 					"type":          prop("string", "Message type: handoff, request, response, note"),
 					"content":       prop("string", "Message content"),
 					"workflowRunId": prop("string", "Associated workflow run ID"),
 					"refId":         prop("string", "Reference to another message ID"),
 				},
-				"required": []string{"fromRole", "toRole", "content"},
+				"required": []string{"fromAgent", "toAgent", "content"},
 			}),
 			resp200(map[string]any{"type": "object", "properties": map[string]any{
 				"status": prop("string", "sent"),
@@ -618,50 +618,50 @@ func buildPaths() map[string]any {
 		),
 	}
 
-	// ---- Roles ----
+	// ---- Agents ----
 
 	paths["/roles"] = map[string]any{
-		"get": opGet("List roles", "Roles",
-			"List all configured agent roles.",
+		"get": opGet("List agents", "Agents",
+			"List all configured agents.",
 			nil,
-			resp200(map[string]any{"type": "object", "additionalProperties": ref("RoleConfig")}),
+			resp200(map[string]any{"type": "object", "additionalProperties": ref("AgentConfig")}),
 			resp401(),
 		),
-		"post": opPost("Create role", "Roles",
-			"Create or update an agent role configuration.",
-			reqBody(ref("RoleConfig")),
+		"post": opPost("Create agent", "Agents",
+			"Create or update an agent configuration.",
+			reqBody(ref("AgentConfig")),
 			resp200(map[string]any{"type": "object", "properties": map[string]any{
 				"status": prop("string", ""),
-				"name":   prop("string", "Role name"),
+				"name":   prop("string", "Agent name"),
 			}}),
 			resp400(), resp401(),
 		),
 	}
 
 	paths["/roles/{name}"] = map[string]any{
-		"get": opGet("Get role", "Roles",
-			"Get a single role configuration by name.",
-			[]map[string]any{pathParam("name", "string", "Role name")},
-			resp200(ref("RoleConfig")),
+		"get": opGet("Get agent", "Agents",
+			"Get a single agent configuration by name.",
+			[]map[string]any{pathParam("name", "string", "Agent name")},
+			resp200(ref("AgentConfig")),
 			resp401(), resp404(),
 		),
 		"put": map[string]any{
-			"tags":        []string{"Roles"},
-			"summary":     "Update role",
-			"description": "Update an existing agent role configuration.",
-			"parameters":  []map[string]any{pathParam("name", "string", "Role name")},
-			"requestBody": reqBody(ref("RoleConfig")),
+			"tags":        []string{"Agents"},
+			"summary":     "Update agent",
+			"description": "Update an existing agent configuration.",
+			"parameters":  []map[string]any{pathParam("name", "string", "Agent name")},
+			"requestBody": reqBody(ref("AgentConfig")),
 			"responses": mergeResponses(
 				resp200(map[string]any{"type": "object", "properties": map[string]any{
 					"status": prop("string", ""),
-					"name":   prop("string", "Role name"),
+					"name":   prop("string", "Agent name"),
 				}}),
 				resp400(), resp401(), resp404(),
 			),
 		},
-		"delete": opDelete("Delete role", "Roles",
-			"Delete an agent role.",
-			[]map[string]any{pathParam("name", "string", "Role name")},
+		"delete": opDelete("Delete agent", "Agents",
+			"Delete an agent.",
+			[]map[string]any{pathParam("name", "string", "Agent name")},
 			resp200(map[string]any{"type": "object", "properties": map[string]any{
 				"status": prop("string", "deleted"),
 			}}),
@@ -670,8 +670,8 @@ func buildPaths() map[string]any {
 	}
 
 	paths["/roles/archetypes"] = map[string]any{
-		"get": opGet("List role archetypes", "Roles",
-			"List available role archetype templates.",
+		"get": opGet("List agent archetypes", "Agents",
+			"List available agent archetype templates.",
 			nil,
 			resp200(map[string]any{"type": "object"}),
 			resp401(),
@@ -698,7 +698,7 @@ func buildPaths() map[string]any {
 
 	paths["/route/classify"] = map[string]any{
 		"post": opPost("Classify prompt", "Core",
-			"Classify a prompt to determine which agent role would handle it, without executing.",
+			"Classify a prompt to determine which agent would handle it, without executing.",
 			reqBody(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -707,7 +707,7 @@ func buildPaths() map[string]any {
 				"required": []string{"prompt"},
 			}),
 			resp200(map[string]any{"type": "object", "properties": map[string]any{
-				"role":       prop("string", "Matched role"),
+				"role":       prop("string", "Matched agent"),
 				"confidence": prop("string", "Confidence level"),
 				"method":     prop("string", "Classification method (keyword, llm)"),
 			}}),
@@ -848,7 +848,7 @@ func buildComponents() map[string]any {
 			"addDirs":        schemaArray(prop("string", "")),
 			"systemPrompt":   prop("string", "System prompt override"),
 			"sessionId":      prop("string", "Session ID to continue"),
-			"role":           prop("string", "Agent role name"),
+			"role":           prop("string", "Agent name"),
 			"source":         prop("string", "Request source identifier"),
 		},
 		"required": []string{"prompt"},
@@ -916,7 +916,7 @@ func buildComponents() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"id":             prop("string", "Session ID"),
-			"role":           prop("string", "Agent role"),
+			"role":           prop("string", "Agent name"),
 			"source":         prop("string", "Source channel"),
 			"status":         prop("string", "Status: active, archived"),
 			"title":          prop("string", "Session title"),
@@ -973,7 +973,7 @@ func buildComponents() map[string]any {
 		"properties": map[string]any{
 			"id":             prop("string", "Step ID (unique within workflow)"),
 			"type":           prop("string", "Step type: dispatch, skill, condition, parallel"),
-			"role":           prop("string", "Agent role for dispatch steps"),
+			"role":           prop("string", "Agent name for dispatch steps"),
 			"prompt":         prop("string", "Prompt for dispatch steps (supports {{variable}} substitution)"),
 			"skill":          prop("string", "Skill name for skill steps"),
 			"skillArgs":      schemaArray(prop("string", "")),
@@ -1052,8 +1052,8 @@ func buildComponents() map[string]any {
 		"properties": map[string]any{
 			"id":            prop("string", "Handoff ID"),
 			"workflowRunId": prop("string", "Workflow run ID"),
-			"fromRole":      prop("string", "Source agent role"),
-			"toRole":        prop("string", "Target agent role"),
+			"fromAgent":      prop("string", "Source agent name"),
+			"toAgent":        prop("string", "Target agent name"),
 			"fromStepId":    prop("string", "Source step ID"),
 			"toStepId":      prop("string", "Target step ID"),
 			"fromSessionId": prop("string", "Source session ID"),
@@ -1070,8 +1070,8 @@ func buildComponents() map[string]any {
 		"properties": map[string]any{
 			"id":            prop("string", "Message ID"),
 			"workflowRunId": prop("string", "Workflow run ID"),
-			"fromRole":      prop("string", "Sender role"),
-			"toRole":        prop("string", "Recipient role"),
+			"fromAgent":      prop("string", "Sender agent"),
+			"toAgent":        prop("string", "Recipient agent"),
 			"type":          prop("string", "Message type: handoff, request, response, note"),
 			"content":       prop("string", "Message content"),
 			"refId":         prop("string", "Reference to another message"),
@@ -1084,7 +1084,7 @@ func buildComponents() map[string]any {
 		"properties": map[string]any{
 			"id":         prop("integer", "Queue item ID"),
 			"taskJson":   prop("string", "Serialized task JSON"),
-			"role":       prop("string", "Target role"),
+			"role":       prop("string", "Target agent"),
 			"source":     prop("string", "Source identifier"),
 			"priority":   prop("integer", "Priority (higher = sooner)"),
 			"status":     prop("string", "Status: pending, processing, completed, expired, failed"),
@@ -1098,7 +1098,7 @@ func buildComponents() map[string]any {
 	schemas["SLAMetrics"] = map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"role":         prop("string", "Agent role"),
+			"role":         prop("string", "Agent name"),
 			"total":        prop("integer", "Total executions"),
 			"success":      prop("integer", "Successful executions"),
 			"fail":         prop("integer", "Failed executions"),
@@ -1130,7 +1130,7 @@ func buildComponents() map[string]any {
 			"id":       prop("string", "Job ID"),
 			"name":     prop("string", "Job name"),
 			"schedule": prop("string", "Cron schedule expression"),
-			"role":     prop("string", "Agent role"),
+			"role":     prop("string", "Agent name"),
 			"enabled":  map[string]any{"type": "boolean", "description": "Whether job is active"},
 			"running":  map[string]any{"type": "boolean", "description": "Whether job is currently running"},
 			"lastRun":  prop("string", "Last run timestamp"),
@@ -1138,13 +1138,13 @@ func buildComponents() map[string]any {
 		},
 	}
 
-	schemas["RoleConfig"] = map[string]any{
+	schemas["AgentConfig"] = map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"name":              prop("string", "Role name"),
+			"name":              prop("string", "Agent name"),
 			"soulFile":          prop("string", "System prompt file path"),
-			"model":             prop("string", "Default model for this role"),
-			"description":       prop("string", "Role description"),
+			"model":             prop("string", "Default model for this agent"),
+			"description":       prop("string", "Agent description"),
 			"keywords":          schemaArray(prop("string", "Routing keywords")),
 			"permissionMode":    prop("string", "Permission mode"),
 			"allowedDirs":       schemaArray(prop("string", "Allowed directories")),
@@ -1157,7 +1157,7 @@ func buildComponents() map[string]any {
 	schemas["SmartDispatchResult"] = map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"role":       prop("string", "Selected agent role"),
+			"role":       prop("string", "Selected agent name"),
 			"method":     prop("string", "Classification method (keyword, llm)"),
 			"confidence": prop("string", "Classification confidence"),
 			"taskResult": ref("TaskResult"),
@@ -1169,7 +1169,7 @@ func buildComponents() map[string]any {
 		"properties": map[string]any{
 			"id":       prop("string", "Task ID"),
 			"name":     prop("string", "Task name"),
-			"role":     prop("string", "Original role"),
+			"role":     prop("string", "Original agent"),
 			"error":    prop("string", "Failure error message"),
 			"failedAt": prop("string", "Failure timestamp (RFC3339)"),
 		},
@@ -1197,7 +1197,7 @@ func buildComponents() map[string]any {
 			"taskId":     prop("string", "Task ID"),
 			"jobName":    prop("string", "Job/task name"),
 			"source":     prop("string", "Source identifier"),
-			"role":       prop("string", "Agent role"),
+			"role":       prop("string", "Agent name"),
 			"status":     prop("string", "Execution status"),
 			"model":      prop("string", "Model used"),
 			"provider":   prop("string", "Provider used"),

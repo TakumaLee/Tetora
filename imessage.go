@@ -23,7 +23,7 @@ type IMessageConfig struct {
 	Password     string   `json:"password,omitempty"`            // BlueBubbles server password ($ENV_VAR)
 	AllowedChats []string `json:"allowedChats,omitempty"`        // allowed chat GUIDs or phone numbers
 	WebhookPath  string   `json:"webhookPath,omitempty"`         // default "/api/imessage/webhook"
-	DefaultRole  string   `json:"defaultRole,omitempty"`         // agent role for iMessage messages
+	DefaultAgent  string   `json:"defaultAgent,omitempty"`         // agent role for iMessage messages
 }
 
 // webhookPathOrDefault returns the configured webhook path or default.
@@ -196,12 +196,12 @@ func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
 	ctx := withTraceID(context.Background(), newTraceID("imessage"))
 	dbPath := ib.cfg.HistoryDB
 
-	// Route to determine role.
-	role := ib.cfg.IMessage.DefaultRole
+	// Route to determine agent.
+	role := ib.cfg.IMessage.DefaultAgent
 	if role == "" {
 		route := routeTask(ctx, ib.cfg, RouteRequest{Prompt: text, Source: "imessage"})
-		role = route.Role
-		logInfoCtx(ctx, "imessage route result", "role", role, "method", route.Method)
+		role = route.Agent
+		logInfoCtx(ctx, "imessage route result", "agent", role, "method", route.Method)
 	}
 
 	// Find or create session.
@@ -237,7 +237,7 @@ func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
 	// Create task.
 	task := Task{
 		Prompt: contextPrompt,
-		Role:   role,
+		Agent:  role,
 		Source: "imessage",
 	}
 	fillDefaults(ib.cfg, &task)
@@ -245,12 +245,12 @@ func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
 		task.SessionID = sess.ID
 	}
 
-	// Apply role-specific config.
+	// Apply agent-specific config.
 	if role != "" {
-		if soulPrompt, err := loadRolePrompt(ib.cfg, role); err == nil && soulPrompt != "" {
+		if soulPrompt, err := loadAgentPrompt(ib.cfg, role); err == nil && soulPrompt != "" {
 			task.SystemPrompt = soulPrompt
 		}
-		if rc, ok := ib.cfg.Roles[role]; ok {
+		if rc, ok := ib.cfg.Agents[role]; ok {
 			if rc.Model != "" {
 				task.Model = rc.Model
 			}

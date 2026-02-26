@@ -63,10 +63,10 @@ func printBudgetStatus(status *BudgetStatus) {
 		fmt.Println()
 	}
 
-	if len(status.Roles) > 0 {
-		fmt.Println("Per-Role Budget:")
-		for _, r := range status.Roles {
-			printMeterLine(fmt.Sprintf("  %-6s", r.Role), r.DailySpend, r.DailyLimit, r.DailyPct)
+	if len(status.Agents) > 0 {
+		fmt.Println("Per-Agent Budget:")
+		for _, r := range status.Agents {
+			printMeterLine(fmt.Sprintf("  %-6s", r.Agent), r.DailySpend, r.DailyLimit, r.DailyPct)
 		}
 		fmt.Println()
 	}

@@ -44,8 +44,8 @@ func TestThreadBindingStore_BindAndGet(t *testing.T) {
 	if b == nil {
 		t.Fatal("expected binding, got nil")
 	}
-	if b.Role != "ruri" {
-		t.Errorf("expected role ruri, got %q", b.Role)
+	if b.Agent != "ruri" {
+		t.Errorf("expected role ruri, got %q", b.Agent)
 	}
 	if b.GuildID != "G123" {
 		t.Errorf("expected guildID G123, got %q", b.GuildID)
@@ -113,8 +113,8 @@ func TestThreadBindingStore_TTLNotYetExpired(t *testing.T) {
 	if b == nil {
 		t.Fatal("expected binding before TTL expires")
 	}
-	if b.Role != "ruri" {
-		t.Errorf("expected role ruri, got %q", b.Role)
+	if b.Agent != "ruri" {
+		t.Errorf("expected role ruri, got %q", b.Agent)
 	}
 }
 
@@ -253,14 +253,14 @@ func TestThreadBindingStore_OverrideBind(t *testing.T) {
 
 	store.bind("G1", "T1", "ruri", 1*time.Hour)
 	b := store.get("G1", "T1")
-	if b == nil || b.Role != "ruri" {
+	if b == nil || b.Agent != "ruri" {
 		t.Fatal("expected ruri binding")
 	}
 
 	// Override with a different role.
 	store.bind("G1", "T1", "hisui", 2*time.Hour)
 	b = store.get("G1", "T1")
-	if b == nil || b.Role != "hisui" {
+	if b == nil || b.Agent != "hisui" {
 		t.Fatal("expected hisui binding after override")
 	}
 	if b.SessionID != "agent:hisui:discord:thread:G1:T1" {

@@ -12,7 +12,7 @@ func TestAgentList_ReturnsRoles(t *testing.T) {
 	cfg := &Config{
 		DefaultProvider: "claude",
 		DefaultModel:    "sonnet",
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"琉璃": {
 				Description: "Coordinator agent",
 				Keywords:    []string{"coordinate", "plan"},
@@ -55,7 +55,7 @@ func TestAgentList_ReturnsRoles(t *testing.T) {
 
 func TestAgentList_EmptyRoles(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
 	result, err := toolAgentList(context.Background(), cfg, json.RawMessage(`{}`))
@@ -75,10 +75,10 @@ func TestAgentList_EmptyRoles(t *testing.T) {
 
 func TestAgentDispatch_UnknownRole(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{},
+		Agents: map[string]AgentConfig{},
 	}
 
-	input := json.RawMessage(`{"role": "unknown", "prompt": "test"}`)
+	input := json.RawMessage(`{"agent": "unknown", "prompt": "test"}`)
 	_, err := toolAgentDispatch(context.Background(), cfg, input)
 	if err == nil {
 		t.Error("expected error for unknown role, got nil")
@@ -90,12 +90,12 @@ func TestAgentDispatch_UnknownRole(t *testing.T) {
 
 func TestAgentDispatch_EmptyPrompt(t *testing.T) {
 	cfg := &Config{
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 	}
 
-	input := json.RawMessage(`{"role": "test", "prompt": ""}`)
+	input := json.RawMessage(`{"agent": "test", "prompt": ""}`)
 	_, err := toolAgentDispatch(context.Background(), cfg, input)
 	if err == nil {
 		t.Error("expected error for empty prompt, got nil")
@@ -116,12 +116,12 @@ func TestAgentMessage_Store(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 	}
 
-	input := json.RawMessage(`{"role": "test", "message": "Hello test agent"}`)
+	input := json.RawMessage(`{"agent": "test", "message": "Hello test agent"}`)
 	result, err := toolAgentMessage(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("toolAgentMessage failed: %v", err)
@@ -151,13 +151,13 @@ func TestAgentMessage_Retrieve(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 	}
 
 	// Send a message.
-	input := json.RawMessage(`{"role": "test", "message": "Test message"}`)
+	input := json.RawMessage(`{"agent": "test", "message": "Test message"}`)
 	_, err := toolAgentMessage(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("toolAgentMessage failed: %v", err)
@@ -175,8 +175,8 @@ func TestAgentMessage_Retrieve(t *testing.T) {
 
 	if len(messages) > 0 {
 		msg := messages[0]
-		if msg["to_role"] != "test" {
-			t.Errorf("expected to_role=test, got %v", msg["to_role"])
+		if msg["to_agent"] != "test" {
+			t.Errorf("expected to_agent=test, got %v", msg["to_agent"])
 		}
 		if msg["message"] != "Test message" {
 			t.Errorf("expected message='Test message', got %v", msg["message"])
@@ -194,10 +194,10 @@ func TestAgentMessage_EmptyRole(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles:     map[string]RoleConfig{},
+		Agents:     map[string]AgentConfig{},
 	}
 
-	input := json.RawMessage(`{"role": "", "message": "test"}`)
+	input := json.RawMessage(`{"agent": "", "message": "test"}`)
 	_, err := toolAgentMessage(context.Background(), cfg, input)
 	if err == nil {
 		t.Error("expected error for empty role, got nil")
@@ -217,13 +217,13 @@ func TestAgentMessage_WithSession(t *testing.T) {
 
 	cfg := &Config{
 		HistoryDB: dbPath,
-		Roles: map[string]RoleConfig{
+		Agents: map[string]AgentConfig{
 			"test": {},
 		},
 	}
 
 	sessionID := "test-session-123"
-	input := json.RawMessage(`{"role": "test", "message": "Session message", "sessionId": "` + sessionID + `"}`)
+	input := json.RawMessage(`{"agent": "test", "message": "Session message", "sessionId": "` + sessionID + `"}`)
 	result, err := toolAgentMessage(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("toolAgentMessage failed: %v", err)

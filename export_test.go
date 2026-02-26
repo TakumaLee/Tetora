@@ -23,10 +23,10 @@ func TestExportUserData(t *testing.T) {
 	// Create some test tables that export expects.
 	ddl := `
 CREATE TABLE IF NOT EXISTS agent_memory (
-    key TEXT, value TEXT, role TEXT, updated_at TEXT
+    key TEXT, value TEXT, agent TEXT, updated_at TEXT
 );
-INSERT INTO agent_memory (key, value, role, updated_at) VALUES ('name', 'test-user', 'default', '2026-01-01T00:00:00Z');
-INSERT INTO agent_memory (key, value, role, updated_at) VALUES ('pref', 'dark-mode', 'default', '2026-01-02T00:00:00Z');
+INSERT INTO agent_memory (key, value, agent, updated_at) VALUES ('name', 'test-user', 'default', '2026-01-01T00:00:00Z');
+INSERT INTO agent_memory (key, value, agent, updated_at) VALUES ('pref', 'dark-mode', 'default', '2026-01-02T00:00:00Z');
 
 CREATE TABLE IF NOT EXISTS history (
     job_id TEXT, name TEXT, status TEXT, started_at TEXT, finished_at TEXT

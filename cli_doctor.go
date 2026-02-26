@@ -136,7 +136,7 @@ func cmdDoctor() {
 	}
 
 	// 9. Roles
-	for name, rc := range cfg.Roles {
+	for name, rc := range cfg.Agents {
 		// Try new path first: agents/{name}/SOUL.md
 		path := filepath.Join(cfg.AgentsDir, name, "SOUL.md")
 		if _, err := os.Stat(path); err != nil {
@@ -152,13 +152,13 @@ func cmdDoctor() {
 			}
 		}
 		if _, err := os.Stat(path); err != nil {
-			check(false, "Role/"+name, "soul file missing")
+			check(false, "Agent/"+name, "soul file missing")
 		} else {
 			desc := rc.Description
 			if desc == "" {
 				desc = rc.Model
 			}
-			check(true, "Role/"+name, desc)
+			check(true, "Agent/"+name, desc)
 		}
 	}
 

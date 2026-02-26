@@ -53,7 +53,7 @@ func generateDailyNote(cfg *Config, date time.Time) (string, error) {
 	endOfDay := date.Add(24 * time.Hour).Format("2006-01-02 00:00:00")
 
 	sql := fmt.Sprintf(`
-		SELECT id, name, source, role, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at
+		SELECT id, name, source, agent, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at
 		FROM history
 		WHERE started_at >= '%s' AND started_at < '%s'
 		ORDER BY started_at
@@ -87,7 +87,7 @@ func generateDailyNote(cfg *Config, date time.Time) (string, error) {
 		costUSD := toFloat(row["cost_usd"])
 		tokensIn := toInt(row["tokens_in"])
 		tokensOut := toInt(row["tokens_out"])
-		role := toString(row["role"])
+		role := toString(row["agent"])
 		source := toString(row["source"])
 
 		totalCost += costUSD
@@ -116,9 +116,9 @@ func generateDailyNote(cfg *Config, date time.Time) (string, error) {
 	sb.WriteString(fmt.Sprintf("- **Total Cost**: $%.4f\n", totalCost))
 	sb.WriteString(fmt.Sprintf("- **Total Tokens**: %d in / %d out\n\n", totalTokensIn, totalTokensOut))
 
-	// Role breakdown.
+	// Agent breakdown.
 	if len(roleMap) > 0 {
-		sb.WriteString("## Tasks by Role\n\n")
+		sb.WriteString("## Tasks by Agent\n\n")
 		for role, count := range roleMap {
 			if role == "" {
 				role = "(none)"
@@ -153,14 +153,14 @@ func generateDailyNote(cfg *Config, date time.Time) (string, error) {
 		costUSD := toFloat(row["cost_usd"])
 		durationMs := toInt(row["duration_ms"])
 		startedAt := toString(row["started_at"])
-		role := toString(row["role"])
+		role := toString(row["agent"])
 
 		statusEmoji := "✅"
 		if status != "success" {
 			statusEmoji = "❌"
 		}
 
-		sb.WriteString(fmt.Sprintf("- %s **%s** (role: %s)\n", statusEmoji, name, role))
+		sb.WriteString(fmt.Sprintf("- %s **%s** (agent: %s)\n", statusEmoji, name, role))
 		sb.WriteString(fmt.Sprintf("  - Started: %s\n", startedAt))
 		sb.WriteString(fmt.Sprintf("  - Duration: %dms, Cost: $%.4f\n", durationMs, costUSD))
 	}

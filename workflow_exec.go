@@ -389,7 +389,7 @@ func (e *workflowExecutor) executeStep(ctx context.Context, step *WorkflowStep) 
 		"runId":  e.run.ID,
 		"stepId": step.ID,
 		"type":   stepType(step),
-		"role":   step.Role,
+		"role":   step.Agent,
 	})
 
 	maxRetries := step.RetryMax
@@ -541,14 +541,14 @@ func (e *workflowExecutor) runDispatchStep(ctx context.Context, step *WorkflowSt
 	// Create a session for this step.
 	createSession(e.cfg.HistoryDB, Session{
 		ID:     task.SessionID,
-		Role:   step.Role,
+		Agent:   step.Agent,
 		Source: "workflow:" + e.workflow.Name,
 		Status: "active",
 		Title:  fmt.Sprintf("%s / %s", e.workflow.Name, step.ID),
 	})
 
 	// Execute using runSingleTask (respects semaphore).
-	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Role)
+	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -562,7 +562,7 @@ func (e *workflowExecutor) runDispatchStep(ctx context.Context, step *WorkflowSt
 		delegations := parseAutoDelegate(result.Output)
 		if len(delegations) > 0 {
 			result.Output = processAutoDelegations(ctx, e.cfg, delegations,
-				result.Output, e.run.ID, step.Role, step.ID,
+				result.Output, e.run.ID, step.Agent, step.ID,
 				e.state, e.sem, e.broker)
 		}
 	case "timeout":
@@ -713,10 +713,10 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	instruction := resolveTemplate(step.Prompt, wCtx)
 
 	// Determine source role.
-	fromRole := ""
+	fromAgent := ""
 	for _, s := range e.workflow.Steps {
 		if s.ID == step.HandoffFrom {
-			fromRole = s.Role
+			fromAgent = s.Agent
 			break
 		}
 	}
@@ -734,8 +734,8 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	h := Handoff{
 		ID:            handoffID,
 		WorkflowRunID: e.run.ID,
-		FromRole:      fromRole,
-		ToRole:        step.Role,
+		FromAgent:      fromAgent,
+		ToAgent:        step.Agent,
 		FromStepID:    step.HandoffFrom,
 		ToStepID:      step.ID,
 		FromSessionID: fromSessionID,
@@ -752,10 +752,10 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	// Record agent message.
 	sendAgentMessage(e.cfg.HistoryDB, AgentMessage{
 		WorkflowRunID: e.run.ID,
-		FromRole:      fromRole,
-		ToRole:        step.Role,
+		FromAgent:      fromAgent,
+		ToAgent:        step.Agent,
 		Type:          "handoff",
-		Content:       fmt.Sprintf("Handoff from %s: %s", fromRole, truncate(instruction, 200)),
+		Content:       fmt.Sprintf("Handoff from %s: %s", fromAgent, truncate(instruction, 200)),
 		RefID:         handoffID,
 		CreatedAt:     now,
 	})
@@ -764,8 +764,8 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	e.publishEvent("handoff", map[string]any{
 		"runId":      e.run.ID,
 		"handoffId":  handoffID,
-		"fromRole":   fromRole,
-		"toRole":     step.Role,
+		"fromAgent":   fromAgent,
+		"toAgent":     step.Agent,
 		"fromStepId": step.HandoffFrom,
 		"toStepId":   step.ID,
 	})
@@ -775,9 +775,9 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 
 	task := Task{
 		ID:        newUUID(),
-		Name:      fmt.Sprintf("%s/%s (handoff:%s→%s)", e.workflow.Name, step.ID, fromRole, step.Role),
+		Name:      fmt.Sprintf("%s/%s (handoff:%s→%s)", e.workflow.Name, step.ID, fromAgent, step.Agent),
 		Prompt:    prompt,
-		Role:      step.Role,
+		Agent:      step.Agent,
 		Model:     step.Model,
 		Provider:  step.Provider,
 		Timeout:   step.Timeout,
@@ -796,10 +796,10 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	// Create session.
 	createSession(e.cfg.HistoryDB, Session{
 		ID:        toSessionID,
-		Role:      step.Role,
+		Agent:      step.Agent,
 		Source:    fmt.Sprintf("workflow:%s:handoff", e.workflow.Name),
 		Status:    "active",
-		Title:     fmt.Sprintf("Handoff: %s → %s / %s", fromRole, step.Role, step.ID),
+		Title:     fmt.Sprintf("Handoff: %s → %s / %s", fromAgent, step.Agent, step.ID),
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
@@ -808,7 +808,7 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	updateHandoffStatus(e.cfg.HistoryDB, handoffID, "active")
 
 	// Execute.
-	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Role)
+	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -830,15 +830,15 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	// Record response message.
 	sendAgentMessage(e.cfg.HistoryDB, AgentMessage{
 		WorkflowRunID: e.run.ID,
-		FromRole:      step.Role,
-		ToRole:        fromRole,
+		FromAgent:      step.Agent,
+		ToAgent:        fromAgent,
 		Type:          "response",
 		Content:       truncateStr(taskResult.Output, 2000),
 		RefID:         handoffID,
 		CreatedAt:     time.Now().Format(time.RFC3339),
 	})
 
-	logDebugCtx(ctx, "handoff completed", "from", fromRole, "to", step.Role, "workflow", e.workflow.Name, "step", step.ID, "status", result.Status)
+	logDebugCtx(ctx, "handoff completed", "from", fromAgent, "to", step.Agent, "workflow", e.workflow.Name, "step", step.ID, "status", result.Status)
 }
 
 // --- P18.3: New Step Type Implementations ---
@@ -938,11 +938,11 @@ func (e *workflowExecutor) runDispatchStepDryRun(step *WorkflowStep,
 	result.TaskID = task.ID
 	result.SessionID = task.SessionID
 
-	est := estimateTaskCost(e.cfg, task, step.Role)
+	est := estimateTaskCost(e.cfg, task, step.Agent)
 	result.CostUSD = est.EstimatedCostUSD
 	result.Status = "success"
 	result.Output = fmt.Sprintf("[DRY-RUN] step=%s role=%s model=%s estimated_cost=$%.4f",
-		step.ID, step.Role, est.Model, est.EstimatedCostUSD)
+		step.ID, step.Agent, est.Model, est.EstimatedCostUSD)
 }
 
 // runSkillStepDryRun returns mock output without running the skill.
@@ -979,7 +979,7 @@ func (e *workflowExecutor) runHandoffStepDryRun(step *WorkflowStep,
 		ID:        newUUID(),
 		Name:      fmt.Sprintf("%s/%s (handoff)", e.workflow.Name, step.ID),
 		Prompt:    prompt,
-		Role:      step.Role,
+		Agent:      step.Agent,
 		Model:     step.Model,
 		Provider:  step.Provider,
 		Timeout:   step.Timeout,
@@ -989,13 +989,13 @@ func (e *workflowExecutor) runHandoffStepDryRun(step *WorkflowStep,
 	}
 	fillDefaults(e.cfg, &task)
 
-	est := estimateTaskCost(e.cfg, task, step.Role)
+	est := estimateTaskCost(e.cfg, task, step.Agent)
 	result.TaskID = task.ID
 	result.SessionID = task.SessionID
 	result.CostUSD = est.EstimatedCostUSD
 	result.Status = "success"
 	result.Output = fmt.Sprintf("[DRY-RUN] step=%s role=%s model=%s estimated_cost=$%.4f (handoff)",
-		step.ID, step.Role, est.Model, est.EstimatedCostUSD)
+		step.ID, step.Agent, est.Model, est.EstimatedCostUSD)
 }
 
 // --- Shadow Step Implementations ---
@@ -1011,7 +1011,7 @@ func (e *workflowExecutor) runDispatchStepShadow(ctx context.Context, step *Work
 	result.SessionID = task.SessionID
 
 	// Execute using the provider directly (no history/session recording).
-	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Role)
+	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -1052,9 +1052,9 @@ func (e *workflowExecutor) runHandoffStepShadow(ctx context.Context, step *Workf
 
 	task := Task{
 		ID:        newUUID(),
-		Name:      fmt.Sprintf("%s/%s (handoff:%s)", e.workflow.Name, step.ID, step.Role),
+		Name:      fmt.Sprintf("%s/%s (handoff:%s)", e.workflow.Name, step.ID, step.Agent),
 		Prompt:    prompt,
-		Role:      step.Role,
+		Agent:      step.Agent,
 		Model:     step.Model,
 		Provider:  step.Provider,
 		Timeout:   step.Timeout,
@@ -1068,7 +1068,7 @@ func (e *workflowExecutor) runHandoffStepShadow(ctx context.Context, step *Workf
 	result.SessionID = task.SessionID
 
 	// Execute without recording history/session/handoff metadata.
-	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Role)
+	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -1087,9 +1087,9 @@ func (e *workflowExecutor) runHandoffStepShadow(ctx context.Context, step *Workf
 
 // runSingleTaskNoRecord executes a task using the provider but skips
 // history recording and session activity tracking. Used by shadow mode.
-func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan struct{}, roleName string) TaskResult {
+func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan struct{}, agentName string) TaskResult {
 	// Validate directories before running.
-	if err := validateDirs(cfg, task, roleName); err != nil {
+	if err := validateDirs(cfg, task, agentName); err != nil {
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: err.Error(), Model: task.Model, SessionID: task.SessionID,
@@ -1099,7 +1099,7 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan
 	sem <- struct{}{}
 	defer func() { <-sem }()
 
-	providerName := resolveProviderName(cfg, task, roleName)
+	providerName := resolveProviderName(cfg, task, agentName)
 
 	logDebugCtx(ctx, "shadow task start",
 		"taskId", task.ID[:8], "name", task.Name,
@@ -1113,7 +1113,7 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan
 	defer taskCancel()
 
 	start := time.Now()
-	pr := executeWithProvider(taskCtx, cfg, task, roleName, cfg.registry, nil)
+	pr := executeWithProvider(taskCtx, cfg, task, agentName, cfg.registry, nil)
 	elapsed := time.Since(start)
 
 	result := TaskResult{
@@ -1163,7 +1163,7 @@ func buildStepSummaries(steps []WorkflowStep) []map[string]any {
 		out = append(out, map[string]any{
 			"id":        s.ID,
 			"type":      stepType(&s),
-			"role":      s.Role,
+			"role":      s.Agent,
 			"dependsOn": s.DependsOn,
 		})
 	}

@@ -31,7 +31,7 @@ func cmdDispatchList(cfg *Config, api *apiClient) {
 		Timeout  string `json:"timeout"`
 		Elapsed  string `json:"elapsed"`
 		Prompt   string `json:"prompt,omitempty"`
-		Role     string `json:"role,omitempty"`
+		Agent     string `json:"agent,omitempty"`
 		ParentID string `json:"parentId,omitempty"`
 		Depth    int    `json:"depth,omitempty"`
 	}

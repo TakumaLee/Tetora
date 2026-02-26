@@ -11,50 +11,50 @@ import (
 	"text/tabwriter"
 )
 
-func cmdRole(args []string) {
+func cmdAgent(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora role <list|add|show|remove> [name]")
+		fmt.Println("Usage: tetora agent <list|add|show|remove> [name]")
 		return
 	}
 	switch args[0] {
 	case "list", "ls":
-		roleList()
+		agentList()
 	case "add":
-		roleAdd()
+		agentAdd()
 	case "set":
 		if len(args) < 4 {
-			fmt.Println("Usage: tetora role set <name> <field> <value>")
+			fmt.Println("Usage: tetora agent set <name> <field> <value>")
 			fmt.Println("Fields: model, permission, description")
 			return
 		}
-		roleSet(args[1], args[2], args[3])
+		agentSet(args[1], args[2], args[3])
 	case "show":
 		if len(args) < 2 {
-			fmt.Println("Usage: tetora role show <name>")
+			fmt.Println("Usage: tetora agent show <name>")
 			return
 		}
-		roleShow(args[1])
+		agentShow(args[1])
 	case "remove", "rm":
 		if len(args) < 2 {
-			fmt.Println("Usage: tetora role remove <name>")
+			fmt.Println("Usage: tetora agent remove <name>")
 			return
 		}
-		roleRemove(args[1])
+		agentRemove(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", args[0])
 	}
 }
 
-func roleList() {
+func agentList() {
 	cfg := loadConfig(findConfigPath())
-	if len(cfg.Roles) == 0 {
-		fmt.Println("No roles configured.")
+	if len(cfg.Agents) == 0 {
+		fmt.Println("No agents configured.")
 		return
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "NAME\tMODEL\tPERMISSION\tSOUL FILE\tDESCRIPTION\n")
-	for name, rc := range cfg.Roles {
+	for name, rc := range cfg.Agents {
 		model := rc.Model
 		if model == "" {
 			model = "default"
@@ -74,10 +74,10 @@ func roleList() {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, model, perm, soul, desc)
 	}
 	w.Flush()
-	fmt.Printf("\n%d roles\n", len(cfg.Roles))
+	fmt.Printf("\n%d agents\n", len(cfg.Agents))
 }
 
-func roleAdd() {
+func agentAdd() {
 	scanner := bufio.NewScanner(os.Stdin)
 	prompt := func(label, defaultVal string) string {
 		if defaultVal != "" {
@@ -93,10 +93,10 @@ func roleAdd() {
 		return s
 	}
 
-	fmt.Println("=== Add Role ===")
+	fmt.Println("=== Add Agent ===")
 	fmt.Println()
 
-	name := prompt("Role name", "")
+	name := prompt("Agent name", "")
 	if name == "" {
 		fmt.Println("Name is required.")
 		return
@@ -104,8 +104,8 @@ func roleAdd() {
 
 	configPath := findConfigPath()
 	cfg := loadConfig(configPath)
-	if _, exists := cfg.Roles[name]; exists {
-		fmt.Printf("Role %q already exists.\n", name)
+	if _, exists := cfg.Agents[name]; exists {
+		fmt.Printf("Agent %q already exists.\n", name)
 		return
 	}
 
@@ -118,7 +118,7 @@ func roleAdd() {
 	fmt.Printf("    %d. %-12s Start from scratch\n", len(builtinArchetypes)+1, "blank")
 	archChoice := prompt(fmt.Sprintf("Choose [1-%d]", len(builtinArchetypes)+1), fmt.Sprintf("%d", len(builtinArchetypes)+1))
 
-	var archetype *RoleArchetype
+	var archetype *AgentArchetype
 	if n, err := strconv.Atoi(archChoice); err == nil && n >= 1 && n <= len(builtinArchetypes) {
 		archetype = &builtinArchetypes[n-1]
 	}
@@ -156,7 +156,7 @@ func roleAdd() {
 		soulFile = prompt("Soul file path (relative to agent dir)", "")
 	}
 
-	rc := RoleConfig{
+	rc := AgentConfig{
 		SoulFile:       soulFile,
 		Model:          model,
 		Description:    description,
@@ -178,18 +178,18 @@ func roleAdd() {
 		}
 	}
 
-	if err := updateConfigRoles(configPath, name, &rc); err != nil {
+	if err := updateConfigAgents(configPath, name, &rc); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("\nRole %q added.\n", name)
+	fmt.Printf("\nAgent %q added.\n", name)
 }
 
-func roleShow(name string) {
+func agentShow(name string) {
 	cfg := loadConfig(findConfigPath())
-	rc, ok := cfg.Roles[name]
+	rc, ok := cfg.Agents[name]
 	if !ok {
-		fmt.Printf("Role %q not found.\n", name)
+		fmt.Printf("Agent %q not found.\n", name)
 		os.Exit(1)
 	}
 
@@ -200,7 +200,7 @@ func roleShow(name string) {
 
 	// Show workspace info.
 	ws := resolveWorkspace(cfg, name)
-	fmt.Printf("Role: %s\n", name)
+	fmt.Printf("Agent: %s\n", name)
 	fmt.Printf("  Model:       %s\n", model)
 	fmt.Printf("  Soul File:   %s\n", rc.SoulFile)
 	fmt.Printf("  Agent Dir:   %s\n", filepath.Join(cfg.AgentsDir, name))
@@ -215,7 +215,7 @@ func roleShow(name string) {
 
 	// Show soul file preview.
 	if rc.SoulFile != "" {
-		content, err := loadRolePrompt(cfg, name)
+		content, err := loadAgentPrompt(cfg, name)
 		if err != nil {
 			fmt.Printf("\n  (soul file error: %v)\n", err)
 			return
@@ -235,12 +235,12 @@ func roleShow(name string) {
 	}
 }
 
-func roleSet(name, field, value string) {
+func agentSet(name, field, value string) {
 	configPath := findConfigPath()
 	cfg := loadConfig(configPath)
-	rc, ok := cfg.Roles[name]
+	rc, ok := cfg.Agents[name]
 	if !ok {
-		fmt.Printf("Role %q not found.\n", name)
+		fmt.Printf("Agent %q not found.\n", name)
 		os.Exit(1)
 	}
 
@@ -256,67 +256,67 @@ func roleSet(name, field, value string) {
 		os.Exit(1)
 	}
 
-	if err := updateConfigRoles(configPath, name, &rc); err != nil {
+	if err := updateConfigAgents(configPath, name, &rc); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Role %q: %s → %s\n", name, field, value)
+	fmt.Printf("Agent %q: %s -> %s\n", name, field, value)
 }
 
-// updateRoleModel updates a role's model in config. Returns the old model.
+// updateAgentModel updates an agent's model in config. Returns the old model.
 // Used by chat commands (!model, /model).
-func updateRoleModel(cfg *Config, roleName, model string) (string, error) {
-	rc, ok := cfg.Roles[roleName]
+func updateAgentModel(cfg *Config, agentName, model string) (string, error) {
+	rc, ok := cfg.Agents[agentName]
 	if !ok {
-		return "", fmt.Errorf("role %q not found", roleName)
+		return "", fmt.Errorf("agent %q not found", agentName)
 	}
 	old := rc.Model
 	rc.Model = model
 
 	configPath := findConfigPath()
-	if err := updateConfigRoles(configPath, roleName, &rc); err != nil {
+	if err := updateConfigAgents(configPath, agentName, &rc); err != nil {
 		return old, err
 	}
 
 	// Update in-memory config too.
-	cfg.Roles[roleName] = rc
+	cfg.Agents[agentName] = rc
 	return old, nil
 }
 
-func roleRemove(name string) {
+func agentRemove(name string) {
 	configPath := findConfigPath()
 	cfg := loadConfig(configPath)
 
-	if _, ok := cfg.Roles[name]; !ok {
-		fmt.Printf("Role %q not found.\n", name)
+	if _, ok := cfg.Agents[name]; !ok {
+		fmt.Printf("Agent %q not found.\n", name)
 		os.Exit(1)
 	}
 
-	// Check if any job uses this role.
+	// Check if any job uses this agent.
 	jf := loadJobsFile()
 	var using []string
 	for _, j := range jf.Jobs {
-		if j.Role == name {
+		if j.Agent == name {
 			using = append(using, j.ID)
 		}
 	}
 	if len(using) > 0 {
-		fmt.Printf("Role %q is used by jobs: %s\n", name, strings.Join(using, ", "))
+		fmt.Printf("Agent %q is used by jobs: %s\n", name, strings.Join(using, ", "))
 		fmt.Println("Remove these job assignments first, or re-assign them.")
 		os.Exit(1)
 	}
 
-	if err := updateConfigRoles(configPath, name, nil); err != nil {
+	if err := updateConfigAgents(configPath, name, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Role %q removed.\n", name)
+	fmt.Printf("Agent %q removed.\n", name)
 }
 
-// updateConfigRoles updates a single role in config.json.
-// If rc is nil, the role is removed. Otherwise it is added/updated.
+// updateConfigAgents updates a single agent in config.json.
+// If rc is nil, the agent is removed. Otherwise it is added/updated.
 // This preserves all other config fields by reading/modifying/writing the raw JSON.
-func updateConfigRoles(configPath, roleName string, rc *RoleConfig) error {
+func updateConfigAgents(configPath, agentName string, rc *AgentConfig) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
@@ -327,16 +327,16 @@ func updateConfigRoles(configPath, roleName string, rc *RoleConfig) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	// Parse existing roles.
-	roles := make(map[string]RoleConfig)
+	// Parse existing agents.
+	roles := make(map[string]AgentConfig)
 	if rolesRaw, ok := raw["roles"]; ok {
 		json.Unmarshal(rolesRaw, &roles)
 	}
 
 	if rc == nil {
-		delete(roles, roleName)
+		delete(roles, agentName)
 	} else {
-		roles[roleName] = *rc
+		roles[agentName] = *rc
 	}
 
 	rolesJSON, err := json.Marshal(roles)
@@ -352,16 +352,16 @@ func updateConfigRoles(configPath, roleName string, rc *RoleConfig) error {
 	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
 		return err
 	}
-	// Auto-snapshot config version after role change.
+	// Auto-snapshot config version after agent change.
 	// Use a heuristic to find historyDB: load config briefly.
 	if cfg := tryLoadConfigForVersioning(configPath); cfg != nil {
-		snapshotConfig(cfg.HistoryDB, configPath, "cli", fmt.Sprintf("role %s", roleName))
+		snapshotConfig(cfg.HistoryDB, configPath, "cli", fmt.Sprintf("agent %s", agentName))
 	}
 	return nil
 }
 
-// updateConfigSmartDispatchDefault sets smartDispatch.defaultRole in the config file.
-func updateConfigSmartDispatchDefault(configPath, roleName string) error {
+// updateConfigSmartDispatchDefault sets smartDispatch.defaultAgent in the config file.
+func updateConfigSmartDispatchDefault(configPath, agentName string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
@@ -377,7 +377,7 @@ func updateConfigSmartDispatchDefault(configPath, roleName string) error {
 		json.Unmarshal(sdRaw, &sd)
 	}
 
-	sd["defaultRole"] = roleName
+	sd["defaultAgent"] = agentName
 
 	sdJSON, err := json.Marshal(sd)
 	if err != nil {

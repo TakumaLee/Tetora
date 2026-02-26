@@ -12,10 +12,10 @@ func cmdMemory(args []string) {
 		fmt.Println("Usage: tetora memory <list|get|set|delete> [options]")
 		fmt.Println()
 		fmt.Println("Commands:")
-		fmt.Println("  list   [--role ROLE]              List memory entries")
-		fmt.Println("  get    <key> --role ROLE           Get a memory value")
-		fmt.Println("  set    <key> <value> --role ROLE   Set a memory value")
-		fmt.Println("  delete <key> --role ROLE           Delete a memory entry")
+		fmt.Println("  list   [--agent AGENT]              List memory entries")
+		fmt.Println("  get    <key> --agent AGENT          Get a memory value")
+		fmt.Println("  set    <key> <value> --agent AGENT  Set a memory value")
+		fmt.Println("  delete <key> --agent AGENT          Delete a memory entry")
 		return
 	}
 	switch args[0] {
@@ -33,12 +33,12 @@ func cmdMemory(args []string) {
 	}
 }
 
-// parseRoleFlag extracts --role value from args and returns remaining args.
+// parseRoleFlag extracts --agent (or legacy --role) value from args and returns remaining args.
 func parseRoleFlag(args []string) (string, []string) {
 	role := ""
 	var remaining []string
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--role" && i+1 < len(args) {
+		if (args[i] == "--agent" || args[i] == "--role") && i+1 < len(args) {
 			role = args[i+1]
 			i++
 		} else {
@@ -61,7 +61,7 @@ func memoryList(args []string) {
 
 	if len(entries) == 0 {
 		if role != "" {
-			fmt.Printf("No memory entries for role %q.\n", role)
+			fmt.Printf("No memory entries for agent %q.\n", role)
 		} else {
 			fmt.Println("No memory entries.")
 		}
@@ -84,11 +84,11 @@ func memoryList(args []string) {
 func memoryGet(args []string) {
 	role, remaining := parseRoleFlag(args)
 	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tetora memory get <key> --role ROLE")
+		fmt.Fprintln(os.Stderr, "Usage: tetora memory get <key> --agent AGENT")
 		os.Exit(1)
 	}
 	if role == "" {
-		fmt.Fprintln(os.Stderr, "Error: --role is required")
+		fmt.Fprintln(os.Stderr, "Error: --agent is required")
 		os.Exit(1)
 	}
 	key := remaining[0]
@@ -111,11 +111,11 @@ func memoryGet(args []string) {
 func memorySet(args []string) {
 	role, remaining := parseRoleFlag(args)
 	if len(remaining) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: tetora memory set <key> <value> --role ROLE")
+		fmt.Fprintln(os.Stderr, "Usage: tetora memory set <key> <value> --agent AGENT")
 		os.Exit(1)
 	}
 	if role == "" {
-		fmt.Fprintln(os.Stderr, "Error: --role is required")
+		fmt.Fprintln(os.Stderr, "Error: --agent is required")
 		os.Exit(1)
 	}
 	key := remaining[0]
@@ -133,11 +133,11 @@ func memorySet(args []string) {
 func memoryDelete(args []string) {
 	role, remaining := parseRoleFlag(args)
 	if len(remaining) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: tetora memory delete <key> --role ROLE")
+		fmt.Fprintln(os.Stderr, "Usage: tetora memory delete <key> --agent AGENT")
 		os.Exit(1)
 	}
 	if role == "" {
-		fmt.Fprintln(os.Stderr, "Error: --role is required")
+		fmt.Fprintln(os.Stderr, "Error: --agent is required")
 		os.Exit(1)
 	}
 	key := remaining[0]

@@ -26,7 +26,7 @@ func TestQueryUsageSummary(t *testing.T) {
 		Model:     "sonnet",
 		TokensIn:  1000,
 		TokensOut: 500,
-		Role:      "ruri",
+		Agent:      "ruri",
 	})
 	insertJobRun(dbPath, JobRun{
 		JobID:     "u2",
@@ -39,7 +39,7 @@ func TestQueryUsageSummary(t *testing.T) {
 		Model:     "opus",
 		TokensIn:  2000,
 		TokensOut: 800,
-		Role:      "kohaku",
+		Agent:      "kohaku",
 	})
 
 	summary, err := queryUsageSummary(dbPath, "today")
@@ -137,16 +137,16 @@ func TestQueryUsageByRole(t *testing.T) {
 		JobID: "r1", Name: "test1", Source: "test",
 		StartedAt: now.Format(time.RFC3339), FinishedAt: now.Format(time.RFC3339),
 		Status: "success", CostUSD: 0.20, Model: "sonnet",
-		TokensIn: 1000, TokensOut: 500, Role: "ruri",
+		TokensIn: 1000, TokensOut: 500, Agent: "ruri",
 	})
 	insertJobRun(dbPath, JobRun{
 		JobID: "r2", Name: "test2", Source: "test",
 		StartedAt: now.Format(time.RFC3339), FinishedAt: now.Format(time.RFC3339),
 		Status: "success", CostUSD: 0.05, Model: "sonnet",
-		TokensIn: 500, TokensOut: 200, Role: "kohaku",
+		TokensIn: 500, TokensOut: 200, Agent: "kohaku",
 	})
 
-	roles, err := queryUsageByRole(dbPath, 30)
+	roles, err := queryUsageByAgent(dbPath, 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +156,8 @@ func TestQueryUsageByRole(t *testing.T) {
 	}
 
 	// Ordered by cost DESC.
-	if roles[0].Role != "ruri" {
-		t.Errorf("expected first role=ruri, got %s", roles[0].Role)
+	if roles[0].Agent != "ruri" {
+		t.Errorf("expected first role=ruri, got %s", roles[0].Agent)
 	}
 }
 
@@ -174,9 +174,9 @@ func TestQueryExpensiveSessions(t *testing.T) {
 	// Insert test sessions directly.
 	now := time.Now().Format(time.RFC3339)
 	queries := []string{
-		"INSERT INTO sessions (id, role, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s1', 'ruri', 'Expensive session', 1.50, 10, 5000, 3000, '" + now + "', '" + now + "')",
-		"INSERT INTO sessions (id, role, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s2', 'kohaku', 'Cheap session', 0.10, 3, 500, 200, '" + now + "', '" + now + "')",
-		"INSERT INTO sessions (id, role, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s3', 'hisui', 'Medium session', 0.50, 5, 2000, 1000, '" + now + "', '" + now + "')",
+		"INSERT INTO sessions (id, agent, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s1', 'ruri', 'Expensive session', 1.50, 10, 5000, 3000, '" + now + "', '" + now + "')",
+		"INSERT INTO sessions (id, agent, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s2', 'kohaku', 'Cheap session', 0.10, 3, 500, 200, '" + now + "', '" + now + "')",
+		"INSERT INTO sessions (id, agent, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s3', 'hisui', 'Medium session', 0.50, 5, 2000, 1000, '" + now + "', '" + now + "')",
 	}
 	for _, sql := range queries {
 		queryDB(dbPath, sql)

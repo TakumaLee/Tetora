@@ -14,7 +14,7 @@ const SystemLogSessionID = "system:logs"
 
 type Session struct {
 	ID             string  `json:"id"`
-	Role           string  `json:"role"`
+	Agent          string  `json:"agent"`
 	Source         string  `json:"source"`
 	Status         string  `json:"status"`
 	Title          string  `json:"title"`
@@ -41,7 +41,7 @@ type SessionMessage struct {
 }
 
 type SessionQuery struct {
-	Role   string
+	Agent  string
 	Status string
 	Source string
 	Limit  int
@@ -60,7 +60,7 @@ func initSessionDB(dbPath string) error {
 	sql := `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
-  role TEXT NOT NULL DEFAULT '',
+  agent TEXT NOT NULL DEFAULT '',
   source TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
   title TEXT NOT NULL DEFAULT '',
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_role ON sessions(role);
+CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
@@ -93,6 +93,13 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 `
 	if err := execDB(dbPath, sql); err != nil {
 		return fmt.Errorf("init session db: %w", err)
+	}
+
+	// Migration: rename role -> agent in sessions table.
+	if err := execDB(dbPath, `ALTER TABLE sessions RENAME COLUMN role TO agent;`); err != nil {
+		if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+			logWarn("session migration failed", "column", "role->agent", "error", err)
+		}
 	}
 
 	// Migration: add channel_key column if it doesn't exist.
@@ -125,7 +132,7 @@ func ensureSystemLogSession(dbPath string) {
 	now := time.Now().Format(time.RFC3339)
 	_ = createSession(dbPath, Session{
 		ID:        SystemLogSessionID,
-		Role:      "system",
+		Agent:     "system",
 		Source:    "system",
 		Status:    "active",
 		Title:     "System Dispatch Log",
@@ -138,10 +145,10 @@ func ensureSystemLogSession(dbPath string) {
 
 func createSession(dbPath string, s Session) error {
 	sql := fmt.Sprintf(
-		`INSERT OR IGNORE INTO sessions (id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at)
+		`INSERT OR IGNORE INTO sessions (id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s',0,0,0,0,'%s','%s')`,
 		escapeSQLite(s.ID),
-		escapeSQLite(s.Role),
+		escapeSQLite(s.Agent),
 		escapeSQLite(s.Source),
 		escapeSQLite(s.Status),
 		escapeSQLite(s.Title),
@@ -225,8 +232,8 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 	}
 
 	var conditions []string
-	if q.Role != "" {
-		conditions = append(conditions, fmt.Sprintf("role = '%s'", escapeSQLite(q.Role)))
+	if q.Agent != "" {
+		conditions = append(conditions, fmt.Sprintf("agent = '%s'", escapeSQLite(q.Agent)))
 	}
 	if q.Status != "" {
 		conditions = append(conditions, fmt.Sprintf("status = '%s'", escapeSQLite(q.Status)))
@@ -253,7 +260,7 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
 		 FROM sessions %s ORDER BY updated_at DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -271,7 +278,7 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 
 func querySessionByID(dbPath, id string) (*Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
 		 FROM sessions WHERE id = '%s'`, escapeSQLite(id))
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
@@ -288,7 +295,7 @@ func querySessionByID(dbPath, id string) (*Session, error) {
 // Returns all matching sessions ordered by updated_at DESC.
 func querySessionsByPrefix(dbPath, prefix string) ([]Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
 		 FROM sessions WHERE id LIKE '%s%%' ORDER BY updated_at DESC LIMIT 10`,
 		escapeSQLite(prefix))
 	rows, err := queryDB(dbPath, sql)
@@ -410,7 +417,7 @@ func cleanupSessions(dbPath string, days int) error {
 func sessionFromRow(row map[string]any) Session {
 	return Session{
 		ID:             jsonStr(row["id"]),
-		Role:           jsonStr(row["role"]),
+		Agent:          jsonStr(row["agent"]),
 		Source:         jsonStr(row["source"]),
 		Status:         jsonStr(row["status"]),
 		Title:          jsonStr(row["title"]),
@@ -461,7 +468,7 @@ func channelSessionKey(source string, parts ...string) string {
 // Returns nil if no active session exists for this channel key.
 func findChannelSession(dbPath, chKey string) (*Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, role, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
 		 FROM sessions WHERE channel_key = '%s' AND status = 'active' ORDER BY updated_at DESC LIMIT 1`,
 		escapeSQLite(chKey))
 	rows, err := queryDB(dbPath, sql)
@@ -493,7 +500,7 @@ func getOrCreateChannelSession(dbPath, source, chKey, role, title string) (*Sess
 	}
 	s := Session{
 		ID:         newUUID(),
-		Role:       role,
+		Agent:      role,
 		Source:     source,
 		Status:     "active",
 		Title:      title,
@@ -628,7 +635,7 @@ Conversation (%d messages):
 		Source:  "compact",
 	}
 	fillDefaults(cfg, &task)
-	if rc, ok := cfg.Roles[coordinator]; ok && rc.Model != "" {
+	if rc, ok := cfg.Agents[coordinator]; ok && rc.Model != "" {
 		task.Model = rc.Model
 	}
 
@@ -718,7 +725,7 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 		// Create session (INSERT OR IGNORE — idempotent).
 		if err := createSession(dbPath, Session{
 			ID:        sessionID,
-			Role:      role,
+			Agent:     role,
 			Source:     task.Source,
 			Status:    "active",
 			Title:     title,

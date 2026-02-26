@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
-func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
+func (s *Server) registerAgentCfgRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	cron := s.cron
 
-	// --- Roles: archetypes ---
+	// --- Agents: archetypes ---
 	mux.HandleFunc("/roles/archetypes", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		type archInfo struct {
@@ -34,7 +34,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 		json.NewEncoder(w).Encode(archs)
 	})
 
-	// --- Roles: list + create ---
+	// --- Agents: list + create ---
 	mux.HandleFunc("/roles", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -50,7 +50,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 			}
 
 			var roles []roleInfo
-			for name, rc := range cfg.Roles {
+			for name, rc := range cfg.Agents {
 				ri := roleInfo{
 					Name:           name,
 					Model:          rc.Model,
@@ -59,7 +59,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 					Description:    rc.Description,
 				}
 				// Load soul file preview.
-				if content, err := loadRolePrompt(cfg, name); err == nil && content != "" {
+				if content, err := loadAgentPrompt(cfg, name); err == nil && content != "" {
 					if len(content) > 500 {
 						ri.SoulPreview = content[:500] + "..."
 					} else {
@@ -90,8 +90,8 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 				http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
 				return
 			}
-			if _, exists := cfg.Roles[body.Name]; exists {
-				http.Error(w, `{"error":"role already exists"}`, http.StatusConflict)
+			if _, exists := cfg.Agents[body.Name]; exists {
+				http.Error(w, `{"error":"agent already exists"}`, http.StatusConflict)
 				return
 			}
 
@@ -108,7 +108,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 				}
 			}
 
-			rc := RoleConfig{
+			rc := AgentConfig{
 				SoulFile:       body.SoulFile,
 				Model:          body.Model,
 				Description:    body.Description,
@@ -116,18 +116,18 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 			}
 
 			configPath := findConfigPath()
-			if err := updateConfigRoles(configPath, body.Name, &rc); err != nil {
+			if err := updateConfigAgents(configPath, body.Name, &rc); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"save config: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
 
 			// Hot-reload into memory.
-			if cfg.Roles == nil {
-				cfg.Roles = make(map[string]RoleConfig)
+			if cfg.Agents == nil {
+				cfg.Agents = make(map[string]AgentConfig)
 			}
-			cfg.Roles[body.Name] = rc
+			cfg.Agents[body.Name] = rc
 
-			auditLog(cfg.HistoryDB, "role.create", "http",
+			auditLog(cfg.HistoryDB, "agent.create", "http",
 				fmt.Sprintf("name=%s", body.Name), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			w.Write([]byte(`{"status":"created"}`))
@@ -137,7 +137,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 		}
 	})
 
-	// --- Roles: per-role actions ---
+	// --- Agents: per-agent actions ---
 	mux.HandleFunc("/roles/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -150,7 +150,7 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 
 		switch r.Method {
 		case http.MethodGet:
-			rc, ok := cfg.Roles[name]
+			rc, ok := cfg.Agents[name]
 			if !ok {
 				http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 				return
@@ -163,13 +163,13 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 				"description":    rc.Description,
 			}
 			// Load full soul content (not just preview).
-			if content, err := loadRolePrompt(cfg, name); err == nil {
+			if content, err := loadAgentPrompt(cfg, name); err == nil {
 				result["soulContent"] = content
 			}
 			json.NewEncoder(w).Encode(result)
 
 		case http.MethodPut:
-			rc, ok := cfg.Roles[name]
+			rc, ok := cfg.Agents[name]
 			if !ok {
 				http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 				return
@@ -207,36 +207,36 @@ func (s *Server) registerRoleRoutes(mux *http.ServeMux) {
 			}
 
 			configPath := findConfigPath()
-			if err := updateConfigRoles(configPath, name, &rc); err != nil {
+			if err := updateConfigAgents(configPath, name, &rc); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"save: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
-			cfg.Roles[name] = rc
-			auditLog(cfg.HistoryDB, "role.update", "http",
+			cfg.Agents[name] = rc
+			auditLog(cfg.HistoryDB, "agent.update", "http",
 				fmt.Sprintf("name=%s", name), clientIP(r))
 			w.Write([]byte(`{"status":"updated"}`))
 
 		case http.MethodDelete:
-			if _, ok := cfg.Roles[name]; !ok {
+			if _, ok := cfg.Agents[name]; !ok {
 				http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 				return
 			}
-			// Check if any job uses this role.
+			// Check if any job uses this agent.
 			if cron != nil {
 				for _, j := range cron.ListJobs() {
-					if j.Role == name {
-						http.Error(w, fmt.Sprintf(`{"error":"role in use by job %q"}`, j.ID), http.StatusConflict)
+					if j.Agent == name {
+						http.Error(w, fmt.Sprintf(`{"error":"agent in use by job %q"}`, j.ID), http.StatusConflict)
 						return
 					}
 				}
 			}
 			configPath := findConfigPath()
-			if err := updateConfigRoles(configPath, name, nil); err != nil {
+			if err := updateConfigAgents(configPath, name, nil); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"save: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
-			delete(cfg.Roles, name)
-			auditLog(cfg.HistoryDB, "role.delete", "http",
+			delete(cfg.Agents, name)
+			auditLog(cfg.HistoryDB, "agent.delete", "http",
 				fmt.Sprintf("name=%s", name), clientIP(r))
 			w.Write([]byte(`{"status":"deleted"}`))
 

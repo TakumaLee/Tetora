@@ -110,7 +110,7 @@ func TestAutoInjectLearnedSkills(t *testing.T) {
 	// Task with matching keyword.
 	task := Task{
 		Prompt: "please deploy the app",
-		Role:   "黒曜",
+		Agent:   "黒曜",
 	}
 
 	skills := autoInjectLearnedSkills(cfg, task)

@@ -14,20 +14,20 @@ import (
 //	Simple:   soul (truncated 4KB) only — no reflection, style, citation, rules, knowledge
 //	Standard: full soul + 1 reflection + citation + rules index + knowledge index
 //	Complex:  full soul + 3 reflections + citation + writing style + full rules + full knowledge
-func buildTieredPrompt(cfg *Config, task *Task, roleName string, complexity RequestComplexity) {
+func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity RequestComplexity) {
 	// --- Provider type check ---
 	// If the provider is "claude-code", only inject soul prompt and skip everything else.
 	providerType := ""
-	pName := resolveProviderName(cfg, *task, roleName)
+	pName := resolveProviderName(cfg, *task, agentName)
 	if pc, ok := cfg.Providers[pName]; ok {
 		providerType = pc.Type
 	}
 
-	// --- 1. Soul/Role prompt (always loaded) ---
-	if roleName != "" {
-		soulPrompt := loadSoulFile(cfg, roleName)
+	// --- 1. Soul/Agent prompt (always loaded) ---
+	if agentName != "" {
+		soulPrompt := loadSoulFile(cfg, agentName)
 		if soulPrompt == "" {
-			if sp, err := loadRolePrompt(cfg, roleName); err == nil {
+			if sp, err := loadAgentPrompt(cfg, agentName); err == nil {
 				soulPrompt = sp
 			}
 		}
@@ -42,17 +42,17 @@ func buildTieredPrompt(cfg *Config, task *Task, roleName string, complexity Requ
 	}
 
 	// --- 2. Workspace directory setup (always) ---
-	if roleName != "" {
-		ws := resolveWorkspace(cfg, roleName)
+	if agentName != "" {
+		ws := resolveWorkspace(cfg, agentName)
 		if ws.Dir != "" {
 			task.Workdir = ws.Dir
 		}
 		task.AddDirs = append(task.AddDirs, cfg.baseDir)
 	}
 
-	// --- 3. Role config overrides (always) ---
-	if roleName != "" {
-		if rc, ok := cfg.Roles[roleName]; ok {
+	// --- 3. Agent config overrides (always) ---
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok {
 			if task.Model == cfg.DefaultModel && rc.Model != "" {
 				task.Model = rc.Model
 			}
@@ -89,12 +89,12 @@ func buildTieredPrompt(cfg *Config, task *Task, roleName string, complexity Requ
 
 	// --- 6. Reflection ---
 	// Simple: skip. Standard: limit 1. Complex: limit 3.
-	if complexity != ComplexitySimple && cfg.Reflection.Enabled && roleName != "" && cfg.HistoryDB != "" {
+	if complexity != ComplexitySimple && cfg.Reflection.Enabled && agentName != "" && cfg.HistoryDB != "" {
 		limit := 1
 		if complexity == ComplexityComplex {
 			limit = 3
 		}
-		if refCtx := buildReflectionContext(cfg.HistoryDB, roleName, limit); refCtx != "" {
+		if refCtx := buildReflectionContext(cfg.HistoryDB, agentName, limit); refCtx != "" {
 			task.SystemPrompt += "\n\n" + refCtx
 		}
 	}
@@ -133,7 +133,7 @@ func buildTieredPrompt(cfg *Config, task *Task, roleName string, complexity Requ
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call injectWorkspaceContent.
 	if complexity != ComplexitySimple {
-		injectWorkspaceContent(cfg, task, roleName)
+		injectWorkspaceContent(cfg, task, agentName)
 	}
 
 	// --- 10. AddDirs control ---
@@ -144,7 +144,7 @@ func buildTieredPrompt(cfg *Config, task *Task, roleName string, complexity Requ
 		task.AddDirs = []string{cfg.baseDir}
 	} else if complexity == ComplexityStandard {
 		var kept []string
-		ws := resolveWorkspace(cfg, roleName)
+		ws := resolveWorkspace(cfg, agentName)
 		for _, d := range task.AddDirs {
 			if d == cfg.baseDir || d == ws.Dir {
 				kept = append(kept, d)

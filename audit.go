@@ -186,18 +186,18 @@ type RoutingHistoryEntry struct {
 	ID         int    `json:"id"`
 	Timestamp  string `json:"timestamp"`
 	Source     string `json:"source"`
-	Role       string `json:"role"`
+	Agent       string `json:"agent"`
 	Method     string `json:"method"`
 	Confidence string `json:"confidence"`
 	Prompt     string `json:"prompt"`
 }
 
-// RoleRoutingStats aggregates routing stats for a single role.
-type RoleRoutingStats struct {
+// AgentRoutingStats aggregates routing stats for a single agent.
+type AgentRoutingStats struct {
 	Total int `json:"total"`
 }
 
-// parseRouteDetail extracts role, method, confidence, and prompt from the detail field.
+// parseRouteDetail extracts agent, method, confidence, and prompt from the detail field.
 // Format: "role=X method=Y confidence=Z prompt=..."
 func parseRouteDetail(detail string) (role, method, confidence, prompt string) {
 	// Parse key=value pairs from the detail string.
@@ -221,8 +221,8 @@ func parseRouteDetail(detail string) (role, method, confidence, prompt string) {
 }
 
 // queryRoutingStats queries audit_log for route.dispatch events and returns
-// a list of routing history entries and per-role stats.
-func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[string]*RoleRoutingStats, error) {
+// a list of routing history entries and per-agent stats.
+func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[string]*AgentRoutingStats, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -238,7 +238,7 @@ func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[str
 	}
 
 	var history []RoutingHistoryEntry
-	byRole := make(map[string]*RoleRoutingStats)
+	byRole := make(map[string]*AgentRoutingStats)
 
 	for _, row := range rows {
 		detail := jsonStr(row["detail"])
@@ -248,7 +248,7 @@ func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[str
 			ID:         jsonInt(row["id"]),
 			Timestamp:  jsonStr(row["timestamp"]),
 			Source:     jsonStr(row["source"]),
-			Role:       role,
+			Agent:       role,
 			Method:     method,
 			Confidence: confidence,
 			Prompt:     prompt,
@@ -257,7 +257,7 @@ func queryRoutingStats(dbPath string, limit int) ([]RoutingHistoryEntry, map[str
 		if role != "" {
 			stats, ok := byRole[role]
 			if !ok {
-				stats = &RoleRoutingStats{}
+				stats = &AgentRoutingStats{}
 				byRole[role] = stats
 			}
 			stats.Total++

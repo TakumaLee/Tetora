@@ -143,7 +143,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			history = []RoutingHistoryEntry{}
 		}
 		if byRole == nil {
-			byRole = map[string]*RoleRoutingStats{}
+			byRole = map[string]*AgentRoutingStats{}
 		}
 
 		json.NewEncoder(w).Encode(map[string]any{
@@ -304,13 +304,13 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			}
 			json.NewEncoder(w).Encode(models)
 		case "role":
-			roles, err := queryUsageByRole(cfg.HistoryDB, days)
+			roles, err := queryUsageByAgent(cfg.HistoryDB, days)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
 			}
 			if roles == nil {
-				roles = []RoleUsage{}
+				roles = []AgentUsage{}
 			}
 			json.NewEncoder(w).Encode(roles)
 		default:
@@ -401,12 +401,12 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 		}
 
 		summary := parseTokenSummaryRows(summaryRows)
-		byRole := parseTokenRoleRows(roleRows)
+		byRole := parseTokenAgentRows(roleRows)
 		if summary == nil {
 			summary = []TokenSummaryRow{}
 		}
 		if byRole == nil {
-			byRole = []TokenRoleRow{}
+			byRole = []TokenAgentRow{}
 		}
 
 		json.NewEncoder(w).Encode(map[string]any{

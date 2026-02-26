@@ -135,7 +135,7 @@ func TestBuildOpenAPISpec_Schemas(t *testing.T) {
 		"SLAMetrics",
 		"HealthResult",
 		"CronJob",
-		"RoleConfig",
+		"AgentConfig",
 		"SmartDispatchResult",
 		"Error",
 		"JobRun",
