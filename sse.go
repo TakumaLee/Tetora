@@ -90,10 +90,14 @@ func (b *sseBroker) Publish(key string, event SSEEvent) {
 		event.Timestamp = time.Now().Format(time.RFC3339)
 	}
 	b.mu.RLock()
-	subs := b.subscribers[key]
+	// Copy channel references under the lock to avoid racing with unsubscribe.
+	channels := make([]chan SSEEvent, 0, len(b.subscribers[key]))
+	for ch := range b.subscribers[key] {
+		channels = append(channels, ch)
+	}
 	b.mu.RUnlock()
 
-	for ch := range subs {
+	for _, ch := range channels {
 		select {
 		case ch <- event:
 		default:
@@ -108,16 +112,21 @@ func (b *sseBroker) PublishMulti(keys []string, event SSEEvent) {
 		event.Timestamp = time.Now().Format(time.RFC3339)
 	}
 	b.mu.RLock()
-	// Collect unique channels to avoid sending duplicates.
+	// Collect unique channels under the lock to avoid racing with unsubscribe.
 	seen := make(map[chan SSEEvent]struct{})
 	for _, key := range keys {
 		for ch := range b.subscribers[key] {
 			seen[ch] = struct{}{}
 		}
 	}
+	// Copy to slice before releasing lock.
+	channels := make([]chan SSEEvent, 0, len(seen))
+	for ch := range seen {
+		channels = append(channels, ch)
+	}
 	b.mu.RUnlock()
 
-	for ch := range seen {
+	for _, ch := range channels {
 		select {
 		case ch <- event:
 		default:

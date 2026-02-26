@@ -282,17 +282,18 @@ func TestToolWebFetch(t *testing.T) {
 }
 
 func TestToolMemorySearch(t *testing.T) {
-	tmpDB := filepath.Join(t.TempDir(), "test.db")
-	initDB(tmpDB)
-
-	// Insert test memory.
-	_, err := queryDB(tmpDB, `INSERT INTO agent_memory (role, key, value, updated_at)
-	                          VALUES ('test', 'key1', 'hello world', datetime('now'))`)
-	if err != nil {
-		t.Fatalf("insert memory: %v", err)
+	// toolMemorySearch uses filesystem-based memory, not DB.
+	// Create a temp workspace with a memory file.
+	tmpDir := t.TempDir()
+	memDir := filepath.Join(tmpDir, "memory")
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatalf("mkdir memory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "key1.md"), []byte("hello world"), 0o644); err != nil {
+		t.Fatalf("write memory file: %v", err)
 	}
 
-	cfg := &Config{HistoryDB: tmpDB}
+	cfg := &Config{WorkspaceDir: tmpDir}
 	ctx := context.Background()
 
 	input := json.RawMessage(`{"query": "hello"}`)
@@ -314,17 +315,18 @@ func TestToolMemorySearch(t *testing.T) {
 }
 
 func TestToolMemoryGet(t *testing.T) {
-	tmpDB := filepath.Join(t.TempDir(), "test.db")
-	initDB(tmpDB)
-
-	// Insert test memory.
-	_, err := queryDB(tmpDB, `INSERT INTO agent_memory (role, key, value, updated_at)
-	                          VALUES ('test', 'mykey', 'myvalue', datetime('now'))`)
-	if err != nil {
-		t.Fatalf("insert memory: %v", err)
+	// toolMemoryGet uses filesystem-based memory, not DB.
+	// Create a temp workspace with a memory file.
+	tmpDir := t.TempDir()
+	memDir := filepath.Join(tmpDir, "memory")
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatalf("mkdir memory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(memDir, "mykey.md"), []byte("myvalue"), 0o644); err != nil {
+		t.Fatalf("write memory file: %v", err)
 	}
 
-	cfg := &Config{HistoryDB: tmpDB}
+	cfg := &Config{WorkspaceDir: tmpDir}
 	ctx := context.Background()
 
 	input := json.RawMessage(`{"key": "mykey"}`)
