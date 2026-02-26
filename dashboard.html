@@ -74,6 +74,30 @@ header {
 .stat-value { font-size: 26px; font-weight: 700; margin-top: 2px; }
 .stat-value.cost { font-family: 'SF Mono', 'Fira Code', monospace; }
 
+/* Projects Grid */
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.project-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.project-card:hover { border-color: var(--accent); }
+.project-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+.project-card-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.project-card-desc { font-size: 12px; color: var(--muted); margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.project-badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.project-badge-category { background: rgba(96,165,250,0.15); color: var(--accent2); }
+.project-badge-status { background: rgba(52,211,153,0.15); color: var(--green); }
+.project-badge-status.archived { background: rgba(107,107,128,0.15); color: var(--muted); }
+.project-card-workdir { font-size: 11px; font-family: 'SF Mono','Fira Code',monospace; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+.project-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.project-tag { padding: 1px 6px; border-radius: 4px; font-size: 10px; background: rgba(167,139,250,0.12); color: var(--accent); }
+.project-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.project-card-actions button { padding: 3px 10px; font-size: 11px; }
+
 /* Section */
 .section { margin-bottom: 32px; }
 .section-header {
@@ -355,6 +379,35 @@ tr:hover { background: rgba(255,255,255,0.02); }
   border-color: var(--accent);
 }
 .form-actions .btn-primary:hover { opacity: 0.9; }
+
+/* Discord Channel Wizard step indicator */
+.dcm-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+}
+.dcm-step-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.dcm-step-done {
+  border-color: var(--green);
+  background: var(--green);
+  color: #000;
+}
+.dcm-step-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 
 /* Output modal */
 .output-modal {
@@ -1008,6 +1061,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
     <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
     <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
+    <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
   </div>
 
   <div id="dashboard-content">
@@ -1177,7 +1231,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
   <div class="modal-overlay" id="session-modal" style="display:none" onclick="if(event.target===this){this.style.display='none';disconnectSessionStream()}">
     <div class="modal" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 id="session-modal-title" style="color:var(--accent)"></h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 id="session-modal-title" style="color:var(--accent)"></h3>
+          <span id="session-live-badge" style="display:none;font-size:10px;background:var(--green);color:#000;padding:2px 6px;border-radius:4px;font-weight:600">Live</span>
+        </div>
         <button onclick="document.getElementById('session-modal').style.display='none';disconnectSessionStream()" class="btn" style="font-size:12px">Close</button>
       </div>
       <div id="session-modal-meta" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>
@@ -1542,8 +1599,168 @@ tr:hover { background: rgba(255,255,255,0.02); }
         <div class="section-header"><span class="section-title">Security</span></div>
         <div id="settings-security"></div>
       </div>
+      <!-- Notifications (Discord Webhooks) -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Notifications</span>
+          <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+        </div>
+        <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
+        <div id="settings-notifications-table" style="display:none"></div>
+      </div>
     </div>
   </div><!-- /settings-content -->
+
+  <div id="workspace-content" style="display:none">
+    <!-- Projects Section -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Projects</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="proj-search" placeholder="Search projects..." oninput="filterProjects()" style="padding:5px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);width:180px">
+          <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">All</option>
+            <option value="active" selected>Active</option>
+            <option value="archived">Archived</option>
+          </select>
+          <button class="btn btn-add" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Add</button>
+        </div>
+      </div>
+      <div id="projects-grid" class="projects-grid">
+        <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading projects...</div>
+      </div>
+    </div>
+  </div><!-- /workspace-content -->
+
+<!-- Project Modal -->
+<div class="modal-overlay" id="project-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeProjectModal()">&times;</button>
+    <h3 id="project-modal-title">Add Project</h3>
+    <form id="project-form" onsubmit="return submitProject(event)">
+      <input type="hidden" id="pjf-mode" value="add">
+      <input type="hidden" id="pjf-id" value="">
+      <div class="form-row">
+        <label>Name *</label>
+        <input type="text" id="pjf-name" required placeholder="My Project">
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <textarea id="pjf-desc" placeholder="Project description..." style="min-height:60px"></textarea>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir</label>
+          <input type="text" id="pjf-workdir" placeholder="~/Development/project/myapp">
+        </div>
+        <div class="form-row">
+          <label>Repo URL</label>
+          <input type="text" id="pjf-repo" placeholder="https://github.com/user/repo">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Category</label>
+          <input type="text" id="pjf-category" placeholder="AI tools, SaaS, Mobile...">
+        </div>
+        <div class="form-row">
+          <label>Tags</label>
+          <input type="text" id="pjf-tags" placeholder="go, web, ai">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Status</label>
+          <select id="pjf-status">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Priority</label>
+          <input type="number" id="pjf-priority" value="0" min="0" max="100">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeProjectModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pjf-submit">Add Project</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Discord Channel Wizard Modal -->
+<div class="modal-overlay" id="discord-channel-modal" style="display:none" onclick="if(event.target===this)closeDiscordChannelModal()">
+  <div class="modal" style="max-width:520px;width:100%">
+    <button class="modal-close" onclick="closeDiscordChannelModal()">&times;</button>
+    <h3>Add Discord Webhook Channel</h3>
+
+    <!-- Step indicator -->
+    <div id="dcm-steps" style="display:flex;gap:6px;margin:16px 0 20px;align-items:center">
+      <span id="dcm-step-1" class="dcm-step dcm-step-active">1</span>
+      <span class="dcm-step-line"></span>
+      <span id="dcm-step-2" class="dcm-step">2</span>
+      <span class="dcm-step-line"></span>
+      <span id="dcm-step-3" class="dcm-step">3</span>
+    </div>
+
+    <!-- Step 1: Channel name -->
+    <div id="dcm-panel-1">
+      <div class="form-row">
+        <label>Step 1 / 3 &mdash; Channel Name</label>
+        <input type="text" id="dcm-name" placeholder="e.g. stock, alerts, dev-errors" autocomplete="off">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Lowercase letters, numbers, hyphens, underscores only.</div>
+      </div>
+      <div id="dcm-name-error" style="color:var(--red);font-size:12px;min-height:18px"></div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="dcmNext(1)">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Webhook URL + events -->
+    <div id="dcm-panel-2" style="display:none">
+      <div class="form-row">
+        <label>Step 2 / 3 &mdash; Webhook URL</label>
+        <input type="text" id="dcm-url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Discord &rarr; Channel Settings &rarr; Integrations &rarr; Webhooks &rarr; New Webhook &rarr; Copy URL
+        </div>
+      </div>
+      <div id="dcm-url-error" style="color:var(--red);font-size:12px;min-height:18px"></div>
+      <div class="form-row" style="margin-top:14px">
+        <label>Notify on</label>
+        <select id="dcm-events" style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+          <option value="all">All events</option>
+          <option value="error">Errors only</option>
+          <option value="success">Successes only</option>
+        </select>
+      </div>
+      <div class="form-actions" style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn" onclick="dcmBack(2)">Back</button>
+        <button class="btn btn-primary" onclick="dcmNext(2)">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Confirm + optional test -->
+    <div id="dcm-panel-3" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Step 3 / 3 &mdash; Confirm</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:13px;line-height:1.8">
+        <div><span style="color:var(--muted);width:100px;display:inline-block">Name</span><span id="dcm-confirm-name" style="font-family:monospace"></span></div>
+        <div><span style="color:var(--muted);width:100px;display:inline-block">Events</span><span id="dcm-confirm-events"></span></div>
+        <div style="margin-top:6px;word-break:break-all"><span style="color:var(--muted)">Webhook</span><br><span id="dcm-confirm-url" style="font-family:monospace;font-size:11px;color:var(--accent)"></span></div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="dcm-send-test" style="width:14px;height:14px">
+        <label for="dcm-send-test" style="font-size:13px;cursor:pointer">Send a test message after saving</label>
+      </div>
+      <div id="dcm-save-error" style="color:var(--red);font-size:12px;min-height:18px;margin-top:8px"></div>
+      <div class="form-actions" style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn" onclick="dcmBack(3)">Back</button>
+        <button class="btn btn-primary" id="dcm-save-btn" onclick="dcmSave()">Save Channel</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 </div>
 
@@ -1603,6 +1820,12 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <input type="number" id="jf-budget" value="2.00" step="0.01" min="0">
         </div>
       </div>
+      <div class="form-row">
+        <label>Project (optional)</label>
+        <select id="jf-project" onchange="onJobProjectChange()">
+          <option value="">— none —</option>
+        </select>
+      </div>
       <div class="form-row-inline">
         <div class="form-row">
           <label>Workdir (optional)</label>
@@ -1632,6 +1855,14 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <span class="slider"></span>
         </label>
         <span style="font-size:13px">Notify on complete</span>
+      </div>
+      <!-- notify channel selector, shown when notify is checked -->
+      <div id="jf-notify-channel-row" style="display:none" class="form-row">
+        <label for="jf-notify-channel">Discord Channel</label>
+        <select id="jf-notify-channel">
+          <option value="">— default —</option>
+          <!-- populated dynamically -->
+        </select>
       </div>
       <div class="form-actions">
         <button type="button" class="btn" onclick="closeJobModal()">Cancel</button>
@@ -1756,6 +1987,12 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <label>Budget (USD)</label>
           <input type="number" id="df-budget" value="2.00" step="0.01" min="0">
         </div>
+      </div>
+      <div class="form-row">
+        <label>Project (optional)</label>
+        <select id="df-project" onchange="onDispatchProjectChange()">
+          <option value="">— none —</option>
+        </select>
       </div>
       <div class="form-row-inline">
         <div class="form-row">
@@ -2560,6 +2797,12 @@ async function openJobModal(editId) {
       document.getElementById('jf-onsuccess').value = (j.onSuccess || []).join(', ');
       document.getElementById('jf-onfailure').value = (j.onFailure || []).join(', ');
       document.getElementById('jf-notify').checked = j.notify || false;
+      // Restore notify channel selection if present.
+      if (j.notify && j.notifyChannel) {
+        await populateDiscordChannels(j.notifyChannel);
+      } else {
+        document.getElementById('jf-notify-channel-row').style.display = 'none';
+      }
     } catch (e) {
       toast('Error loading job: ' + e.message);
       return;
@@ -2572,6 +2815,8 @@ async function openJobModal(editId) {
     document.getElementById('jf-id').readOnly = false;
   }
 
+  populateProjectDropdown('jf-project');
+
   modal.classList.add('open');
 }
 
@@ -2582,6 +2827,44 @@ function editJob(id) {
 function closeJobModal() {
   document.getElementById('job-modal').classList.remove('open');
 }
+
+// Populate the Discord channel select and show the row.
+// If selectedName is provided, pre-select that option.
+async function populateDiscordChannels(selectedName) {
+  const row = document.getElementById('jf-notify-channel-row');
+  const sel = document.getElementById('jf-notify-channel');
+  row.style.display = '';
+  // Fetch channels from API.
+  try {
+    const channels = await fetchJSON('/api/discord/channels');
+    sel.innerHTML = '<option value="">— default —</option>';
+    (channels || []).forEach(ch => {
+      const opt = document.createElement('option');
+      opt.value = ch.name;
+      opt.textContent = ch.name;
+      if (ch.name === selectedName) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch (_) {
+    // If fetch fails, keep default option only.
+    sel.innerHTML = '<option value="">— default —</option>';
+  }
+}
+
+// Wire up notify checkbox toggle after DOM is ready.
+document.addEventListener('DOMContentLoaded', () => {
+  const notifyChk = document.getElementById('jf-notify');
+  const channelRow = document.getElementById('jf-notify-channel-row');
+  if (notifyChk) {
+    notifyChk.addEventListener('change', async () => {
+      if (notifyChk.checked) {
+        await populateDiscordChannels('');
+      } else {
+        channelRow.style.display = 'none';
+      }
+    });
+  }
+});
 
 async function submitJob(e) {
   e.preventDefault();
@@ -2604,6 +2887,7 @@ async function submitJob(e) {
       permissionMode: document.getElementById('jf-permission').value,
     },
     notify: document.getElementById('jf-notify').checked,
+    notifyChannel: document.getElementById('jf-notify-channel').value,
     onSuccess: document.getElementById('jf-onsuccess').value.split(',').map(s => s.trim()).filter(Boolean),
     onFailure: document.getElementById('jf-onfailure').value.split(',').map(s => s.trim()).filter(Boolean),
   };
@@ -2972,6 +3256,9 @@ function openDispatchModal() {
   const roleSel = document.getElementById('df-role');
   roleSel.innerHTML = '<option value="">— none —</option>' +
     cachedRoles.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
+
+  // Populate project dropdown.
+  populateProjectDropdown('df-project');
 
   modal.classList.add('open');
 }
@@ -3690,6 +3977,7 @@ async function viewSession(shortId, fullId) {
     if (!data || !data.session) return;
 
     const s = data.session;
+    sessionSSERole = s.role || 'agent';
     document.getElementById('session-modal-title').textContent = s.role ? `${s.role} Session` : 'Session';
     document.getElementById('session-modal-meta').innerHTML =
       `ID: ${esc(s.id)}<br>Source: ${esc(s.source)} | Status: ${esc(s.status)} | ` +
@@ -3836,10 +4124,12 @@ function cleanupLiveStreams() {
 
 // --- Session Live Streaming ---
 let sessionSSE = null;
+let sessionSSEId = null;  // track which session is being watched
+let sessionSSERole = '';  // role label for message rendering
 
 function viewSessionWithStream(shortId, fullId, status) {
   viewSession(shortId, fullId);
-  // If session is active, connect SSE stream.
+  // Connect persistent watch stream for active sessions.
   if (status === 'active') {
     connectSessionStream(fullId);
   }
@@ -3847,47 +4137,176 @@ function viewSessionWithStream(shortId, fullId, status) {
 
 function connectSessionStream(sessionId) {
   disconnectSessionStream();
-  const url = '/sessions/' + encodeURIComponent(sessionId) + '/stream';
+  sessionSSEId = sessionId;
+  const url = '/sessions/' + encodeURIComponent(sessionId) + '/watch';
   sessionSSE = new EventSource(url);
 
-  sessionSSE.addEventListener('output_chunk', function(e) {
-    try {
-      const d = JSON.parse(e.data);
-      const chunk = d.data?.chunk || '';
-      if (chunk) {
-        // Append chunk to the last message in the modal, or create a streaming area.
-        let streamEl = document.getElementById('session-stream-output');
-        if (!streamEl) {
-          const container = document.getElementById('session-modal-messages');
-          const div = document.createElement('div');
-          div.id = 'session-stream-output';
-          div.className = 'live-output';
-          div.style.display = '';
-          container.appendChild(div);
+  const badge = document.getElementById('session-live-badge');
+
+  sessionSSE.onopen = function() {
+    if (badge) badge.style.display = '';
+  };
+
+  // Helper: append element to messages container with auto-scroll.
+  function appendToModal(html) {
+    const container = document.getElementById('session-modal-messages');
+    if (!container) return;
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    container.insertAdjacentHTML('beforeend', html);
+    if (nearBottom) container.scrollTop = container.scrollHeight;
+  }
+
+  // Helper: render a progress/status line (muted, compact).
+  function appendStatusLine(text) {
+    appendToModal('<div style="font-size:11px;color:var(--muted);padding:2px 12px">' + text + '</div>');
+  }
+
+  // Helper: render a full message bubble (same style as static messages).
+  function appendMessageBubble(role, content, ts) {
+    const isUser = role === 'user';
+    const isSys = role === 'system';
+    const bgColor = isUser ? '#1a1a3a' : isSys ? '#1a1a1a' : '#0d1a1a';
+    const label = isUser ? 'USER' : isSys ? 'SYSTEM' : (sessionSSERole || 'AGENT').toUpperCase();
+    const labelColor = isUser ? '#60a5fa' : isSys ? 'var(--muted)' : 'var(--green)';
+    const timeStr = ts ? dateTimeStr(ts) : dateTimeStr(new Date().toISOString());
+    appendToModal(
+      '<div style="background:' + bgColor + ';border:1px solid var(--border);border-radius:8px;padding:12px">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:6px">' +
+          '<span style="font-size:11px;font-weight:600;color:' + labelColor + '">' + label + '</span>' +
+          '<span style="font-size:10px;color:var(--muted)">' + esc(timeStr) + '</span>' +
+        '</div>' +
+        '<div style="font-size:13px;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto">' + esc(content) + '</div>' +
+      '</div>'
+    );
+  }
+
+  var eventTypes = ['task_received', 'task_routing', 'discord_processing', 'discord_replying',
+    'tool_call', 'tool_result', 'session_message', 'output_chunk', 'completed', 'error', 'started'];
+  var toolStarts = {};
+
+  eventTypes.forEach(function(evType) {
+    sessionSSE.addEventListener(evType, function(e) {
+      try {
+        var d = JSON.parse(e.data);
+        var data = d.data || {};
+        var ts = d.timestamp || '';
+
+        switch(evType) {
+          case 'task_received':
+            var author = data.author || 'user';
+            var prompt = data.prompt || '';
+            if (prompt.length > 300) prompt = prompt.substring(0, 297) + '...';
+            appendMessageBubble('user', prompt, ts);
+            break;
+
+          case 'task_routing':
+            var role = data.role || '?';
+            var conf = data.confidence ? ' (' + Number(data.confidence).toFixed(2) + ')' : '';
+            var method = data.method ? ' via ' + esc(data.method) : '';
+            appendStatusLine('&#x1F500; Routing &#x2192; <b>' + esc(role) + '</b>' + esc(conf) + method);
+            break;
+
+          case 'discord_processing':
+            appendStatusLine('&#x2699;&#xFE0F; Processing (' + esc(data.role || '') + ')...');
+            break;
+
+          case 'tool_call':
+            var toolName = data.name || data.id || '(tool)';
+            var toolId = data.toolUseId || '';
+            if (toolId) toolStarts[toolId] = Date.now();
+            appendStatusLine('&#x1F527; ' + esc(toolName) + '...');
+            break;
+
+          case 'tool_result':
+            var tid = data.toolUseId || '';
+            var dur = '';
+            if (tid && toolStarts[tid]) {
+              dur = ' (' + ((Date.now() - toolStarts[tid]) / 1000).toFixed(1) + 's)';
+              delete toolStarts[tid];
+            } else if (data.duration) {
+              dur = ' (' + (data.duration / 1000).toFixed(1) + 's)';
+            }
+            var resName = data.name || '';
+            var isErr = data.isError ? ' <span style="color:var(--red)">error</span>' : '';
+            appendStatusLine('&nbsp;&nbsp;&#x2714; ' + esc(resName) + ' done' + dur + isErr);
+            break;
+
+          case 'session_message':
+            var msgRole = data.role || 'assistant';
+            var content = data.content || '';
+            appendMessageBubble(msgRole, content, ts);
+            break;
+
+          case 'discord_replying':
+            if (data.status && data.status !== 'success') {
+              appendStatusLine('&#x274C; ' + esc(data.status));
+            }
+            break;
+
+          case 'completed':
+            // Task cycle done — refresh metadata but keep stream open.
+            if (sessionSSEId) {
+              fetchJSON('/sessions/' + sessionSSEId).then(function(result) {
+                if (result && result.session) {
+                  var s = result.session;
+                  var meta = document.getElementById('session-modal-meta');
+                  if (meta) {
+                    meta.innerHTML = 'ID: ' + esc(s.id) + '<br>Source: ' + esc(s.source) + ' | Status: ' + esc(s.status) + ' | ' +
+                      'Messages: ' + (s.messageCount||0) + ' | Cost: ' + costFmt(s.totalCost) + ' | ' +
+                      'Tokens: ' + (s.totalTokensIn||0) + '/' + (s.totalTokensOut||0) + ' | Updated: ' + dateTimeStr(s.updatedAt);
+                  }
+                }
+              }).catch(function(){});
+            }
+            break;
+
+          case 'error':
+            var errMsg = data.error || data.status || 'unknown error';
+            appendStatusLine('&#x274C; <span style="color:var(--red)">' + esc(errMsg) + '</span>');
+            break;
+
+          case 'output_chunk':
+            // Show streaming output chunks in a live area.
+            var chunk = data.chunk || '';
+            if (chunk) {
+              var streamEl = document.getElementById('session-stream-output');
+              if (!streamEl) {
+                appendToModal('<div id="session-stream-output" class="live-output" style="font-size:12px;color:var(--muted);padding:4px 12px;white-space:pre-wrap"></div>');
+                streamEl = document.getElementById('session-stream-output');
+              }
+              if (streamEl) {
+                streamEl.textContent += chunk;
+                var container = document.getElementById('session-modal-messages');
+                if (container) {
+                  var nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+                  if (nearBottom) container.scrollTop = container.scrollHeight;
+                }
+              }
+            }
+            break;
+
+          case 'started':
+            // Remove any streaming output area from previous task cycle.
+            var old = document.getElementById('session-stream-output');
+            if (old) old.remove();
+            break;
         }
-        streamEl = document.getElementById('session-stream-output');
-        streamEl.innerHTML += '<span class="chunk">' + esc(chunk) + '</span>';
-        streamEl.scrollTop = streamEl.scrollHeight;
-      }
-    } catch(err) {}
-  });
-
-  sessionSSE.addEventListener('completed', function(e) {
-    disconnectSessionStream();
-    // Refresh session detail to show final result.
-    const modal = document.getElementById('session-modal');
-    if (modal.style.display === 'flex') {
-      // Re-fetch session data.
-      viewSession('', sessionId);
-    }
-  });
-
-  sessionSSE.addEventListener('error', function() {
-    disconnectSessionStream();
+      } catch(err) { console.error('sessionSSE event:', evType, err); }
+    });
   });
 
   sessionSSE.onerror = function() {
-    disconnectSessionStream();
+    if (badge) badge.style.display = 'none';
+    // Auto-reconnect after 3s if modal is still open.
+    var modal = document.getElementById('session-modal');
+    if (modal && modal.style.display === 'flex' && sessionSSEId) {
+      var reconnectId = sessionSSEId;
+      setTimeout(function() {
+        if (sessionSSEId === reconnectId) {
+          connectSessionStream(reconnectId);
+        }
+      }, 3000);
+    }
   };
 }
 
@@ -3896,7 +4315,10 @@ function disconnectSessionStream() {
     sessionSSE.close();
     sessionSSE = null;
   }
-  const streamEl = document.getElementById('session-stream-output');
+  sessionSSEId = null;
+  var badge = document.getElementById('session-live-badge');
+  if (badge) badge.style.display = 'none';
+  var streamEl = document.getElementById('session-stream-output');
   if (streamEl) streamEl.remove();
 }
 
@@ -3910,9 +4332,195 @@ var liveTaskItems = {}; // taskId -> { name, role }
 var taskViewId = null;
 var taskViewSSE = null;
 
+// --- Projects (Workspace Tab) ---
+
+var cachedProjects = [];
+
+async function refreshProjects() {
+  var status = document.getElementById('proj-status-filter').value;
+  try {
+    var url = '/api/projects';
+    if (status) url += '?status=' + encodeURIComponent(status);
+    var data = await fetchJSON(url);
+    cachedProjects = data.projects || [];
+    renderProjects(cachedProjects);
+  } catch(e) {
+    document.getElementById('projects-grid').innerHTML = '<div style="color:var(--red);padding:20px;text-align:center">Error loading projects</div>';
+  }
+}
+
+function filterProjects() {
+  var q = (document.getElementById('proj-search').value || '').toLowerCase();
+  if (!q) { renderProjects(cachedProjects); return; }
+  var filtered = cachedProjects.filter(function(p) {
+    return (p.name||'').toLowerCase().includes(q) ||
+           (p.description||'').toLowerCase().includes(q) ||
+           (p.category||'').toLowerCase().includes(q) ||
+           (p.tags||'').toLowerCase().includes(q);
+  });
+  renderProjects(filtered);
+}
+
+function renderProjects(projects) {
+  var grid = document.getElementById('projects-grid');
+  if (!projects || projects.length === 0) {
+    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center">No projects found. Click "+ Add" to create one.</div>';
+    return;
+  }
+  grid.innerHTML = projects.map(function(p) {
+    var tags = (p.tags||'').split(',').filter(Boolean).map(function(t) {
+      return '<span class="project-tag">' + esc(t.trim()) + '</span>';
+    }).join('');
+    var statusClass = p.status === 'archived' ? ' archived' : '';
+    var repoLink = p.repoUrl ? '<a href="' + esc(p.repoUrl) + '" target="_blank" style="font-size:11px;color:var(--accent2);text-decoration:none" title="' + esc(p.repoUrl) + '">repo</a>' : '';
+    return '<div class="project-card">' +
+      '<div class="project-card-header">' +
+        '<span class="project-card-name">' + esc(p.name) + '</span>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          (repoLink ? repoLink + ' ' : '') +
+          '<span style="font-size:11px;color:var(--muted)">#' + (p.priority||0) + '</span>' +
+        '</div>' +
+      '</div>' +
+      (p.description ? '<div class="project-card-desc">' + esc(p.description) + '</div>' : '') +
+      '<div class="project-card-meta">' +
+        (p.category ? '<span class="project-badge project-badge-category">' + esc(p.category) + '</span>' : '') +
+        '<span class="project-badge project-badge-status' + statusClass + '">' + esc(p.status||'active') + '</span>' +
+      '</div>' +
+      (p.workdir ? '<div class="project-card-workdir" title="' + esc(p.workdir) + '">' + esc(p.workdir) + '</div>' : '') +
+      (tags ? '<div class="project-card-tags">' + tags + '</div>' : '') +
+      '<div class="project-card-actions">' +
+        (p.workdir ? '<button class="btn" onclick="dispatchToProject(\'' + esc(p.workdir).replace(/'/g, "\\'") + '\')">Dispatch</button>' : '') +
+        '<button class="btn" onclick="openProjectModal(\'' + esc(p.id) + '\')">Edit</button>' +
+        '<button class="btn" style="color:var(--red)" onclick="deleteProjectConfirm(\'' + esc(p.id) + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')">Del</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function openProjectModal(editId) {
+  var modal = document.getElementById('project-modal');
+  document.getElementById('project-form').reset();
+  document.getElementById('pjf-mode').value = editId ? 'edit' : 'add';
+  document.getElementById('pjf-id').value = editId || '';
+  document.getElementById('project-modal-title').textContent = editId ? 'Edit Project' : 'Add Project';
+  document.getElementById('pjf-submit').textContent = editId ? 'Save Changes' : 'Add Project';
+
+  if (editId) {
+    var p = cachedProjects.find(function(x) { return x.id === editId; });
+    if (p) {
+      document.getElementById('pjf-name').value = p.name || '';
+      document.getElementById('pjf-desc').value = p.description || '';
+      document.getElementById('pjf-workdir').value = p.workdir || '';
+      document.getElementById('pjf-repo').value = p.repoUrl || '';
+      document.getElementById('pjf-category').value = p.category || '';
+      document.getElementById('pjf-tags').value = p.tags || '';
+      document.getElementById('pjf-status').value = p.status || 'active';
+      document.getElementById('pjf-priority').value = p.priority || 0;
+    }
+  }
+  modal.classList.add('open');
+}
+
+function closeProjectModal() {
+  document.getElementById('project-modal').classList.remove('open');
+}
+
+async function submitProject(e) {
+  e.preventDefault();
+  var mode = document.getElementById('pjf-mode').value;
+  var id = document.getElementById('pjf-id').value;
+  var body = {
+    name: document.getElementById('pjf-name').value.trim(),
+    description: document.getElementById('pjf-desc').value.trim(),
+    workdir: document.getElementById('pjf-workdir').value.trim(),
+    repoUrl: document.getElementById('pjf-repo').value.trim(),
+    category: document.getElementById('pjf-category').value.trim(),
+    tags: document.getElementById('pjf-tags').value.trim(),
+    status: document.getElementById('pjf-status').value,
+    priority: parseInt(document.getElementById('pjf-priority').value) || 0,
+  };
+
+  try {
+    if (mode === 'edit') {
+      await fetchJSON('/api/projects/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      toast('Project updated');
+    } else {
+      await fetchJSON('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      toast('Project created');
+    }
+    closeProjectModal();
+    refreshProjects();
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+  return false;
+}
+
+async function deleteProjectConfirm(id, name) {
+  if (!confirm('Delete project "' + name + '"?')) return;
+  try {
+    await fetchJSON('/api/projects/' + id, { method: 'DELETE' });
+    toast('Project deleted');
+    refreshProjects();
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+function dispatchToProject(workdir) {
+  openDispatchModal();
+  document.getElementById('df-workdir').value = workdir;
+}
+
+// --- Project dropdown in dispatch/job modals ---
+
+async function populateProjectDropdown(selectId) {
+  if (cachedProjects.length === 0) {
+    try {
+      var data = await fetchJSON('/api/projects?status=active');
+      cachedProjects = data.projects || [];
+    } catch(e) {}
+  }
+  var sel = document.getElementById(selectId);
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— none —</option>';
+  cachedProjects.filter(function(p) { return p.status === 'active'; }).forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name + (p.workdir ? ' (' + p.workdir + ')' : '');
+    opt.dataset.workdir = p.workdir || '';
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+}
+
+function onDispatchProjectChange() {
+  var sel = document.getElementById('df-project');
+  var opt = sel.options[sel.selectedIndex];
+  if (opt && opt.dataset && opt.dataset.workdir) {
+    document.getElementById('df-workdir').value = opt.dataset.workdir;
+  }
+}
+
+function onJobProjectChange() {
+  var sel = document.getElementById('jf-project');
+  var opt = sel.options[sel.selectedIndex];
+  if (opt && opt.dataset && opt.dataset.workdir) {
+    document.getElementById('jf-workdir').value = opt.dataset.workdir;
+  }
+}
+
 function switchTab(tab) {
   currentTab = tab;
-  ['dashboard','chat','workflows','integrations','settings'].forEach(function(t) {
+  ['dashboard','chat','workflows','integrations','settings','workspace'].forEach(function(t) {
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
     document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
   });
@@ -3928,6 +4536,9 @@ function switchTab(tab) {
   }
   if (tab === 'settings') {
     refreshSettings();
+  }
+  if (tab === 'workspace') {
+    refreshProjects();
   }
 }
 
@@ -5346,6 +5957,7 @@ function refreshSettings() {
       renderSettingsTools(data.tools || {});
       renderSettingsBudgets(data.budgets || {});
       renderSettingsSecurity(data.security || {});
+      refreshNotificationsTable();
     })
     .catch(function(e) {
       document.getElementById('settings-loading').innerHTML = '<span style="color:var(--red)">Failed to load: ' + e + '</span>';
@@ -5415,6 +6027,187 @@ function renderSettingsSecurity(data) {
     {label: 'IP Allowlist', value: data.ipAllowlist > 0 ? data.ipAllowlist + ' entries' : 'None'},
     {label: 'Dashboard Auth', value: data.dashboardAuth ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'}
   ]);
+}
+
+// --- Discord Notification Channels ---
+
+function refreshNotificationsTable() {
+  var loadingEl = document.getElementById('settings-notifications-loading');
+  var tableEl = document.getElementById('settings-notifications-table');
+  if (!loadingEl || !tableEl) return;
+
+  loadingEl.style.display = '';
+  tableEl.style.display = 'none';
+
+  fetch('/api/discord/channels')
+    .then(function(r) { return r.json(); })
+    .then(function(channels) {
+      loadingEl.style.display = 'none';
+      tableEl.style.display = '';
+      if (!channels || channels.length === 0) {
+        tableEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No Discord webhook channels configured.</div>';
+        return;
+      }
+      var rows = channels.map(function(ch) {
+        var events = (ch.events || ['all']).join(', ');
+        return '<tr>' +
+          '<td style="padding:8px 12px;font-family:monospace;font-size:13px">' + esc(ch.name) + '</td>' +
+          '<td style="padding:8px 12px;font-size:12px;color:var(--muted);word-break:break-all">' + esc(ch.webhookUrl || '') + '</td>' +
+          '<td style="padding:8px 12px;font-size:12px">' + esc(events) + '</td>' +
+          '<td style="padding:8px 12px;white-space:nowrap">' +
+            '<button class="btn" style="padding:3px 10px;font-size:11px;margin-right:4px" onclick="testDiscordChannel(' + JSON.stringify(ch.name) + ')">Test</button>' +
+            '<button class="btn" style="padding:3px 10px;font-size:11px;color:var(--red);border-color:var(--red)" onclick="removeDiscordChannel(' + JSON.stringify(ch.name) + ')">Remove</button>' +
+          '</td>' +
+        '</tr>';
+      });
+      tableEl.innerHTML = '<table style="width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:8px;overflow:hidden">' +
+        '<thead><tr style="background:var(--surface)">' +
+          '<th style="padding:8px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500">Name</th>' +
+          '<th style="padding:8px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500">Webhook</th>' +
+          '<th style="padding:8px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500">Events</th>' +
+          '<th style="padding:8px 12px;text-align:left;font-size:12px;color:var(--muted);font-weight:500">Actions</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows.join('') + '</tbody>' +
+        '</table>';
+    })
+    .catch(function(e) {
+      loadingEl.style.display = 'none';
+      tableEl.style.display = '';
+      tableEl.innerHTML = '<div style="color:var(--red);font-size:13px">Failed to load: ' + e + '</div>';
+    });
+}
+
+function testDiscordChannel(name) {
+  fetch('/api/discord/channels/' + encodeURIComponent(name) + '/test', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { toast('Test failed: ' + data.error); return; }
+      toast('Test message sent to ' + name);
+    })
+    .catch(function(e) { toast('Error: ' + e); });
+}
+
+function removeDiscordChannel(name) {
+  if (!confirm('Remove Discord channel "' + name + '"?')) return;
+  fetch('/api/discord/channels/' + encodeURIComponent(name), {method:'DELETE'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { toast('Error: ' + data.error); return; }
+      toast('Channel "' + name + '" removed');
+      refreshNotificationsTable();
+    })
+    .catch(function(e) { toast('Error: ' + e); });
+}
+
+// Wizard state
+var dcmStep = 1;
+
+function openDiscordChannelModal() {
+  dcmStep = 1;
+  document.getElementById('dcm-name').value = '';
+  document.getElementById('dcm-url').value = '';
+  document.getElementById('dcm-events').value = 'all';
+  document.getElementById('dcm-name-error').textContent = '';
+  document.getElementById('dcm-url-error').textContent = '';
+  document.getElementById('dcm-save-error').textContent = '';
+  document.getElementById('dcm-send-test').checked = false;
+  dcmShowPanel(1);
+  document.getElementById('discord-channel-modal').style.display = 'flex';
+}
+
+function closeDiscordChannelModal() {
+  document.getElementById('discord-channel-modal').style.display = 'none';
+}
+
+function dcmShowPanel(step) {
+  [1,2,3].forEach(function(n) {
+    document.getElementById('dcm-panel-' + n).style.display = n === step ? '' : 'none';
+    var el = document.getElementById('dcm-step-' + n);
+    el.className = 'dcm-step';
+    if (n < step) el.classList.add('dcm-step-done');
+    else if (n === step) el.classList.add('dcm-step-active');
+  });
+  dcmStep = step;
+}
+
+function dcmNext(fromStep) {
+  if (fromStep === 1) {
+    var name = document.getElementById('dcm-name').value.trim();
+    var errEl = document.getElementById('dcm-name-error');
+    if (!name) { errEl.textContent = 'Name is required.'; return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(name) || name.length > 64) {
+      errEl.textContent = 'Only letters, numbers, hyphens, underscores (max 64 chars).';
+      return;
+    }
+    errEl.textContent = '';
+    dcmShowPanel(2);
+  } else if (fromStep === 2) {
+    var url = document.getElementById('dcm-url').value.trim();
+    var urlErr = document.getElementById('dcm-url-error');
+    if (!url) { urlErr.textContent = 'Webhook URL is required.'; return; }
+    if (!url.startsWith('https://discord.com/api/webhooks/') && !url.startsWith('https://discordapp.com/api/webhooks/')) {
+      urlErr.textContent = 'URL must start with https://discord.com/api/webhooks/';
+      return;
+    }
+    urlErr.textContent = '';
+    // Populate confirm panel
+    var events = document.getElementById('dcm-events').value;
+    var eventsLabel = {'all':'All events','error':'Errors only','success':'Successes only'}[events] || events;
+    document.getElementById('dcm-confirm-name').textContent = document.getElementById('dcm-name').value.trim();
+    document.getElementById('dcm-confirm-events').textContent = eventsLabel;
+    document.getElementById('dcm-confirm-url').textContent = url;
+    dcmShowPanel(3);
+  }
+}
+
+function dcmBack(fromStep) {
+  dcmShowPanel(fromStep - 1);
+}
+
+function dcmSave() {
+  var name = document.getElementById('dcm-name').value.trim();
+  var url = document.getElementById('dcm-url').value.trim();
+  var events = document.getElementById('dcm-events').value;
+  var sendTest = document.getElementById('dcm-send-test').checked;
+  var errEl = document.getElementById('dcm-save-error');
+  var btn = document.getElementById('dcm-save-btn');
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  errEl.textContent = '';
+
+  fetch('/api/discord/channels', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name: name, webhookUrl: url, events: [events]})
+  })
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'HTTP ' + r.status); });
+      return r.json();
+    })
+    .then(function() {
+      if (sendTest) {
+        return fetch('/api/discord/channels/' + encodeURIComponent(name) + '/test', {method:'POST'})
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d.error) toast('Saved, but test failed: ' + d.error);
+            else toast('Channel saved. Test message sent.');
+          });
+      } else {
+        toast('Channel "' + name + '" saved.');
+      }
+    })
+    .then(function() {
+      closeDiscordChannelModal();
+      refreshNotificationsTable();
+    })
+    .catch(function(e) {
+      errEl.textContent = 'Error: ' + e.message;
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = 'Save Channel';
+    });
 }
 </script>
 </body>

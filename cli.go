@@ -50,6 +50,7 @@ Commands:
   plugin <action>    Manage external plugins (list|start|stop)
   access <action>    Manage agent directory access (list|add|remove)
   import <source>    Import data (openclaw)
+  release            Build, tag, and publish a release (atomic pipeline)
   upgrade            Upgrade to the latest version
   backup             Create backup of tetora data
   restore            Restore from a backup file

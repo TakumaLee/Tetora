@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
@@ -383,6 +384,57 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(result))
+	})
+
+	// --- P0.3: Running Agents ---
+	mux.HandleFunc("/api/agents/running", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		type runningTask struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Role     string `json:"role,omitempty"`
+			Source   string `json:"source,omitempty"`
+			Prompt   string `json:"prompt,omitempty"`
+			Elapsed  string `json:"elapsed"`
+			ParentID string `json:"parentId,omitempty"`
+			Depth    int    `json:"depth,omitempty"`
+		}
+
+		var tasks []runningTask
+		if state != nil {
+			state.mu.Lock()
+			for _, ts := range state.running {
+				prompt := ts.task.Prompt
+				if len(prompt) > 100 {
+					prompt = prompt[:100] + "..."
+				}
+				tasks = append(tasks, runningTask{
+					ID:       ts.task.ID,
+					Name:     ts.task.Name,
+					Role:     ts.task.Role,
+					Source:   ts.task.Source,
+					Prompt:   prompt,
+					Elapsed:  time.Since(ts.startAt).Round(time.Second).String(),
+					ParentID: ts.task.ParentID,
+					Depth:    ts.task.Depth,
+				})
+			}
+			state.mu.Unlock()
+		}
+
+		if tasks == nil {
+			tasks = []runningTask{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"running": tasks,
+			"count":   len(tasks),
+		})
 	})
 
 	// --- Trust Gradient ---

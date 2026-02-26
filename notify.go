@@ -99,6 +99,17 @@ func (w *WhatsAppNotifier) Send(text string) error {
 
 func (w *WhatsAppNotifier) Name() string { return "whatsapp" }
 
+// buildDiscordNotifierByName returns a DiscordNotifier for the named channel (from cfg.Notifications), or nil.
+func buildDiscordNotifierByName(cfg *Config, name string) *DiscordNotifier {
+	client := &http.Client{Timeout: 5 * time.Second}
+	for _, ch := range cfg.Notifications {
+		if ch.Type == "discord" && ch.Name == name && ch.WebhookURL != "" {
+			return &DiscordNotifier{WebhookURL: ch.WebhookURL, client: client}
+		}
+	}
+	return nil
+}
+
 // buildNotifiers creates Notifier instances from config.
 func buildNotifiers(cfg *Config) []Notifier {
 	var notifiers []Notifier

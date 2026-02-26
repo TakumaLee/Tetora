@@ -106,6 +106,17 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	// Ensure system log session exists.
 	ensureSystemLogSession(dbPath)
 
+	// Cleanup zombie sessions: mark stale active sessions as completed on startup.
+	cleanupSQL := fmt.Sprintf(
+		`UPDATE sessions SET status = 'completed', updated_at = '%s' WHERE status = 'active' AND id != '%s'`,
+		time.Now().Format(time.RFC3339), SystemLogSessionID,
+	)
+	if err := execDB(dbPath, cleanupSQL); err != nil {
+		logWarn("zombie session cleanup failed", "error", err)
+	} else {
+		logInfo("startup: cleaned up stale active sessions")
+	}
+
 	return nil
 }
 

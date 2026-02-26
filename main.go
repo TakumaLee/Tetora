@@ -118,6 +118,12 @@ func main() {
 		case "restore":
 			cmdRestore(os.Args[2:])
 			return
+		case "mirror":
+			cmdMirror(os.Args[2:])
+			return
+		case "discord":
+			handleDiscordCLI(os.Args[2:])
+			return
 		case "dashboard":
 			cmdOpenDashboard()
 			return
@@ -150,6 +156,9 @@ func main() {
 			return
 		case "restart":
 			cmdRestart()
+			return
+		case "release":
+			cmdRelease(os.Args[2:])
 			return
 		case "upgrade":
 			cmdUpgrade()
@@ -279,6 +288,10 @@ func main() {
 			// Init token telemetry table.
 			if err := initTokenTelemetry(cfg.HistoryDB); err != nil {
 				logWarn("init token_telemetry failed", "error", err)
+			}
+			// Init projects table.
+			if err := initProjectsDB(cfg.HistoryDB); err != nil {
+				logWarn("init projects failed", "error", err)
 			}
 		}
 

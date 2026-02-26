@@ -86,6 +86,18 @@ func initHandoffTables(dbPath string) {
 	if dbPath == "" {
 		return
 	}
+	// Migrations: add workflow_run_id columns if missing (for existing DBs created before this column existed).
+	// Must run BEFORE handoffTablesSQL so index creation on workflow_run_id succeeds on old schemas.
+	for _, col := range []string{
+		`ALTER TABLE handoffs ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
+		`ALTER TABLE agent_messages ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
+	} {
+		if err := execDB(dbPath, col); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+				logWarn("handoff migration failed", "sql", col, "error", err)
+			}
+		}
+	}
 	if _, err := queryDB(dbPath, handoffTablesSQL); err != nil {
 		logWarn("init handoff tables failed", "error", err)
 	}

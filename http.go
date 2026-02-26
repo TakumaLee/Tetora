@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -511,6 +512,9 @@ func startHTTPServer(s *Server) *http.Server {
 	s.registerFamilyRoutes(mux)
 	s.registerContactsRoutes(mux)
 	s.registerHabitsRoutes(mux)
+	s.registerProjectRoutes(mux)
+	s.registerWSEventsRoutes(mux)
+	s.registerDiscordRoutes(mux)
 
 	// PWA assets.
 	mux.HandleFunc("/dashboard/manifest.json", handlePWAManifest)
@@ -551,6 +555,7 @@ func startHTTPServer(s *Server) *http.Server {
 		go func() {
 			if err := srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != http.ErrServerClosed {
 				logError("https server error", "error", err)
+				os.Exit(1) // Fatal — prevent headless zombie instance
 			}
 		}()
 		logInfo("https server listening", "addr", cfg.ListenAddr)
@@ -558,6 +563,7 @@ func startHTTPServer(s *Server) *http.Server {
 		go func() {
 			if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 				logError("http server error", "error", err)
+				os.Exit(1) // Fatal — prevent headless zombie instance
 			}
 		}()
 		logInfo("http server listening", "addr", cfg.ListenAddr)

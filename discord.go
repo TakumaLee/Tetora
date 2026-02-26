@@ -30,6 +30,7 @@ type DiscordBotConfig struct {
 	ChannelID         string                      `json:"channelID,omitempty"`          // restrict to specific channel (legacy, mention-only)
 	ChannelIDs        []string                    `json:"channelIDs,omitempty"`         // direct-reply channels (no @ needed)
 	MentionChannelIDs []string                    `json:"mentionChannelIDs,omitempty"`  // @mention-only channels
+	Webhooks       map[string]string           `json:"webhooks,omitempty"`  // named webhook channels, e.g. {"stock": "https://discord.com/api/webhooks/..."}
 	PublicKey      string                      `json:"publicKey,omitempty"` // Ed25519 public key for interaction verification
 	Components     DiscordComponentsConfig     `json:"components,omitempty"`
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
@@ -1079,19 +1080,6 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 		defer db.state.removeDiscordActivity(activityID)
 	}
 
-	// Publish task_received to dashboard.
-	if db.state != nil && db.state.broker != nil {
-		db.state.broker.Publish(SSEDashboardKey, SSEEvent{
-			Type: SSETaskReceived,
-			Data: map[string]any{
-				"source":  "discord",
-				"author":  msg.Author.Username,
-				"prompt":  truncate(prompt, 200),
-				"channel": msg.ChannelID,
-			},
-		})
-	}
-
 	// Route.
 	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
 	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "role", route.Role, "method", route.Method)
@@ -1103,19 +1091,6 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 			da.Role = route.Role
 		}
 		db.state.mu.Unlock()
-	}
-
-	// Publish task_routing to dashboard.
-	if db.state != nil && db.state.broker != nil {
-		db.state.broker.Publish(SSEDashboardKey, SSEEvent{
-			Type: SSETaskRouting,
-			Data: map[string]any{
-				"source":     "discord",
-				"role":       route.Role,
-				"method":     route.Method,
-				"confidence": route.Confidence,
-			},
-		})
 	}
 
 	// Channel session.
@@ -1140,6 +1115,32 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 			title = title[:100]
 		}
 		updateSessionTitle(dbPath, sess.ID, title)
+	}
+
+	// Publish task_received + task_routing (after session resolved so watchers see them).
+	if db.state != nil && db.state.broker != nil {
+		sessID := ""
+		if sess != nil {
+			sessID = sess.ID
+		}
+		publishToSSEBroker(db.state.broker, SSEEvent{
+			Type: SSETaskReceived, TaskID: activityID, SessionID: sessID,
+			Data: map[string]any{
+				"source":  "discord",
+				"author":  msg.Author.Username,
+				"prompt":  prompt,
+				"channel": msg.ChannelID,
+			},
+		})
+		publishToSSEBroker(db.state.broker, SSEEvent{
+			Type: SSETaskRouting, TaskID: activityID, SessionID: sessID,
+			Data: map[string]any{
+				"source":     "discord",
+				"role":       route.Role,
+				"method":     route.Method,
+				"confidence": route.Confidence,
+			},
+		})
 	}
 
 	// Build and run task. Pre-set ID so it matches the activityID used for dashboard tracking.
@@ -1177,8 +1178,8 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	if db.state != nil {
 		db.state.updateDiscordPhase(activityID, "processing")
 		if db.state.broker != nil {
-			db.state.broker.Publish(SSEDashboardKey, SSEEvent{
-				Type: SSEDiscordProcessing,
+			publishToSSEBroker(db.state.broker, SSEEvent{
+				Type: SSEDiscordProcessing, TaskID: activityID, SessionID: task.SessionID,
 				Data: map[string]any{
 					"taskId":  activityID,
 					"role":    route.Role,
@@ -1233,8 +1234,8 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	if db.state != nil {
 		db.state.updateDiscordPhase(activityID, "replying")
 		if db.state.broker != nil {
-			db.state.broker.Publish(SSEDashboardKey, SSEEvent{
-				Type: SSEDiscordReplying,
+			publishToSSEBroker(db.state.broker, SSEEvent{
+				Type: SSEDiscordReplying, TaskID: activityID, SessionID: task.SessionID,
 				Data: map[string]any{
 					"taskId":  activityID,
 					"role":    route.Role,
@@ -1276,6 +1277,15 @@ func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
+
+		// Publish session_message so watchers get the full output without polling.
+		if db.state != nil && db.state.broker != nil {
+			publishToSSEBroker(db.state.broker, SSEEvent{
+				Type: SSESessionMessage, TaskID: task.ID, SessionID: sess.ID,
+				Data: map[string]any{"role": msgRole, "content": content},
+			})
+		}
+
 		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem)
 	}
 

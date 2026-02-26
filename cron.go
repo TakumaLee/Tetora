@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -26,6 +28,7 @@ type CronJobConfig struct {
 	Role            string         `json:"role,omitempty"`
 	Task            CronTaskConfig `json:"task"`
 	Notify          bool           `json:"notify,omitempty"`
+	NotifyChannel   string         `json:"notifyChannel,omitempty"`   // Discord channel name, e.g. "stock"
 	MaxRetries      int            `json:"maxRetries,omitempty"`      // 0 = no retry (default)
 	RetryDelay      string         `json:"retryDelay,omitempty"`      // e.g. "1m", "5m"; default "1m"
 	OnSuccess       []string       `json:"onSuccess,omitempty"`       // job IDs to trigger on success
@@ -465,6 +468,12 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	// Expand template variables in prompt.
 	task.Prompt = expandPrompt(task.Prompt, j.ID, ce.cfg.HistoryDB, j.Role, ce.cfg.KnowledgeDir, ce.cfg)
 
+	// Skip jobs with empty prompts (e.g. missing promptFile or blank inline prompt).
+	if strings.TrimSpace(task.Prompt) == "" {
+		logWarnCtx(ctx, "cron job skipped: empty prompt", "jobId", j.ID, "name", j.Name)
+		return
+	}
+
 	// Approval gate: wait for human approval if required.
 	if j.RequireApproval && j.chainDepth == 0 {
 		approvalTimeout := 10 * time.Minute
@@ -607,41 +616,79 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	}
 	ce.mu.Unlock()
 
-	// Telegram notification (respects quiet hours).
-	if j.Notify && ce.notifyFn != nil {
-		dur := time.Duration(result.DurationMs) * time.Millisecond
-		var msg string
-		if result.Status == "success" {
-			output := truncate(result.Output, 500)
-			msg = fmt.Sprintf("Cron %s\n%s (%s, $%.2f)\n\n%s",
-				j.Name, result.Status, dur.Round(time.Second), result.CostUSD, output)
-		} else {
-			msg = fmt.Sprintf("Cron %s\n%s (%s)\nError: %s",
-				j.Name, result.Status, dur.Round(time.Second), truncate(result.Error, 300))
-		}
-
-		if isQuietHours(ce.cfg) {
-			if ce.cfg.QuietHours.Digest {
-				quiet.enqueue(msg)
+	// Notifications — suppressed when cronNotify is explicitly false.
+	cronNotifyEnabled := ce.cfg.CronNotify == nil || *ce.cfg.CronNotify
+	if cronNotifyEnabled {
+		// Telegram notification (respects quiet hours).
+		if j.Notify && ce.notifyFn != nil {
+			dur := time.Duration(result.DurationMs) * time.Millisecond
+			var msg string
+			if result.Status == "success" {
+				output := truncate(result.Output, 500)
+				msg = fmt.Sprintf("Cron %s\n%s (%s, $%.2f)\n\n%s",
+					j.Name, result.Status, dur.Round(time.Second), result.CostUSD, output)
+			} else {
+				msg = fmt.Sprintf("Cron %s\n%s (%s)\nError: %s",
+					j.Name, result.Status, dur.Round(time.Second), truncate(result.Error, 300))
 			}
-			// else: discard silently
-		} else {
-			ce.notifyFn(msg)
-		}
-	}
 
-	// Webhook notifications.
-	sendWebhooks(ce.cfg, result.Status, WebhookPayload{
-		JobID:    j.ID,
-		Name:     j.Name,
-		Source:   "cron",
-		Status:   result.Status,
-		Cost:     result.CostUSD,
-		Duration: result.DurationMs,
-		Model:    result.Model,
-		Output:   truncate(result.Output, 500),
-		Error:    truncate(result.Error, 300),
-	})
+			if isQuietHours(ce.cfg) {
+				if ce.cfg.QuietHours.Digest {
+					quiet.enqueue(msg)
+				}
+				// else: discard silently
+			} else {
+				ce.notifyFn(msg)
+			}
+		}
+
+		// Discord channel notification.
+		if j.NotifyChannel != "" {
+			channelName := j.NotifyChannel
+			if strings.HasPrefix(channelName, "discord:") {
+				channelName = strings.TrimPrefix(channelName, "discord:")
+			}
+			elapsed := time.Duration(result.DurationMs) * time.Millisecond
+			status := "✅"
+			if result.Status != "success" {
+				status = "❌"
+			}
+			msg := fmt.Sprintf("%s **%s** completed\nCost: $%.4f | Duration: %s",
+				status, j.Name, result.CostUSD, elapsed.Round(time.Second))
+			// Support "id:CHANNEL_ID" for direct bot-token based sending.
+			if strings.HasPrefix(channelName, "id:") {
+				channelID := strings.TrimPrefix(channelName, "id:")
+				if ce.cfg.Discord.Enabled && ce.cfg.Discord.BotToken != "" {
+					if err := cronDiscordSendBotChannel(ce.cfg.Discord.BotToken, channelID, msg); err != nil {
+						logWarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelID, "error", err)
+					}
+				}
+			} else {
+				channels := discordGetWebhookChannels(ce.cfg)
+				for _, ch := range channels {
+					if ch.Name == channelName {
+						if err := cronDiscordSendWebhook(ch.WebhookURL, msg); err != nil {
+							logWarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelName, "error", err)
+						}
+						break
+					}
+				}
+			}
+		}
+
+		// Webhook notifications.
+		sendWebhooks(ce.cfg, result.Status, WebhookPayload{
+			JobID:    j.ID,
+			Name:     j.Name,
+			Source:   "cron",
+			Status:   result.Status,
+			Cost:     result.CostUSD,
+			Duration: result.DurationMs,
+			Model:    result.Model,
+			Output:   truncate(result.Output, 500),
+			Error:    truncate(result.Error, 300),
+		})
+	}
 
 	// Chain trigger: onSuccess / onFailure.
 	var chainTargets []string
@@ -1181,4 +1228,50 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// cronDiscordSendBotChannel sends a message to a Discord channel via bot token.
+func cronDiscordSendBotChannel(botToken, channelID, msg string) error {
+	if len(msg) > 2000 {
+		msg = msg[:1997] + "..."
+	}
+	payload, err := json.Marshal(map[string]string{"content": msg})
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("https://discord.com/api/v10/channels/%s/messages", channelID)
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bot "+botToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Discord returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// cronDiscordSendWebhook sends a plain message to a Discord webhook URL.
+func cronDiscordSendWebhook(webhookURL, msg string) error {
+	payload, err := json.Marshal(map[string]string{"content": msg})
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Discord returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }

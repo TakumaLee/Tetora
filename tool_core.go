@@ -141,11 +141,11 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 	if enabled("message") {
 		r.Register(&ToolDef{
 			Name:        "message",
-			Description: "Send a message to a channel (Telegram, Slack, Discord)",
+			Description: "Send a message to a channel (Telegram, Slack, Discord). Use 'discord-<name>' to target a named Discord webhook channel (e.g. 'discord-stock').",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"channel": {"type": "string", "description": "Channel type: telegram, slack, discord"},
+					"channel": {"type": "string", "description": "Channel type: telegram, slack, discord. For named Discord webhook channels use discord-<name> (e.g. discord-stock, discord-trading). Named channels must be configured under discord.webhooks in config.json."},
 					"message": {"type": "string", "description": "Message content"}
 				},
 				"required": ["channel", "message"]
@@ -644,6 +644,36 @@ func toolMessage(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 		}
 		return "", fmt.Errorf("discord not enabled")
 	default:
+		// Support discord-id:CHANNEL_ID for direct bot-token based sending.
+		if strings.HasPrefix(args.Channel, "discord-id:") {
+			channelID := strings.TrimPrefix(args.Channel, "discord-id:")
+			if !cfg.Discord.Enabled {
+				return "", fmt.Errorf("discord not enabled")
+			}
+			if cfg.Discord.BotToken == "" {
+				return "", fmt.Errorf("discord bot token not configured")
+			}
+			if err := cronDiscordSendBotChannel(cfg.Discord.BotToken, channelID, args.Message); err != nil {
+				return "", fmt.Errorf("send discord-id:%s: %w", channelID, err)
+			}
+			return "message sent to discord channel " + channelID, nil
+		}
+		// Support discord-<name> for named webhook channels, e.g. "discord-stock".
+		if strings.HasPrefix(args.Channel, "discord-") {
+			name := strings.TrimPrefix(args.Channel, "discord-")
+			if !cfg.Discord.Enabled {
+				return "", fmt.Errorf("discord not enabled")
+			}
+			webhookURL, ok := cfg.Discord.Webhooks[name]
+			if !ok || webhookURL == "" {
+				return "", fmt.Errorf("discord channel %q not configured (add to discord.webhooks in config.json)", name)
+			}
+			n := &DiscordNotifier{WebhookURL: webhookURL, client: &http.Client{Timeout: 10 * time.Second}}
+			if err := n.Send(args.Message); err != nil {
+				return "", fmt.Errorf("send discord-%s: %w", name, err)
+			}
+			return "message sent to discord-" + name, nil
+		}
 		return "", fmt.Errorf("unknown channel: %s", args.Channel)
 	}
 }

@@ -132,6 +132,15 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			serveSSE(w, r, state.broker, sessionID)
 			return
 
+		// GET /sessions/{id}/watch — persistent SSE stream (stays open across tasks).
+		case action == "watch" && r.Method == http.MethodGet:
+			if state.broker == nil {
+				http.Error(w, `{"error":"streaming not available"}`, http.StatusServiceUnavailable)
+				return
+			}
+			serveSSEPersistent(w, r, state.broker, sessionID)
+			return
+
 		// GET /sessions/{id} — get session with messages.
 		case action == "" && r.Method == http.MethodGet:
 			detail, err := querySessionDetail(cfg.HistoryDB, sessionID)
@@ -291,6 +300,108 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			auditLog(cfg.HistoryDB, "session.message", "http",
 				fmt.Sprintf("session=%s role=%s", sessionID, sess.Role), clientIP(r))
 			json.NewEncoder(w).Encode(result)
+
+		// POST /sessions/{id}/mirror — record external message (no task execution).
+		case action == "mirror" && r.Method == http.MethodPost:
+			var body struct {
+				Role           string  `json:"role"`    // "user" or "assistant"
+				Content        string  `json:"content"`
+				Model          string  `json:"model"`
+				Cost           float64 `json:"cost"`
+				TokensIn       int     `json:"tokensIn"`
+				TokensOut      int     `json:"tokensOut"`
+				DiscordChannel string  `json:"discordChannel"` // optional: forward to this Discord channel ID
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
+				return
+			}
+			if body.Role == "" || body.Content == "" {
+				http.Error(w, `{"error":"role and content required"}`, http.StatusBadRequest)
+				return
+			}
+			if body.Role != "user" && body.Role != "assistant" && body.Role != "system" {
+				http.Error(w, `{"error":"role must be user, assistant, or system"}`, http.StatusBadRequest)
+				return
+			}
+
+			// Check if session exists; create it if not (source=mirror).
+			sess, err := querySessionByID(cfg.HistoryDB, sessionID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			now := time.Now().Format(time.RFC3339)
+			if sess == nil {
+				sess = &Session{
+					ID:        sessionID,
+					Role:      "mirror",
+					Source:    "mirror",
+					Status:    "active",
+					Title:     "Mirror session",
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+				if err := createSession(cfg.HistoryDB, *sess); err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+					return
+				}
+			}
+
+			// Add message to DB.
+			if err := addSessionMessage(cfg.HistoryDB, SessionMessage{
+				SessionID: sessionID,
+				Role:      body.Role,
+				Content:   truncateStr(body.Content, 10000),
+				CostUSD:   body.Cost,
+				TokensIn:  body.TokensIn,
+				TokensOut: body.TokensOut,
+				Model:     body.Model,
+				CreatedAt: now,
+			}); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			updateSessionStats(cfg.HistoryDB, sessionID, body.Cost, body.TokensIn, body.TokensOut, 1)
+
+			// Publish SSE event so Dashboard chat sees it in real-time.
+			if state.broker != nil {
+				event := SSEEvent{
+					Type:      SSEOutputChunk,
+					SessionID: sessionID,
+					Data: map[string]any{
+						"role":    body.Role,
+						"content": body.Content,
+					},
+					Timestamp: now,
+				}
+				publishToSSEBroker(state.broker, event)
+			}
+
+			// Forward to Discord if channel specified and bot is configured.
+			if body.DiscordChannel != "" && cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
+				go func() {
+					content := body.Content
+					if len(content) > 1900 {
+						content = content[:1900] + "\n..."
+					}
+					prefix := "💬"
+					if body.Role == "assistant" {
+						prefix = "🤖"
+					}
+					msg := fmt.Sprintf("%s **[mirror:%s]**\n%s", prefix, body.Role, content)
+					if err := cronDiscordSendBotChannel(cfg.Discord.BotToken, body.DiscordChannel, msg); err != nil {
+						logWarn("mirror discord forward failed", "session", sessionID, "error", err)
+					}
+				}()
+			}
+
+			auditLog(cfg.HistoryDB, "session.mirror", "http",
+				fmt.Sprintf("session=%s role=%s len=%d", sessionID, body.Role, len(body.Content)), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":    "ok",
+				"sessionId": sessionID,
+			})
 
 		// POST /sessions/{id}/compact — trigger context compaction.
 		case action == "compact" && r.Method == http.MethodPost:

@@ -36,6 +36,7 @@ const (
 	SSEDashboardKey      = "__dashboard__"
 	SSEToolCall          = "tool_call"
 	SSEToolResult        = "tool_result"
+	SSESessionMessage    = "session_message"
 )
 
 // --- SSE Broker ---
@@ -225,6 +226,51 @@ func serveDashboardSSE(w http.ResponseWriter, r *http.Request, broker *sseBroker
 			writeSSEEvent(w, id, event)
 			flusher.Flush()
 
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+		}
+	}
+}
+
+// serveSSEPersistent handles a persistent SSE connection for a custom key.
+// Unlike serveSSE, it does NOT close on completed/error events — it stays open
+// across multiple task cycles (e.g. a Discord channel conversation).
+func serveSSEPersistent(w http.ResponseWriter, r *http.Request, broker *sseBroker, key string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := broker.Subscribe(key)
+	defer unsub()
+
+	var eventID atomic.Int64
+
+	fmt.Fprintf(w, ": connected to %s\n\n", key)
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			id := eventID.Add(1)
+			writeSSEEvent(w, id, event)
+			flusher.Flush()
 		case <-heartbeat.C:
 			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
 			flusher.Flush()

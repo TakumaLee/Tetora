@@ -129,6 +129,7 @@ type Config struct {
 	TimeTracking          TimeTrackingConfig               `json:"timeTracking,omitempty"`         // --- P29.2: Time Tracking ---
 	Lifecycle             LifecycleConfig                  `json:"lifecycle,omitempty"`             // --- P29.0: Lifecycle Automation ---
 	PromptBudget          PromptBudgetConfig               `json:"promptBudget,omitempty"`          // --- Tiered Prompt Builder ---
+	CronNotify            *bool                            `json:"cronNotify,omitempty"`             // nil/true = send cron notifications, false = suppress all
 
 	// Resolved at runtime (not serialized).
 	baseDir      string
@@ -400,9 +401,10 @@ type DigestConfig struct {
 }
 
 type NotificationChannel struct {
-	Type        string   `json:"type"`                 // "slack", "discord"
-	WebhookURL  string   `json:"webhookUrl"`           // webhook endpoint
-	Events      []string `json:"events,omitempty"`     // "all", "error", "success"; empty = all
+	Name        string   `json:"name,omitempty"`        // named reference, e.g. "stock"; used in channel='discord:stock'
+	Type        string   `json:"type"`                  // "slack", "discord"
+	WebhookURL  string   `json:"webhookUrl"`            // webhook endpoint
+	Events      []string `json:"events,omitempty"`      // "all", "error", "success"; empty = all
 	MinPriority string   `json:"minPriority,omitempty"` // "critical", "high", "normal", "low"; empty = all
 }
 
