@@ -15,7 +15,7 @@ func TestCounterIncrement(t *testing.T) {
 	r.CounterInc("test_counter", "failure")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	// Check HELP and TYPE lines.
@@ -43,7 +43,7 @@ func TestCounterAdd(t *testing.T) {
 	r.CounterAdd("test_cost", 2.3, "琉璃")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	if !strings.Contains(output, `test_cost{role="琉璃"} 3.8`) {
@@ -60,7 +60,7 @@ func TestGaugeSet(t *testing.T) {
 	r.GaugeSet("test_gauge", 7, "mcp1") // overwrite
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	if !strings.Contains(output, "# TYPE test_gauge gauge") {
@@ -83,7 +83,7 @@ func TestGaugeIncDec(t *testing.T) {
 	r.GaugeDec("test_active")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	if !strings.Contains(output, "test_active 1") {
@@ -101,7 +101,7 @@ func TestHistogramObserve(t *testing.T) {
 	r.HistogramObserve("test_duration", 2.5, "琉璃")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	if !strings.Contains(output, "# TYPE test_duration histogram") {
@@ -154,7 +154,7 @@ func TestLabelFormatting(t *testing.T) {
 	r.CounterInc("test_multi", "琉璃", "success", "claude")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	expected := `test_multi{role="琉璃",status="success",provider="claude"} 1`
@@ -171,7 +171,7 @@ func TestNoLabelsCounter(t *testing.T) {
 	r.CounterInc("test_simple")
 
 	var buf bytes.Buffer
-	r.WriteTo(&buf)
+	r.WriteMetrics(&buf)
 	output := buf.String()
 
 	if !strings.Contains(output, "test_simple 2") {
@@ -193,7 +193,7 @@ func TestFullMetricsOutput(t *testing.T) {
 	metrics.CounterInc("tetora_cron_runs_total", "success")
 
 	var buf bytes.Buffer
-	metrics.WriteTo(&buf)
+	metrics.WriteMetrics(&buf)
 	output := buf.String()
 
 	// Check all registered metrics are present.

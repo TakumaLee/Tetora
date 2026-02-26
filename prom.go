@@ -233,8 +233,8 @@ func (r *MetricsRegistry) makeKey(name string, labelValues []string) labelKey {
 
 // --- Exposition ---
 
-// WriteTo writes all metrics in Prometheus text exposition format.
-func (r *MetricsRegistry) WriteTo(w io.Writer) {
+// WriteMetrics writes all metrics in Prometheus text exposition format.
+func (r *MetricsRegistry) WriteMetrics(w io.Writer) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

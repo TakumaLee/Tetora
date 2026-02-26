@@ -68,7 +68,7 @@ func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		metrics.WriteTo(w)
+		metrics.WriteMetrics(w)
 	})
 
 	// --- Circuit Breakers ---
