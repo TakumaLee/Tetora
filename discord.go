@@ -36,7 +36,8 @@ type DiscordBotConfig struct {
 	ThreadBindings DiscordThreadBindingsConfig `json:"threadBindings,omitempty"` // P14.2: per-thread agent isolation
 	Reactions      DiscordReactionsConfig      `json:"reactions,omitempty"`      // P14.3: lifecycle reactions
 	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
-	Voice          DiscordVoiceConfig          `json:"voice,omitempty"`          // P14.5: voice channel integration
+	Voice            DiscordVoiceConfig          `json:"voice,omitempty"`            // P14.5: voice channel integration
+	NotifyChannelID  string                      `json:"notifyChannelID,omitempty"`  // task notification channel (thread-per-task)
 }
 
 // --- P14.1: Discord Components v2 ---
@@ -382,6 +383,7 @@ type DiscordBot struct {
 	forumBoard   *discordForumBoard       // P14.4: forum task board
 	voice        *discordVoiceManager     // P14.5: voice channel manager
 	gatewayConn  *wsConn                  // P14.5: active gateway connection for voice state updates
+	notifier     *discordTaskNotifier     // task notification (thread-per-task)
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
@@ -419,6 +421,12 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *C
 		if ch := db.notifyChannelID(); ch != "" {
 			db.approvalGate = newDiscordApprovalGate(db, ch)
 		}
+	}
+
+	// Task notification (thread-per-task).
+	if ch := cfg.Discord.NotifyChannelID; ch != "" {
+		db.notifier = newDiscordTaskNotifier(db, ch)
+		logInfo("discord task notifier enabled", "channel", ch)
 	}
 
 	return db

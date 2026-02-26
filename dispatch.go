@@ -914,6 +914,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		"model", task.Model, "provider", providerName,
 		"role", roleName, "workdir", task.Workdir)
 
+	// Discord thread-per-task notification (top-level tasks only).
+	doDiscordNotify := task.Depth == 0 && state.discordBot != nil && state.discordBot.notifier != nil
+	if doDiscordNotify {
+		state.discordBot.notifier.NotifyStart(task)
+	}
+
 	// Publish SSE started event.
 	state.publishSSE(SSEEvent{
 		Type:      SSEStarted,
@@ -1141,6 +1147,11 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				})
 			}
 		}
+	}
+
+	// Discord thread-per-task: post result to thread.
+	if doDiscordNotify {
+		state.discordBot.notifier.NotifyComplete(task.ID, result)
 	}
 
 	return result
