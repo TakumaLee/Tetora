@@ -1,4 +1,4 @@
-VERSION  := 1.5.15
+VERSION  := 1.5.16
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)

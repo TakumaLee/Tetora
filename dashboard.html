@@ -112,7 +112,9 @@ header {
 .dir-item:last-child { border-bottom: none; }
 .dir-item:hover { background: rgba(167,139,250,0.08); }
 .dir-item-icon { color: var(--accent2); font-size: 14px; }
-.dir-item-name { color: var(--text); }
+.dir-item-name { color: var(--text); flex: 1; }
+.dir-item-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+.dir-item.selected { background: rgba(167,139,250,0.1); }
 
 /* Section */
 .section { margin-bottom: 32px; }
@@ -1640,6 +1642,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
             <option value="archived">Archived</option>
           </select>
           <button class="btn" onclick="scanWorkspaceProjects()" style="padding:4px 12px;font-size:12px">Import</button>
+          <button class="btn" onclick="openBatchAddBrowser()" style="padding:4px 12px;font-size:12px">+ Batch</button>
           <button class="btn btn-add" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Add</button>
         </div>
       </div>
@@ -1669,7 +1672,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
         <div class="form-row">
           <label>Workdir</label>
           <div style="display:flex;gap:6px">
-            <input type="text" id="pjf-workdir" placeholder="~/Development/project/myapp" style="flex:1">
+            <input type="text" id="pjf-workdir" placeholder="~/projects/myapp" style="flex:1">
             <button type="button" class="btn" onclick="openDirBrowser('pjf-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
           </div>
         </div>
@@ -1724,6 +1727,31 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <div class="form-actions" style="margin-top:14px">
       <button type="button" class="btn" onclick="closeDirBrowser()">Cancel</button>
       <button type="button" class="btn btn-primary" onclick="selectDirBrowser()">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Add Projects Modal -->
+<div class="modal-overlay" id="batch-add-modal">
+  <div class="modal" style="min-width:540px;max-width:680px">
+    <button class="modal-close" onclick="closeBatchAdd()">&times;</button>
+    <h3>Batch Add Projects</h3>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+      <button class="btn" onclick="batchBrowseUp()" style="padding:4px 10px;font-size:12px" title="Parent directory">&#x2191;</button>
+      <div id="batch-browse-path" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:var(--accent);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="batch-select-all" onchange="batchToggleAll()" style="width:14px;height:14px"> Select all
+      </label>
+      <span id="batch-count" style="font-size:12px;color:var(--muted)">0 selected</span>
+    </div>
+    <div id="batch-dir-list" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" onclick="closeBatchAdd()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="batch-add-btn" onclick="submitBatchAdd()">Add Selected</button>
     </div>
   </div>
 </div>
@@ -4629,6 +4657,125 @@ async function loadDirBrowser(path) {
   } catch(e) {
     list.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center;font-size:12px">Error: ' + esc(e.message) + '</div>';
   }
+}
+
+// --- Batch Add Projects ---
+
+var batchBrowsePath = '';
+var batchDirs = [];
+var batchSelected = new Set();
+
+function openBatchAddBrowser() {
+  batchSelected = new Set();
+  document.getElementById('batch-add-modal').classList.add('open');
+  loadBatchBrowser('~/.tetora/workspace');
+}
+
+function closeBatchAdd() {
+  document.getElementById('batch-add-modal').classList.remove('open');
+}
+
+function batchBrowseUp() {
+  if (!batchBrowsePath) return;
+  var parts = batchBrowsePath.split('/');
+  if (parts.length > 2) {
+    parts.pop();
+    loadBatchBrowser(parts.join('/'));
+  }
+}
+
+async function loadBatchBrowser(path) {
+  var list = document.getElementById('batch-dir-list');
+  var pathEl = document.getElementById('batch-browse-path');
+  list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>';
+  pathEl.textContent = path;
+  batchSelected = new Set();
+  document.getElementById('batch-select-all').checked = false;
+  updateBatchCount();
+
+  try {
+    var data = await fetchJSON('/api/dirs?path=' + encodeURIComponent(path));
+    batchBrowsePath = data.path;
+    batchDirs = data.dirs || [];
+    pathEl.textContent = data.path;
+    pathEl.title = data.path;
+
+    if (batchDirs.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;font-size:12px">No subdirectories</div>';
+      return;
+    }
+    // Filter out already-added projects.
+    var existingPaths = cachedProjects.map(function(p) { return p.workdir; });
+
+    list.innerHTML = batchDirs.map(function(d) {
+      var exists = existingPaths.indexOf(d.path) >= 0;
+      return '<div class="dir-item' + (exists ? '' : '') + '" style="' + (exists ? 'opacity:0.4' : '') + '">' +
+        '<input type="checkbox" class="dir-item-check" data-path="' + esc(d.path) + '" data-name="' + esc(d.name) + '"' +
+          (exists ? ' disabled title="Already added"' : '') +
+          ' onchange="batchToggleItem(this)">' +
+        '<span class="dir-item-icon">&#128193;</span>' +
+        '<span class="dir-item-name">' + esc(d.name) + '</span>' +
+        (exists ? '<span style="font-size:10px;color:var(--green)">added</span>' : '') +
+        '<button class="btn" onclick="event.stopPropagation();loadBatchBrowser(\'' + d.path.replace(/'/g, "\\'") + '\')" style="padding:2px 8px;font-size:10px;margin-left:4px">open</button>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center;font-size:12px">Error: ' + esc(e.message) + '</div>';
+  }
+}
+
+function batchToggleItem(el) {
+  var path = el.dataset.path;
+  if (el.checked) {
+    batchSelected.add(path);
+  } else {
+    batchSelected.delete(path);
+  }
+  updateBatchCount();
+}
+
+function batchToggleAll() {
+  var all = document.getElementById('batch-select-all').checked;
+  document.querySelectorAll('#batch-dir-list .dir-item-check:not(:disabled)').forEach(function(el) {
+    el.checked = all;
+    if (all) batchSelected.add(el.dataset.path);
+    else batchSelected.delete(el.dataset.path);
+  });
+  updateBatchCount();
+}
+
+function updateBatchCount() {
+  document.getElementById('batch-count').textContent = batchSelected.size + ' selected';
+  document.getElementById('batch-add-btn').textContent = 'Add ' + (batchSelected.size || '') + ' Selected';
+}
+
+async function submitBatchAdd() {
+  if (batchSelected.size === 0) { toast('No folders selected'); return; }
+  var items = [];
+  document.querySelectorAll('#batch-dir-list .dir-item-check:checked').forEach(function(el) {
+    items.push({ name: el.dataset.name, path: el.dataset.path });
+  });
+  var added = 0;
+  for (var i = 0; i < items.length; i++) {
+    try {
+      await fetchJSON('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: items[i].name,
+          workdir: items[i].path,
+          status: 'active',
+        }),
+      });
+      added++;
+    } catch(e) {
+      console.warn('Failed to add ' + items[i].name + ': ' + e.message);
+    }
+  }
+  toast('Added ' + added + ' project(s)');
+  closeBatchAdd();
+  cachedProjects = [];
+  refreshProjects();
 }
 
 // --- Project dropdown in dispatch/job modals ---
