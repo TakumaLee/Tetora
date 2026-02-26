@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -69,6 +71,22 @@ func (s *Server) registerProjectRoutes(mux *http.ServeMux) {
 		default:
 			http.Error(w, `{"error":"GET or POST only"}`, http.StatusMethodNotAllowed)
 		}
+	})
+
+	// GET /api/projects/scan-workspace — parse PROJECTS.md from workspace for import suggestions.
+	mux.HandleFunc("/api/projects/scan-workspace", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		projectsFile := filepath.Join(cfg.WorkspaceDir, "projects", "PROJECTS.md")
+		entries, err := parseProjectsMD(projectsFile)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"entries": entries, "source": projectsFile})
 	})
 
 	// GET    /api/projects/:id  → get project
@@ -150,6 +168,62 @@ func (s *Server) registerProjectRoutes(mux *http.ServeMux) {
 		default:
 			http.Error(w, `{"error":"GET, PUT or DELETE only"}`, http.StatusMethodNotAllowed)
 		}
+	})
+
+	// GET /api/dirs — list subdirectories for folder browser.
+	mux.HandleFunc("/api/dirs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		dirPath := r.URL.Query().Get("path")
+		if dirPath == "" {
+			home, _ := os.UserHomeDir()
+			dirPath = home
+		}
+		// Expand ~ prefix.
+		if strings.HasPrefix(dirPath, "~/") {
+			home, _ := os.UserHomeDir()
+			dirPath = filepath.Join(home, dirPath[2:])
+		} else if dirPath == "~" {
+			home, _ := os.UserHomeDir()
+			dirPath = home
+		}
+
+		entries, err := os.ReadDir(dirPath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+
+		type dirEntry struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		}
+		dirs := make([]dirEntry, 0)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			// Skip hidden directories.
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			dirs = append(dirs, dirEntry{
+				Name: name,
+				Path: filepath.Join(dirPath, name),
+			})
+		}
+
+		parent := filepath.Dir(dirPath)
+		json.NewEncoder(w).Encode(map[string]any{
+			"path":   dirPath,
+			"parent": parent,
+			"dirs":   dirs,
+		})
 	})
 }
 

@@ -98,6 +98,22 @@ header {
 .project-card-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .project-card-actions button { padding: 3px 10px; font-size: 11px; }
 
+/* Directory Browser */
+.dir-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.dir-item:last-child { border-bottom: none; }
+.dir-item:hover { background: rgba(167,139,250,0.08); }
+.dir-item-icon { color: var(--accent2); font-size: 14px; }
+.dir-item-name { color: var(--text); }
+
 /* Section */
 .section { margin-bottom: 32px; }
 .section-header {
@@ -1112,10 +1128,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
     </div>
   </div>
 
-  <!-- Bot Activity -->
+  <!-- Agent Activity -->
   <div class="section" id="dispatch-section" style="display:none">
     <div class="section-header">
-      <span class="section-title">Bot Activity</span>
+      <span class="section-title">Agent Activity</span>
       <button class="btn" onclick="cancelDispatch()">Cancel</button>
     </div>
     <div class="dispatch-tasks" id="dispatch-tasks"></div>
@@ -1212,7 +1228,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <span class="section-title">Agent Sessions</span>
       <div style="display:flex;gap:8px;align-items:center">
         <select id="session-role-filter" onchange="refreshSessions()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
-          <option value="">All Roles</option>
+          <option value="">All Agents</option>
         </select>
         <span class="section-meta" id="sessions-meta"></span>
       </div>
@@ -1285,7 +1301,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
   <!-- Roles -->
   <div class="section" id="roles-section" style="display:none">
     <div class="section-header">
-      <span class="section-title">Roles</span>
+      <span class="section-title">Agents</span>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="section-meta" id="roles-meta"></span>
         <button class="btn btn-add" onclick="openRoleModal()">+ Add</button>
@@ -1361,7 +1377,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <span class="section-title">Agent Memory</span>
       <div style="display:flex;gap:8px;align-items:center">
         <select id="memory-role-filter" onchange="refreshMemory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
-          <option value="">All roles</option>
+          <option value="">All Agents</option>
         </select>
         <span class="section-meta" id="memory-meta"></span>
         <button class="btn btn-add" onclick="openMemoryModal()">+ Add</button>
@@ -1464,7 +1480,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
         </div>
         <div style="padding:4px 12px">
           <select id="chat-role-filter" onchange="refreshChatSidebar()" class="chat-role-select" style="width:100%">
-            <option value="">All Roles</option>
+            <option value="">All Agents</option>
           </select>
         </div>
         <div id="live-tasks-section" style="display:none;border-bottom:1px solid var(--border)">
@@ -1623,6 +1639,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
             <option value="active" selected>Active</option>
             <option value="archived">Archived</option>
           </select>
+          <button class="btn" onclick="scanWorkspaceProjects()" style="padding:4px 12px;font-size:12px">Import</button>
           <button class="btn btn-add" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Add</button>
         </div>
       </div>
@@ -1651,7 +1668,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div class="form-row-inline">
         <div class="form-row">
           <label>Workdir</label>
-          <input type="text" id="pjf-workdir" placeholder="~/Development/project/myapp">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="pjf-workdir" placeholder="~/Development/project/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('pjf-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
         </div>
         <div class="form-row">
           <label>Repo URL</label>
@@ -1686,6 +1706,25 @@ tr:hover { background: rgba(255,255,255,0.02); }
         <button type="submit" class="btn btn-primary" id="pjf-submit">Add Project</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Directory Browser Modal -->
+<div class="modal-overlay" id="dir-browser-modal">
+  <div class="modal" style="min-width:500px;max-width:640px">
+    <button class="modal-close" onclick="closeDirBrowser()">&times;</button>
+    <h3>Select Folder</h3>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+      <button class="btn" onclick="dirBrowserUp()" style="padding:4px 10px;font-size:12px" title="Parent directory">&#x2191;</button>
+      <div id="dir-browser-path" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:var(--accent);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <div id="dir-browser-list" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" onclick="closeDirBrowser()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="selectDirBrowser()">Select This Folder</button>
+    </div>
   </div>
 </div>
 
@@ -1806,7 +1845,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <input type="text" id="jf-model" value="sonnet" placeholder="sonnet">
         </div>
         <div class="form-row">
-          <label>Role (optional)</label>
+          <label>Agent (optional)</label>
           <input type="text" id="jf-role" placeholder="">
         </div>
       </div>
@@ -1829,7 +1868,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div class="form-row-inline">
         <div class="form-row">
           <label>Workdir (optional)</label>
-          <input type="text" id="jf-workdir" placeholder="~/projects/myapp">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="jf-workdir" placeholder="~/projects/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('jf-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
         </div>
         <div class="form-row">
           <label>Permission Mode</label>
@@ -1907,7 +1949,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
 <div class="modal-overlay" id="role-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeRoleModal()">&times;</button>
-    <h3 id="role-modal-title">Add Role</h3>
+    <h3 id="role-modal-title">Add Agent</h3>
     <form id="role-form" onsubmit="return submitRole(event)">
       <input type="hidden" id="rf-mode" value="add">
       <div class="form-row">
@@ -1950,7 +1992,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
       </div>
       <div class="form-actions">
         <button type="button" class="btn" onclick="closeRoleModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="rf-submit">Add Role</button>
+        <button type="submit" class="btn btn-primary" id="rf-submit">Add Agent</button>
       </div>
     </form>
   </div>
@@ -1972,7 +2014,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <input type="text" id="df-model" value="sonnet" placeholder="sonnet">
         </div>
         <div class="form-row">
-          <label>Role (optional)</label>
+          <label>Agent (optional)</label>
           <select id="df-role">
             <option value="">— none —</option>
           </select>
@@ -1997,7 +2039,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div class="form-row-inline">
         <div class="form-row">
           <label>Workdir (optional)</label>
-          <input type="text" id="df-workdir" placeholder="~/projects/myapp">
+          <div style="display:flex;gap:6px">
+            <input type="text" id="df-workdir" placeholder="~/projects/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('df-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
         </div>
         <div class="form-row">
           <label>Permission Mode</label>
@@ -2354,7 +2399,7 @@ async function refresh() {
       { label: 'This Month', value: costFmt(cost.month || 0), cls: 'cost' },
       { label: 'Jobs', value: `${cron.enabled || 0} / ${cron.jobs || 0}` },
       { label: 'Running', value: cron.running || 0, color: (cron.running || 0) > 0 ? 'var(--yellow)' : '' },
-      { label: 'Bot Status', value: (dispatch.discord && dispatch.discord.length > 0) ? dispatch.discord.length + ' active' : (dispatch.status || 'idle'), color: (dispatch.discord && dispatch.discord.length > 0) ? 'var(--accent2)' : '' },
+      { label: 'Agent Status', value: (dispatch.discord && dispatch.discord.length > 0) ? dispatch.discord.length + ' active' : (dispatch.status || 'idle'), color: (dispatch.discord && dispatch.discord.length > 0) ? 'var(--accent2)' : '' },
     ].map(s => {
       let bar = '';
       if (s.limit > 0) {
@@ -2369,7 +2414,7 @@ async function refresh() {
     }).join('');
     document.getElementById('stats').innerHTML = statsHTML;
 
-    // Bot Activity section (dispatch tasks + Discord activities)
+    // Agent Activity section (dispatch tasks + Discord activities)
     const dSec = document.getElementById('dispatch-section');
     const discordActs = dispatch.discord || [];
     const hasDispatch = dispatch.status === 'dispatching' && dispatch.tasks;
@@ -3087,7 +3132,7 @@ function openRoleModal(editName) {
   form.reset();
 
   if (editName) {
-    document.getElementById('role-modal-title').textContent = 'Edit Role';
+    document.getElementById('role-modal-title').textContent = 'Edit Agent';
     document.getElementById('rf-mode').value = 'edit';
     document.getElementById('rf-submit').textContent = 'Save Changes';
     document.getElementById('rf-name').value = editName;
@@ -3102,9 +3147,9 @@ function openRoleModal(editName) {
       document.getElementById('rf-soul').value = r.soulContent || '';
     }).catch(e => toast('Error loading role: ' + e.message));
   } else {
-    document.getElementById('role-modal-title').textContent = 'Add Role';
+    document.getElementById('role-modal-title').textContent = 'Add Agent';
     document.getElementById('rf-mode').value = 'add';
-    document.getElementById('rf-submit').textContent = 'Add Role';
+    document.getElementById('rf-submit').textContent = 'Add Agent';
     document.getElementById('rf-name').readOnly = false;
   }
 
@@ -3768,7 +3813,7 @@ async function refreshMemory() {
     const memRoles = cachedMemory.map(m => m.role);
     const cfgRoles = cachedRoles.map(r => r.name || '');
     const uniqueRoles = [...new Set([...memRoles, ...cfgRoles])].filter(Boolean).sort();
-    filter.innerHTML = '<option value="">All roles</option>' +
+    filter.innerHTML = '<option value="">All Agents</option>' +
       uniqueRoles.map(r => `<option value="${esc(r)}"${r===currentRole?' selected':''}>${esc(r)}</option>`).join('');
 
     const tbody = document.getElementById('memory-body');
@@ -4475,9 +4520,115 @@ async function deleteProjectConfirm(id, name) {
   }
 }
 
+async function scanWorkspaceProjects() {
+  try {
+    var data = await fetchJSON('/api/projects/scan-workspace');
+    var entries = data.entries || [];
+    if (entries.length === 0) {
+      toast('No projects found in workspace');
+      return;
+    }
+    // Show selection dialog.
+    var existing = cachedProjects.map(function(p) { return p.name.toLowerCase(); });
+    var newEntries = entries.filter(function(e) { return existing.indexOf(e.name.toLowerCase()) < 0; });
+    if (newEntries.length === 0) {
+      toast('All workspace projects already imported');
+      return;
+    }
+    var msg = 'Import ' + newEntries.length + ' new project(s)?\n\n' + newEntries.map(function(e) { return '- ' + e.name + (e.category ? ' [' + e.category + ']' : ''); }).join('\n');
+    if (!confirm(msg)) return;
+    var imported = 0;
+    for (var i = 0; i < newEntries.length; i++) {
+      var e = newEntries[i];
+      try {
+        await fetchJSON('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: e.name,
+            description: e.description,
+            category: e.category,
+            workdir: e.workdir || '',
+            status: 'active',
+          }),
+        });
+        imported++;
+      } catch(err) {
+        console.warn('Failed to import ' + e.name + ': ' + err.message);
+      }
+    }
+    toast('Imported ' + imported + ' project(s)');
+    refreshProjects();
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
+
 function dispatchToProject(workdir) {
   openDispatchModal();
   document.getElementById('df-workdir').value = workdir;
+}
+
+// --- Directory Browser ---
+
+var dirBrowserTarget = '';  // ID of the input field to fill
+var dirBrowserPath = '';    // Current browsing path
+
+function openDirBrowser(targetInputId) {
+  dirBrowserTarget = targetInputId;
+  var current = document.getElementById(targetInputId).value.trim();
+  var startPath = current || '~';
+  document.getElementById('dir-browser-modal').classList.add('open');
+  loadDirBrowser(startPath);
+}
+
+function closeDirBrowser() {
+  document.getElementById('dir-browser-modal').classList.remove('open');
+}
+
+function selectDirBrowser() {
+  if (dirBrowserTarget && dirBrowserPath) {
+    document.getElementById(dirBrowserTarget).value = dirBrowserPath;
+  }
+  closeDirBrowser();
+}
+
+function dirBrowserUp() {
+  if (!dirBrowserPath) return;
+  // Go to parent by removing last path component.
+  var parts = dirBrowserPath.split('/');
+  if (parts.length > 2) {
+    parts.pop();
+    loadDirBrowser(parts.join('/'));
+  }
+}
+
+async function loadDirBrowser(path) {
+  var list = document.getElementById('dir-browser-list');
+  var pathEl = document.getElementById('dir-browser-path');
+  list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>';
+  pathEl.textContent = path;
+
+  try {
+    var data = await fetchJSON('/api/dirs?path=' + encodeURIComponent(path));
+    dirBrowserPath = data.path;
+    pathEl.textContent = data.path;
+    pathEl.title = data.path;
+
+    var dirs = data.dirs || [];
+    if (dirs.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;font-size:12px">No subdirectories</div>';
+      return;
+    }
+    list.innerHTML = dirs.map(function(d) {
+      return '<div class="dir-item" onclick="loadDirBrowser(\'' + d.path.replace(/'/g, "\\'") + '\')">' +
+        '<span class="dir-item-icon">&#128193;</span>' +
+        '<span class="dir-item-name">' + esc(d.name) + '</span>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--red);padding:20px;text-align:center;font-size:12px">Error: ' + esc(e.message) + '</div>';
+  }
 }
 
 // --- Project dropdown in dispatch/job modals ---

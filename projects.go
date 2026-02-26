@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -170,6 +171,75 @@ func deleteProject(dbPath, id string) error {
 		return fmt.Errorf("delete project: %w", err)
 	}
 	return nil
+}
+
+// WorkspaceProjectEntry represents a project parsed from PROJECTS.md.
+type WorkspaceProjectEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Workdir     string `json:"workdir"`
+}
+
+// parseProjectsMD reads a PROJECTS.md file and extracts project entries.
+// Format expected: ## Category headers, then "- **Name**: description" lines.
+// Workdir detected from "path" patterns in the description.
+func parseProjectsMD(path string) ([]WorkspaceProjectEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	var entries []WorkspaceProjectEntry
+	category := ""
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Detect category headers: ## emoji Category
+		if strings.HasPrefix(line, "## ") {
+			cat := strings.TrimPrefix(line, "## ")
+			// Strip leading emoji (any non-ASCII prefix).
+			for i, r := range cat {
+				if r < 128 && r != ' ' {
+					cat = strings.TrimSpace(cat[i:])
+					break
+				}
+			}
+			category = cat
+			continue
+		}
+		// Detect project lines: - **Name**: description
+		if strings.HasPrefix(line, "- **") {
+			end := strings.Index(line[4:], "**")
+			if end < 0 {
+				continue
+			}
+			name := line[4 : 4+end]
+			rest := ""
+			if len(line) > 4+end+2 {
+				rest = strings.TrimSpace(line[4+end+2:])
+				rest = strings.TrimPrefix(rest, "\uff1a")
+				rest = strings.TrimPrefix(rest, ":")
+				rest = strings.TrimSpace(rest)
+			}
+			entry := WorkspaceProjectEntry{
+				Name:        name,
+				Description: rest,
+				Category:    category,
+			}
+			// Extract workdir from "path" pattern.
+			if idx := strings.Index(rest, "\u8def\u5f91\uff1a"); idx >= 0 {
+				wp := strings.TrimSpace(rest[idx+len("\u8def\u5f91\uff1a"):])
+				entry.Workdir = wp
+				entry.Description = strings.TrimSpace(rest[:idx])
+			} else if idx := strings.Index(rest, "\u8def\u5f91:"); idx >= 0 {
+				wp := strings.TrimSpace(rest[idx+len("\u8def\u5f91:"):])
+				entry.Workdir = wp
+				entry.Description = strings.TrimSpace(rest[:idx])
+			}
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
 }
 
 // rowToProject converts a DB row to a Project struct.
