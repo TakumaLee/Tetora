@@ -165,6 +165,14 @@ func cmdUpgrade() {
 
 	fmt.Printf("Upgraded to v%s\n", latest)
 
+	// Check for running jobs before restarting — avoid killing in-flight tasks.
+	if names := checkRunningJobs(); len(names) > 0 {
+		fmt.Printf("\nRunning jobs detected: %s\n", strings.Join(names, ", "))
+		fmt.Println("Skipping auto-restart to avoid interrupting in-flight tasks.")
+		fmt.Println("Run 'tetora restart' manually when jobs finish.")
+		return
+	}
+
 	// Restart daemon automatically.
 	home, _ := os.UserHomeDir()
 	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
@@ -266,6 +274,43 @@ func cmdRestart() {
 
 	fmt.Println("No running daemon found. Start with:")
 	fmt.Println("  tetora serve")
+}
+
+// checkRunningJobs queries the daemon's /cron API and returns names of running jobs.
+// Returns nil if daemon is unreachable or no jobs are running.
+func checkRunningJobs() []string {
+	cfg, _ := tryLoadConfig("")
+	if cfg == nil || cfg.ListenAddr == "" {
+		return nil
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	url := fmt.Sprintf("http://%s/cron", cfg.ListenAddr)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil
+	}
+	if cfg.APIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIToken)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var jobs []CronJobInfo
+	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+		return nil
+	}
+	var running []string
+	for _, j := range jobs {
+		if j.Running {
+			running = append(running, j.Name)
+		}
+	}
+	return running
 }
 
 func cmdOpenDashboard() {
