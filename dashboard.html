@@ -6762,6 +6762,7 @@ function toggleAgentWorld() {
         _spriteInitializing = false;
       }).catch(function(e) {
         _spriteInitializing = false;
+        spriteEngine = null; // allow retry on next toggle
         console.warn('SpriteEngine init failed', e);
       });
     } else {
@@ -6796,6 +6797,7 @@ function updateAgentWorldToggle(sprites) {
             _spriteInitializing = false;
           }).catch(function(e) {
             _spriteInitializing = false;
+            spriteEngine = null;
             console.warn('SpriteEngine restore init failed', e);
           });
         }
@@ -6962,7 +6964,6 @@ SpriteEngine.prototype.init = async function() {
   this.canvas.width = OFFICE.W;
   this.canvas.height = OFFICE.H;
 
-  // Only start render loop if there are agents to render.
   if (Object.keys(this.agents).length > 0) {
     this.start();
   }
@@ -7019,7 +7020,7 @@ SpriteEngine.prototype.updateAgentStates = function(sprites) {
   if (!sprites) return;
   for (var name in sprites) {
     var agent = this.agents[name];
-    if (!agent) continue;
+    if (!agent) continue; // only track agents from config
     var newState = sprites[name];
     if (newState === agent.spriteState) continue;
 
