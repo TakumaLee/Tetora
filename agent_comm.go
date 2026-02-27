@@ -17,6 +17,16 @@ import (
 // --- Agent Communication Tools ---
 // These are registered as built-in tools in the tool registry.
 
+// childSemConcurrentOrDefault returns the capacity for the child semaphore.
+// Default: 2x maxConcurrent. Configurable via agentComm.childPoolMultiplier.
+func childSemConcurrentOrDefault(cfg *Config) int {
+	m := cfg.AgentComm.ChildSem
+	if m <= 0 {
+		m = 2
+	}
+	return cfg.MaxConcurrent * m
+}
+
 // --- P13.3: Nested Sub-Agents ---
 
 // spawnTracker tracks the number of active child tasks per parent task ID.

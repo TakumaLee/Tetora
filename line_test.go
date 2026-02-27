@@ -339,7 +339,7 @@ func TestLINEUserProfileFetch(t *testing.T) {
 		},
 	}
 
-	bot := newLINEBot(cfg, nil, nil)
+	bot := newLINEBot(cfg, nil, nil, nil)
 	bot.apiBase = srv.URL // Use mock server.
 
 	// Test successful profile fetch.
@@ -566,7 +566,7 @@ func TestLINEWebhookHandlerInvalidMethod(t *testing.T) {
 		},
 	}
 
-	bot := newLINEBot(cfg, nil, nil)
+	bot := newLINEBot(cfg, nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/api/line/webhook", nil)
 	w := httptest.NewRecorder()
@@ -586,7 +586,7 @@ func TestLINEWebhookHandlerInvalidSignature(t *testing.T) {
 		},
 	}
 
-	bot := newLINEBot(cfg, nil, nil)
+	bot := newLINEBot(cfg, nil, nil, nil)
 
 	body := `{"events":[]}`
 	req := httptest.NewRequest("POST", "/api/line/webhook", strings.NewReader(body))
@@ -612,7 +612,7 @@ func TestLINEWebhookHandlerValidSignature(t *testing.T) {
 
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newLINEBot(cfg, state, sem)
+	bot := newLINEBot(cfg, state, sem, nil)
 
 	body := `{"events":[]}`
 
@@ -660,7 +660,7 @@ func TestLINESendReplyMock(t *testing.T) {
 		},
 	}
 
-	bot := newLINEBot(cfg, nil, nil)
+	bot := newLINEBot(cfg, nil, nil, nil)
 	bot.apiBase = srv.URL
 
 	msgs := []lineMessage{{Type: "text", Text: "Hello!"}}
@@ -696,7 +696,7 @@ func TestLINESendPushMock(t *testing.T) {
 		},
 	}
 
-	bot := newLINEBot(cfg, nil, nil)
+	bot := newLINEBot(cfg, nil, nil, nil)
 	bot.apiBase = srv.URL
 
 	msgs := []lineMessage{{Type: "text", Text: "Push message!"}}
@@ -750,7 +750,7 @@ func TestLINEBotCreation(t *testing.T) {
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
 
-	bot := newLINEBot(cfg, state, sem)
+	bot := newLINEBot(cfg, state, sem, nil)
 	if bot == nil {
 		t.Fatal("newLINEBot returned nil")
 	}

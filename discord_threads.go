@@ -360,7 +360,7 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 	task.Prompt = expandPrompt(task.Prompt, "", db.cfg.HistoryDB, role, db.cfg.KnowledgeDir, db.cfg)
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, db.cfg, task, db.sem, role)
+	result := runSingleTask(ctx, db.cfg, task, db.sem, db.childSem, role)
 
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
@@ -384,7 +384,7 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {

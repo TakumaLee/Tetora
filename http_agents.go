@@ -14,6 +14,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
 	sem := s.sem
+	childSem := s.childSem
 
 	// --- Agent Messages ---
 	mux.HandleFunc("/agent-messages", func(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +93,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 		// Start auto-dispatcher if enabled (singleton — one per server).
 		if cfg.TaskBoard.AutoDispatch.Enabled {
-			disp := newTaskBoardDispatcher(taskBoardEngine, cfg, sem, state)
+			disp := newTaskBoardDispatcher(taskBoardEngine, cfg, sem, childSem, state)
 			disp.Start()
 			s.taskBoardDispatcher = disp
 		}
@@ -321,7 +322,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 		// Dispatch task.
 		tasks := []Task{task}
-		result := dispatch(ctx, cfg, tasks, state, sem)
+		result := dispatch(ctx, cfg, tasks, state, sem, childSem)
 
 		if len(result.Tasks) == 0 {
 			http.Error(w, `{"error":"no result"}`, http.StatusInternalServerError)

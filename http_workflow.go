@@ -13,6 +13,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
 	sem := s.sem
+	childSem := s.childSem
 
 	// --- Workflows ---
 	mux.HandleFunc("/workflows", func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +127,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 
 			// Run asynchronously.
 			wfTraceID := traceIDFromContext(r.Context())
-			go executeWorkflow(withTraceID(context.Background(), wfTraceID), cfg, wf, body.Variables, state, sem)
+			go executeWorkflow(withTraceID(context.Background(), wfTraceID), cfg, wf, body.Variables, state, sem, childSem)
 
 			// Return immediately with run acknowledgment.
 			w.WriteHeader(http.StatusAccepted)
@@ -207,7 +208,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	// Build trigger engine reference for HTTP handlers.
 	var triggerEngine *WorkflowTriggerEngine
 	if len(cfg.WorkflowTriggers) > 0 {
-		triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, state.broker)
+		triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, childSem, state.broker)
 	}
 
 	mux.HandleFunc("/api/triggers", func(w http.ResponseWriter, r *http.Request) {

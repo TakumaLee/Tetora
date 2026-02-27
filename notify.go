@@ -153,7 +153,7 @@ func buildNotifiers(cfg *Config) []Notifier {
 			if ch.WebhookURL != "" && cfg.Teams.Enabled {
 				parts := strings.SplitN(ch.WebhookURL, "|", 2)
 				if len(parts) == 2 {
-					teamsBot := newTeamsBot(cfg, nil, nil)
+					teamsBot := newTeamsBot(cfg, nil, nil, nil)
 					notifiers = append(notifiers, &TeamsNotifier{
 						Bot:            teamsBot,
 						ServiceURL:     parts[0],

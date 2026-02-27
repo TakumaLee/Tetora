@@ -598,7 +598,7 @@ func wrapWithContext(sessionContext, prompt string) string {
 // compactSession summarizes old messages when the session grows too large.
 // Keeps the last `keep` messages and replaces older ones with a summary.
 // Uses the coordinator role to generate the summary via LLM.
-func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, sem chan struct{}) error {
+func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, sem, childSem chan struct{}) error {
 	if dbPath == "" {
 		return nil
 	}
@@ -653,7 +653,7 @@ Conversation (%d messages):
 		task.Model = rc.Model
 	}
 
-	result := runSingleTask(ctx, cfg, task, sem, coordinator)
+	result := runSingleTask(ctx, cfg, task, sem, childSem, coordinator)
 	if result.Status != "success" {
 		return fmt.Errorf("compaction summary failed: %s", result.Error)
 	}
@@ -697,7 +697,7 @@ Conversation (%d messages):
 
 // maybeCompactSession triggers compaction if the session exceeds the threshold.
 // Non-blocking: runs in a goroutine.
-func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount int, sem chan struct{}) {
+func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount int, sem, childSem chan struct{}) {
 	threshold := cfg.Session.compactAfterOrDefault()
 	if msgCount <= threshold {
 		return
@@ -705,7 +705,7 @@ func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount int, se
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := compactSession(ctx, cfg, dbPath, sessionID, sem); err != nil {
+		if err := compactSession(ctx, cfg, dbPath, sessionID, sem, childSem); err != nil {
 			logWarn("session compaction failed", "session", sessionID, "error", err)
 		}
 	}()

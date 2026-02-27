@@ -14,6 +14,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
 	sem := s.sem
+	childSem := s.childSem
 
 	// --- Sessions ---
 	mux.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -267,7 +268,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			}
 
 			// Sync mode (existing behavior for API consumers).
-			result := runSingleTask(r.Context(), cfg, task, sem, sess.Agent)
+			result := runSingleTask(r.Context(), cfg, task, sem, childSem, sess.Agent)
 			taskStart := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
 			recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, sess.Agent, task, result,
 				taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
@@ -408,7 +409,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			go func() {
 				compactCtx, compactCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer compactCancel()
-				if err := compactSession(compactCtx, cfg, cfg.HistoryDB, sessionID, sem); err != nil {
+				if err := compactSession(compactCtx, cfg, cfg.HistoryDB, sessionID, sem, childSem); err != nil {
 					logError("compact session error", "session", sessionID, "error", err)
 				}
 			}()

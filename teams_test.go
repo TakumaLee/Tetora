@@ -22,7 +22,7 @@ func TestTeamsJWTValidation(t *testing.T) {
 			AppID:   appID,
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	// Helper to build a JWT token from claims.
 	buildJWT := func(claims map[string]interface{}) string {
@@ -211,7 +211,7 @@ func TestTeamsReplyMessageConstruction(t *testing.T) {
 			AppPassword: "test-secret",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 	// Pre-populate token cache to avoid real token request.
 	bot.tokenCache.token = "test-bearer-token"
 	bot.tokenCache.expiresAt = time.Now().Add(1 * time.Hour)
@@ -253,7 +253,7 @@ func TestTeamsProactiveMessage(t *testing.T) {
 			AppPassword: "test-secret",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 	bot.tokenCache.token = "test-bearer-token"
 	bot.tokenCache.expiresAt = time.Now().Add(1 * time.Hour)
 
@@ -354,7 +354,7 @@ func TestTeamsAdaptiveCardSending(t *testing.T) {
 			AppPassword: "test-secret",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 	bot.tokenCache.token = "test-bearer-token"
 	bot.tokenCache.expiresAt = time.Now().Add(1 * time.Hour)
 
@@ -415,7 +415,7 @@ func TestTeamsTokenRefresh(t *testing.T) {
 			AppPassword: "test-secret",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 	bot.tokenURL = tokenSrv.URL
 
 	// First call: should fetch a new token.
@@ -469,7 +469,7 @@ func TestTeamsWebhookHandlerValidRequest(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newTeamsBot(cfg, state, sem)
+	bot := newTeamsBot(cfg, state, sem, nil)
 
 	// Build a valid JWT.
 	claimsJSON, _ := json.Marshal(map[string]interface{}{
@@ -509,7 +509,7 @@ func TestTeamsWebhookHandlerInvalidAuth(t *testing.T) {
 			AppID:   "test-app",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	body := `{"type": "message", "text": "hello"}`
 	req := httptest.NewRequest("POST", "/api/teams/webhook", strings.NewReader(body))
@@ -531,7 +531,7 @@ func TestTeamsWebhookHandlerInvalidBody(t *testing.T) {
 			AppID:   "test-app",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	// Build valid JWT.
 	claimsJSON, _ := json.Marshal(map[string]interface{}{
@@ -563,7 +563,7 @@ func TestTeamsWebhookHandlerInvalidMethod(t *testing.T) {
 			AppID:   "test-app",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	req := httptest.NewRequest("GET", "/api/teams/webhook", nil)
 	w := httptest.NewRecorder()
@@ -679,7 +679,7 @@ func TestTeamsNotifier(t *testing.T) {
 			AppPassword: "test-secret",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 	bot.tokenCache.token = "test-bearer-token"
 	bot.tokenCache.expiresAt = time.Now().Add(1 * time.Hour)
 
@@ -724,7 +724,7 @@ func TestTeamsBotCreation(t *testing.T) {
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
 
-	bot := newTeamsBot(cfg, state, sem)
+	bot := newTeamsBot(cfg, state, sem, nil)
 	if bot == nil {
 		t.Fatal("newTeamsBot returned nil")
 	}
@@ -848,7 +848,7 @@ func TestTeamsSendReplyMissingParams(t *testing.T) {
 			AppID:   "test-app",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	// Missing serviceURL.
 	err := bot.sendReply("", "conv-123", "act-456", "text")
@@ -870,7 +870,7 @@ func TestTeamsSendProactiveMissingParams(t *testing.T) {
 			AppID:   "test-app",
 		},
 	}
-	bot := newTeamsBot(cfg, nil, nil)
+	bot := newTeamsBot(cfg, nil, nil, nil)
 
 	// Missing serviceURL.
 	err := bot.sendProactive("", "conv-123", "text")

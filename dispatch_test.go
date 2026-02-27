@@ -652,7 +652,7 @@ func TestRetryTask_NotFound(t *testing.T) {
 	cfg := newTestConfig()
 
 	sem := make(chan struct{}, 1)
-	_, err := retryTask(context.Background(), cfg, "nonexistent", s, sem)
+	_, err := retryTask(context.Background(), cfg, "nonexistent", s, sem, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent task")
 	}
@@ -667,7 +667,7 @@ func TestRerouteTask_NotFound(t *testing.T) {
 	cfg.SmartDispatch.Enabled = true
 
 	sem := make(chan struct{}, 1)
-	_, err := rerouteTask(context.Background(), cfg, "nonexistent", s, sem)
+	_, err := rerouteTask(context.Background(), cfg, "nonexistent", s, sem, nil)
 	if err == nil {
 		t.Fatal("expected error for non-existent task")
 	}
@@ -689,7 +689,7 @@ func TestRerouteTask_SmartDispatchDisabled(t *testing.T) {
 	}
 
 	sem := make(chan struct{}, 1)
-	_, err := rerouteTask(context.Background(), cfg, "task-1", s, sem)
+	_, err := rerouteTask(context.Background(), cfg, "task-1", s, sem, nil)
 	if err == nil {
 		t.Fatal("expected error when smart dispatch is disabled")
 	}

@@ -72,8 +72,9 @@ type whatsAppWebhook struct {
 type WhatsAppBot struct {
 	cfg   *Config
 	state *dispatchState
-	sem   chan struct{}
-	cron  *CronEngine
+	sem      chan struct{}
+	childSem chan struct{}
+	cron     *CronEngine
 
 	// Dedup: track recently processed message IDs to handle retries.
 	processed     map[string]time.Time
@@ -81,11 +82,12 @@ type WhatsAppBot struct {
 	mu            sync.Mutex
 }
 
-func newWhatsAppBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *WhatsAppBot {
+func newWhatsAppBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *WhatsAppBot {
 	return &WhatsAppBot{
 		cfg:       cfg,
 		state:     state,
 		sem:       sem,
+		childSem:  childSem,
 		cron:      cron,
 		processed: make(map[string]time.Time),
 	}
@@ -285,7 +287,7 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 	// Run task asynchronously.
 	go func() {
 		taskStart := time.Now()
-		result := runSingleTask(ctx, wb.cfg, task, wb.sem, route.Agent)
+		result := runSingleTask(ctx, wb.cfg, task, wb.sem, wb.childSem, route.Agent)
 
 		// Record to history.
 		recordHistory(wb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,

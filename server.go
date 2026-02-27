@@ -11,6 +11,7 @@ type Server struct {
 	app             *App // P28.1: application container
 	state           *dispatchState
 	sem             chan struct{}
+	childSem        chan struct{} // sub-agent tasks (depth > 0)
 	cron            *CronEngine
 	secMon          *securityMonitor
 	mcpHost         *MCPHost

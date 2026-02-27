@@ -293,7 +293,7 @@ func TestWebhookTrigger(t *testing.T) {
 		},
 	}
 
-	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil)
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
 
 	// Webhook trigger for unknown name should fail.
 	err := engine.HandleWebhookTrigger("unknown", nil)
@@ -325,7 +325,7 @@ func TestWebhookTriggerDisabled(t *testing.T) {
 		},
 	}
 
-	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil)
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
 
 	err := engine.HandleWebhookTrigger("disabled-hook", nil)
 	if err == nil {
@@ -423,7 +423,7 @@ func TestListTriggers(t *testing.T) {
 		},
 	}
 
-	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil)
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
 	infos := engine.ListTriggers()
 
 	if len(infos) != 3 {
@@ -483,7 +483,7 @@ func TestFireTrigger(t *testing.T) {
 		},
 	}
 
-	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 3), nil)
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 3), nil, nil)
 
 	// Fire existing trigger.
 	err := engine.FireTrigger("fire-test")
@@ -514,7 +514,7 @@ func TestFireTriggerDisabled(t *testing.T) {
 		},
 	}
 
-	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil)
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
 
 	err := engine.FireTrigger("disabled-fire")
 	if err == nil {

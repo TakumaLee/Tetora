@@ -409,7 +409,7 @@ func findMatchingBrace(s string) int {
 // executeHandoff creates a new task for the target agent with handoff context.
 // Returns the task result and updates the handoff status.
 func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
-	state *dispatchState, sem chan struct{}) TaskResult {
+	state *dispatchState, sem, childSem chan struct{}) TaskResult {
 
 	// Build prompt with handoff context.
 	prompt := buildHandoffPrompt(h.Context, h.Instruction)
@@ -448,7 +448,7 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	updateHandoffStatus(cfg.HistoryDB, h.ID, "active")
 
 	// Execute.
-	result := runSingleTask(ctx, cfg, task, sem, h.ToAgent)
+	result := runSingleTask(ctx, cfg, task, sem, childSem, h.ToAgent)
 
 	// Record session activity.
 	recordSessionActivity(cfg.HistoryDB, task, result, h.ToAgent)
@@ -486,7 +486,7 @@ func buildHandoffPrompt(contextOutput, instruction string) string {
 // It executes delegated tasks and returns the combined output.
 func processAutoDelegations(ctx context.Context, cfg *Config, delegations []AutoDelegation,
 	originalOutput, workflowRunID, fromAgent, fromStepID string,
-	state *dispatchState, sem chan struct{}, broker *sseBroker) string {
+	state *dispatchState, sem, childSem chan struct{}, broker *sseBroker) string {
 
 	if len(delegations) == 0 {
 		return originalOutput
@@ -552,7 +552,7 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 		}
 
 		// Execute handoff.
-		result := executeHandoff(ctx, cfg, &h, state, sem)
+		result := executeHandoff(ctx, cfg, &h, state, sem, childSem)
 
 		// Append delegated result.
 		if result.Output != "" {

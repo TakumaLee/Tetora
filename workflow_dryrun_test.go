@@ -22,7 +22,7 @@ func TestDryRunMode(t *testing.T) {
 	state := newDispatchState()
 
 	// No mode argument: should default to live.
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil)
 
 	// Live mode: status should NOT have a prefix.
 	if strings.HasPrefix(run.Status, "dry-run:") || strings.HasPrefix(run.Status, "shadow:") {
@@ -49,7 +49,7 @@ func TestDryRunNoProviderCall(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 
 	// Should succeed without actually calling a provider.
 	if !strings.HasPrefix(run.Status, "dry-run:") {
@@ -94,7 +94,7 @@ func TestDryRunEstimatedCost(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 
 	// Both steps should have cost estimates.
 	for _, stepID := range []string{"step1", "step2"} {
@@ -146,7 +146,7 @@ func TestDryRunConditionStep(t *testing.T) {
 
 	state := newDispatchState()
 	vars := map[string]string{"env": "staging"}
-	run := executeWorkflow(context.Background(), cfg, wf, vars, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, vars, state, sem, nil, WorkflowModeDryRun)
 
 	// Condition should evaluate correctly.
 	condResult := run.StepResults["check"]
@@ -196,7 +196,7 @@ func TestDryRunSkillStep(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 
 	sr := run.StepResults["run-lint"]
 	if sr == nil {
@@ -238,7 +238,7 @@ func TestDryRunStatusPrefix(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 
 	if !strings.HasPrefix(run.Status, "dry-run:") {
 		t.Errorf("expected dry-run: prefix, got status=%q", run.Status)
@@ -280,7 +280,7 @@ func TestShadowStatusPrefix(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeShadow)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeShadow)
 
 	if !strings.HasPrefix(run.Status, "shadow:") {
 		t.Errorf("expected shadow: prefix, got status=%q", run.Status)
@@ -389,7 +389,7 @@ func TestDryRunMultiStepWorkflow(t *testing.T) {
 	}
 
 	state := newDispatchState()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 
 	if !strings.HasPrefix(run.Status, "dry-run:success") {
 		t.Errorf("expected dry-run:success, got %q", run.Status)
@@ -430,7 +430,7 @@ func TestDryRunDuration(t *testing.T) {
 
 	state := newDispatchState()
 	start := time.Now()
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, WorkflowModeDryRun)
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
 	elapsed := time.Since(start)
 
 	// Dry-run should complete in well under 5 seconds (no provider calls).
@@ -470,7 +470,7 @@ func TestDryRunEmptyMode(t *testing.T) {
 	state := newDispatchState()
 
 	// Passing empty string should default to live.
-	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, "")
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, "")
 	if strings.HasPrefix(run.Status, "dry-run:") || strings.HasPrefix(run.Status, "shadow:") {
 		t.Errorf("empty mode should default to live, got status=%q", run.Status)
 	}

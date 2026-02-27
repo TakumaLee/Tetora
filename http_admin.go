@@ -14,6 +14,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
 	sem := s.sem
+	childSem := s.childSem
 
 	// --- Incoming Webhooks ---
 	mux.HandleFunc("/hooks/", func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +28,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			return
 		}
 		ctx := r.Context()
-		result := handleIncomingWebhook(ctx, cfg, name, r, state, sem)
+		result := handleIncomingWebhook(ctx, cfg, name, r, state, sem, childSem)
 		w.Header().Set("Content-Type", "application/json")
 		switch result.Status {
 		case "error":

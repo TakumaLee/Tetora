@@ -209,7 +209,7 @@ If no agent is clearly appropriate, use %q as the default.`,
 	// Step 1: Try with haiku for cost efficiency.
 	task.Model = "haiku"
 
-	result := runSingleTask(ctx, cfg, task, routeSem, coordinator)
+	result := runSingleTask(ctx, cfg, task, routeSem, nil, coordinator)
 	if result.Status != "success" {
 		return nil, fmt.Errorf("classification failed: %s", result.Error)
 	}
@@ -223,7 +223,7 @@ If no agent is clearly appropriate, use %q as the default.`,
 	if parsed.Confidence == "low" {
 		logInfo("route: haiku confidence low, escalating to sonnet", "reason", parsed.Reason)
 		task.Model = "sonnet"
-		result2 := runSingleTask(ctx, cfg, task, routeSem, coordinator)
+		result2 := runSingleTask(ctx, cfg, task, routeSem, nil, coordinator)
 		if result2.Status == "success" {
 			parsed2, err2 := parseLLMRouteResult(result2.Output, cfg.SmartDispatch.DefaultAgent)
 			if err2 == nil {
@@ -331,7 +331,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 
 // smartDispatch is the full pipeline: route → dispatch → memory → review → audit.
 func smartDispatch(ctx context.Context, cfg *Config, prompt string, source string,
-	state *dispatchState, sem chan struct{}) *SmartDispatchResult {
+	state *dispatchState, sem, childSem chan struct{}) *SmartDispatchResult {
 
 	// Publish task_received to dashboard.
 	if state != nil && state.broker != nil {
@@ -391,7 +391,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	task.Prompt = expandPrompt(task.Prompt, "", cfg.HistoryDB, route.Agent, cfg.KnowledgeDir, cfg)
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, cfg, task, sem, route.Agent)
+	result := runSingleTask(ctx, cfg, task, sem, childSem, route.Agent)
 
 	// Record to history.
 	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
@@ -414,7 +414,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 
 	// Step 4: Optional coordinator review (conditional trigger).
 	if shouldReview(cfg, route, result.CostUSD) && result.Status == "success" {
-		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Agent, sem)
+		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Agent, sem, childSem)
 		sdr.ReviewOK = &reviewOK
 		sdr.Review = reviewComment
 	}
@@ -443,7 +443,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 // --- Coordinator Review ---
 
 // reviewOutput asks the coordinator to review the agent's output.
-func reviewOutput(ctx context.Context, cfg *Config, originalPrompt, output, agentRole string, sem chan struct{}) (bool, string) {
+func reviewOutput(ctx context.Context, cfg *Config, originalPrompt, output, agentRole string, sem, childSem chan struct{}) (bool, string) {
 	coordinator := cfg.SmartDispatch.Coordinator
 
 	reviewPrompt := fmt.Sprintf(
@@ -474,7 +474,7 @@ Is this output satisfactory? Reply with ONLY a JSON object:
 		task.Model = rc.Model
 	}
 
-	result := runSingleTask(ctx, cfg, task, sem, coordinator)
+	result := runSingleTask(ctx, cfg, task, sem, childSem, coordinator)
 	if result.Status != "success" {
 		return true, "review skipped (error)"
 	}

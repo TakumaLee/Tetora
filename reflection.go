@@ -140,7 +140,7 @@ Output: %s`,
 	reflTask.Model = "haiku"
 	reflTask.Budget = budget
 
-	reflResult := runSingleTask(ctx, cfg, reflTask, taskSem, "")
+	reflResult := runSingleTask(ctx, cfg, reflTask, taskSem, nil, "")
 
 	if reflResult.Status != "success" {
 		return nil, fmt.Errorf("reflection failed: %s", reflResult.Error)

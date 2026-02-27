@@ -247,7 +247,7 @@ type PromptBudgetConfig struct {
 	SoulMax      int `json:"soulMax,omitempty"`      // max chars for soul prompt (default 8000)
 	RulesMax     int `json:"rulesMax,omitempty"`      // max chars for workspace rules (default 4000)
 	KnowledgeMax int `json:"knowledgeMax,omitempty"`  // max chars for knowledge (default 8000)
-	SkillsMax    int `json:"skillsMax,omitempty"`     // max chars for skills (default 2000)
+	SkillsMax    int `json:"skillsMax,omitempty"`     // max chars for skills (default 4000)
 	ContextMax   int `json:"contextMax,omitempty"`    // max chars for session context (default 16000)
 	TotalMax     int `json:"totalMax,omitempty"`      // max total chars (default 40000)
 }
@@ -255,7 +255,7 @@ type PromptBudgetConfig struct {
 func (c PromptBudgetConfig) soulMaxOrDefault() int      { if c.SoulMax > 0 { return c.SoulMax }; return 8000 }
 func (c PromptBudgetConfig) rulesMaxOrDefault() int     { if c.RulesMax > 0 { return c.RulesMax }; return 4000 }
 func (c PromptBudgetConfig) knowledgeMaxOrDefault() int { if c.KnowledgeMax > 0 { return c.KnowledgeMax }; return 8000 }
-func (c PromptBudgetConfig) skillsMaxOrDefault() int    { if c.SkillsMax > 0 { return c.SkillsMax }; return 2000 }
+func (c PromptBudgetConfig) skillsMaxOrDefault() int    { if c.SkillsMax > 0 { return c.SkillsMax }; return 4000 }
 func (c PromptBudgetConfig) contextMaxOrDefault() int   { if c.ContextMax > 0 { return c.ContextMax }; return 16000 }
 func (c PromptBudgetConfig) totalMaxOrDefault() int     { if c.TotalMax > 0 { return c.TotalMax }; return 40000 }
 
@@ -680,6 +680,7 @@ type AgentCommConfig struct {
 	DefaultTimeout     int  `json:"defaultTimeout,omitempty"`     // seconds (default 900)
 	MaxDepth           int  `json:"maxDepth,omitempty"`           // --- P13.3: Nested Sub-Agents --- max nesting depth (default 3)
 	MaxChildrenPerTask int  `json:"maxChildrenPerTask,omitempty"` // --- P13.3: Nested Sub-Agents --- max concurrent children per parent (default 5)
+	ChildSem            int `json:"childSem,omitempty"` // child semaphore pool = maxConcurrent * this multiplier (default 2)
 }
 
 func (c LoggingConfig) levelOrDefault() string {

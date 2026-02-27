@@ -124,8 +124,9 @@ type lineProfile struct {
 type LINEBot struct {
 	cfg     *Config
 	state   *dispatchState
-	sem     chan struct{}
-	apiBase string // "https://api.line.me/v2/bot"
+	sem      chan struct{}
+	childSem chan struct{}
+	apiBase  string // "https://api.line.me/v2/bot"
 
 	// Dedup: track recently processed message IDs.
 	processed     map[string]time.Time
@@ -136,11 +137,12 @@ type LINEBot struct {
 	httpClient *http.Client
 }
 
-func newLINEBot(cfg *Config, state *dispatchState, sem chan struct{}) *LINEBot {
+func newLINEBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) *LINEBot {
 	return &LINEBot{
 		cfg:        cfg,
 		state:      state,
 		sem:        sem,
+		childSem:   childSem,
 		apiBase:    "https://api.line.me/v2/bot",
 		processed:  make(map[string]time.Time),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -362,7 +364,7 @@ func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
 
 	// Run task.
 	taskStart := time.Now()
-	result := runSingleTask(ctx, lb.cfg, task, lb.sem, role)
+	result := runSingleTask(ctx, lb.cfg, task, lb.sem, lb.childSem, role)
 
 	// Record to history.
 	recordHistory(lb.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,

@@ -17,6 +17,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
 	sem := s.sem
+	childSem := s.childSem
 	cron := s.cron
 
 	// --- Dashboard SSE Stream ---
@@ -117,7 +118,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 			go func() {
 				ctx := withTraceID(context.Background(), newTraceID("queue"))
-				result := runSingleTask(ctx, cfg, task, sem, item.AgentName)
+				result := runSingleTask(ctx, cfg, task, sem, childSem, item.AgentName)
 				if result.Status == "success" {
 					updateQueueStatus(cfg.HistoryDB, id, "completed", "")
 				} else {
@@ -212,7 +213,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		auditLog(cfg.HistoryDB, "dispatch", "http",
 			fmt.Sprintf("%d tasks", len(tasks)), clientIP(r))
 
-		result := dispatch(r.Context(), cfg, tasks, state, sem)
+		result := dispatch(r.Context(), cfg, tasks, state, sem, childSem)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -594,7 +595,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		switch action {
 		case "retry":
-			result, err := retryTask(r.Context(), cfg, taskID, state, sem)
+			result, err := retryTask(r.Context(), cfg, taskID, state, sem, childSem)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
 				return
@@ -604,7 +605,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			json.NewEncoder(w).Encode(result)
 
 		case "reroute":
-			result, err := rerouteTask(r.Context(), cfg, taskID, state, sem)
+			result, err := rerouteTask(r.Context(), cfg, taskID, state, sem, childSem)
 			if err != nil {
 				status := http.StatusNotFound
 				if strings.Contains(err.Error(), "not enabled") {
@@ -727,7 +728,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			routeTraceID := traceIDFromContext(r.Context())
 			go func() {
 				routeCtx := withTraceID(context.Background(), routeTraceID)
-				result := smartDispatch(routeCtx, cfg, body.Prompt, "http", state, sem)
+				result := smartDispatch(routeCtx, cfg, body.Prompt, "http", state, sem, childSem)
 				routeResultsMu.Lock()
 				entry := routeResults[id]
 				if entry != nil {
@@ -750,7 +751,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 
 		// Sync mode: block until complete.
-		result := smartDispatch(r.Context(), cfg, body.Prompt, "http", state, sem)
+		result := smartDispatch(r.Context(), cfg, body.Prompt, "http", state, sem, childSem)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	})

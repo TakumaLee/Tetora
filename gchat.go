@@ -220,8 +220,9 @@ type serviceAccountKey struct {
 type GoogleChatBot struct {
 	cfg     *Config
 	state   *dispatchState
-	sem     chan struct{}
-	saKey   *serviceAccountKey // parsed service account key
+	sem      chan struct{}
+	childSem chan struct{}
+	saKey    *serviceAccountKey // parsed service account key
 	privKey *rsa.PrivateKey    // parsed RSA private key
 
 	// Token cache.
@@ -239,11 +240,12 @@ type GoogleChatBot struct {
 }
 
 // newGoogleChatBot creates a new GoogleChatBot instance.
-func newGoogleChatBot(cfg *Config, state *dispatchState, sem chan struct{}) (*GoogleChatBot, error) {
+func newGoogleChatBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) (*GoogleChatBot, error) {
 	bot := &GoogleChatBot{
 		cfg:        cfg,
 		state:      state,
 		sem:        sem,
+		childSem:   childSem,
 		processed:  make(map[string]time.Time),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}

@@ -56,7 +56,7 @@ func TestGChatServiceAccountParsing(t *testing.T) {
 		},
 	}
 
-	bot, err := newGoogleChatBot(cfg, nil, nil)
+	bot, err := newGoogleChatBot(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create bot: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestGChatSendMessage(t *testing.T) {
 		},
 	}
 
-	_, err := newGoogleChatBot(cfg, nil, nil)
+	_, err := newGoogleChatBot(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestGChatJWTGeneration(t *testing.T) {
 		},
 	}
 
-	bot, err := newGoogleChatBot(cfg, nil, nil)
+	bot, err := newGoogleChatBot(cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestGChatWebhookHandler(t *testing.T) {
 		},
 	}
 
-	bot, err := newGoogleChatBot(cfg, nil, make(chan struct{}, 1))
+	bot, err := newGoogleChatBot(cfg, nil, nil, make(chan struct{}, 1))
 	if err != nil {
 		t.Fatal(err)
 	}

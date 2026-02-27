@@ -64,6 +64,7 @@ type workflowExecutor struct {
 	wCtx     *WorkflowContext
 	state    *dispatchState
 	sem      chan struct{}
+	childSem chan struct{}
 	broker   *sseBroker
 	mode     WorkflowRunMode
 	mu       sync.Mutex
@@ -72,7 +73,7 @@ type workflowExecutor struct {
 // executeWorkflow runs a full workflow and returns the completed run.
 // An optional mode parameter controls execution behavior (default: WorkflowModeLive).
 func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[string]string,
-	state *dispatchState, sem chan struct{}, mode ...WorkflowRunMode) *WorkflowRun {
+	state *dispatchState, sem, childSem chan struct{}, mode ...WorkflowRunMode) *WorkflowRun {
 
 	runMode := WorkflowModeLive
 	if len(mode) > 0 && mode[0] != "" {
@@ -113,6 +114,7 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 		wCtx:     wCtx,
 		state:    state,
 		sem:      sem,
+		childSem: childSem,
 		broker:   broker,
 		mode:     runMode,
 	}
@@ -548,7 +550,7 @@ func (e *workflowExecutor) runDispatchStep(ctx context.Context, step *WorkflowSt
 	})
 
 	// Execute using runSingleTask (respects semaphore).
-	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Agent)
+	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, e.childSem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -563,7 +565,7 @@ func (e *workflowExecutor) runDispatchStep(ctx context.Context, step *WorkflowSt
 		if len(delegations) > 0 {
 			result.Output = processAutoDelegations(ctx, e.cfg, delegations,
 				result.Output, e.run.ID, step.Agent, step.ID,
-				e.state, e.sem, e.broker)
+				e.state, e.sem, e.childSem, e.broker)
 		}
 	case "timeout":
 		result.Status = "timeout"
@@ -808,7 +810,7 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 	updateHandoffStatus(e.cfg.HistoryDB, handoffID, "active")
 
 	// Execute.
-	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, step.Agent)
+	taskResult := runSingleTask(ctx, e.cfg, task, e.sem, e.childSem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -1011,7 +1013,7 @@ func (e *workflowExecutor) runDispatchStepShadow(ctx context.Context, step *Work
 	result.SessionID = task.SessionID
 
 	// Execute using the provider directly (no history/session recording).
-	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Agent)
+	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, e.childSem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -1068,7 +1070,7 @@ func (e *workflowExecutor) runHandoffStepShadow(ctx context.Context, step *Workf
 	result.SessionID = task.SessionID
 
 	// Execute without recording history/session/handoff metadata.
-	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, step.Agent)
+	taskResult := runSingleTaskNoRecord(ctx, e.cfg, task, e.sem, e.childSem, step.Agent)
 
 	result.Output = taskResult.Output
 	result.CostUSD = taskResult.CostUSD
@@ -1087,7 +1089,7 @@ func (e *workflowExecutor) runHandoffStepShadow(ctx context.Context, step *Workf
 
 // runSingleTaskNoRecord executes a task using the provider but skips
 // history recording and session activity tracking. Used by shadow mode.
-func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan struct{}, agentName string) TaskResult {
+func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem, childSem chan struct{}, agentName string) TaskResult {
 	// Validate directories before running.
 	if err := validateDirs(cfg, task, agentName); err != nil {
 		return TaskResult{
@@ -1096,8 +1098,9 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem chan
 		}
 	}
 
-	sem <- struct{}{}
-	defer func() { <-sem }()
+	s := selectSem(sem, childSem, task.Depth)
+	s <- struct{}{}
+	defer func() { <-s }()
 
 	providerName := resolveProviderName(cfg, task, agentName)
 

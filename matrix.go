@@ -89,6 +89,7 @@ type MatrixBot struct {
 	cfg        *Config
 	state      *dispatchState
 	sem        chan struct{}
+	childSem   chan struct{}
 	apiBase    string        // homeserver URL + /_matrix/client/v3
 	sinceToken string        // for incremental sync
 	txnID      int64         // atomic counter for transaction IDs
@@ -97,12 +98,13 @@ type MatrixBot struct {
 }
 
 // newMatrixBot creates a new MatrixBot instance.
-func newMatrixBot(cfg *Config, state *dispatchState, sem chan struct{}) *MatrixBot {
+func newMatrixBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) *MatrixBot {
 	apiBase := strings.TrimRight(cfg.Matrix.Homeserver, "/") + "/_matrix/client/v3"
 	return &MatrixBot{
 		cfg:        cfg,
 		state:      state,
 		sem:        sem,
+		childSem:   childSem,
 		apiBase:    apiBase,
 		stopCh:     make(chan struct{}),
 		httpClient: &http.Client{Timeout: 60 * time.Second}, // long-poll needs longer timeout
@@ -311,7 +313,7 @@ func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
 
 	// Run task.
 	taskStart := time.Now()
-	result := runSingleTask(ctx, mb.cfg, task, mb.sem, role)
+	result := runSingleTask(ctx, mb.cfg, task, mb.sem, mb.childSem, role)
 
 	// Record to history.
 	recordHistory(mb.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,

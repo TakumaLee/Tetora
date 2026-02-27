@@ -53,6 +53,7 @@ type WorkflowTriggerEngine struct {
 	cfg       *Config
 	state     *dispatchState
 	sem       chan struct{}
+	childSem  chan struct{}
 	broker    *sseBroker
 	triggers  []WorkflowTriggerConfig
 	cooldowns map[string]time.Time // trigger name -> cooldown expiry
@@ -62,11 +63,12 @@ type WorkflowTriggerEngine struct {
 	wg        sync.WaitGroup
 }
 
-func newWorkflowTriggerEngine(cfg *Config, state *dispatchState, sem chan struct{}, broker *sseBroker) *WorkflowTriggerEngine {
+func newWorkflowTriggerEngine(cfg *Config, state *dispatchState, sem, childSem chan struct{}, broker *sseBroker) *WorkflowTriggerEngine {
 	e := &WorkflowTriggerEngine{
 		cfg:       cfg,
 		state:     state,
 		sem:       sem,
+		childSem:  childSem,
 		broker:    broker,
 		triggers:  cfg.WorkflowTriggers,
 		cooldowns: make(map[string]time.Time),
@@ -347,7 +349,7 @@ func (e *WorkflowTriggerEngine) executeTrigger(ctx context.Context, trigger Work
 	vars["_trigger_time"] = startedAt.Format(time.RFC3339)
 
 	// Execute workflow.
-	run := executeWorkflow(ctx, e.cfg, wf, vars, e.state, e.sem)
+	run := executeWorkflow(ctx, e.cfg, wf, vars, e.state, e.sem, e.childSem)
 
 	// Record trigger run.
 	status := "success"

@@ -207,6 +207,10 @@ func main() {
 	// Shared concurrency semaphore — limits total concurrent claude sessions.
 	sem := make(chan struct{}, cfg.MaxConcurrent)
 
+	// Child semaphore — separate pool for sub-agent tasks (depth > 0).
+	// Prevents deadlock when parent tasks hold sem slots and spawn children that also need slots.
+	childSem := make(chan struct{}, childSemConcurrentOrDefault(cfg))
+
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 
@@ -216,7 +220,7 @@ func main() {
 
 	if *serve {
 		// --- Daemon mode ---
-		logInfo("tetora v2 starting", "maxConcurrent", cfg.MaxConcurrent)
+		logInfo("tetora v2 starting", "maxConcurrent", cfg.MaxConcurrent, "childConcurrent", childSemConcurrentOrDefault(cfg))
 
 		// Track degraded services for health reporting.
 		var degradedServices []string
@@ -557,7 +561,7 @@ func main() {
 		slaCheck := newSLAChecker(cfg, notifyFn)
 
 		// Cron engine.
-		cron := newCronEngine(cfg, sem, notifyFn)
+		cron := newCronEngine(cfg, sem, childSem, notifyFn)
 		if err := cron.loadJobs(); err != nil {
 			logWarn("cron load error, continuing without cron", "error", err)
 		} else {
@@ -625,6 +629,7 @@ func main() {
 			drainer := &queueDrainer{
 				cfg:      cfg,
 				sem:      sem,
+				childSem: childSem,
 				state:    state,
 				notifyFn: notifyFn,
 				ttl:      cfg.OfflineQueue.ttlOrDefault(),
@@ -636,7 +641,7 @@ func main() {
 		// Initialize Slack bot (uses HTTP push, no polling needed).
 		var slackBot *SlackBot
 		if cfg.Slack.Enabled && cfg.Slack.BotToken != "" {
-			slackBot = newSlackBot(cfg, state, sem, cron)
+			slackBot = newSlackBot(cfg, state, sem, childSem, cron)
 			logInfo("slack bot enabled", "endpoint", "/slack/events")
 
 			// Wire Slack into notification chain.
@@ -652,7 +657,7 @@ func main() {
 		// Initialize Discord bot.
 		var discordBot *DiscordBot
 		if cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
-			discordBot = newDiscordBot(cfg, state, sem, cron)
+			discordBot = newDiscordBot(cfg, state, sem, childSem, cron)
 			state.discordBot = discordBot // P14.1: store for interaction handler
 			logInfo("discord bot enabled")
 
@@ -683,7 +688,7 @@ func main() {
 		// Initialize WhatsApp bot.
 		var whatsappBot *WhatsAppBot
 		if cfg.WhatsApp.Enabled && cfg.WhatsApp.PhoneNumberID != "" && cfg.WhatsApp.AccessToken != "" {
-			whatsappBot = newWhatsAppBot(cfg, state, sem, cron)
+			whatsappBot = newWhatsAppBot(cfg, state, sem, childSem, cron)
 			logInfo("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
 		}
 
@@ -717,28 +722,28 @@ func main() {
 		// --- P15.1: LINE Channel --- Initialize LINE bot.
 		var lineBot *LINEBot
 		if cfg.LINE.Enabled && cfg.LINE.ChannelSecret != "" && cfg.LINE.ChannelAccessToken != "" {
-			lineBot = newLINEBot(cfg, state, sem)
+			lineBot = newLINEBot(cfg, state, sem, childSem)
 			logInfo("line bot enabled", "endpoint", cfg.LINE.webhookPathOrDefault())
 		}
 
 		// --- P15.2: Matrix Channel --- Initialize Matrix bot.
 		var matrixBot *MatrixBot
 		if cfg.Matrix.Enabled && cfg.Matrix.Homeserver != "" && cfg.Matrix.AccessToken != "" {
-			matrixBot = newMatrixBot(cfg, state, sem)
+			matrixBot = newMatrixBot(cfg, state, sem, childSem)
 			logInfo("matrix bot enabled", "homeserver", cfg.Matrix.Homeserver, "userId", cfg.Matrix.UserID)
 		}
 
 		// --- P15.3: Teams Channel --- Initialize Teams bot.
 		var teamsBot *TeamsBot
 		if cfg.Teams.Enabled && cfg.Teams.AppID != "" && cfg.Teams.AppPassword != "" {
-			teamsBot = newTeamsBot(cfg, state, sem)
+			teamsBot = newTeamsBot(cfg, state, sem, childSem)
 			logInfo("teams bot enabled", "endpoint", "/api/teams/webhook")
 		}
 
 		// --- P15.4: Signal Channel --- Initialize Signal bot.
 		var signalBot *SignalBot
 		if cfg.Signal.Enabled && cfg.Signal.PhoneNumber != "" {
-			signalBot = newSignalBot(cfg, state, sem)
+			signalBot = newSignalBot(cfg, state, sem, childSem)
 			if cfg.Signal.PollingMode {
 				signalBot.Start()
 				logInfo("signal bot enabled (polling mode)", "interval", cfg.Signal.pollIntervalOrDefault())
@@ -751,7 +756,7 @@ func main() {
 		var gchatBot *GoogleChatBot
 		if cfg.GoogleChat.Enabled && cfg.GoogleChat.ServiceAccountKey != "" {
 			var err error
-			gchatBot, err = newGoogleChatBot(cfg, state, sem)
+			gchatBot, err = newGoogleChatBot(cfg, state, sem, childSem)
 			if err != nil {
 				logError("failed to initialize google chat bot", "error", err)
 			} else {
@@ -762,7 +767,7 @@ func main() {
 		// --- P18.3: Workflow Triggers --- Initialize trigger engine.
 		var triggerEngine *WorkflowTriggerEngine
 		if len(cfg.WorkflowTriggers) > 0 {
-			triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, state.broker)
+			triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, childSem, state.broker)
 			triggerEngine.Start(ctx)
 		}
 
@@ -858,7 +863,7 @@ func main() {
 		// --- P20.2: iMessage via BlueBubbles --- Initialize iMessage bot.
 		var imessageBot *IMessageBot
 		if cfg.IMessage.Enabled && cfg.IMessage.ServerURL != "" {
-			imessageBot = newIMessageBot(cfg, state, sem)
+			imessageBot = newIMessageBot(cfg, state, sem, childSem)
 			globalIMessageBot = imessageBot
 			logInfo("imessage bot enabled", "endpoint", cfg.IMessage.webhookPathOrDefault())
 			if globalPresence != nil {
@@ -903,7 +908,7 @@ func main() {
 		// HTTP server.
 		drainCh := make(chan struct{}, 1)
 		srvInstance := &Server{
-			cfg: cfg, app: app, state: state, sem: sem, cron: cron, secMon: secMon, mcpHost: mcpHost,
+			cfg: cfg, app: app, state: state, sem: sem, childSem: childSem, cron: cron, secMon: secMon, mcpHost: mcpHost,
 			proactiveEngine: proactiveEngine, groupChatEngine: groupChatEngine, voiceEngine: voiceEngine,
 			slackBot: slackBot, whatsappBot: whatsappBot, pluginHost: pluginHost,
 			lineBot: lineBot, teamsBot: teamsBot, signalBot: signalBot, gchatBot: gchatBot, imessageBot: imessageBot,
@@ -945,7 +950,7 @@ func main() {
 
 		// Start Telegram bot.
 		if cfg.Telegram.Enabled && cfg.Telegram.BotToken != "" {
-			bot = newBot(cfg, state, sem, cron)
+			bot = newBot(cfg, state, sem, childSem, cron)
 			// Wire up keyboard notification for approval gate.
 			cron.notifyKeyboardFn = func(text string, keyboard [][]tgInlineButton) {
 				bot.replyWithKeyboard(bot.chatID, text, keyboard)
@@ -1088,7 +1093,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(&Server{cfg: cfg, state: state, sem: sem})
+		srv := startHTTPServer(&Server{cfg: cfg, state: state, sem: sem, childSem: childSem})
 
 		// Handle signals — cancel dispatch.
 		go func() {
@@ -1102,7 +1107,7 @@ func main() {
 		}()
 
 		dispatchCtx := withTraceID(context.Background(), newTraceID("cli"))
-		result := dispatch(dispatchCtx, cfg, tasks, state, sem)
+		result := dispatch(dispatchCtx, cfg, tasks, state, sem, childSem)
 
 		// Shut down HTTP server.
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 2*time.Second)

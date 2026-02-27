@@ -327,6 +327,7 @@ func isAllProvidersUnavailable(errMsg string) bool {
 type queueDrainer struct {
 	cfg      *Config
 	sem      chan struct{}
+	childSem chan struct{}
 	state    *dispatchState
 	notifyFn func(string)
 	ttl      time.Duration
@@ -417,7 +418,7 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 	logInfoCtx(ctx, "queue: retrying task", "queueId", item.ID, "taskId", task.ID[:8], "name", task.Name, "retry", item.RetryCount+1)
 
 	// Run the task.
-	result := runSingleTask(ctx, d.cfg, task, d.sem, item.AgentName)
+	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, item.AgentName)
 
 	if result.Status == "success" {
 		updateQueueStatus(d.cfg.HistoryDB, item.ID, "completed", "")

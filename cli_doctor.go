@@ -99,7 +99,7 @@ func cmdDoctor() {
 	} else {
 		origLog := log.Writer()
 		log.SetOutput(io.Discard)
-		ce := newCronEngine(cfg, make(chan struct{}, 1), nil)
+		ce := newCronEngine(cfg, make(chan struct{}, 1), nil, nil)
 		err := ce.loadJobs()
 		log.SetOutput(origLog)
 		if err != nil {

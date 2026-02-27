@@ -74,6 +74,7 @@ type IMessageBot struct {
 	cfg       *Config
 	state     *dispatchState
 	sem       chan struct{}
+	childSem  chan struct{}
 	serverURL string
 	password  string
 	dedup     map[string]time.Time // message GUID -> timestamp for dedup
@@ -82,12 +83,13 @@ type IMessageBot struct {
 }
 
 // newIMessageBot creates a new IMessageBot instance.
-func newIMessageBot(cfg *Config, state *dispatchState, sem chan struct{}) *IMessageBot {
+func newIMessageBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) *IMessageBot {
 	serverURL := strings.TrimRight(cfg.IMessage.ServerURL, "/")
 	return &IMessageBot{
 		cfg:       cfg,
 		state:     state,
 		sem:       sem,
+		childSem:  childSem,
 		serverURL: serverURL,
 		password:  cfg.IMessage.Password,
 		dedup:     make(map[string]time.Time),
@@ -264,7 +266,7 @@ func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
 
 	// Run task.
 	taskStart := time.Now()
-	result := runSingleTask(ctx, ib.cfg, task, ib.sem, role)
+	result := runSingleTask(ctx, ib.cfg, task, ib.sem, ib.childSem, role)
 
 	// Record to history.
 	recordHistory(ib.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,

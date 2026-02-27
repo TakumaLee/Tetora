@@ -155,8 +155,9 @@ type signalSendRequest struct {
 type SignalBot struct {
 	cfg     *Config
 	state   *dispatchState
-	sem     chan struct{}
-	apiBase string // signal-cli-rest-api base URL
+	sem      chan struct{}
+	childSem chan struct{}
+	apiBase  string // signal-cli-rest-api base URL
 
 	// Dedup: track recently processed message timestamps.
 	processed     map[string]time.Time
@@ -172,11 +173,12 @@ type SignalBot struct {
 }
 
 // newSignalBot creates a new SignalBot instance.
-func newSignalBot(cfg *Config, state *dispatchState, sem chan struct{}) *SignalBot {
+func newSignalBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) *SignalBot {
 	return &SignalBot{
 		cfg:         cfg,
 		state:       state,
 		sem:         sem,
+		childSem:    childSem,
 		apiBase:     cfg.Signal.apiBaseURLOrDefault(),
 		processed:   make(map[string]time.Time),
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
@@ -426,7 +428,7 @@ func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targe
 
 	// Run task.
 	taskStart := time.Now()
-	result := runSingleTask(ctx, sb.cfg, task, sb.sem, role)
+	result := runSingleTask(ctx, sb.cfg, task, sb.sem, sb.childSem, role)
 
 	// Record to history.
 	recordHistory(sb.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,

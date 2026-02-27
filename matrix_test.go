@@ -150,7 +150,7 @@ func TestMatrixMessageEventHandling(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	// Text message from someone else: should be processed.
 	textEvent := matrixEvent{
@@ -239,7 +239,7 @@ func TestMatrixSendMessageWithTxnId(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	err := mb.sendMessage("!roomid:example.com", "Hello from Tetora!")
 	if err != nil {
@@ -297,7 +297,7 @@ func TestMatrixJoinRoom(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	err := mb.joinRoom("!roomid:example.com")
 	if err != nil {
@@ -336,7 +336,7 @@ func TestMatrixLeaveRoom(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	err := mb.leaveRoom("!roomid:example.com")
 	if err != nil {
@@ -414,7 +414,7 @@ func TestMatrixAutoJoinInvitedRooms(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	// Simulate invited rooms.
 	invitedRooms := map[string]matrixInvitedRoom{
@@ -471,7 +471,7 @@ func TestMatrixSyncTokenPersistence(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	// First sync.
 	if err := mb.sync(); err != nil {
@@ -538,7 +538,7 @@ func TestMatrixErrorHandling(t *testing.T) {
 				},
 			}
 
-			mb := newMatrixBot(cfg, nil, nil)
+			mb := newMatrixBot(cfg, nil, nil, nil)
 			err := mb.sync()
 			if err == nil {
 				t.Fatal("expected error, got nil")
@@ -696,7 +696,7 @@ func TestMatrixBotCreation(t *testing.T) {
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
 
-	mb := newMatrixBot(cfg, state, sem)
+	mb := newMatrixBot(cfg, state, sem, nil)
 	if mb == nil {
 		t.Fatal("newMatrixBot returned nil")
 	}
@@ -732,7 +732,7 @@ func TestMatrixSendMessageEmptyRoomID(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 
 	err := mb.sendMessage("", "hello")
 	if err == nil {
@@ -758,7 +758,7 @@ func TestMatrixHomeserverTrailingSlash(t *testing.T) {
 		},
 	}
 
-	mb := newMatrixBot(cfg, nil, nil)
+	mb := newMatrixBot(cfg, nil, nil, nil)
 	expected := "https://matrix.example.com/_matrix/client/v3"
 	if mb.apiBase != expected {
 		t.Errorf("apiBase = %q, want %q", mb.apiBase, expected)
@@ -766,7 +766,7 @@ func TestMatrixHomeserverTrailingSlash(t *testing.T) {
 
 	// Without trailing slash.
 	cfg.Matrix.Homeserver = "https://matrix.example.com"
-	mb2 := newMatrixBot(cfg, nil, nil)
+	mb2 := newMatrixBot(cfg, nil, nil, nil)
 	if mb2.apiBase != expected {
 		t.Errorf("apiBase = %q, want %q", mb2.apiBase, expected)
 	}

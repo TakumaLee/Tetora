@@ -27,7 +27,7 @@ func TestIMessageBotNewBot(t *testing.T) {
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
 
-	bot := newIMessageBot(cfg, state, sem)
+	bot := newIMessageBot(cfg, state, sem, nil)
 	if bot == nil {
 		t.Fatal("expected non-nil bot")
 	}
@@ -54,7 +54,7 @@ func TestIMessageBotNewBotTrailingSlash(t *testing.T) {
 			Password:  "pw",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 	if bot.serverURL != "http://localhost:1234" {
 		t.Errorf("serverURL = %q, want no trailing slash", bot.serverURL)
 	}
@@ -72,7 +72,7 @@ func TestIMessageWebhookHandler(t *testing.T) {
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 	sem := make(chan struct{}, 1)
-	bot := newIMessageBot(cfg, state, sem)
+	bot := newIMessageBot(cfg, state, sem, nil)
 
 	t.Run("method not allowed", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/imessage/webhook", nil)
@@ -134,7 +134,7 @@ func TestIMessageHandleMessageDedup(t *testing.T) {
 			AllowedChats: []string{}, // empty = allow all
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	// Add a GUID to dedup.
 	bot.mu.Lock()
@@ -167,7 +167,7 @@ func TestIMessageHandleMessageIsFromMe(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	// handleMessage should skip isFromMe (no panic, no dispatch).
 	bot.handleMessage(BlueBubblesMessage{
@@ -195,7 +195,7 @@ func TestIMessageHandleMessageEmpty(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	bot.handleMessage(BlueBubblesMessage{
 		GUID:     "msg-empty",
@@ -222,7 +222,7 @@ func TestIMessageHandleMessageAllowedChats(t *testing.T) {
 			AllowedChats: []string{"chat-allowed"},
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	// Message from non-allowed chat should be skipped after dedup.
 	bot.handleMessage(BlueBubblesMessage{
@@ -262,7 +262,7 @@ func TestIMessageSendMessage(t *testing.T) {
 			Password:  "test-pw",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	err := bot.sendMessage("iMessage;-;+1234567890", "Hello World")
 	if err != nil {
@@ -289,7 +289,7 @@ func TestIMessageSendMessageEmpty(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	if err := bot.sendMessage("", "text"); err == nil {
 		t.Error("expected error for empty chatGUID")
@@ -314,7 +314,7 @@ func TestIMessageSendMessageHTTPError(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	err := bot.sendMessage("chat-1", "hello")
 	if err == nil {
@@ -365,7 +365,7 @@ func TestIMessageSearchMessages(t *testing.T) {
 			Password:  "test-pw",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	msgs, err := bot.searchMessages("hello", 10)
 	if err != nil {
@@ -394,7 +394,7 @@ func TestIMessageSearchMessagesEmpty(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	_, err := bot.searchMessages("", 10)
 	if err == nil {
@@ -432,7 +432,7 @@ func TestIMessageReadRecentMessages(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	msgs, err := bot.readRecentMessages("chat-1", 5)
 	if err != nil {
@@ -455,7 +455,7 @@ func TestIMessageReadRecentMessagesEmptyChatGUID(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	_, err := bot.readRecentMessages("", 5)
 	if err == nil {
@@ -483,7 +483,7 @@ func TestIMessageSendTapback(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	err := bot.sendTapback("chat-1", "msg-001", 2000)
 	if err != nil {
@@ -528,7 +528,7 @@ func TestIMessageNotifierInterface(t *testing.T) {
 			AllowedChats: []string{"chat-1"},
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	// Test Name().
 	var n Notifier = bot
@@ -543,7 +543,7 @@ func TestIMessageNotifierInterface(t *testing.T) {
 			ServerURL: "http://localhost:1234",
 			Password:  "test",
 		},
-	}, nil, nil)
+	}, nil, nil, nil)
 	err := bot2.Send("test")
 	if err == nil {
 		t.Error("expected error when no allowed chats configured")
@@ -565,7 +565,7 @@ func TestIMessagePresenceSetterInterface(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	var ps PresenceSetter = bot
 	if ps.PresenceName() != "imessage" {
@@ -595,7 +595,7 @@ func TestIMessageToolHandlerSend(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 	globalIMessageBot = bot
 	defer func() { globalIMessageBot = nil }()
 
@@ -640,7 +640,7 @@ func TestIMessageToolHandlerSearch(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 	globalIMessageBot = bot
 	defer func() { globalIMessageBot = nil }()
 
@@ -672,7 +672,7 @@ func TestIMessageToolHandlerRead(t *testing.T) {
 			Password:  "test",
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 	globalIMessageBot = bot
 	defer func() { globalIMessageBot = nil }()
 
@@ -696,7 +696,7 @@ func TestIMessageDedupCleanup(t *testing.T) {
 			AllowedChats: []string{"chat-allowed-only"}, // restrict to prevent dispatch
 		},
 	}
-	bot := newIMessageBot(cfg, nil, nil)
+	bot := newIMessageBot(cfg, nil, nil, nil)
 
 	// Pre-populate dedup with old entries.
 	bot.mu.Lock()

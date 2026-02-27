@@ -56,8 +56,9 @@ type slackEvent struct {
 type SlackBot struct {
 	cfg   *Config
 	state *dispatchState
-	sem   chan struct{}
-	cron  *CronEngine
+	sem      chan struct{}
+	childSem chan struct{}
+	cron     *CronEngine
 
 	// Dedup: track recently processed event IDs to handle Slack retries.
 	processed     map[string]time.Time
@@ -65,11 +66,12 @@ type SlackBot struct {
 	approvalGate  *slackApprovalGate // P28.0: approval gate
 }
 
-func newSlackBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *SlackBot {
+func newSlackBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *SlackBot {
 	sb := &SlackBot{
 		cfg:       cfg,
 		state:     state,
 		sem:       sem,
+		childSem:  childSem,
 		cron:      cron,
 		processed: make(map[string]time.Time),
 	}
@@ -329,7 +331,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	}
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, sb.cfg, task, sb.sem, route.Agent)
+	result := runSingleTask(ctx, sb.cfg, task, sb.sem, sb.childSem, route.Agent)
 
 	// Record to history.
 	recordHistory(sb.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
@@ -361,7 +363,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
-		maybeCompactSession(sb.cfg, dbPath, sess.ID, sess.MessageCount+2, sb.sem)
+		maybeCompactSession(sb.cfg, dbPath, sess.ID, sess.MessageCount+2, sb.sem, sb.childSem)
 	}
 
 	// Store in agent memory.

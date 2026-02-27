@@ -81,6 +81,7 @@ const maxChainDepth = 5
 type CronEngine struct {
 	cfg      *Config
 	sem      chan struct{}
+	childSem chan struct{}
 	notifyFn         func(string)                              // send Telegram message
 	notifyKeyboardFn func(string, [][]tgInlineButton)          // send with inline keyboard
 
@@ -104,10 +105,11 @@ type CronEngine struct {
 	idleCacheLast time.Time
 }
 
-func newCronEngine(cfg *Config, sem chan struct{}, notifyFn func(string)) *CronEngine {
+func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(string)) *CronEngine {
 	return &CronEngine{
 		cfg:      cfg,
 		sem:      sem,
+		childSem: childSem,
 		notifyFn: notifyFn,
 		stopCh:   make(chan struct{}),
 	}
@@ -428,7 +430,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 					j.nextRun = nextRunAfter(j.expr, j.loc, time.Now().In(j.loc))
 					ce.mu.Unlock()
 				}()
-				triageBacklog(ctx, ce.cfg, ce.sem)
+				triageBacklog(ctx, ce.cfg, ce.sem, ce.childSem)
 			}(j)
 			continue
 		}
@@ -659,7 +661,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		}
 
 		attemptStart := time.Now()
-		result = runSingleTask(ctx, ce.cfg, task, ce.sem, j.Agent)
+		result = runSingleTask(ctx, ce.cfg, task, ce.sem, ce.childSem, j.Agent)
 
 		if result.Status == "success" {
 			break

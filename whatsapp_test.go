@@ -21,7 +21,7 @@ func TestWhatsAppWebhookVerification(t *testing.T) {
 
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newWhatsAppBot(cfg, state, sem, nil)
+	bot := newWhatsAppBot(cfg, state, sem, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -262,7 +262,7 @@ func TestWhatsAppDedupMessages(t *testing.T) {
 
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newWhatsAppBot(cfg, state, sem, nil)
+	bot := newWhatsAppBot(cfg, state, sem, nil, nil)
 
 	// Mark message as processed.
 	bot.mu.Lock()
@@ -295,7 +295,7 @@ func TestWhatsAppBotCreation(t *testing.T) {
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
 
-	bot := newWhatsAppBot(cfg, state, sem, nil)
+	bot := newWhatsAppBot(cfg, state, sem, nil, nil)
 	if bot == nil {
 		t.Fatal("newWhatsAppBot returned nil")
 	}

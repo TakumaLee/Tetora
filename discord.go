@@ -395,6 +395,7 @@ type DiscordBot struct {
 	cfg       *Config
 	state     *dispatchState
 	sem       chan struct{}
+	childSem  chan struct{}
 	cron      *CronEngine
 
 	botUserID string
@@ -414,11 +415,12 @@ type DiscordBot struct {
 	notifier     *discordTaskNotifier     // task notification (thread-per-task)
 }
 
-func newDiscordBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *DiscordBot {
+func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
 	db := &DiscordBot{
 		cfg:          cfg,
 		state:        state,
 		sem:          sem,
+		childSem:     childSem,
 		cron:         cron,
 		client:       &http.Client{Timeout: 10 * time.Second},
 		stopCh:       make(chan struct{}),
@@ -996,7 +998,7 @@ func (db *DiscordBot) cmdAsk(msg discordMessage, prompt string) {
 		}
 	}
 
-	result := runSingleTask(ctx, db.cfg, task, db.sem, agentName)
+	result := runSingleTask(ctx, db.cfg, task, db.sem, db.childSem, agentName)
 
 	output := result.Output
 	if result.Status != "success" {
@@ -1265,7 +1267,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	}
 
 	taskStart := time.Now()
-	result := runSingleTask(ctx, db.cfg, task, db.sem, route.Agent)
+	result := runSingleTask(ctx, db.cfg, task, db.sem, db.childSem, route.Agent)
 
 	// Stop progress updater and clean up progress message.
 	if progressStopCh != nil {
@@ -1355,7 +1357,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 			})
 		}
 
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {

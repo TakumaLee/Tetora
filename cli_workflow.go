@@ -300,7 +300,7 @@ func workflowRunCmd(name string, flags []string) {
 	}
 	cfg.registry = initProviders(cfg)
 
-	run := executeWorkflow(context.Background(), cfg, wf, vars, state, sem, mode)
+	run := executeWorkflow(context.Background(), cfg, wf, vars, state, sem, nil, mode)
 
 	// Print results.
 	fmt.Printf("\nWorkflow: %s\n", run.WorkflowName)

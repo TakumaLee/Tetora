@@ -182,7 +182,7 @@ func isTruthy(val any) bool {
 
 // handleIncomingWebhook processes an incoming webhook request.
 func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *http.Request,
-	state *dispatchState, sem chan struct{}) IncomingWebhookResult {
+	state *dispatchState, sem, childSem chan struct{}) IncomingWebhookResult {
 
 	whCfg, ok := cfg.IncomingWebhooks[name]
 	if !ok {
@@ -246,14 +246,14 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 
 	// Trigger workflow or dispatch.
 	if whCfg.Workflow != "" {
-		return triggerWebhookWorkflow(ctx, cfg, name, whCfg, payload, prompt, state, sem)
+		return triggerWebhookWorkflow(ctx, cfg, name, whCfg, payload, prompt, state, sem, childSem)
 	}
-	return triggerWebhookDispatch(ctx, cfg, name, whCfg, prompt, state, sem)
+	return triggerWebhookDispatch(ctx, cfg, name, whCfg, prompt, state, sem, childSem)
 }
 
 // triggerWebhookDispatch dispatches a task to the specified agent.
 func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg IncomingWebhookConfig,
-	prompt string, state *dispatchState, sem chan struct{}) IncomingWebhookResult {
+	prompt string, state *dispatchState, sem, childSem chan struct{}) IncomingWebhookResult {
 
 	task := Task{
 		Prompt: prompt,
@@ -264,7 +264,7 @@ func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg
 
 	// Run async.
 	go func() {
-		result := runSingleTask(ctx, cfg, task, sem, whCfg.Agent)
+		result := runSingleTask(ctx, cfg, task, sem, childSem, whCfg.Agent)
 
 		// Record history.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
@@ -288,7 +288,7 @@ func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg
 
 // triggerWebhookWorkflow loads and executes a workflow.
 func triggerWebhookWorkflow(ctx context.Context, cfg *Config, name string, whCfg IncomingWebhookConfig,
-	payload map[string]any, prompt string, state *dispatchState, sem chan struct{}) IncomingWebhookResult {
+	payload map[string]any, prompt string, state *dispatchState, sem, childSem chan struct{}) IncomingWebhookResult {
 
 	wf, err := loadWorkflowByName(cfg, whCfg.Workflow)
 	if err != nil {
@@ -321,7 +321,7 @@ func triggerWebhookWorkflow(ctx context.Context, cfg *Config, name string, whCfg
 
 	// Run async.
 	go func() {
-		run := executeWorkflow(ctx, cfg, wf, vars, state, sem)
+		run := executeWorkflow(ctx, cfg, wf, vars, state, sem, childSem)
 		logInfoCtx(ctx, "incoming webhook workflow done", "name", name,
 			"workflow", whCfg.Workflow, "status", run.Status, "cost", run.TotalCost)
 	}()

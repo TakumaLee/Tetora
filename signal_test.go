@@ -31,7 +31,7 @@ func TestSignalWebhookParsing(t *testing.T) {
 	cfg.registry = initProviders(cfg)
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newSignalBot(cfg, state, sem)
+	bot := newSignalBot(cfg, state, sem, nil)
 
 	// Sample webhook payload.
 	payload := signalReceivePayload{
@@ -87,7 +87,7 @@ func TestSignalGroupMessageHandling(t *testing.T) {
 	cfg.registry = initProviders(cfg)
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newSignalBot(cfg, state, sem)
+	bot := newSignalBot(cfg, state, sem, nil)
 
 	// Sample group message.
 	payload := signalReceivePayload{
@@ -143,7 +143,7 @@ func TestSignalMessageDedup(t *testing.T) {
 	cfg.registry = initProviders(cfg)
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newSignalBot(cfg, state, sem)
+	bot := newSignalBot(cfg, state, sem, nil)
 
 	envelope := signalEnvelope{
 		Source:    "+0987654321",
@@ -194,7 +194,7 @@ func TestSignalSendMessage(t *testing.T) {
 			PhoneNumber: "+1234567890",
 		},
 	}
-	bot := newSignalBot(cfg, nil, nil)
+	bot := newSignalBot(cfg, nil, nil, nil)
 
 	err := bot.SendMessage("+0987654321", "Test message")
 	if err != nil {
@@ -241,7 +241,7 @@ func TestSignalSendGroupMessage(t *testing.T) {
 			APIBaseURL: server.URL,
 		},
 	}
-	bot := newSignalBot(cfg, nil, nil)
+	bot := newSignalBot(cfg, nil, nil, nil)
 
 	err := bot.SendGroupMessage("group-abc123", "Test group message")
 	if err != nil {
@@ -346,7 +346,7 @@ func TestSignalEmptyMessageIgnored(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 1)
-	bot := newSignalBot(cfg, state, sem)
+	bot := newSignalBot(cfg, state, sem, nil)
 
 	envelope := signalEnvelope{
 		Source:    "+0987654321",

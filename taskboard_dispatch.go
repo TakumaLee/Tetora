@@ -11,8 +11,9 @@ import (
 type TaskBoardDispatcher struct {
 	engine *TaskBoardEngine
 	cfg    *Config
-	sem    chan struct{}
-	state  *dispatchState
+	sem      chan struct{}
+	childSem chan struct{}
+	state    *dispatchState
 
 	mu      sync.Mutex
 	wg      sync.WaitGroup // tracks in-flight dispatchTask goroutines
@@ -22,13 +23,14 @@ type TaskBoardDispatcher struct {
 	cancel  context.CancelFunc
 }
 
-func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem chan struct{}, state *dispatchState) *TaskBoardDispatcher {
+func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem chan struct{}, state *dispatchState) *TaskBoardDispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TaskBoardDispatcher{
-		engine: engine,
-		cfg:    cfg,
-		sem:    sem,
-		state:  state,
+		engine:   engine,
+		cfg:      cfg,
+		sem:      sem,
+		childSem: childSem,
+		state:    state,
 		stopCh: make(chan struct{}),
 		ctx:    ctx,
 		cancel: cancel,
@@ -170,7 +172,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	}
 
 	start := time.Now()
-	result := runSingleTask(ctx, d.cfg, task, d.sem, t.Assignee)
+	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, t.Assignee)
 	duration := time.Since(start)
 
 	// Record cost/duration on the board task.

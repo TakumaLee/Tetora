@@ -10,7 +10,7 @@ import (
 
 // triageBacklog analyzes backlog tasks and decides whether to assign, decompose, or clarify.
 // Called as a special cron job (like daily_notes).
-func triageBacklog(ctx context.Context, cfg *Config, sem chan struct{}) {
+func triageBacklog(ctx context.Context, cfg *Config, sem, childSem chan struct{}) {
 	if !cfg.TaskBoard.Enabled {
 		return
 	}
@@ -61,7 +61,7 @@ func triageBacklog(ctx context.Context, cfg *Config, sem chan struct{}) {
 			continue
 		}
 
-		result := triageOneTask(ctx, cfg, sem, tb, t, comments, roster)
+		result := triageOneTask(ctx, cfg, sem, childSem, tb, t, comments, roster)
 		if result == nil {
 			continue
 		}
@@ -84,7 +84,7 @@ type triageSubtask struct {
 }
 
 // triageOneTask sends a single backlog task to LLM for triage analysis.
-func triageOneTask(ctx context.Context, cfg *Config, sem chan struct{}, tb *TaskBoardEngine, t TaskBoard, comments []TaskComment, roster string) *triageResult {
+func triageOneTask(ctx context.Context, cfg *Config, sem, childSem chan struct{}, tb *TaskBoardEngine, t TaskBoard, comments []TaskComment, roster string) *triageResult {
 	// Build conversation thread.
 	threadText := "(no comments)"
 	if len(comments) > 0 {
@@ -134,7 +134,7 @@ Respond with ONLY valid JSON (no markdown fences):
 	fillDefaults(cfg, &task)
 	task.Model = "haiku" // force haiku regardless of defaults
 
-	result := runSingleTask(ctx, cfg, task, sem, "")
+	result := runSingleTask(ctx, cfg, task, sem, childSem, "")
 	if result.Status != "success" {
 		logWarn("triage: LLM call failed", "taskId", t.ID, "error", result.Error)
 		return nil

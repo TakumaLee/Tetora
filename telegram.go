@@ -103,6 +103,7 @@ type Bot struct {
 	cfg              *Config
 	state            *dispatchState
 	sem              chan struct{}
+	childSem         chan struct{}
 	cron             *CronEngine
 	client           *http.Client
 	pendingEstimates map[string]*pendingEstimate
@@ -111,7 +112,7 @@ type Bot struct {
 	approvalGate     *tgApprovalGate // P28.0: approval gate for this bot
 }
 
-func newBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngine) *Bot {
+func newBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *Bot {
 	b := &Bot{
 		token:            cfg.Telegram.BotToken,
 		chatID:           cfg.Telegram.ChatID,
@@ -119,6 +120,7 @@ func newBot(cfg *Config, state *dispatchState, sem chan struct{}, cron *CronEngi
 		cfg:              cfg,
 		state:            state,
 		sem:              sem,
+		childSem:         childSem,
 		cron:             cron,
 		client:           &http.Client{Timeout: time.Duration(cfg.Telegram.PollTimeout+10) * time.Second},
 		pendingEstimates: make(map[string]*pendingEstimate),
@@ -437,7 +439,7 @@ func (b *Bot) cmdDispatch(ctx context.Context, msg *tgMessage, payload string) {
 
 	go func() {
 		dispatchCtx := withTraceID(context.Background(), newTraceID("tg"))
-		result := dispatch(dispatchCtx, b.cfg, tasks, b.state, b.sem)
+		result := dispatch(dispatchCtx, b.cfg, tasks, b.state, b.sem, b.childSem)
 		b.reply(msg.Chat.ID, formatTelegramResult(result))
 	}()
 }
@@ -794,7 +796,7 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 			task.approvalGate = b.approvalGate
 		}
 
-		result := runSingleTask(ctx, b.cfg, task, b.sem, "")
+		result := runSingleTask(ctx, b.cfg, task, b.sem, b.childSem, "")
 
 		// Record assistant response to session.
 		if sess != nil {
@@ -823,7 +825,7 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 			updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
 			// Trigger compaction if needed.
-			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem)
+			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem, b.childSem)
 		}
 
 		if result.Status == "success" {
@@ -961,7 +963,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		taskStart := time.Now()
-		result := runSingleTask(ctx, b.cfg, task, b.sem, route.Agent)
+		result := runSingleTask(ctx, b.cfg, task, b.sem, b.childSem, route.Agent)
 
 		// Stop progress updater and clean up progress message.
 		if progressStopCh != nil {
@@ -1021,7 +1023,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
 			// Trigger compaction if needed.
-			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem)
+			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem, b.childSem)
 		}
 
 		// Store output summary in agent memory.
@@ -1034,7 +1036,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		// Optional coordinator review.
 		sdr := &SmartDispatchResult{Route: *route, Task: result}
 		if b.cfg.SmartDispatch.Review && result.Status == "success" {
-			reviewOK, reviewComment := reviewOutput(ctx, b.cfg, prompt, result.Output, route.Agent, b.sem)
+			reviewOK, reviewComment := reviewOutput(ctx, b.cfg, prompt, result.Output, route.Agent, b.sem, b.childSem)
 			sdr.ReviewOK = &reviewOK
 			sdr.Review = reviewComment
 		}
@@ -1231,7 +1233,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgCallbackQuery) {
 	case "retry":
 		b.answerCallback(cq.ID, "Retrying...")
 		go func() {
-			result, err := retryTask(ctx, b.cfg, id, b.state, b.sem)
+			result, err := retryTask(ctx, b.cfg, id, b.state, b.sem, b.childSem)
 			if err != nil {
 				b.reply(cq.Message.Chat.ID, fmt.Sprintf("\xe2\x9d\x8c Retry failed: %s", err.Error()))
 				return
@@ -1255,7 +1257,7 @@ func (b *Bot) handleCallback(ctx context.Context, cq *tgCallbackQuery) {
 	case "reroute":
 		b.answerCallback(cq.ID, "Rerouting...")
 		go func() {
-			result, err := rerouteTask(ctx, b.cfg, id, b.state, b.sem)
+			result, err := rerouteTask(ctx, b.cfg, id, b.state, b.sem, b.childSem)
 			if err != nil {
 				b.reply(cq.Message.Chat.ID, fmt.Sprintf("\xe2\x9d\x8c Reroute failed: %s", err.Error()))
 				return

@@ -608,7 +608,16 @@ func cleanupOutputs(baseDir string, days int) {
 
 // --- Dispatch Core ---
 
-func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchState, sem chan struct{}) *DispatchResult {
+// selectSem returns childSem for sub-agent tasks (depth > 0), otherwise the parent sem.
+// This prevents deadlock when parent holds a sem slot and spawns child tasks that also need slots.
+func selectSem(sem, childSem chan struct{}, depth int) chan struct{} {
+	if depth > 0 && childSem != nil {
+		return childSem
+	}
+	return sem
+}
+
+func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchState, sem, childSem chan struct{}) *DispatchResult {
 	ctx, cancel := context.WithCancel(ctx)
 	state.mu.Lock()
 	state.active = true
@@ -633,8 +642,9 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 		wg.Add(1)
 		go func(t Task) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			s := selectSem(sem, childSem, t.Depth)
+			s <- struct{}{}
+			defer func() { <-s }()
 			r := runTask(ctx, cfg, t, state)
 			results <- r
 		}(task)
@@ -657,7 +667,7 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 }
 
 // runSingleTask runs one task using the shared semaphore. Used by cron engine.
-func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{}, agentName string) TaskResult {
+func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem chan struct{}, agentName string) TaskResult {
 	// Apply trust level.
 	applyTrustToTask(cfg, &task, agentName)
 
@@ -692,8 +702,9 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem chan struct{
 		}
 	}
 
-	sem <- struct{}{}
-	defer func() { <-sem }()
+	s := selectSem(sem, childSem, task.Depth)
+	s <- struct{}{}
+	defer func() { <-s }()
 
 	// Budget check before execution.
 	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
@@ -1208,7 +1219,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 // retryTask re-runs a previously failed task with the same parameters.
 // A new task ID is generated but all other parameters are preserved.
-func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchState, sem chan struct{}) (*TaskResult, error) {
+func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchState, sem, childSem chan struct{}) (*TaskResult, error) {
 	state.mu.Lock()
 	ft, ok := state.failedTasks[taskID]
 	state.mu.Unlock()
@@ -1223,7 +1234,7 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 	task.Source = "retry:" + task.Source
 	fillDefaults(cfg, &task)
 
-	result := runSingleTask(ctx, cfg, task, sem, task.Agent)
+	result := runSingleTask(ctx, cfg, task, sem, childSem, task.Agent)
 
 	// Record to history.
 	start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
@@ -1258,7 +1269,7 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 
 // rerouteTask re-dispatches a previously failed task through smart dispatch,
 // allowing a different agent to handle it.
-func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatchState, sem chan struct{}) (*SmartDispatchResult, error) {
+func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatchState, sem, childSem chan struct{}) (*SmartDispatchResult, error) {
 	state.mu.Lock()
 	ft, ok := state.failedTasks[taskID]
 	state.mu.Unlock()
@@ -1270,7 +1281,7 @@ func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatc
 		return nil, fmt.Errorf("smart dispatch is not enabled")
 	}
 
-	result := smartDispatch(ctx, cfg, ft.task.Prompt, "reroute", state, sem)
+	result := smartDispatch(ctx, cfg, ft.task.Prompt, "reroute", state, sem, childSem)
 
 	// If reroute succeeded, remove from failed tasks.
 	if result.Task.Status == "success" {

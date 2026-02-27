@@ -79,6 +79,7 @@ type TeamsBot struct {
 	cfg        *Config
 	state      *dispatchState
 	sem        chan struct{}
+	childSem   chan struct{}
 	tokenCache teamsTokenCache
 
 	// Dedup: track recently processed activity IDs.
@@ -93,7 +94,7 @@ type TeamsBot struct {
 	tokenURL string
 }
 
-func newTeamsBot(cfg *Config, state *dispatchState, sem chan struct{}) *TeamsBot {
+func newTeamsBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}) *TeamsBot {
 	tenantID := cfg.Teams.TenantID
 	if tenantID == "" {
 		tenantID = "botframework.com"
@@ -102,6 +103,7 @@ func newTeamsBot(cfg *Config, state *dispatchState, sem chan struct{}) *TeamsBot
 		cfg:        cfg,
 		state:      state,
 		sem:        sem,
+		childSem:   childSem,
 		processed:  make(map[string]time.Time),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		tokenURL:   fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID),
@@ -405,7 +407,7 @@ func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
 
 	// Run task.
 	taskStart := time.Now()
-	result := runSingleTask(ctx, tb.cfg, task, tb.sem, role)
+	result := runSingleTask(ctx, tb.cfg, task, tb.sem, tb.childSem, role)
 
 	// Record to history.
 	recordHistory(tb.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,

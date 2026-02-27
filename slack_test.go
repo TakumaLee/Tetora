@@ -117,7 +117,7 @@ func TestSlackEventHandler_URLVerification(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 3)
-	sb := newSlackBot(cfg, state, sem, nil)
+	sb := newSlackBot(cfg, state, sem, nil, nil)
 
 	payload := `{"type":"url_verification","challenge":"test-challenge-123"}`
 	req := httptest.NewRequest("POST", "/slack/events", strings.NewReader(payload))
@@ -146,7 +146,7 @@ func TestSlackEventHandler_MethodNotAllowed(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 3)
-	sb := newSlackBot(cfg, state, sem, nil)
+	sb := newSlackBot(cfg, state, sem, nil, nil)
 
 	req := httptest.NewRequest("GET", "/slack/events", nil)
 	w := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestSlackEventHandler_InvalidSignature(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 3)
-	sb := newSlackBot(cfg, state, sem, nil)
+	sb := newSlackBot(cfg, state, sem, nil, nil)
 
 	payload := `{"type":"url_verification","challenge":"test"}`
 	req := httptest.NewRequest("POST", "/slack/events", strings.NewReader(payload))
@@ -193,7 +193,7 @@ func TestSlackBotDeduplicate(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 3)
-	sb := newSlackBot(cfg, state, sem, nil)
+	sb := newSlackBot(cfg, state, sem, nil, nil)
 
 	// First call: not duplicate.
 	if sb.isDuplicate("event-001") {
@@ -246,7 +246,7 @@ func TestSlackEventHandler_IgnoresBotMessages(t *testing.T) {
 	}
 	state := newDispatchState()
 	sem := make(chan struct{}, 3)
-	sb := newSlackBot(cfg, state, sem, nil)
+	sb := newSlackBot(cfg, state, sem, nil, nil)
 
 	event := slackEvent{
 		Type:  "message",

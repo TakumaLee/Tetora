@@ -325,7 +325,7 @@ func testWebhookConfig(webhooks map[string]IncomingWebhookConfig) *Config {
 func TestHandleIncomingWebhook_NotFound(t *testing.T) {
 	cfg := testWebhookConfig(nil)
 	r := httptest.NewRequest("POST", "/hooks/missing", strings.NewReader(`{}`))
-	result := handleIncomingWebhook(context.Background(), cfg, "missing", r, nil, nil)
+	result := handleIncomingWebhook(context.Background(), cfg, "missing", r, nil, nil, nil)
 	if result.Status != "error" {
 		t.Errorf("expected error status, got %q", result.Status)
 	}
@@ -340,7 +340,7 @@ func TestHandleIncomingWebhook_Disabled(t *testing.T) {
 		"test": {Agent: "黒曜", Enabled: &f},
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`{}`))
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil, nil)
 	if result.Status != "disabled" {
 		t.Errorf("expected disabled status, got %q", result.Status)
 	}
@@ -352,7 +352,7 @@ func TestHandleIncomingWebhook_SignatureFail(t *testing.T) {
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`{"test":true}`))
 	// No signature header.
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil, nil)
 	if result.Status != "error" {
 		t.Errorf("expected error status, got %q", result.Status)
 	}
@@ -366,7 +366,7 @@ func TestHandleIncomingWebhook_BadJSON(t *testing.T) {
 		"test": {Agent: "黒曜"},
 	})
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(`not json`))
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, nil, nil)
 	if result.Status != "error" {
 		t.Errorf("expected error status, got %q", result.Status)
 	}
@@ -381,7 +381,7 @@ func TestHandleIncomingWebhook_Filtered(t *testing.T) {
 	})
 	body := `{"action":"closed"}`
 	r := httptest.NewRequest("POST", "/hooks/gh", strings.NewReader(body))
-	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, nil)
+	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, nil, nil)
 	if result.Status != "filtered" {
 		t.Errorf("expected filtered status, got %q", result.Status)
 	}
@@ -394,7 +394,7 @@ func TestHandleIncomingWebhook_Accepted(t *testing.T) {
 	body := `{"action":"opened"}`
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(body))
 	sem := make(chan struct{}, 5)
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem, nil)
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted status, got %q", result.Status)
 	}
@@ -421,7 +421,7 @@ func TestHandleIncomingWebhook_WithValidSignature(t *testing.T) {
 	r.Header.Set("X-Hub-Signature-256", sig)
 	sem := make(chan struct{}, 5)
 
-	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, sem)
+	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, sem, nil)
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted, got %q: %s", result.Status, result.Message)
 	}
@@ -434,7 +434,7 @@ func TestHandleIncomingWebhook_DefaultPrompt(t *testing.T) {
 	body := `{"key":"value"}`
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(body))
 	sem := make(chan struct{}, 5)
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem, nil)
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted, got %q", result.Status)
 	}
@@ -451,7 +451,7 @@ func TestIncomingWebhookHTTPEndpoint(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/hooks/")
 		ctx := r.Context()
-		result := handleIncomingWebhook(ctx, cfg, name, r, nil, sem)
+		result := handleIncomingWebhook(ctx, cfg, name, r, nil, sem, nil)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	})
@@ -477,7 +477,7 @@ func TestIncomingWebhookHTTPEndpoint_NotFound(t *testing.T) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/hooks/")
-		result := handleIncomingWebhook(r.Context(), cfg, name, r, nil, nil)
+		result := handleIncomingWebhook(r.Context(), cfg, name, r, nil, nil, nil)
 		w.Header().Set("Content-Type", "application/json")
 		if result.Status == "error" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -550,7 +550,7 @@ func TestTriggerWebhookWorkflow_NotFound(t *testing.T) {
 		Workflow: "nonexistent",
 	}
 	result := triggerWebhookWorkflow(context.Background(), cfg, "test", whCfg,
-		map[string]any{}, "prompt", nil, nil)
+		map[string]any{}, "prompt", nil, nil, nil)
 	if result.Status != "error" {
 		t.Errorf("expected error, got %q", result.Status)
 	}
@@ -569,7 +569,7 @@ func TestHandleIncomingWebhook_LargeBody(t *testing.T) {
 	largePayload := `{"data":"` + strings.Repeat("x", 500000) + `"}`
 	r := httptest.NewRequest("POST", "/hooks/test", strings.NewReader(largePayload))
 	sem := make(chan struct{}, 5)
-	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem)
+	result := handleIncomingWebhook(context.Background(), cfg, "test", r, nil, sem, nil)
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted for large payload, got %q: %s", result.Status, result.Message)
 	}
@@ -597,7 +597,7 @@ func TestHandleIncomingWebhook_FilterPassAndTemplateExpand(t *testing.T) {
 
 	r := httptest.NewRequest("POST", "/hooks/gh", bytes.NewReader(body))
 	sem := make(chan struct{}, 5)
-	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, sem)
+	result := handleIncomingWebhook(context.Background(), cfg, "gh", r, nil, sem, nil)
 	if result.Status != "accepted" {
 		t.Errorf("expected accepted, got %q: %s", result.Status, result.Message)
 	}
