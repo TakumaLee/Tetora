@@ -941,8 +941,54 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			task.approvalGate = b.approvalGate
 		}
 
+		// Wire SSE broker for event streaming.
+		if b.state != nil && b.state.broker != nil {
+			task.sseBroker = b.state.broker
+		}
+
+		// P34: Progress message with streaming output.
+		var progressMsgID int
+		var progressStopCh chan struct{}
+		var outputAlreadySent bool
+		if b.cfg.StreamToChannels && b.state != nil && b.state.broker != nil {
+			msgID, err := b.replyReturningID(msg.Chat.ID, "Working...")
+			if err == nil && msgID != 0 {
+				progressMsgID = msgID
+				progressStopCh = make(chan struct{})
+				tgBuilder := newTGProgressBuilder()
+				go b.runTelegramProgressUpdater(msg.Chat.ID, progressMsgID, task.ID, b.state.broker, progressStopCh, tgBuilder)
+			}
+		}
+
 		taskStart := time.Now()
 		result := runSingleTask(ctx, b.cfg, task, b.sem, route.Agent)
+
+		// Stop progress updater and clean up progress message.
+		if progressStopCh != nil {
+			close(progressStopCh)
+		}
+		if progressMsgID != 0 {
+			if result.Status != "success" {
+				errMsg := result.Error
+				if errMsg == "" {
+					errMsg = result.Status
+				}
+				elapsed := time.Since(taskStart).Round(time.Second)
+				b.editMessageText(msg.Chat.ID, progressMsgID, fmt.Sprintf("Error (%s): %s", elapsed, errMsg))
+			} else {
+				// Short output: edit progress in-place. Long output: delete and re-send.
+				output := result.Output
+				if strings.TrimSpace(output) == "" {
+					output = "Task completed successfully."
+				}
+				if len(output) <= 3800 {
+					b.editMessageText(msg.Chat.ID, progressMsgID, output)
+					outputAlreadySent = true
+				} else {
+					b.tgDeleteMessage(msg.Chat.ID, progressMsgID)
+				}
+			}
+		}
 
 		// Record to history.
 		recordHistory(b.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
@@ -1019,23 +1065,26 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		// Format and send response.
-		b.sendRouteResponse(msg.Chat.ID, sdr)
+		b.sendRouteResponse(msg.Chat.ID, sdr, outputAlreadySent)
 	}()
 }
 
 // sendRouteResponse formats and sends a smart dispatch result to Telegram.
-func (b *Bot) sendRouteResponse(chatID int64, result *SmartDispatchResult) {
+// When skipOutput is true, the main output text is omitted (already sent via progress edit).
+func (b *Bot) sendRouteResponse(chatID int64, result *SmartDispatchResult, skipOutput bool) {
 	var lines []string
 
 	lines = append(lines, fmt.Sprintf("\xf0\x9f\x8e\xaf Route \xe2\x86\x92 %s (%s, %s confidence)",
 		result.Route.Agent, result.Route.Method, result.Route.Confidence))
 
-	if result.Task.Status == "success" {
-		lines = append(lines, "")
-		lines = append(lines, truncate(result.Task.Output, 3000))
-	} else {
-		lines = append(lines, fmt.Sprintf("\n\xe2\x9d\x8c [%s] %s",
-			result.Task.Status, truncate(result.Task.Error, 500)))
+	if !skipOutput {
+		if result.Task.Status == "success" {
+			lines = append(lines, "")
+			lines = append(lines, truncate(result.Task.Output, 3000))
+		} else {
+			lines = append(lines, fmt.Sprintf("\n\xe2\x9d\x8c [%s] %s",
+				result.Task.Status, truncate(result.Task.Error, 500)))
+		}
 	}
 
 	if result.ReviewOK != nil {
@@ -1699,9 +1748,237 @@ func (b *Bot) reply(chatID int64, text string) {
 	}
 }
 
+// replyReturningID sends a message and returns the message ID.
+func (b *Bot) replyReturningID(chatID int64, text string) (int, error) {
+	if len(text) > 4096 {
+		text = text[:4093] + "..."
+	}
+	payload := map[string]any{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.token)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		// Retry without Markdown if parse_mode caused the error.
+		if strings.Contains(string(respBody), "parse") {
+			payload["parse_mode"] = ""
+			body2, _ := json.Marshal(payload)
+			resp2, err := http.Post(url, "application/json", bytes.NewReader(body2))
+			if err != nil {
+				return 0, err
+			}
+			defer resp2.Body.Close()
+			respBody, _ = io.ReadAll(resp2.Body)
+		} else {
+			return 0, fmt.Errorf("telegram send non-200: %d %s", resp.StatusCode, string(respBody))
+		}
+	}
+	var result struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			MessageID int `json:"message_id"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return 0, err
+	}
+	return result.Result.MessageID, nil
+}
+
+// editMessageText edits an existing Telegram message.
+func (b *Bot) editMessageText(chatID int64, messageID int, text string) error {
+	if len(text) > 4096 {
+		text = text[:4093] + "..."
+	}
+	payload := map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+		"text":       text,
+		"parse_mode": "Markdown",
+	}
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", b.token)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		respBody, _ := io.ReadAll(resp.Body)
+		// Retry without Markdown if parse_mode caused the error.
+		if strings.Contains(string(respBody), "parse") {
+			payload["parse_mode"] = ""
+			body2, _ := json.Marshal(payload)
+			resp2, err := http.Post(url, "application/json", bytes.NewReader(body2))
+			if err != nil {
+				return err
+			}
+			resp2.Body.Close()
+			return nil
+		}
+		return fmt.Errorf("telegram edit non-200: %d %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// tgDeleteMessage deletes a Telegram message (best effort).
+func (b *Bot) tgDeleteMessage(chatID int64, messageID int) {
+	payload := map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+	}
+	body, _ := json.Marshal(payload)
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/deleteMessage", b.token)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		logWarn("telegram delete message failed", "error", err)
+		return
+	}
+	resp.Body.Close()
+}
+
 // sendNotify sends a standalone Telegram message (for cron notifications etc).
 func (b *Bot) sendNotify(text string) {
 	b.reply(b.chatID, text)
+}
+
+// --- P34: Telegram Progress Builder ---
+
+// tgProgressBuilder accumulates task progress for Telegram message updates.
+type tgProgressBuilder struct {
+	mu      sync.Mutex
+	startAt time.Time
+	tools   []string
+	text    strings.Builder
+	dirty   bool
+}
+
+func newTGProgressBuilder() *tgProgressBuilder {
+	return &tgProgressBuilder{
+		startAt: time.Now(),
+	}
+}
+
+func (b *tgProgressBuilder) addToolCall(name string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tools = append(b.tools, name)
+	b.dirty = true
+}
+
+func (b *tgProgressBuilder) addText(text string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	text = ansiEscapeRe.ReplaceAllString(text, "")
+	if text == "" {
+		return
+	}
+	b.text.WriteString(text)
+	b.dirty = true
+}
+
+func (b *tgProgressBuilder) render() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dirty = false
+
+	elapsed := time.Since(b.startAt).Round(time.Second)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Working... (%s)\n", elapsed))
+
+	start := 0
+	if len(b.tools) > 5 {
+		start = len(b.tools) - 5
+		sb.WriteString(fmt.Sprintf("... and %d earlier steps\n", start))
+	}
+	for _, t := range b.tools[start:] {
+		sb.WriteString(fmt.Sprintf("> %s\n", t))
+	}
+
+	accumulated := b.text.String()
+	if accumulated != "" {
+		sb.WriteString("\n")
+		header := sb.String()
+		maxText := 4000 - len(header) - 10 // Telegram 4096 limit with margin
+		if maxText < 100 {
+			maxText = 100
+		}
+		if len(accumulated) > maxText {
+			trimmed := accumulated[len(accumulated)-maxText:]
+			if idx := strings.Index(trimmed, "\n"); idx >= 0 && idx < len(trimmed)/2 {
+				trimmed = trimmed[idx+1:]
+			}
+			sb.WriteString("..." + trimmed)
+		} else {
+			sb.WriteString(accumulated)
+		}
+	}
+
+	return sb.String()
+}
+
+func (b *tgProgressBuilder) isDirty() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dirty
+}
+
+// runTelegramProgressUpdater subscribes to task SSE events and updates a Telegram progress message.
+func (b *Bot) runTelegramProgressUpdater(
+	chatID int64, progressMsgID int, taskID string,
+	broker *sseBroker, stopCh <-chan struct{},
+	builder *tgProgressBuilder,
+) {
+	eventCh, unsub := broker.Subscribe(taskID)
+	defer unsub()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopCh:
+			return
+		case ev, ok := <-eventCh:
+			if !ok {
+				return
+			}
+			switch ev.Type {
+			case SSEToolCall:
+				if data, ok := ev.Data.(map[string]any); ok {
+					name, _ := data["name"].(string)
+					if name != "" {
+						builder.addToolCall(name)
+					}
+				}
+			case SSEOutputChunk:
+				if data, ok := ev.Data.(map[string]any); ok {
+					chunk, _ := data["chunk"].(string)
+					if chunk != "" {
+						builder.addText(chunk)
+					}
+				}
+			case SSECompleted, SSEError:
+				return
+			}
+		case <-ticker.C:
+			if builder.isDirty() {
+				content := builder.render()
+				if err := b.editMessageText(chatID, progressMsgID, content); err != nil {
+					logWarn("telegram progress edit failed", "error", err)
+				}
+				b.sendTypingAction(chatID)
+			}
+		}
+	}
 }
 
 // --- Telegram Formatters ---

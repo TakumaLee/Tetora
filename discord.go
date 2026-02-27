@@ -1219,13 +1219,14 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	// Start progress message for live Discord updates.
 	var progressMsgID string
 	var progressStopCh chan struct{}
+	var progressBuilder *discordProgressBuilder
 	if db.state != nil && db.state.broker != nil {
 		msgID, err := db.sendMessageReturningID(msg.ChannelID, "Working...")
 		if err == nil && msgID != "" {
 			progressMsgID = msgID
 			progressStopCh = make(chan struct{})
-			builder := newDiscordProgressBuilder()
-			go db.runDiscordProgressUpdater(msg.ChannelID, progressMsgID, task.ID, db.state.broker, progressStopCh, builder)
+			progressBuilder = newDiscordProgressBuilder()
+			go db.runDiscordProgressUpdater(msg.ChannelID, progressMsgID, task.ID, db.state.broker, progressStopCh, progressBuilder)
 		}
 	}
 
@@ -1246,10 +1247,23 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 			elapsed := time.Since(taskStart).Round(time.Second)
 			db.editMessage(msg.ChannelID, progressMsgID, fmt.Sprintf("Error (%s): %s", elapsed, errMsg))
 		} else {
-			// On success, delete progress message before sending response (maintains order).
-			db.deleteMessage(msg.ChannelID, progressMsgID)
+			// On success: if output fits in one message, edit progress in-place (no flicker).
+			// Otherwise delete and re-send as chunks.
+			output := result.Output
+			if strings.TrimSpace(output) == "" {
+				output = "Task completed successfully."
+			}
+			if len(output) <= 1900 {
+				db.editMessage(msg.ChannelID, progressMsgID, output)
+				progressMsgID = "" // signal sendRouteResponse to skip output (already shown)
+			} else {
+				db.deleteMessage(msg.ChannelID, progressMsgID)
+			}
 		}
 	}
+
+	// Track whether output was already sent via progress message edit.
+	outputAlreadySent := progressMsgID == "" && progressBuilder != nil && result.Status == "success"
 
 	// Update Discord activity: processing → replying.
 	if db.state != nil {
@@ -1326,50 +1340,53 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	})
 
 	// Send response embed.
-	db.sendRouteResponse(msg.ChannelID, &route, result, task)
+	db.sendRouteResponse(msg.ChannelID, &route, result, task, outputAlreadySent)
 }
 
-func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task) {
+func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task, skipOutput bool) {
 	color := 0x57F287
 	if result.Status != "success" {
 		color = 0xED4245
 	}
-	output := result.Output
-	if result.Status != "success" {
-		output = result.Error
-		if output == "" {
-			output = result.Status
-		}
-	}
-	// Fallback for empty/whitespace output on success (e.g. tool-only responses).
-	if strings.TrimSpace(output) == "" && result.Status == "success" {
-		parts := []string{"Task completed successfully."}
-		if result.TokensIn > 0 || result.TokensOut > 0 {
-			parts = append(parts, fmt.Sprintf("Tokens: %d in / %d out", result.TokensIn, result.TokensOut))
-		}
-		if result.OutputFile != "" {
-			parts = append(parts, fmt.Sprintf("Output saved: `%s`", result.OutputFile))
-		}
-		output = strings.Join(parts, "\n")
-	}
 
-	// Send output as plain text messages (split into 2000-char chunks).
-	// This avoids embed description truncation and is more readable.
-	const maxChunk = 1900 // leave room for markdown formatting
-	for len(output) > 0 {
-		chunk := output
-		if len(chunk) > maxChunk {
-			// Try to split at a newline boundary.
-			cut := maxChunk
-			if idx := strings.LastIndex(chunk[:maxChunk], "\n"); idx > maxChunk/2 {
-				cut = idx + 1
+	if !skipOutput {
+		output := result.Output
+		if result.Status != "success" {
+			output = result.Error
+			if output == "" {
+				output = result.Status
 			}
-			chunk = output[:cut]
-			output = output[cut:]
-		} else {
-			output = ""
 		}
-		db.sendMessage(channelID, chunk)
+		// Fallback for empty/whitespace output on success (e.g. tool-only responses).
+		if strings.TrimSpace(output) == "" && result.Status == "success" {
+			parts := []string{"Task completed successfully."}
+			if result.TokensIn > 0 || result.TokensOut > 0 {
+				parts = append(parts, fmt.Sprintf("Tokens: %d in / %d out", result.TokensIn, result.TokensOut))
+			}
+			if result.OutputFile != "" {
+				parts = append(parts, fmt.Sprintf("Output saved: `%s`", result.OutputFile))
+			}
+			output = strings.Join(parts, "\n")
+		}
+
+		// Send output as plain text messages (split into 2000-char chunks).
+		// This avoids embed description truncation and is more readable.
+		const maxChunk = 1900 // leave room for markdown formatting
+		for len(output) > 0 {
+			chunk := output
+			if len(chunk) > maxChunk {
+				// Try to split at a newline boundary.
+				cut := maxChunk
+				if idx := strings.LastIndex(chunk[:maxChunk], "\n"); idx > maxChunk/2 {
+					cut = idx + 1
+				}
+				chunk = output[:cut]
+				output = output[cut:]
+			} else {
+				output = ""
+			}
+			db.sendMessage(channelID, chunk)
+		}
 	}
 
 	// Send metadata as a small embed at the end.
@@ -1589,8 +1606,9 @@ func (db *DiscordBot) sendEmbedWithComponents(channelID string, embed discordEmb
 type discordProgressBuilder struct {
 	mu      sync.Mutex
 	startAt time.Time
-	tools   []string // tool names in order
-	dirty   bool     // whether content changed since last render
+	tools   []string         // tool names in order
+	text    strings.Builder  // accumulated text content
+	dirty   bool             // whether content changed since last render
 }
 
 func newDiscordProgressBuilder() *discordProgressBuilder {
@@ -1609,7 +1627,11 @@ func (b *discordProgressBuilder) addToolCall(name string) {
 func (b *discordProgressBuilder) addText(text string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	_ = text // reserved for future use
+	text = ansiEscapeRe.ReplaceAllString(text, "")
+	if text == "" {
+		return
+	}
+	b.text.WriteString(text)
 	b.dirty = true
 }
 
@@ -1632,7 +1654,34 @@ func (b *discordProgressBuilder) render() string {
 		sb.WriteString(fmt.Sprintf("> %s\n", t))
 	}
 
+	// Append accumulated text content (rolling window to fit Discord's 2000 char limit).
+	accumulated := b.text.String()
+	if accumulated != "" {
+		sb.WriteString("\n")
+		header := sb.String()
+		maxText := 2000 - len(header) - 10 // leave margin
+		if maxText < 100 {
+			maxText = 100
+		}
+		if len(accumulated) > maxText {
+			// Trim from front to nearest newline.
+			trimmed := accumulated[len(accumulated)-maxText:]
+			if idx := strings.Index(trimmed, "\n"); idx >= 0 && idx < len(trimmed)/2 {
+				trimmed = trimmed[idx+1:]
+			}
+			sb.WriteString("..." + trimmed)
+		} else {
+			sb.WriteString(accumulated)
+		}
+	}
+
 	return sb.String()
+}
+
+func (b *discordProgressBuilder) getText() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.text.String()
 }
 
 func (b *discordProgressBuilder) isDirty() bool {
