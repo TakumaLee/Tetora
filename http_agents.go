@@ -84,18 +84,20 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 	// --- P14.6: Task Board ---
 	var taskBoardEngine *TaskBoardEngine
+	var taskBoardDispatcher *TaskBoardDispatcher
 	if cfg.TaskBoard.Enabled {
 		taskBoardEngine = newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
 		if err := taskBoardEngine.initTaskBoardSchema(); err != nil {
 			logError("init task board schema failed", "error", err)
 		}
 
-		// Start auto-dispatcher if enabled.
+		// Start auto-dispatcher if enabled (singleton — one per server).
 		if cfg.TaskBoard.AutoDispatch.Enabled {
-			dispatcher := newTaskBoardDispatcher(taskBoardEngine, cfg, sem, state)
-			dispatcher.Start()
+			taskBoardDispatcher = newTaskBoardDispatcher(taskBoardEngine, cfg, sem, state)
+			taskBoardDispatcher.Start()
 		}
 	}
+	_ = taskBoardDispatcher // available for graceful shutdown
 
 	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		if taskBoardEngine == nil {

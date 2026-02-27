@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
-	"time"
 )
 
 // triageBacklog analyzes backlog tasks and decides whether to assign, decompose, or clarify.
@@ -38,6 +38,12 @@ func triageBacklog(ctx context.Context, cfg *Config, sem chan struct{}) {
 		return
 	}
 
+	// Build valid agent name set for validation.
+	validAgents := make(map[string]bool, len(cfg.Agents))
+	for name := range cfg.Agents {
+		validAgents[name] = true
+	}
+
 	logInfo("triage: processing backlog", "count", len(tasks))
 
 	for _, t := range tasks {
@@ -45,7 +51,11 @@ func triageBacklog(ctx context.Context, cfg *Config, sem chan struct{}) {
 			return
 		}
 
-		comments, _ := tb.GetThread(t.ID)
+		comments, err := tb.GetThread(t.ID)
+		if err != nil {
+			logWarn("triage: failed to get thread", "taskId", t.ID, "error", err)
+			continue
+		}
 		if shouldSkipTriage(comments) {
 			logDebug("triage: skipping (already triaged, no new replies)", "taskId", t.ID)
 			continue
@@ -56,7 +66,7 @@ func triageBacklog(ctx context.Context, cfg *Config, sem chan struct{}) {
 			continue
 		}
 
-		applyTriageResult(tb, t, result)
+		applyTriageResult(tb, t, result, validAgents)
 	}
 }
 
@@ -130,13 +140,9 @@ Respond with ONLY valid JSON (no markdown fences):
 		return nil
 	}
 
-	// Parse JSON response.
+	// Parse JSON response — extract JSON object from LLM output.
 	output := strings.TrimSpace(result.Output)
-	// Strip markdown code fences if present.
-	output = strings.TrimPrefix(output, "```json")
-	output = strings.TrimPrefix(output, "```")
-	output = strings.TrimSuffix(output, "```")
-	output = strings.TrimSpace(output)
+	output = extractJSON(output)
 
 	var tr triageResult
 	if err := json.Unmarshal([]byte(output), &tr); err != nil {
@@ -153,11 +159,20 @@ Respond with ONLY valid JSON (no markdown fences):
 }
 
 // applyTriageResult executes the triage decision on a task.
-func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult) {
+func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult, validAgents map[string]bool) {
 	switch tr.Action {
 	case "ready":
 		if tr.Assignee == "" {
 			logWarn("triage: ready but no assignee", "taskId", t.ID)
+			return
+		}
+		if !validAgents[tr.Assignee] {
+			logWarn("triage: assignee not a configured agent", "taskId", t.ID, "assignee", tr.Assignee)
+			// Add as clarify instead.
+			comment := fmt.Sprintf("[triage] Could not assign: agent %q not found. Reason: %s", tr.Assignee, tr.Comment)
+			if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
+				logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+			}
 			return
 		}
 		if _, err := tb.AssignTask(t.ID, tr.Assignee); err != nil {
@@ -169,7 +184,9 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult) {
 			return
 		}
 		comment := fmt.Sprintf("[triage] Assigned to %s. Reason: %s", tr.Assignee, tr.Comment)
-		tb.AddComment(t.ID, "triage", comment)
+		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
+			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+		}
 		logInfo("triage: task ready", "taskId", t.ID, "assignee", tr.Assignee)
 
 	case "decompose":
@@ -179,10 +196,19 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult) {
 		}
 		var created []string
 		for _, sub := range tr.Subtasks {
+			if sub.Title == "" {
+				logWarn("triage: skipping subtask with empty title", "taskId", t.ID)
+				continue
+			}
+			assignee := sub.Assignee
+			if !validAgents[assignee] {
+				logWarn("triage: subtask assignee not found, leaving unassigned", "taskId", t.ID, "assignee", assignee)
+				assignee = ""
+			}
 			newTask, err := tb.CreateTask(TaskBoard{
 				Title:    sub.Title,
 				Status:   "todo",
-				Assignee: sub.Assignee,
+				Assignee: assignee,
 				Priority: t.Priority,
 				Project:  t.Project,
 			})
@@ -190,12 +216,24 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult) {
 				logWarn("triage: create subtask failed", "taskId", t.ID, "title", sub.Title, "error", err)
 				continue
 			}
-			created = append(created, fmt.Sprintf("- %s → %s (%s)", newTask.ID, sub.Title, sub.Assignee))
+			created = append(created, fmt.Sprintf("- %s → %s (%s)", newTask.ID, sub.Title, assignee))
+		}
+		// Only move parent to done if at least one subtask was created.
+		if len(created) == 0 {
+			logWarn("triage: all subtasks failed to create, keeping in backlog", "taskId", t.ID)
+			if _, err := tb.AddComment(t.ID, "triage", "[triage] Decompose attempted but all subtasks failed to create."); err != nil {
+				logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+			}
+			return
 		}
 		comment := fmt.Sprintf("[triage] Decomposed into %d subtasks:\n%s\n\nReason: %s",
 			len(created), strings.Join(created, "\n"), tr.Comment)
-		tb.AddComment(t.ID, "triage", comment)
-		tb.MoveTask(t.ID, "done")
+		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
+			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+		}
+		if _, err := tb.MoveTask(t.ID, "done"); err != nil {
+			logWarn("triage: move decomposed task to done failed", "taskId", t.ID, "error", err)
+		}
 		logInfo("triage: task decomposed", "taskId", t.ID, "subtasks", len(created))
 
 	case "clarify":
@@ -204,18 +242,28 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult) {
 			return
 		}
 		comment := fmt.Sprintf("[triage] Need clarification: %s", tr.Comment)
-		tb.AddComment(t.ID, "triage", comment)
+		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
+			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+		}
 		logInfo("triage: asked for clarification", "taskId", t.ID)
 	}
 }
 
-// buildAgentRoster generates a summary of available agents for the triage prompt.
+// buildAgentRoster generates a deterministic summary of available agents for the triage prompt.
 func buildAgentRoster(cfg *Config) string {
 	if len(cfg.Agents) == 0 {
 		return ""
 	}
+	// Sort agent names for deterministic prompt ordering.
+	names := make([]string, 0, len(cfg.Agents))
+	for name := range cfg.Agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	var lines []string
-	for name, ac := range cfg.Agents {
+	for _, name := range names {
+		ac := cfg.Agents[name]
 		line := fmt.Sprintf("- %s: %s", name, ac.Description)
 		if len(ac.Keywords) > 0 {
 			line += fmt.Sprintf(" (keywords: %s)", strings.Join(ac.Keywords, ", "))
@@ -237,14 +285,7 @@ func shouldSkipTriage(comments []TaskComment) bool {
 	if last.Author != "triage" {
 		return false // human replied, re-triage
 	}
-	// Check if there's a recent non-triage comment after the last triage comment's time.
-	lastTriageTime, _ := time.Parse(time.RFC3339, last.CreatedAt)
-	for i := len(comments) - 2; i >= 0; i-- {
-		c := comments[i]
-		cTime, _ := time.Parse(time.RFC3339, c.CreatedAt)
-		if c.Author != "triage" && cTime.After(lastTriageTime) {
-			return false // someone responded after triage
-		}
-	}
-	return true // last word is triage's, skip
+	// Since comments are ordered chronologically and the last is from triage,
+	// any earlier non-triage comment was before the triage — skip is correct.
+	return true
 }
