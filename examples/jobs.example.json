@@ -59,21 +59,32 @@
       "notify": true
     },
     {
-      "id": "periodic-review",
-      "name": "Periodic Skill Review",
-      "enabled": false,
-      "schedule": "0 10 */2 * *",
+      "id": "self-improve",
+      "name": "Self-Improvement",
+      "enabled": true,
+      "schedule": "0 3 */2 * *",
       "tz": "Asia/Taipei",
+      "idleMinHours": 2,
       "task": {
-        "prompt": "You are a system improvement analyst. Analyze the following digest of recent AI agent activity.\n\nIdentify:\n1. Repeated patterns — topics/corrections/explanations that appear 3+ times\n2. Low-score areas — reflections scoring 1-3 that suggest systematic weaknesses\n3. Recurring failures — job runs failing with similar errors\n4. Missing automation — tasks done manually that could become Skills\n\nOutput up to 5 suggestions. For each:\n- Title\n- Type: Skill | Rule | Memory\n- Priority: High | Medium | Low\n- Evidence: which data points support this\n- Proposal: concrete description of what to create\n\nDo NOT suggest things that already exist. If insufficient data, say so.\n\n---\n\n{{review.digest:7}}",
+        "prompt": "You are a self-improvement agent for the Tetora AI orchestration system.\n\nAnalyze the activity digest below. The digest includes existing Skills, Rules, and Memory —\ndo NOT create anything that already exists.\n\n## Instructions\n1. Identify repeated patterns (3+ occurrences), low-score reflections, recurring failures\n2. For each actionable improvement, CREATE the file directly:\n   - **Rule**: Create `rules/{name}.md` — governance rules auto-injected into all agents\n   - **Memory**: Create/update `memory/{key}.md` — shared observations\n   - **Skill**: Create `skills/{name}/metadata.json` with `\"approved\": false` — requires human review\n3. Only apply HIGH and MEDIUM priority improvements\n4. Keep files concise and actionable\n5. Report what you created and why\n\nIf insufficient data for improvements, say so and exit.\n\n---\n\n{{review.digest:7}}",
         "model": "sonnet",
         "timeout": "5m",
         "budget": 1.5,
-        "permissionMode": "plan"
+        "permissionMode": "autoEdit"
       },
       "notify": true,
       "maxRetries": 1,
       "retryDelay": "2m"
+    },
+    {
+      "id": "backlog-triage",
+      "name": "Backlog Triage",
+      "enabled": true,
+      "schedule": "0 4 * * *",
+      "tz": "Asia/Taipei",
+      "idleMinHours": 1,
+      "task": {},
+      "notify": true
     }
   ]
 }

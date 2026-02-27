@@ -390,6 +390,20 @@ func countActiveSessions(dbPath string) int {
 	return jsonInt(rows[0]["cnt"])
 }
 
+// countUserSessions returns the number of active sessions excluding system log.
+// Used for idle detection — system:logs is always active so we exclude it.
+func countUserSessions(dbPath string) int {
+	if dbPath == "" {
+		return 0
+	}
+	sql := fmt.Sprintf("SELECT COUNT(*) as cnt FROM sessions WHERE status = 'active' AND id != '%s'", SystemLogSessionID)
+	rows, err := queryDB(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return 0
+	}
+	return jsonInt(rows[0]["cnt"])
+}
+
 // --- Cleanup ---
 
 func cleanupSessions(dbPath string, days int) error {

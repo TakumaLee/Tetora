@@ -84,6 +84,7 @@ func defaultWorkspace(cfg *Config) WorkspaceConfig {
 //	  dbs/                    — databases
 //	  vault/                  — import snapshots
 //	  media/                  — media assets
+//	    sprites/              — character sprite PNGs
 func initDirectories(cfg *Config) error {
 	dirs := []string{
 		// Agents
@@ -115,6 +116,7 @@ func initDirectories(cfg *Config) error {
 		cfg.VaultDir,
 		// Media assets
 		filepath.Join(cfg.baseDir, "media"),
+		filepath.Join(cfg.baseDir, "media", "sprites"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {

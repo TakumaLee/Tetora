@@ -89,6 +89,12 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 		if err := taskBoardEngine.initTaskBoardSchema(); err != nil {
 			logError("init task board schema failed", "error", err)
 		}
+
+		// Start auto-dispatcher if enabled.
+		if cfg.TaskBoard.AutoDispatch.Enabled {
+			dispatcher := newTaskBoardDispatcher(taskBoardEngine, cfg, sem, state)
+			dispatcher.Start()
+		}
 	}
 
 	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +135,27 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 		default:
 			http.Error(w, `{"error":"GET or POST only"}`, http.StatusMethodNotAllowed)
 		}
+	})
+
+	mux.HandleFunc("/api/tasks/board", func(w http.ResponseWriter, r *http.Request) {
+		if taskBoardEngine == nil {
+			http.Error(w, `{"error":"task board not enabled"}`, http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		project := r.URL.Query().Get("project")
+		assignee := r.URL.Query().Get("assignee")
+		priority := r.URL.Query().Get("priority")
+		board, err := taskBoardEngine.GetBoardView(project, assignee, priority)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(board)
 	})
 
 	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {

@@ -35,6 +35,7 @@ type CronJobConfig struct {
 	OnFailure       []string       `json:"onFailure,omitempty"`       // job IDs to trigger on failure
 	RequireApproval bool           `json:"requireApproval,omitempty"` // true = wait for human approval before running
 	ApprovalTimeout string         `json:"approvalTimeout,omitempty"` // e.g. "10m"; default "10m"
+	IdleMinHours    int            `json:"idleMinHours,omitempty"`    // >0: only trigger when system idle for N hours
 }
 
 type CronTaskConfig struct {
@@ -97,6 +98,10 @@ type CronEngine struct {
 	budgetCacheMsg  string
 
 	lastDigestDate string // "2006-01-02" — prevents firing more than once per day
+
+	// Idle detection cache (avoids querying DB every tick).
+	idleCacheTime time.Time
+	idleCacheLast time.Time
 }
 
 func newCronEngine(cfg *Config, sem chan struct{}, notifyFn func(string)) *CronEngine {
@@ -321,6 +326,28 @@ func (ce *CronEngine) checkDigest() {
 	ce.notifyFn(msg)
 }
 
+// cachedLastFinished returns the most recent job finish time, cached for 30s.
+// Must be called WITHOUT ce.mu held (queries DB).
+func (ce *CronEngine) cachedLastFinished() time.Time {
+	if time.Since(ce.idleCacheTime) < 30*time.Second {
+		return ce.idleCacheLast
+	}
+	ce.idleCacheLast = queryLastFinished(ce.cfg.HistoryDB)
+	ce.idleCacheTime = time.Now()
+	return ce.idleCacheLast
+}
+
+// hasRunningJobs returns true if any job other than the given ID is currently running.
+// Must be called WITH ce.mu held.
+func (ce *CronEngine) hasRunningJobs(excludeID string) bool {
+	for _, j := range ce.jobs {
+		if j.running && j.ID != excludeID {
+			return true
+		}
+	}
+	return false
+}
+
 func (ce *CronEngine) tick(ctx context.Context) {
 	// Check quiet hours transition (flush digest if just left quiet period).
 	quiet.checkQuietTransition(ce.cfg, ce.notifyFn)
@@ -343,6 +370,9 @@ func (ce *CronEngine) tick(ctx context.Context) {
 		}
 	}
 
+	// Pre-compute idle state before acquiring lock (DB query).
+	lastFinished := ce.cachedLastFinished()
+
 	now := time.Now()
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
@@ -361,6 +391,48 @@ func (ce *CronEngine) tick(ctx context.Context) {
 			continue
 		}
 
+		// Special handling for backlog triage job.
+		if j.ID == "backlog-triage" {
+			nowLocal := now.In(j.loc)
+			if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
+				continue
+			}
+			if !j.expr.matches(nowLocal) {
+				continue
+			}
+			// Idle gate.
+			if j.IdleMinHours > 0 {
+				if ce.hasRunningJobs(j.ID) {
+					continue
+				}
+				if !lastFinished.IsZero() && time.Since(lastFinished) < time.Duration(j.IdleMinHours)*time.Hour {
+					continue
+				}
+				if countUserSessions(ce.cfg.HistoryDB) > 0 {
+					continue
+				}
+			}
+			// Avoid double-firing in the same minute.
+			if !j.lastRun.IsZero() &&
+				j.lastRun.In(j.loc).Truncate(time.Minute).Equal(nowLocal.Truncate(time.Minute)) {
+				continue
+			}
+			j.running = true
+			ce.jobWg.Add(1)
+			go func(j *cronJob) {
+				defer ce.jobWg.Done()
+				defer func() {
+					ce.mu.Lock()
+					j.running = false
+					j.lastRun = time.Now()
+					j.nextRun = nextRunAfter(j.expr, j.loc, time.Now().In(j.loc))
+					ce.mu.Unlock()
+				}()
+				triageBacklog(ctx, ce.cfg, ce.sem)
+			}(j)
+			continue
+		}
+
 		nowLocal := now.In(j.loc)
 		if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
 			continue
@@ -369,6 +441,19 @@ func (ce *CronEngine) tick(ctx context.Context) {
 		// Check cron expression matches current minute.
 		if !j.expr.matches(nowLocal) {
 			continue
+		}
+
+		// Idle gate: only run if system has been idle for N hours.
+		if j.IdleMinHours > 0 {
+			if ce.hasRunningJobs(j.ID) {
+				continue
+			}
+			if !lastFinished.IsZero() && time.Since(lastFinished) < time.Duration(j.IdleMinHours)*time.Hour {
+				continue
+			}
+			if countUserSessions(ce.cfg.HistoryDB) > 0 {
+				continue
+			}
 		}
 
 		// Avoid double-firing in the same minute.
@@ -869,8 +954,9 @@ func (ce *CronEngine) ListJobs() []CronJobInfo {
 			LastCost:  j.lastCost,
 			AvgCost:   queryJobAvgCost(ce.cfg.HistoryDB, j.ID),
 			Errors:    j.errors,
-			OnSuccess: j.OnSuccess,
-			OnFailure: j.OnFailure,
+			OnSuccess:    j.OnSuccess,
+			OnFailure:    j.OnFailure,
+			IdleMinHours: j.IdleMinHours,
 		}
 		if j.running && !j.runStart.IsZero() {
 			info.RunStart = j.runStart
@@ -902,9 +988,10 @@ type CronJobInfo struct {
 	LastCost   float64   `json:"lastCost"`
 	AvgCost    float64   `json:"avgCost"`
 	Errors     int       `json:"errors"`
-	OnSuccess  []string  `json:"onSuccess,omitempty"`
-	OnFailure  []string  `json:"onFailure,omitempty"`
-	RunStart   time.Time `json:"runStart,omitempty"`
+	OnSuccess    []string  `json:"onSuccess,omitempty"`
+	OnFailure    []string  `json:"onFailure,omitempty"`
+	IdleMinHours int       `json:"idleMinHours,omitempty"`
+	RunStart     time.Time `json:"runStart,omitempty"`
 	RunElapsed string    `json:"runElapsed,omitempty"`
 	RunTimeout string    `json:"runTimeout,omitempty"`
 	RunModel   string    `json:"runModel,omitempty"`
@@ -1228,6 +1315,59 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// seedDefaultJobs returns the default cron jobs for new installations.
+func seedDefaultJobs() []CronJobConfig {
+	return []CronJobConfig{
+		{
+			ID:           "self-improve",
+			Name:         "Self-Improvement",
+			Enabled:      true,
+			Schedule:     "0 3 */2 * *",
+			TZ:           "Asia/Taipei",
+			IdleMinHours: 2,
+			Task: CronTaskConfig{
+				Prompt: `You are a self-improvement agent for the Tetora AI orchestration system.
+
+Analyze the activity digest below. The digest includes existing Skills, Rules, and Memory —
+do NOT create anything that already exists.
+
+## Instructions
+1. Identify repeated patterns (3+ occurrences), low-score reflections, recurring failures
+2. For each actionable improvement, CREATE the file directly:
+   - **Rule**: Create ` + "`rules/{name}.md`" + ` — governance rules auto-injected into all agents
+   - **Memory**: Create/update ` + "`memory/{key}.md`" + ` — shared observations
+   - **Skill**: Create ` + "`skills/{name}/metadata.json`" + ` with ` + "`\"approved\": false`" + ` — requires human review
+3. Only apply HIGH and MEDIUM priority improvements
+4. Keep files concise and actionable
+5. Report what you created and why
+
+If insufficient data for improvements, say so and exit.
+
+---
+
+{{review.digest:7}}`,
+				Model:          "sonnet",
+				Timeout:        "5m",
+				Budget:         1.5,
+				PermissionMode: "autoEdit",
+			},
+			Notify:     true,
+			MaxRetries: 1,
+			RetryDelay: "2m",
+		},
+		{
+			ID:           "backlog-triage",
+			Name:         "Backlog Triage",
+			Enabled:      true,
+			Schedule:     "0 4 * * *",
+			TZ:           "Asia/Taipei",
+			IdleMinHours: 1,
+			Task:         CronTaskConfig{},
+			Notify:       true,
+		},
+	}
 }
 
 // cronDiscordSendBotChannel sends a message to a Discord channel via bot token.

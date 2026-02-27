@@ -95,12 +95,34 @@ func (s *Server) registerProjectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		id := strings.TrimPrefix(r.URL.Path, "/api/projects/")
-		id = strings.TrimSuffix(id, "/")
-		if id == "" {
+		subPath := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+		subPath = strings.TrimSuffix(subPath, "/")
+		if subPath == "" {
 			http.Error(w, `{"error":"project id required"}`, http.StatusBadRequest)
 			return
 		}
+
+		// Handle /api/projects/{id}/stats sub-route.
+		if parts := strings.SplitN(subPath, "/", 2); len(parts) == 2 && parts[1] == "stats" {
+			if r.Method != http.MethodGet {
+				http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+				return
+			}
+			if cfg.TaskBoard.Enabled {
+				tb := newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
+				stats, err := tb.GetProjectStats(parts[0])
+				if err != nil {
+					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(stats)
+			} else {
+				http.Error(w, `{"error":"task board not enabled"}`, http.StatusServiceUnavailable)
+			}
+			return
+		}
+
+		id := subPath
 
 		switch r.Method {
 		case http.MethodGet:

@@ -21,12 +21,16 @@ type TaskBoard struct {
 	Status       string   `json:"status"`        // backlog/todo/doing/review/done/failed
 	Assignee     string   `json:"assignee"`      // agent name
 	Priority     string   `json:"priority"`      // low/normal/high/urgent
+	Model        string   `json:"model"`         // per-task model override (e.g. "sonnet", "haiku", "opus")
 	DependsOn    []string `json:"dependsOn"`     // task IDs this task depends on
 	DiscordThread string  `json:"discordThread"` // Discord thread ID
 	CreatedAt    string   `json:"createdAt"`
 	UpdatedAt    string   `json:"updatedAt"`
 	CompletedAt  string   `json:"completedAt"`
-	RetryCount   int      `json:"retryCount"` // number of auto-retries
+	RetryCount   int      `json:"retryCount"`    // number of auto-retries
+	CostUSD      float64  `json:"costUsd"`       // cost in USD
+	DurationMs   int64    `json:"durationMs"`    // execution duration in ms
+	SessionID    string   `json:"sessionId"`     // claude session ID
 }
 
 type TaskComment struct {
@@ -37,10 +41,18 @@ type TaskComment struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+type TaskBoardDispatchConfig struct {
+	Enabled      bool    `json:"enabled"`
+	Interval     string  `json:"interval,omitempty"`     // default "5m"
+	DefaultModel string  `json:"defaultModel,omitempty"` // override model for auto-dispatched tasks
+	MaxBudget    float64 `json:"maxBudget,omitempty"`    // max cost per task in USD (default: no limit)
+}
+
 type TaskBoardConfig struct {
-	Enabled       bool `json:"enabled"`
-	MaxRetries    int  `json:"maxRetries,omitempty"`    // default 3
-	RequireReview bool `json:"requireReview,omitempty"` // quality gate
+	Enabled       bool                    `json:"enabled"`
+	MaxRetries    int                     `json:"maxRetries,omitempty"`    // default 3
+	RequireReview bool                    `json:"requireReview,omitempty"` // quality gate
+	AutoDispatch  TaskBoardDispatchConfig `json:"autoDispatch,omitempty"`
 }
 
 func (c TaskBoardConfig) maxRetriesOrDefault() int {
@@ -99,6 +111,18 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("init task board schema: %s: %w", string(out), err)
 	}
+
+	// Migrate: add cost/duration/session columns (ignore errors for existing columns).
+	migrations := []string{
+		"ALTER TABLE tasks ADD COLUMN cost_usd REAL DEFAULT 0;",
+		"ALTER TABLE tasks ADD COLUMN duration_ms INTEGER DEFAULT 0;",
+		"ALTER TABLE tasks ADD COLUMN session_id TEXT DEFAULT '';",
+		"ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT '';",
+	}
+	for _, m := range migrations {
+		exec.Command("sqlite3", tb.dbPath, m).CombinedOutput() // ignore duplicate column errors
+	}
+
 	return nil
 }
 
@@ -122,7 +146,8 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, discord_thread_id, created_at, updated_at, completed_at, retry_count
+		       depends_on, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       cost_usd, duration_ms, session_id, model
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -157,12 +182,16 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 			Status:       fmt.Sprintf("%v", row["status"]),
 			Assignee:     fmt.Sprintf("%v", row["assignee"]),
 			Priority:     fmt.Sprintf("%v", row["priority"]),
+			Model:        fmt.Sprintf("%v", row["model"]),
 			DependsOn:    dependsOn,
 			DiscordThread: fmt.Sprintf("%v", row["discord_thread_id"]),
 			CreatedAt:    fmt.Sprintf("%v", row["created_at"]),
 			UpdatedAt:    fmt.Sprintf("%v", row["updated_at"]),
 			CompletedAt:  fmt.Sprintf("%v", row["completed_at"]),
 			RetryCount:   int(getFloat64(row, "retry_count")),
+			CostUSD:      getFloat64(row, "cost_usd"),
+			DurationMs:   int64(getFloat64(row, "duration_ms")),
+			SessionID:    fmt.Sprintf("%v", row["session_id"]),
 		})
 	}
 	return tasks, nil
@@ -191,8 +220,8 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 	}
 
 	sql := fmt.Sprintf(`
-		INSERT INTO tasks (id, project, title, description, status, assignee, priority, depends_on, discord_thread_id, created_at, updated_at, retry_count)
-		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0)
+		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, discord_thread_id, created_at, updated_at, retry_count)
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0)
 	`,
 		escapeSQLite(task.ID),
 		escapeSQLite(task.Project),
@@ -201,6 +230,7 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		escapeSQLite(task.Status),
 		escapeSQLite(task.Assignee),
 		escapeSQLite(task.Priority),
+		escapeSQLite(task.Model),
 		escapeSQLite(string(dependsOnJSON)),
 		escapeSQLite(task.DiscordThread),
 		task.CreatedAt,
@@ -224,7 +254,7 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 	var setClauses []string
 	for key, val := range updates {
 		switch key {
-		case "title", "description", "priority", "assignee", "discordThread":
+		case "title", "description", "priority", "assignee", "project", "discordThread", "model":
 			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", toSnakeCase(key), escapeSQLite(fmt.Sprintf("%v", val))))
 		case "dependsOn":
 			dependsOnJSON, _ := json.Marshal(val)
@@ -256,7 +286,8 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 func (tb *TaskBoardEngine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, discord_thread_id, created_at, updated_at, completed_at, retry_count
+		       depends_on, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       cost_usd, duration_ms, session_id, model
 		FROM tasks WHERE id = '%s'
 	`, escapeSQLite(id))
 
@@ -283,12 +314,16 @@ func (tb *TaskBoardEngine) GetTask(id string) (TaskBoard, error) {
 		Status:       fmt.Sprintf("%v", row["status"]),
 		Assignee:     fmt.Sprintf("%v", row["assignee"]),
 		Priority:     fmt.Sprintf("%v", row["priority"]),
+		Model:        fmt.Sprintf("%v", row["model"]),
 		DependsOn:    dependsOn,
 		DiscordThread: fmt.Sprintf("%v", row["discord_thread_id"]),
 		CreatedAt:    fmt.Sprintf("%v", row["created_at"]),
 		UpdatedAt:    fmt.Sprintf("%v", row["updated_at"]),
 		CompletedAt:  fmt.Sprintf("%v", row["completed_at"]),
 		RetryCount:   int(getFloat64(row, "retry_count")),
+		CostUSD:      getFloat64(row, "cost_usd"),
+		DurationMs:   int64(getFloat64(row, "duration_ms")),
+		SessionID:    fmt.Sprintf("%v", row["session_id"]),
 	}, nil
 }
 
@@ -545,6 +580,171 @@ func getFloat64(row map[string]any, key string) float64 {
 		}
 	}
 	return 0
+}
+
+// --- Board View & Project Stats ---
+
+type BoardView struct {
+	Columns  map[string][]TaskBoard `json:"columns"`
+	Stats    BoardStats             `json:"stats"`
+	Projects []string               `json:"projects"`
+	Agents   []string               `json:"agents"`
+}
+
+type BoardStats struct {
+	Total     int            `json:"total"`
+	ByStatus  map[string]int `json:"byStatus"`
+	TotalCost float64        `json:"totalCost"`
+}
+
+// GetBoardView returns all tasks grouped by status column with aggregate stats.
+func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*BoardView, error) {
+	var whereClauses []string
+	if project != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("project = '%s'", escapeSQLite(project)))
+	}
+	if assignee != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("assignee = '%s'", escapeSQLite(assignee)))
+	}
+	if priority != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("priority = '%s'", escapeSQLite(priority)))
+	}
+
+	whereClause := ""
+	if len(whereClauses) > 0 {
+		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	sql := fmt.Sprintf(`
+		SELECT id, project, title, description, status, assignee, priority,
+		       depends_on, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       cost_usd, duration_ms, session_id, model
+		FROM tasks %s
+		ORDER BY
+			CASE priority
+				WHEN 'urgent' THEN 1
+				WHEN 'high' THEN 2
+				WHEN 'normal' THEN 3
+				WHEN 'low' THEN 4
+				ELSE 5
+			END,
+			created_at DESC
+		LIMIT 500
+	`, whereClause)
+
+	rows, err := queryDB(tb.dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	statuses := []string{"backlog", "todo", "doing", "review", "done", "failed"}
+	columns := make(map[string][]TaskBoard)
+	for _, s := range statuses {
+		columns[s] = []TaskBoard{}
+	}
+
+	byStatus := make(map[string]int)
+	projectSet := make(map[string]bool)
+	agentSet := make(map[string]bool)
+	var totalCost float64
+
+	for _, row := range rows {
+		dependsOnJSON := fmt.Sprintf("%v", row["depends_on"])
+		var dependsOn []string
+		if dependsOnJSON != "" && dependsOnJSON != "[]" {
+			json.Unmarshal([]byte(dependsOnJSON), &dependsOn)
+		}
+
+		t := TaskBoard{
+			ID:            fmt.Sprintf("%v", row["id"]),
+			Project:       fmt.Sprintf("%v", row["project"]),
+			Title:         fmt.Sprintf("%v", row["title"]),
+			Description:   fmt.Sprintf("%v", row["description"]),
+			Status:        fmt.Sprintf("%v", row["status"]),
+			Assignee:      fmt.Sprintf("%v", row["assignee"]),
+			Priority:      fmt.Sprintf("%v", row["priority"]),
+			Model:         fmt.Sprintf("%v", row["model"]),
+			DependsOn:     dependsOn,
+			DiscordThread: fmt.Sprintf("%v", row["discord_thread_id"]),
+			CreatedAt:     fmt.Sprintf("%v", row["created_at"]),
+			UpdatedAt:     fmt.Sprintf("%v", row["updated_at"]),
+			CompletedAt:   fmt.Sprintf("%v", row["completed_at"]),
+			RetryCount:    int(getFloat64(row, "retry_count")),
+			CostUSD:       getFloat64(row, "cost_usd"),
+			DurationMs:    int64(getFloat64(row, "duration_ms")),
+			SessionID:     fmt.Sprintf("%v", row["session_id"]),
+		}
+
+		columns[t.Status] = append(columns[t.Status], t)
+		byStatus[t.Status]++
+		totalCost += t.CostUSD
+
+		if t.Project != "" {
+			projectSet[t.Project] = true
+		}
+		if t.Assignee != "" {
+			agentSet[t.Assignee] = true
+		}
+	}
+
+	var projects []string
+	for p := range projectSet {
+		projects = append(projects, p)
+	}
+	var agents []string
+	for a := range agentSet {
+		agents = append(agents, a)
+	}
+
+	return &BoardView{
+		Columns:  columns,
+		Stats:    BoardStats{Total: len(rows), ByStatus: byStatus, TotalCost: totalCost},
+		Projects: projects,
+		Agents:   agents,
+	}, nil
+}
+
+// --- Project Stats ---
+
+type ProjectStats struct {
+	ProjectID  string         `json:"projectId"`
+	TaskCounts map[string]int `json:"taskCounts"`
+	TotalCost  float64        `json:"totalCost"`
+	TotalTasks int            `json:"totalTasks"`
+}
+
+// GetProjectStats returns task counts and cost for a specific project.
+func (tb *TaskBoardEngine) GetProjectStats(projectID string) (*ProjectStats, error) {
+	sql := fmt.Sprintf(`
+		SELECT status, COUNT(*) as cnt, COALESCE(SUM(cost_usd),0) as cost
+		FROM tasks
+		WHERE project = '%s'
+		GROUP BY status
+	`, escapeSQLite(projectID))
+
+	rows, err := queryDB(tb.dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[string]int)
+	var totalCost float64
+	var totalTasks int
+	for _, row := range rows {
+		status := fmt.Sprintf("%v", row["status"])
+		cnt := int(getFloat64(row, "cnt"))
+		cost := getFloat64(row, "cost")
+		counts[status] = cnt
+		totalTasks += cnt
+		totalCost += cost
+	}
+
+	return &ProjectStats{
+		ProjectID:  projectID,
+		TaskCounts: counts,
+		TotalCost:  totalCost,
+		TotalTasks: totalTasks,
+	}, nil
 }
 
 // --- CLI Commands ---

@@ -279,10 +279,12 @@ func writeSetupConfig(req setupSaveRequest) error {
 		return fmt.Errorf("write config: %w", err)
 	}
 
-	// Create empty jobs.json if not exists.
+	// Create jobs.json with default jobs if not exists.
 	jobsPath := filepath.Join(configDir, "jobs.json")
 	if _, err := os.Stat(jobsPath); os.IsNotExist(err) {
-		os.WriteFile(jobsPath, []byte("{\n  \"jobs\": []\n}\n"), 0o644)
+		jf := JobsFile{Jobs: seedDefaultJobs()}
+		jobsData, _ := json.MarshalIndent(jf, "", "  ")
+		os.WriteFile(jobsPath, append(jobsData, '\n'), 0o644)
 	}
 
 	return nil

@@ -117,9 +117,24 @@ func classifyComplexity(prompt string, source string) RequestComplexity {
 		return ComplexityComplex
 	}
 
+	promptLower := strings.ToLower(prompt)
+
+	// Taskboard tasks: smarter classification to control token injection costs.
+	// Simple for short tasks, Standard by default, Complex only for genuinely
+	// complex tasks (3+ coding keywords) that need deep thinking.
+	if srcLower == "taskboard" {
+		if runeLen < 100 {
+			return ComplexitySimple
+		}
+		kwCount := countComplexKeywords(promptLower, prompt)
+		if kwCount >= 3 {
+			return ComplexityComplex
+		}
+		return ComplexityStandard
+	}
+
 	// Check for coding-related keywords (case-insensitive, whole-word match).
 	// containsWord is defined in sentiment.go with word-boundary logic.
-	promptLower := strings.ToLower(prompt)
 	if containsAnyComplexWord(promptLower, complexKeywordsEN) {
 		return ComplexityComplex
 	}
@@ -145,6 +160,23 @@ func containsAnyComplexWord(text string, keywords []string) bool {
 		}
 	}
 	return false
+}
+
+// countComplexKeywords counts how many distinct coding keywords appear in the text.
+// Checks both EN (word-boundary) and JA (substring) keywords.
+func countComplexKeywords(textLower, textOriginal string) int {
+	count := 0
+	for _, kw := range complexKeywordsEN {
+		if containsWord(textLower, kw) {
+			count++
+		}
+	}
+	for _, kw := range complexKeywordsJA {
+		if strings.Contains(textOriginal, kw) {
+			count++
+		}
+	}
+	return count
 }
 
 // containsAnySubstring returns true if text contains any of the given substrings.

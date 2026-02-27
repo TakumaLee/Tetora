@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // --- History DB Types ---
@@ -296,6 +297,30 @@ func queryCostByJobID(dbPath string) (map[string]float64, error) {
 		}
 	}
 	return result, nil
+}
+
+// --- Query Last Finished ---
+
+// queryLastFinished returns the most recent finished_at timestamp from job_runs.
+// Used for idle detection — if no job has finished recently, the system is idle.
+func queryLastFinished(dbPath string) time.Time {
+	if dbPath == "" {
+		return time.Time{}
+	}
+	sql := `SELECT MAX(finished_at) as last_finished FROM job_runs`
+	rows, err := queryDB(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return time.Time{}
+	}
+	ts := jsonStr(rows[0]["last_finished"])
+	if ts == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // --- Query Last Job Run ---
