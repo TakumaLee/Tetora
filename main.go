@@ -1008,6 +1008,11 @@ func main() {
 			logInfo("shutting down after drain")
 		}
 
+		// Stop TaskBoard dispatcher (wait for in-flight tasks).
+		if srvInstance.taskBoardDispatcher != nil {
+			srvInstance.taskBoardDispatcher.Stop()
+		}
+
 		if signalBot != nil {
 			signalBot.Stop()
 		}

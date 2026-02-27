@@ -71,24 +71,14 @@ func (d *TaskBoardDispatcher) Stop() {
 		d.mu.Unlock()
 		return
 	}
-	close(d.stopCh)
 	d.running = false
+	close(d.stopCh)
 	d.mu.Unlock()
 
-	// Signal all in-flight tasks to cancel.
+	// Signal all in-flight tasks to cancel, then wait.
 	d.cancel()
-	// Wait for in-flight tasks to finish (with timeout).
-	done := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		logInfo("taskboard dispatch: all in-flight tasks finished")
-	case <-time.After(2 * time.Minute):
-		logWarn("taskboard dispatch: timed out waiting for in-flight tasks")
-	}
+	d.wg.Wait()
+	logInfo("taskboard dispatch: all in-flight tasks finished")
 }
 
 func (d *TaskBoardDispatcher) parseInterval() time.Duration {

@@ -273,19 +273,29 @@ func buildAgentRoster(cfg *Config) string {
 	return strings.Join(lines, "\n")
 }
 
-// shouldSkipTriage returns true if the last comment is from "triage" and no human
+// shouldSkipTriage returns true if triage has already commented and no human
 // has replied since — prevents re-triaging the same task repeatedly.
+// Comments are assumed to be in chronological order (ORDER BY created_at ASC).
 func shouldSkipTriage(comments []TaskComment) bool {
 	if len(comments) == 0 {
 		return false // first triage
 	}
-	// Walk backwards: if the most recent comment is from triage and no non-triage
-	// comment exists after it, skip.
-	last := comments[len(comments)-1]
-	if last.Author != "triage" {
-		return false // human replied, re-triage
+	// Find the last triage comment index.
+	lastTriageIdx := -1
+	for i := len(comments) - 1; i >= 0; i-- {
+		if comments[i].Author == "triage" {
+			lastTriageIdx = i
+			break
+		}
 	}
-	// Since comments are ordered chronologically and the last is from triage,
-	// any earlier non-triage comment was before the triage — skip is correct.
-	return true
+	if lastTriageIdx == -1 {
+		return false // no triage comment yet
+	}
+	// Check if any non-triage comment exists after the last triage comment.
+	for i := lastTriageIdx + 1; i < len(comments); i++ {
+		if comments[i].Author != "triage" {
+			return false // human replied after triage — re-triage
+		}
+	}
+	return true // triage has the last word, skip
 }

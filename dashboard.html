@@ -6746,15 +6746,24 @@ function escAttr(s) {
 var spriteEngine = null;
 var agentWorldOpen = localStorage.getItem('aw-open') === 'true';
 
+var _spriteInitializing = false;
+
 function toggleAgentWorld() {
+  if (_spriteInitializing) return; // block clicks during init
   agentWorldOpen = !agentWorldOpen;
   localStorage.setItem('aw-open', agentWorldOpen);
   var container = document.getElementById('agent-world-container');
   if (agentWorldOpen) {
     container.style.display = '';
     if (!spriteEngine) {
+      _spriteInitializing = true;
       spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
-      spriteEngine.init();
+      spriteEngine.init().then(function() {
+        _spriteInitializing = false;
+      }).catch(function(e) {
+        _spriteInitializing = false;
+        console.warn('SpriteEngine init failed', e);
+      });
     } else {
       spriteEngine.start();
     }
@@ -6778,13 +6787,17 @@ function updateAgentWorldToggle(sprites) {
       if (_hasSpriteAgents) {
         toggle.style.display = '';
         // Restore persisted open state
-        if (agentWorldOpen) {
+        if (agentWorldOpen && !spriteEngine && !_spriteInitializing) {
           var ctr = document.getElementById('agent-world-container');
           ctr.style.display = '';
-          if (!spriteEngine) {
-            spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
-            spriteEngine.init();
-          }
+          _spriteInitializing = true;
+          spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
+          spriteEngine.init().then(function() {
+            _spriteInitializing = false;
+          }).catch(function(e) {
+            _spriteInitializing = false;
+            console.warn('SpriteEngine restore init failed', e);
+          });
         }
       }
     }).catch(function() {});
@@ -6949,7 +6962,10 @@ SpriteEngine.prototype.init = async function() {
   this.canvas.width = OFFICE.W;
   this.canvas.height = OFFICE.H;
 
-  this.start();
+  // Only start render loop if there are agents to render.
+  if (Object.keys(this.agents).length > 0) {
+    this.start();
+  }
 };
 
 SpriteEngine.prototype.start = function() {

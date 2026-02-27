@@ -26,6 +26,7 @@ type Server struct {
 	gchatBot        *GoogleChatBot
 	imessageBot     *IMessageBot
 	// internal (created at start)
+	taskBoardDispatcher *TaskBoardDispatcher
 	canvasEngine        *CanvasEngine
 	voiceRealtimeEngine *VoiceRealtimeEngine
 	startTime           time.Time
