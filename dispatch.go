@@ -282,12 +282,35 @@ func (s *dispatchState) statusJSON() []byte {
 		})
 	}
 
+	// Build per-agent sprite states.
+	sprites := make(map[string]string)
+	for _, ts := range s.running {
+		if ts.task.Agent != "" {
+			sprites[ts.task.Agent] = resolveAgentSprite("running", status, ts.task.Source)
+		}
+	}
+	for _, r := range s.finished {
+		if r.Agent != "" {
+			if _, busy := sprites[r.Agent]; !busy {
+				sprites[r.Agent] = resolveAgentSprite(r.Status, status, "")
+			}
+		}
+	}
+	for _, da := range s.discordActivities {
+		if da.Agent != "" {
+			if _, busy := sprites[da.Agent]; !busy {
+				sprites[da.Agent] = resolveAgentSprite("running", status, "discord")
+			}
+		}
+	}
+
 	out := map[string]any{
 		"status":    status,
 		"running":   len(s.running),
 		"completed": len(s.finished),
 		"tasks":     tasks,
 		"discord":   discord,
+		"sprites":   sprites,
 	}
 	if s.active {
 		out["elapsed"] = time.Since(s.startAt).Round(time.Second).String()

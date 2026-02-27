@@ -130,6 +130,11 @@ func initDirectories(cfg *Config) error {
 			return err
 		}
 	}
+	// Write default sprite config if not present.
+	if err := initSpriteConfig(filepath.Join(cfg.baseDir, "media", "sprites")); err != nil {
+		logWarn("sprite config init failed", "error", err)
+	}
+
 	logInfo("initialized directories", "agents", cfg.AgentsDir, "workspace", cfg.WorkspaceDir, "runtime", cfg.RuntimeDir)
 	return nil
 }

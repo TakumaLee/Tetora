@@ -816,9 +816,89 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 				"ipAllowlist":   len(cfg.AllowedIPs),
 				"dashboardAuth": cfg.DashboardAuth.Enabled,
 			},
+			"taskBoard": map[string]any{
+				"enabled":      cfg.TaskBoard.Enabled,
+				"autoDispatch": cfg.TaskBoard.AutoDispatch.Enabled,
+				"maxRetries":   cfg.TaskBoard.MaxRetries,
+			},
 		}
 
 		json.NewEncoder(w).Encode(summary)
+	})
+
+	// Toggle a config boolean via PATCH /api/config/toggle.
+	mux.HandleFunc("/api/config/toggle", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, `{"error":"PATCH only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Key   string `json:"key"`
+			Value bool   `json:"value"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Whitelist of toggleable keys.
+		allowed := map[string]bool{
+			"taskBoard.enabled":              true,
+			"taskBoard.autoDispatch.enabled":  true,
+		}
+		if !allowed[req.Key] {
+			http.Error(w, fmt.Sprintf(`{"error":"key %q not toggleable"}`, req.Key), http.StatusBadRequest)
+			return
+		}
+
+		configPath := findConfigPath()
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		// Navigate dot path and set value.
+		parts := strings.Split(req.Key, ".")
+		target := raw
+		for i := 0; i < len(parts)-1; i++ {
+			sub, ok := target[parts[i]]
+			if !ok {
+				newMap := make(map[string]any)
+				target[parts[i]] = newMap
+				target = newMap
+				continue
+			}
+			subMap, ok := sub.(map[string]any)
+			if !ok {
+				http.Error(w, fmt.Sprintf(`{"error":"cannot traverse %q"}`, req.Key), http.StatusBadRequest)
+				return
+			}
+			target = subMap
+		}
+		target[parts[len(parts)-1]] = req.Value
+
+		out, err := json.MarshalIndent(raw, "", "  ")
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		auditLog(cfg.HistoryDB, "config.toggle", "dashboard",
+			fmt.Sprintf("%s=%v", req.Key, req.Value), "")
+
+		w.Write([]byte(fmt.Sprintf(`{"status":"ok","key":"%s","value":%v}`, req.Key, req.Value)))
 	})
 
 	// --- P18.2: OAuth 2.0 Framework ---

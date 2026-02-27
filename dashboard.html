@@ -1151,6 +1151,37 @@ tr:hover { background: rgba(255,255,255,0.02); }
   .toggle input:checked + .slider::before { transform: translateX(20px); }
   .chat-input { font-size: 16px; }
 }
+
+/* Agent World */
+.agent-world-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(96,165,250,0.08));
+  border: 1px solid var(--border); border-radius: 10px;
+  cursor: pointer; user-select: none; transition: background .2s;
+}
+.agent-world-toggle:hover { background: linear-gradient(135deg, rgba(167,139,250,0.15), rgba(96,165,250,0.15)); }
+.agent-world-toggle .aw-title {
+  font-size: 13px; font-weight: 600; color: var(--accent);
+  letter-spacing: 1px;
+}
+.agent-world-toggle .aw-status { font-size: 12px; color: var(--muted); }
+.agent-world-canvas {
+  margin-bottom: 16px; border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border); position: relative;
+}
+.agent-world-canvas canvas {
+  display: block; width: 100%; height: 200px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  background: #0a0a12;
+}
+.agent-world-close {
+  position: absolute; top: 6px; right: 8px;
+  background: rgba(0,0,0,0.5); border: none; color: var(--muted);
+  font-size: 16px; cursor: pointer; border-radius: 4px; padding: 2px 6px;
+  z-index: 2;
+}
+.agent-world-close:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -1175,6 +1206,16 @@ tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 
   <div id="dashboard-content">
+  <!-- Agent World -->
+  <div class="agent-world-toggle" id="agent-world-toggle" style="display:none" onclick="toggleAgentWorld()">
+    <span class="aw-title">Agent World</span>
+    <span class="aw-status" id="aw-status"></span>
+  </div>
+  <div class="agent-world-canvas" id="agent-world-container" style="display:none">
+    <canvas id="agent-world-cv"></canvas>
+    <button class="agent-world-close" onclick="toggleAgentWorld()">&times;</button>
+  </div>
+
   <!-- Cost + Stats -->
   <div class="stats" id="stats"></div>
 
@@ -1708,6 +1749,11 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div class="section">
         <div class="section-header"><span class="section-title">Security</span></div>
         <div id="settings-security"></div>
+      </div>
+      <!-- Task Board -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Task Board</span></div>
+        <div id="settings-taskboard"></div>
       </div>
       <!-- Notifications (Discord Webhooks) -->
       <div class="section">
@@ -2689,6 +2735,13 @@ async function refresh() {
       return `<div class="stat"><div class="stat-label">${s.label}</div><div class="stat-value ${s.cls || ''}" ${s.color ? `style="color:${s.color}"` : ''}>${s.value}</div>${bar}</div>`;
     }).join('');
     document.getElementById('stats').innerHTML = statsHTML;
+
+    // Agent World — update sprite states + toggle visibility
+    var dispSprites = dispatch.sprites || {};
+    updateAgentWorldToggle(dispSprites);
+    if (spriteEngine && agentWorldOpen) {
+      spriteEngine.updateAgentStates(dispSprites);
+    }
 
     // Agent Activity section (dispatch tasks + Discord activities)
     const dSec = document.getElementById('dispatch-section');
@@ -6689,6 +6742,468 @@ function escAttr(s) {
 
 // --- End Workflow Visualization ---
 
+// --- Agent World (SpriteEngine) ---
+var spriteEngine = null;
+var agentWorldOpen = false;
+
+function toggleAgentWorld() {
+  agentWorldOpen = !agentWorldOpen;
+  var container = document.getElementById('agent-world-container');
+  if (agentWorldOpen) {
+    container.style.display = '';
+    if (!spriteEngine) {
+      spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
+      spriteEngine.init();
+    } else {
+      spriteEngine.start();
+    }
+  } else {
+    container.style.display = 'none';
+    if (spriteEngine) spriteEngine.stop();
+  }
+}
+
+var _spriteConfigChecked = false;
+var _hasSpriteAgents = false;
+
+function updateAgentWorldToggle(sprites) {
+  var toggle = document.getElementById('agent-world-toggle');
+
+  // One-time check: fetch sprite config to see if any agents have sheets
+  if (!_spriteConfigChecked) {
+    _spriteConfigChecked = true;
+    fetch(API + '/api/sprites/config').then(function(r) { return r.json(); }).then(function(cfg) {
+      _hasSpriteAgents = cfg.agents && Object.keys(cfg.agents).length > 0;
+      if (_hasSpriteAgents) toggle.style.display = '';
+    }).catch(function() {});
+  }
+
+  if (!_hasSpriteAgents) {
+    toggle.style.display = 'none';
+    return;
+  }
+  toggle.style.display = '';
+
+  var working = 0, idle = 0;
+  for (var k in sprites) {
+    if (sprites[k] === 'idle') idle++;
+    else working++;
+  }
+  var parts = [];
+  if (working > 0) parts.push(working + ' working');
+  if (idle > 0) parts.push(idle + ' idle');
+  document.getElementById('aw-status').textContent = parts.length > 0 ? parts.join(' · ') : 'all idle';
+}
+
+// Office layout constants (in canvas pixels, scaled for 600×200 logical size)
+var OFFICE = {
+  W: 600, H: 200,
+  WALL_H: 24,
+  FLOOR_COLOR_A: '#1a1a28', FLOOR_COLOR_B: '#161622',
+  WALL_COLOR: '#252538',
+  // Room definitions: { x, y, w, h, label, seats: [{x,y}] }
+  rooms: {
+    meeting: { x: 10, y: 30, w: 160, h: 130, label: 'Meeting', color: '#1e1e30',
+      furniture: [{ x: 50, y: 60, w: 70, h: 40, color: '#3a2a1a', type: 'table' }],
+      seats: [{ x: 45, y: 110 }, { x: 95, y: 110 }, { x: 45, y: 50 }, { x: 95, y: 50 }]
+    },
+    work: { x: 190, y: 30, w: 220, h: 130, label: 'Work', color: '#1a1a2a',
+      furniture: [
+        { x: 210, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
+        { x: 280, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
+        { x: 350, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
+      ],
+      seats: [{ x: 220, y: 105 }, { x: 290, y: 105 }, { x: 360, y: 105 }]
+    },
+    lounge: { x: 430, y: 30, w: 160, h: 130, label: 'Lounge', color: '#1e1e2e',
+      furniture: [{ x: 460, y: 65, w: 100, h: 36, color: '#2a1a3a', type: 'sofa' }],
+      seats: [{ x: 470, y: 110 }, { x: 520, y: 110 }, { x: 470, y: 55 }, { x: 520, y: 55 }]
+    }
+  }
+};
+
+// State → target room mapping
+var STATE_ROOM = {
+  idle: 'lounge', work: 'work', think: 'work',
+  talk: 'meeting', review: 'meeting',
+  celebrate: null, error: null
+};
+
+function SpriteEngine(canvas) {
+  this.canvas = canvas;
+  this.ctx = canvas.getContext('2d');
+  this.config = null;
+  this.images = {};      // agentName -> Image (single-sheet) or null
+  this.multiImages = {}; // agentName -> { stateName: Image } (multi-sheet)
+  this.agents = {};      // agentName -> agent object
+  this.stateMap = {};    // stateName -> { row, frames }
+  this.bgImage = null;
+  this.running = false;
+  this.rafId = null;
+  this.lastTime = 0;
+  this.frameTick = 0;
+  this.seatClaims = {};  // "room:seatIdx" -> agentName
+}
+
+SpriteEngine.prototype.init = async function() {
+  try {
+    var res = await fetch(API + '/api/sprites/config');
+    this.config = await res.json();
+  } catch(e) {
+    console.warn('SpriteEngine: failed to load config', e);
+    return;
+  }
+
+  // Build state lookup
+  if (this.config.states) {
+    for (var i = 0; i < this.config.states.length; i++) {
+      var s = this.config.states[i];
+      this.stateMap[s.name] = { row: s.row, frames: s.frames };
+    }
+  }
+
+  // Load background image if specified
+  if (this.config.background) {
+    var bgImg = new Image();
+    bgImg.src = API + '/media/sprites/' + this.config.background;
+    this.bgImage = bgImg;
+  }
+
+  // Load sprite sheets (single-sheet or multi-sheet per agent)
+  var agents = this.config.agents || {};
+  var promises = [];
+  var self = this;
+  for (var name in agents) {
+    var def = agents[name];
+    // Multi-sheet mode: one PNG per state
+    if (def.sheets && Object.keys(def.sheets).length > 0) {
+      self.multiImages[name] = {};
+      (function(n, sheets) {
+        for (var state in sheets) {
+          (function(st, file) {
+            var img = new Image();
+            img.src = API + '/media/sprites/' + file;
+            self.multiImages[n][st] = img;
+            promises.push(new Promise(function(resolve) {
+              img.onload = resolve;
+              img.onerror = resolve;
+            }));
+          })(state, sheets[state]);
+        }
+      })(name, def.sheets);
+    }
+    // Single-sheet fallback
+    if (def.sheet) {
+      (function(n, sheet) {
+        var img = new Image();
+        img.src = API + '/media/sprites/' + sheet;
+        self.images[n] = img;
+        promises.push(new Promise(function(resolve) {
+          img.onload = resolve;
+          img.onerror = resolve;
+        }));
+      })(name, def.sheet);
+    }
+  }
+
+  await Promise.all(promises);
+
+  // Initialize agent objects
+  for (var name in agents) {
+    var startSeat = this._findFreeSeat('lounge', name);
+    this.agents[name] = {
+      name: name,
+      x: startSeat ? startSeat.x : 300 + Math.random() * 100,
+      y: startSeat ? startSeat.y : 100 + Math.random() * 40,
+      targetX: 0, targetY: 0,
+      moving: false,
+      spriteState: 'idle',
+      animState: 'idle',
+      facing: 'right',
+      frame: 0,
+      idleTimer: 3000 + Math.random() * 5000,
+      celebrateTimer: 0
+    };
+    var a = this.agents[name];
+    a.targetX = a.x;
+    a.targetY = a.y;
+  }
+
+  // Set canvas resolution
+  this.canvas.width = OFFICE.W;
+  this.canvas.height = OFFICE.H;
+
+  this.start();
+};
+
+SpriteEngine.prototype.start = function() {
+  if (this.running) return;
+  this.running = true;
+  this.lastTime = performance.now();
+  var self = this;
+  function loop(ts) {
+    if (!self.running) return;
+    var dt = ts - self.lastTime;
+    self.lastTime = ts;
+    self.frameTick += dt;
+    self.update(dt);
+    self.render();
+    self.rafId = requestAnimationFrame(loop);
+  }
+  this.rafId = requestAnimationFrame(loop);
+};
+
+SpriteEngine.prototype.stop = function() {
+  this.running = false;
+  if (this.rafId) {
+    cancelAnimationFrame(this.rafId);
+    this.rafId = null;
+  }
+};
+
+SpriteEngine.prototype._findFreeSeat = function(roomName, agentName) {
+  var room = OFFICE.rooms[roomName];
+  if (!room) return null;
+  for (var i = 0; i < room.seats.length; i++) {
+    var key = roomName + ':' + i;
+    if (!this.seatClaims[key] || this.seatClaims[key] === agentName) {
+      this.seatClaims[key] = agentName;
+      return { x: room.seats[i].x, y: room.seats[i].y };
+    }
+  }
+  // All seats taken — stand near room center
+  return { x: room.x + room.w / 2 + (Math.random() - 0.5) * 30, y: room.y + room.h - 30 };
+};
+
+SpriteEngine.prototype._releaseSeat = function(agentName) {
+  for (var key in this.seatClaims) {
+    if (this.seatClaims[key] === agentName) {
+      delete this.seatClaims[key];
+    }
+  }
+};
+
+SpriteEngine.prototype.updateAgentStates = function(sprites) {
+  if (!sprites) return;
+  for (var name in sprites) {
+    var agent = this.agents[name];
+    if (!agent) continue;
+    var newState = sprites[name];
+    if (newState === agent.spriteState) continue;
+
+    var oldState = agent.spriteState;
+    agent.spriteState = newState;
+
+    // Special: celebrate/error stay in place
+    if (newState === 'celebrate') {
+      agent.animState = 'celebrate';
+      agent.celebrateTimer = 3000;
+      continue;
+    }
+    if (newState === 'error') {
+      agent.animState = 'error';
+      continue;
+    }
+
+    // Find target room
+    var targetRoom = STATE_ROOM[newState] || 'lounge';
+    this._releaseSeat(name);
+    var seat = this._findFreeSeat(targetRoom, name);
+    if (seat) {
+      agent.targetX = seat.x;
+      agent.targetY = seat.y;
+      agent.moving = true;
+    }
+  }
+};
+
+SpriteEngine.prototype.update = function(dt) {
+  var SPEED = 0.08; // pixels per ms
+  var cw = this.config ? this.config.cellWidth : 32;
+
+  for (var name in this.agents) {
+    var a = this.agents[name];
+
+    // Celebrate timer
+    if (a.celebrateTimer > 0) {
+      a.celebrateTimer -= dt;
+      if (a.celebrateTimer <= 0) {
+        a.spriteState = 'idle';
+        a.animState = 'idle';
+        var seat = this._findFreeSeat('lounge', name);
+        if (seat) { a.targetX = seat.x; a.targetY = seat.y; a.moving = true; }
+      }
+      continue;
+    }
+
+    // Movement
+    if (a.moving) {
+      var dx = a.targetX - a.x;
+      var dy = a.targetY - a.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 2) {
+        a.x = a.targetX;
+        a.y = a.targetY;
+        a.moving = false;
+        a.animState = a.spriteState;
+        a.frame = 0;
+      } else {
+        var step = SPEED * dt;
+        if (step > dist) step = dist;
+        a.x += (dx / dist) * step;
+        a.y += (dy / dist) * step;
+        // Walk direction
+        if (Math.abs(dx) > Math.abs(dy)) {
+          a.animState = dx > 0 ? 'walk_right' : 'walk_left';
+          a.facing = dx > 0 ? 'right' : 'left';
+        } else {
+          a.animState = dy > 0 ? 'walk_down' : 'walk_up';
+        }
+      }
+    } else if (a.spriteState === 'idle') {
+      // Idle wandering
+      a.idleTimer -= dt;
+      if (a.idleTimer <= 0) {
+        a.idleTimer = 3000 + Math.random() * 5000;
+        var room = OFFICE.rooms.lounge;
+        a.targetX = room.x + 20 + Math.random() * (room.w - 40);
+        a.targetY = room.y + 30 + Math.random() * (room.h - 50);
+        a.moving = true;
+      }
+    }
+  }
+
+  // Advance animation frames (~200ms per frame)
+  if (this.frameTick >= 200) {
+    this.frameTick -= 200;
+    for (var name in this.agents) {
+      var a = this.agents[name];
+      var stDef = this.stateMap[a.animState];
+      if (stDef) {
+        a.frame = (a.frame + 1) % stDef.frames;
+      }
+    }
+  }
+};
+
+SpriteEngine.prototype.render = function() {
+  var ctx = this.ctx;
+  var W = OFFICE.W, H = OFFICE.H;
+  ctx.clearRect(0, 0, W, H);
+
+  if (this.bgImage && this.bgImage.complete && this.bgImage.naturalWidth > 0) {
+    ctx.drawImage(this.bgImage, 0, 0, W, H);
+  } else {
+    this._drawOffice(ctx);
+  }
+
+  // Draw agents (sorted by y for depth)
+  var sorted = [];
+  for (var name in this.agents) sorted.push(this.agents[name]);
+  sorted.sort(function(a, b) { return a.y - b.y; });
+
+  for (var i = 0; i < sorted.length; i++) {
+    this._drawAgent(ctx, sorted[i]);
+  }
+};
+
+SpriteEngine.prototype._drawOffice = function(ctx) {
+  var W = OFFICE.W, H = OFFICE.H;
+
+  // Floor — checkerboard
+  var tileSize = 16;
+  for (var ty = 0; ty < H; ty += tileSize) {
+    for (var tx = 0; tx < W; tx += tileSize) {
+      ctx.fillStyle = ((tx + ty) / tileSize) % 2 === 0 ? OFFICE.FLOOR_COLOR_A : OFFICE.FLOOR_COLOR_B;
+      ctx.fillRect(tx, ty, tileSize, tileSize);
+    }
+  }
+
+  // Wall
+  ctx.fillStyle = OFFICE.WALL_COLOR;
+  ctx.fillRect(0, 0, W, OFFICE.WALL_H);
+  // Wall bottom edge highlight
+  ctx.fillStyle = '#3a3a50';
+  ctx.fillRect(0, OFFICE.WALL_H - 2, W, 2);
+
+  // Rooms
+  var rooms = OFFICE.rooms;
+  for (var rk in rooms) {
+    var rm = rooms[rk];
+    // Room floor
+    ctx.fillStyle = rm.color;
+    ctx.fillRect(rm.x, rm.y, rm.w, rm.h);
+    // Room border
+    ctx.strokeStyle = '#333350';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rm.x + 0.5, rm.y + 0.5, rm.w - 1, rm.h - 1);
+    // Label
+    ctx.fillStyle = '#555570';
+    ctx.font = '9px monospace';
+    ctx.fillText(rm.label, rm.x + 6, rm.y + 14);
+    // Furniture
+    if (rm.furniture) {
+      for (var fi = 0; fi < rm.furniture.length; fi++) {
+        var f = rm.furniture[fi];
+        ctx.fillStyle = f.color;
+        ctx.fillRect(f.x, f.y, f.w, f.h);
+        // Highlight edge
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(f.x, f.y, f.w, 2);
+      }
+    }
+  }
+};
+
+SpriteEngine.prototype._drawAgent = function(ctx, agent) {
+  var cw = this.config.cellWidth;
+  var ch = this.config.cellHeight;
+  var stDef = this.stateMap[agent.animState];
+  if (!stDef) stDef = this.stateMap['idle'] || { row: 0, frames: 4 };
+
+  // Pick image: multi-sheet (per state) → single-sheet fallback
+  var img = null;
+  var sy = 0;
+  var multi = this.multiImages[agent.name];
+  if (multi && multi[agent.animState]) {
+    img = multi[agent.animState];
+    sy = 0; // multi-sheet: always row 0
+  } else if (multi && multi['idle']) {
+    img = multi['idle'];
+    sy = 0;
+  } else {
+    img = this.images[agent.name];
+    sy = stDef.row * ch; // single-sheet: use row mapping
+  }
+  if (!img || !img.complete || img.naturalWidth === 0) return;
+
+  // Clamp frames to actual image width
+  var maxFrames = Math.floor(img.naturalWidth / cw);
+  var frames = Math.min(stDef.frames, maxFrames || 1);
+  var sx = (agent.frame % frames) * cw;
+
+  // Draw sprite centered on agent position
+  var dx = Math.round(agent.x - cw / 2);
+  var dy = Math.round(agent.y - ch);
+
+  // Error state: red tint flash
+  if (agent.animState === 'error' && Math.floor(Date.now() / 300) % 2 === 0) {
+    ctx.globalAlpha = 0.7;
+  }
+
+  ctx.drawImage(img, sx, sy, cw, ch, dx, dy, cw, ch);
+  ctx.globalAlpha = 1.0;
+
+  // Name label
+  ctx.fillStyle = '#8888aa';
+  ctx.font = '7px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(agent.name, Math.round(agent.x), Math.round(agent.y + 4));
+  ctx.textAlign = 'start';
+};
+
+// --- End Agent World ---
+
 pollTimer = setInterval(refresh, 5000);
 connectDashboardSSE();
 document.addEventListener('visibilitychange', function() {
@@ -6891,6 +7406,7 @@ function refreshSettings() {
       renderSettingsTools(data.tools || {});
       renderSettingsBudgets(data.budgets || {});
       renderSettingsSecurity(data.security || {});
+      renderSettingsTaskBoard(data.taskBoard || {});
       refreshNotificationsTable();
     })
     .catch(function(e) {
@@ -6961,6 +7477,44 @@ function renderSettingsSecurity(data) {
     {label: 'IP Allowlist', value: data.ipAllowlist > 0 ? data.ipAllowlist + ' entries' : 'None'},
     {label: 'Dashboard Auth', value: data.dashboardAuth ? '<span style="color:var(--green)">Enabled</span>' : '<span style="color:var(--muted)">Disabled</span>'}
   ]);
+}
+
+function renderSettingsTaskBoard(data) {
+  var el = document.getElementById('settings-taskboard');
+  if (!el) return;
+  var makeToggle = function(label, key, enabled) {
+    var color = enabled ? 'var(--green)' : 'var(--muted)';
+    var text = enabled ? 'Enabled' : 'Disabled';
+    return '<div style="background:var(--surface);padding:10px 14px;font-size:13px;color:var(--muted)">' + label + '</div>' +
+      '<div style="background:var(--surface);padding:8px 14px;display:flex;align-items:center;gap:8px">' +
+        '<span style="color:' + color + ';font-size:13px">' + text + '</span>' +
+        '<button class="btn" onclick="toggleConfigKey(\'' + key + '\',' + !enabled + ')" style="padding:2px 10px;font-size:11px">' + (enabled ? 'Disable' : 'Enable') + '</button>' +
+      '</div>';
+  };
+  var html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:8px;overflow:hidden">';
+  html += makeToggle('Task Board', 'taskBoard.enabled', data.enabled);
+  html += makeToggle('Auto-Dispatch', 'taskBoard.autoDispatch.enabled', data.autoDispatch);
+  html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;color:var(--muted)">Max Retries</div>';
+  html += '<div style="background:var(--surface);padding:10px 14px;font-size:13px;font-family:monospace">' + (data.maxRetries || 3) + '</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function toggleConfigKey(key, value) {
+  fetch('/api/config/toggle', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({key: key, value: value})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.status === 'ok') {
+      refreshSettings();
+    } else {
+      alert('Error: ' + (data.error || 'unknown'));
+    }
+  })
+  .catch(function(e) { alert('Error: ' + e); });
 }
 
 // --- Discord Notification Channels ---

@@ -32,6 +32,30 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		serveDashboardSSE(w, r, state.broker)
 	})
 
+	// --- Sprite Config + Assets ---
+	spritesDir := filepath.Join(cfg.baseDir, "media", "sprites")
+	mux.HandleFunc("/api/sprites/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		spriteCfg := loadSpriteConfig(spritesDir)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(spriteCfg)
+	})
+	mux.HandleFunc("/media/sprites/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		name := filepath.Base(r.URL.Path)
+		if name == "." || name == "/" || strings.Contains(name, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(spritesDir, name))
+	})
+
 	// --- Offline Queue ---
 	mux.HandleFunc("/queue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

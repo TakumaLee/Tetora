@@ -498,6 +498,20 @@ func cmdInit() {
 		cfg["defaultProvider"] = "openai"
 	}
 
+	// TaskBoard toggle.
+	fmt.Printf("\n%s\n", "Enable Task Board? (auto-dispatch + backlog triage)")
+	enableTB := interactiveChoose([]string{"Yes (Recommended)", "No"}, 0)
+	if enableTB == 0 {
+		cfg["taskBoard"] = map[string]any{
+			"enabled":    true,
+			"maxRetries": 3,
+			"autoDispatch": map[string]any{
+				"enabled":  true,
+				"interval": "5m",
+			},
+		}
+	}
+
 	// Create directories.
 	for _, d := range []string{
 		configDir,
