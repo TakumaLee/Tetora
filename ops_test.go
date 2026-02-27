@@ -478,8 +478,8 @@ func TestSystemHealth(t *testing.T) {
 	if cfgSummary["providers"] != 1 {
 		t.Errorf("expected providers=1, got %v", cfgSummary["providers"])
 	}
-	if cfgSummary["roles"] != 1 {
-		t.Errorf("expected roles=1, got %v", cfgSummary["roles"])
+	if cfgSummary["agents"] != 1 {
+		t.Errorf("expected agents=1, got %v", cfgSummary["agents"])
 	}
 }
 

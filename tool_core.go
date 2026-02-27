@@ -175,7 +175,8 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 					"name": {"type": "string", "description": "Job name"},
 					"schedule": {"type": "string", "description": "Cron schedule or interval (e.g., '@hourly', '*/5m')"},
 					"prompt": {"type": "string", "description": "Task prompt"},
-					"role": {"type": "string", "description": "Agent name (optional)"}
+					"agent": {"type": "string", "description": "Agent name (optional)"},
+					"role": {"type": "string", "description": "Deprecated alias for agent"}
 				},
 				"required": ["name", "schedule", "prompt"]
 			}`),
@@ -219,11 +220,12 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"role": {"type": "string", "description": "Target agent name"},
+					"agent": {"type": "string", "description": "Target agent name"},
+					"role": {"type": "string", "description": "Deprecated alias for agent"},
 					"prompt": {"type": "string", "description": "Task prompt to send"},
 					"timeout": {"type": "number", "description": "Timeout in seconds (default 300)"}
 				},
-				"required": ["role", "prompt"]
+				"required": ["prompt"]
 			}`),
 			Handler:     toolAgentDispatch,
 			Builtin:     true,
@@ -237,11 +239,12 @@ func registerCoreTools(r *ToolRegistry, cfg *Config, enabled func(string) bool) 
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"role": {"type": "string", "description": "Target agent name"},
+					"agent": {"type": "string", "description": "Target agent name"},
+					"role": {"type": "string", "description": "Deprecated alias for agent"},
 					"message": {"type": "string", "description": "Message content"},
 					"sessionId": {"type": "string", "description": "Target session ID (optional)"}
 				},
-				"required": ["role", "message"]
+				"required": ["message"]
 			}`),
 			Handler:     toolAgentMessage,
 			Builtin:     true,
@@ -693,7 +696,7 @@ func toolCronList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 			"name":     j.Name,
 			"schedule": j.Schedule,
 			"enabled":  j.Enabled,
-			"role":     j.Agent,
+			"agent":    j.Agent,
 		})
 	}
 
@@ -708,9 +711,13 @@ func toolCronCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		Schedule string `json:"schedule"`
 		Prompt   string `json:"prompt"`
 		Agent    string `json:"agent"`
+		Role     string `json:"role"` // backward compat
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Agent == "" {
+		args.Agent = args.Role
 	}
 	if args.Name == "" || args.Schedule == "" || args.Prompt == "" {
 		return "", fmt.Errorf("name, schedule, and prompt are required")

@@ -9,7 +9,7 @@ import (
 
 // currentConfigVersion is the latest config schema version.
 // Bump this when adding new migrations.
-const currentConfigVersion = 2
+const currentConfigVersion = 3
 
 // Migration describes a single config schema migration.
 type Migration struct {
@@ -50,6 +50,89 @@ var migrations = []Migration{
 				b, _ := json.Marshal("knowledge")
 				raw["knowledgeDir"] = b
 			}
+
+			return nil
+		},
+	},
+	{
+		Version:     3,
+		Description: "Rename roles->agents, defaultRole->defaultAgent, rule.role->rule.agent",
+		Migrate: func(raw map[string]json.RawMessage) error {
+			// Rename top-level "roles" → "agents".
+			if _, ok := raw["agents"]; !ok {
+				if rolesRaw, ok := raw["roles"]; ok {
+					raw["agents"] = rolesRaw
+					delete(raw, "roles")
+				}
+			}
+
+			// Rename inside smartDispatch: "defaultRole" → "defaultAgent", rules[].role → rules[].agent.
+			if sdRaw, ok := raw["smartDispatch"]; ok {
+				var sd map[string]json.RawMessage
+				if err := json.Unmarshal(sdRaw, &sd); err == nil {
+					// defaultRole → defaultAgent
+					if _, ok := sd["defaultAgent"]; !ok {
+						if drRaw, ok := sd["defaultRole"]; ok {
+							sd["defaultAgent"] = drRaw
+							delete(sd, "defaultRole")
+						}
+					}
+
+					// rules[].role → rules[].agent
+					if rulesRaw, ok := sd["rules"]; ok {
+						var rules []map[string]json.RawMessage
+						if err := json.Unmarshal(rulesRaw, &rules); err == nil {
+							for i, rule := range rules {
+								if _, ok := rule["agent"]; !ok {
+									if roleRaw, ok := rule["role"]; ok {
+										rule["agent"] = roleRaw
+										delete(rule, "role")
+										rules[i] = rule
+									}
+								}
+							}
+							if b, err := json.Marshal(rules); err == nil {
+								sd["rules"] = b
+							}
+						}
+					}
+
+					if b, err := json.Marshal(sd); err == nil {
+						raw["smartDispatch"] = b
+					}
+				}
+			}
+
+			// Rename inside discord.routes: {id}.role → {id}.agent.
+			if discordRaw, ok := raw["discord"]; ok {
+				var discord map[string]json.RawMessage
+				if err := json.Unmarshal(discordRaw, &discord); err == nil {
+					if routesRaw, ok := discord["routes"]; ok {
+						var routes map[string]map[string]json.RawMessage
+						if err := json.Unmarshal(routesRaw, &routes); err == nil {
+							for id, route := range routes {
+								if _, ok := route["agent"]; !ok {
+									if roleRaw, ok := route["role"]; ok {
+										route["agent"] = roleRaw
+										delete(route, "role")
+										routes[id] = route
+									}
+								}
+							}
+							if b, err := json.Marshal(routes); err == nil {
+								discord["routes"] = b
+							}
+						}
+					}
+					if b, err := json.Marshal(discord); err == nil {
+						raw["discord"] = b
+					}
+				}
+			}
+
+			// Set configVersion.
+			v, _ := json.Marshal(3)
+			raw["configVersion"] = v
 
 			return nil
 		},

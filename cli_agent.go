@@ -327,23 +327,26 @@ func updateConfigAgents(configPath, agentName string, rc *AgentConfig) error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	// Parse existing agents.
-	roles := make(map[string]AgentConfig)
-	if rolesRaw, ok := raw["roles"]; ok {
-		json.Unmarshal(rolesRaw, &roles)
+	// Parse existing agents (try "agents" first, fall back to "roles").
+	agents := make(map[string]AgentConfig)
+	if agentsRaw, ok := raw["agents"]; ok {
+		json.Unmarshal(agentsRaw, &agents)
+	} else if rolesRaw, ok := raw["roles"]; ok {
+		json.Unmarshal(rolesRaw, &agents)
+		delete(raw, "roles") // migrate to new key
 	}
 
 	if rc == nil {
-		delete(roles, agentName)
+		delete(agents, agentName)
 	} else {
-		roles[agentName] = *rc
+		agents[agentName] = *rc
 	}
 
-	rolesJSON, err := json.Marshal(roles)
+	agentsJSON, err := json.Marshal(agents)
 	if err != nil {
 		return err
 	}
-	raw["roles"] = rolesJSON
+	raw["agents"] = agentsJSON
 
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {

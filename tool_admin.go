@@ -20,7 +20,7 @@ func registerAdminTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 					"description": {"type": "string", "description": "What the skill does"},
 					"script": {"type": "string", "description": "The script content (bash or python)"},
 					"language": {"type": "string", "enum": ["bash", "python"], "description": "Script language (default: bash)"},
-					"matcher": {"type": "object", "properties": {"roles": {"type": "array", "items": {"type": "string"}}, "keywords": {"type": "array", "items": {"type": "string"}}}, "description": "Conditions for auto-injecting this skill"}
+					"matcher": {"type": "object", "properties": {"agents": {"type": "array", "items": {"type": "string"}}, "keywords": {"type": "array", "items": {"type": "string"}}}, "description": "Conditions for auto-injecting this skill"}
 				},
 				"required": ["name", "description", "script"]
 			}`),

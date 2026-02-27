@@ -8,7 +8,7 @@ import (
 
 // SkillMatcher defines conditions for when a skill should be injected into a prompt.
 type SkillMatcher struct {
-	Agents    []string `json:"agents,omitempty"`    // inject for these roles
+	Agents    []string `json:"agents,omitempty"`    // inject for these agents
 	Keywords []string `json:"keywords,omitempty"` // inject when prompt matches
 	Channels []string `json:"channels,omitempty"` // inject for these channels (telegram, slack, discord, etc.)
 }

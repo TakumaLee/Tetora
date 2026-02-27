@@ -357,7 +357,7 @@ func TestSaveRoleTrustLevel(t *testing.T) {
 
 	// Create a minimal config.
 	cfg := map[string]any{
-		"roles": map[string]any{
+		"agents": map[string]any{
 			"翡翠": map[string]any{
 				"model":      "sonnet",
 				"trustLevel": "suggest",
@@ -377,7 +377,7 @@ func TestSaveRoleTrustLevel(t *testing.T) {
 	var result map[string]any
 	json.Unmarshal(data, &result)
 
-	roles := result["roles"].(map[string]any)
+	roles := result["agents"].(map[string]any)
 	role := roles["翡翠"].(map[string]any)
 	if role["trustLevel"] != "auto" {
 		t.Errorf("persisted trustLevel = %v, want auto", role["trustLevel"])
@@ -463,7 +463,7 @@ func TestTrustAPISetLevel(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.json")
 	cfgJSON := map[string]any{
-		"roles": map[string]any{
+		"agents": map[string]any{
 			"翡翠": map[string]any{"model": "sonnet", "trustLevel": "suggest"},
 		},
 	}

@@ -141,6 +141,104 @@ type Config struct {
 	toolRegistry *ToolRegistry
 }
 
+// UnmarshalJSON implements backward compat: accepts both "roles" and "agents" keys.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion.
+	type ConfigAlias Config
+	var alias ConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	// If "agents" is empty, try "roles" from raw JSON.
+	if len(alias.Agents) == 0 {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if rolesRaw, ok := raw["roles"]; ok {
+				var roles map[string]AgentConfig
+				if err := json.Unmarshal(rolesRaw, &roles); err == nil && len(roles) > 0 {
+					alias.Agents = roles
+				}
+			}
+		}
+	}
+
+	*c = Config(alias)
+	return nil
+}
+
+// UnmarshalJSON implements backward compat: accepts both "defaultRole" and "defaultAgent".
+func (s *SmartDispatchConfig) UnmarshalJSON(data []byte) error {
+	type SDAlias SmartDispatchConfig
+	var alias SDAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	if alias.DefaultAgent == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if drRaw, ok := raw["defaultRole"]; ok {
+				var dr string
+				if err := json.Unmarshal(drRaw, &dr); err == nil {
+					alias.DefaultAgent = dr
+				}
+			}
+		}
+	}
+
+	*s = SmartDispatchConfig(alias)
+	return nil
+}
+
+// UnmarshalJSON implements backward compat: accepts both "role" and "agent".
+func (r *RoutingRule) UnmarshalJSON(data []byte) error {
+	type RRAlias RoutingRule
+	var alias RRAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	if alias.Agent == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if roleRaw, ok := raw["role"]; ok {
+				var role string
+				if err := json.Unmarshal(roleRaw, &role); err == nil {
+					alias.Agent = role
+				}
+			}
+		}
+	}
+
+	*r = RoutingRule(alias)
+	return nil
+}
+
+// UnmarshalJSON implements backward compat: accepts both "role" and "agent".
+func (b *RoutingBinding) UnmarshalJSON(data []byte) error {
+	type RBAlias RoutingBinding
+	var alias RBAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+
+	if alias.Agent == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if roleRaw, ok := raw["role"]; ok {
+				var role string
+				if err := json.Unmarshal(roleRaw, &role); err == nil {
+					alias.Agent = role
+				}
+			}
+		}
+	}
+
+	*b = RoutingBinding(alias)
+	return nil
+}
+
 // --- Tiered Prompt Builder: Budget Config ---
 
 // PromptBudgetConfig controls maximum character budgets for each section

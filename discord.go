@@ -38,6 +38,34 @@ type DiscordBotConfig struct {
 	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
 	Voice            DiscordVoiceConfig          `json:"voice,omitempty"`            // P14.5: voice channel integration
 	NotifyChannelID  string                      `json:"notifyChannelID,omitempty"`  // task notification channel (thread-per-task)
+	Routes           map[string]DiscordRouteConfig `json:"routes,omitempty"`           // per-channel agent routing
+}
+
+// DiscordRouteConfig binds a Discord channel to a specific agent.
+type DiscordRouteConfig struct {
+	Agent string `json:"agent"`
+}
+
+// UnmarshalJSON implements backward compat: accepts both "role" and "agent".
+func (d *DiscordRouteConfig) UnmarshalJSON(data []byte) error {
+	type Alias DiscordRouteConfig
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	if alias.Agent == "" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			if roleRaw, ok := raw["role"]; ok {
+				var role string
+				if err := json.Unmarshal(roleRaw, &role); err == nil {
+					alias.Agent = role
+				}
+			}
+		}
+	}
+	*d = DiscordRouteConfig(alias)
+	return nil
 }
 
 // --- P14.1: Discord Components v2 ---
@@ -722,6 +750,12 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
+	// Per-channel route binding (highest priority).
+	if route, ok := db.cfg.Discord.Routes[msg.ChannelID]; ok && route.Agent != "" {
+		db.handleDirectRoute(msg, text, route.Agent)
+		return
+	}
+
 	if db.cfg.SmartDispatch.Enabled {
 		db.handleRoute(msg, text)
 	} else if db.cfg.DefaultAgent != "" {
@@ -1064,8 +1098,8 @@ func (db *DiscordBot) cmdApprove(msg discordMessage, args string) {
 // --- Direct Route (no SmartDispatch) ---
 
 // handleDirectRoute dispatches a message directly to a known agent without smart routing.
-func (db *DiscordBot) handleDirectRoute(msg discordMessage, prompt string, role string) {
-	route := RouteResult{Agent: role, Method: "default", Confidence: "high"}
+func (db *DiscordBot) handleDirectRoute(msg discordMessage, prompt string, agent string) {
+	route := RouteResult{Agent: agent, Method: "default", Confidence: "high"}
 	db.executeRoute(msg, prompt, route)
 }
 

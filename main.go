@@ -476,7 +476,7 @@ func main() {
 		if err := initDirectories(cfg); err != nil {
 			logWarn("init directories failed", "error", err)
 		} else {
-			logInfo("directories initialized", "roles", len(cfg.Agents))
+			logInfo("directories initialized", "agents", len(cfg.Agents))
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())

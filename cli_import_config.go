@@ -71,21 +71,27 @@ func cmdImportConfig(args []string) {
 		os.Exit(1)
 	}
 
-	// Parse existing agents from destination.
-	dstRoles := make(map[string]AgentConfig)
-	if rolesRaw, ok := dstRaw["roles"]; ok {
+	// Parse existing agents from destination (try "agents" first, fall back to "roles").
+	dstAgents := make(map[string]AgentConfig)
+	if agentsRaw, ok := dstRaw["agents"]; ok {
+		b, _ := json.Marshal(agentsRaw)
+		json.Unmarshal(b, &dstAgents)
+	} else if rolesRaw, ok := dstRaw["roles"]; ok {
 		b, _ := json.Marshal(rolesRaw)
-		json.Unmarshal(b, &dstRoles)
+		json.Unmarshal(b, &dstAgents)
 	}
 
-	// Parse source agents.
+	// Parse source agents (try "agents" first, fall back to "roles").
 	var srcRaw map[string]any
 	json.Unmarshal(srcData, &srcRaw)
 
-	srcRoles := make(map[string]AgentConfig)
-	if rolesRaw, ok := srcRaw["roles"]; ok {
+	srcAgents := make(map[string]AgentConfig)
+	if agentsRaw, ok := srcRaw["agents"]; ok {
+		b, _ := json.Marshal(agentsRaw)
+		json.Unmarshal(b, &srcAgents)
+	} else if rolesRaw, ok := srcRaw["roles"]; ok {
 		b, _ := json.Marshal(rolesRaw)
-		json.Unmarshal(b, &srcRoles)
+		json.Unmarshal(b, &srcAgents)
 	}
 
 	// Detect source agents directory.
@@ -94,26 +100,26 @@ func cmdImportConfig(args []string) {
 
 	// Summary counters.
 	var actions []string
-	rolesAdded := 0
-	rolesSkipped := 0
-	rolesReplaced := 0
+	agentsAdded := 0
+	agentsSkipped := 0
+	agentsReplaced := 0
 	soulsCopied := 0
 
 	// Process agents.
-	for name, rc := range srcRoles {
-		if _, exists := dstRoles[name]; exists {
+	for name, rc := range srcAgents {
+		if _, exists := dstAgents[name]; exists {
 			if mode == "merge" {
-				rolesSkipped++
+				agentsSkipped++
 				actions = append(actions, fmt.Sprintf("  skip agent %q (already exists)", name))
 				continue
 			}
-			rolesReplaced++
+			agentsReplaced++
 			actions = append(actions, fmt.Sprintf("  replace agent %q", name))
 		} else {
-			rolesAdded++
+			agentsAdded++
 			actions = append(actions, fmt.Sprintf("  add agent %q (model=%s, perm=%s)", name, rc.Model, rc.PermissionMode))
 		}
-		dstRoles[name] = rc
+		dstAgents[name] = rc
 
 		// Copy SOUL.md if available.
 		if agentsSrcDir != "" {
@@ -148,10 +154,11 @@ func cmdImportConfig(args []string) {
 	}
 
 	// Update agents in raw config.
-	rolesJSON, _ := json.Marshal(dstRoles)
-	var rolesAny any
-	json.Unmarshal(rolesJSON, &rolesAny)
-	dstRaw["roles"] = rolesAny
+	agentsJSON, _ := json.Marshal(dstAgents)
+	var agentsAny any
+	json.Unmarshal(agentsJSON, &agentsAny)
+	dstRaw["agents"] = agentsAny
+	delete(dstRaw, "roles") // clean up old key
 
 	// Print summary.
 	fmt.Printf("Import config: %s (mode=%s)\n", srcPath, mode)
@@ -164,7 +171,7 @@ func cmdImportConfig(args []string) {
 		fmt.Println(a)
 	}
 	fmt.Printf("\nSummary: %d added, %d replaced, %d skipped, %d SOUL files\n",
-		rolesAdded, rolesReplaced, rolesSkipped, soulsCopied)
+		agentsAdded, agentsReplaced, agentsSkipped, soulsCopied)
 
 	if dryRun {
 		fmt.Println("\n(dry-run: no changes written)")
@@ -314,23 +321,27 @@ func importSmartDispatch(src, dst map[string]any, mode string) []string {
 	// Append new rules.
 	if srcRules, ok := srcSD["rules"].([]any); ok && len(srcRules) > 0 {
 		dstRules, _ := dstSD["rules"].([]any)
-		existingRoles := make(map[string]bool)
+		existingAgents := make(map[string]bool)
 		for _, r := range dstRules {
 			if rm, ok := r.(map[string]any); ok {
-				if role, ok := rm["role"].(string); ok {
-					existingRoles[role] = true
+				if agent, ok := rm["agent"].(string); ok {
+					existingAgents[agent] = true
+				} else if role, ok := rm["role"].(string); ok {
+					existingAgents[role] = true
 				}
 			}
 		}
 		added := 0
 		for _, r := range srcRules {
 			if rm, ok := r.(map[string]any); ok {
-				if role, ok := rm["role"].(string); ok {
-					if !existingRoles[role] {
-						dstRules = append(dstRules, r)
-						existingRoles[role] = true
-						added++
-					}
+				agent, _ := rm["agent"].(string)
+				if agent == "" {
+					agent, _ = rm["role"].(string)
+				}
+				if agent != "" && !existingAgents[agent] {
+					dstRules = append(dstRules, r)
+					existingAgents[agent] = true
+					added++
 				}
 			}
 		}

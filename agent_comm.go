@@ -130,6 +130,7 @@ func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (str
 func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
 		Agent    string  `json:"agent"`
+		Role     string  `json:"role"` // backward compat
 		Prompt   string  `json:"prompt"`
 		Timeout  float64 `json:"timeout"`
 		Depth    int     `json:"depth"`    // --- P13.3: current depth (passed by parent)
@@ -137,6 +138,9 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Agent == "" {
+		args.Agent = args.Role
 	}
 	if args.Agent == "" {
 		return "", fmt.Errorf("agent is required")
@@ -266,11 +270,15 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 func toolAgentMessage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
 		Agent     string `json:"agent"`
+		Role      string `json:"role"` // backward compat
 		Message   string `json:"message"`
 		SessionID string `json:"sessionId"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Agent == "" {
+		args.Agent = args.Role
 	}
 	if args.Agent == "" {
 		return "", fmt.Errorf("agent is required")

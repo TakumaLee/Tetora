@@ -358,11 +358,15 @@ func updateAgentTrustLevel(cfg *Config, agentName, newLevel string) error {
 // saveAgentTrustLevel persists a trust level change to config.json.
 func saveAgentTrustLevel(configPath, agentName, newLevel string) error {
 	return updateConfigField(configPath, func(raw map[string]any) {
-		roles, ok := raw["roles"].(map[string]any)
+		agents, ok := raw["agents"].(map[string]any)
 		if !ok {
-			return
+			// Fallback to old "roles" key.
+			agents, ok = raw["roles"].(map[string]any)
+			if !ok {
+				return
+			}
 		}
-		rc, ok := roles[agentName].(map[string]any)
+		rc, ok := agents[agentName].(map[string]any)
 		if !ok {
 			return
 		}
