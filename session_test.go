@@ -475,11 +475,11 @@ func TestWrapWithContext(t *testing.T) {
 
 	// With context.
 	got2 := wrapWithContext("[user] Previous msg", "New message")
-	if !contains(got2, "[Conversation history]") {
-		t.Error("missing conversation history header")
+	if !contains(got2, "<conversation_history>") {
+		t.Error("missing conversation_history opening tag")
 	}
-	if !contains(got2, "[Current message]") {
-		t.Error("missing current message header")
+	if !contains(got2, "</conversation_history>") {
+		t.Error("missing conversation_history closing tag")
 	}
 	if !contains(got2, "Previous msg") {
 		t.Error("missing context content")

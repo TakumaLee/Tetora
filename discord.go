@@ -406,8 +406,9 @@ type DiscordBot struct {
 	client       *http.Client
 	stopCh       chan struct{}
 	interactions *discordInteractionState // P14.1: tracks pending component interactions
-	threads      *threadBindingStore      // P14.2: per-thread agent bindings
-	reactions    *discordReactionManager  // P14.3: lifecycle reactions
+	threads       *threadBindingStore      // P14.2: per-thread agent bindings
+	threadParents *threadParentCache      // thread→parent channel cache
+	reactions     *discordReactionManager // P14.3: lifecycle reactions
 	approvalGate *discordApprovalGate     // P28.0: approval gate
 	forumBoard   *discordForumBoard       // P14.4: forum task board
 	voice        *discordVoiceManager     // P14.5: voice channel manager
@@ -424,8 +425,9 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 		cron:         cron,
 		client:       &http.Client{Timeout: 10 * time.Second},
 		stopCh:       make(chan struct{}),
-		interactions: newDiscordInteractionState(), // P14.1
-		threads:      newThreadBindingStore(),      // P14.2
+		interactions:  newDiscordInteractionState(), // P14.1
+		threads:       newThreadBindingStore(),      // P14.2
+		threadParents: newThreadParentCache(),
 	}
 
 	// P14.3: Initialize reaction manager.
@@ -466,7 +468,7 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 func (db *DiscordBot) Run(ctx context.Context) {
 	// P14.2: Start thread binding cleanup goroutine.
 	if db.threads != nil && db.cfg.Discord.ThreadBindings.Enabled {
-		go startThreadCleanup(ctx, db.threads)
+		go startThreadCleanup(ctx, db.threads, db.threadParents)
 	}
 
 	for {
@@ -697,8 +699,8 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
-	// Channel/guild restriction.
-	if !db.isAllowedChannel(msg.ChannelID) {
+	// Channel/guild restriction — also resolves thread→parent for allowlist check.
+	if !db.isAllowedChannelOrThread(msg.ChannelID, msg.GuildID) {
 		return
 	}
 	if db.cfg.Discord.GuildID != "" && msg.GuildID != db.cfg.Discord.GuildID {
@@ -706,9 +708,15 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	}
 
 	// Direct channels respond to all messages; mention channels require @; DMs always accepted.
+	// For threads, inherit the parent channel's direct-channel status.
 	mentioned := discordIsMentioned(msg.Mentions, db.botUserID)
 	isDM := msg.GuildID == ""
 	isDirect := db.isDirectChannel(msg.ChannelID)
+	if !isDirect && msg.GuildID != "" {
+		if parentID := db.resolveThreadParent(msg.ChannelID); parentID != "" {
+			isDirect = db.isDirectChannel(parentID)
+		}
+	}
 	logDebug("discord message filter",
 		"mentioned", mentioned, "isDM", isDM, "isDirect", isDirect,
 		"channel", msg.ChannelID, "author", msg.Author.Username)
@@ -753,9 +761,18 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	}
 
 	// Per-channel route binding (highest priority).
+	// For threads, also check parent channel's route binding.
 	if route, ok := db.cfg.Discord.Routes[msg.ChannelID]; ok && route.Agent != "" {
 		db.handleDirectRoute(msg, text, route.Agent)
 		return
+	}
+	if msg.GuildID != "" {
+		if parentID := db.resolveThreadParent(msg.ChannelID); parentID != "" {
+			if route, ok := db.cfg.Discord.Routes[parentID]; ok && route.Agent != "" {
+				db.handleDirectRoute(msg, text, route.Agent)
+				return
+			}
+		}
 	}
 
 	if db.cfg.SmartDispatch.Enabled {
@@ -1161,10 +1178,15 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	}
 
 	// Context-aware prompt.
+	// Skip text injection for providers with native session support (e.g. claude-code)
+	// to avoid double context — the provider already resumes the session natively.
 	contextPrompt := prompt
 	if sess != nil {
-		sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.contextMessagesOrDefault())
-		contextPrompt = wrapWithContext(sessionCtx, prompt)
+		providerName := resolveProviderName(db.cfg, Task{Agent: route.Agent}, route.Agent)
+		if !providerHasNativeSession(providerName) {
+			sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.contextMessagesOrDefault())
+			contextPrompt = wrapWithContext(sessionCtx, prompt)
+		}
 		now := time.Now().Format(time.RFC3339)
 		addSessionMessage(dbPath, SessionMessage{
 			SessionID: sess.ID, Role: "user", Content: truncateStr(prompt, 5000), CreatedAt: now,
@@ -1514,6 +1536,53 @@ func (db *DiscordBot) isMentionChannel(chID string) bool {
 		if id == chID {
 			return true
 		}
+	}
+	return false
+}
+
+// resolveThreadParent returns the parent channel ID for a thread.
+// Checks the cache first, then falls back to the Discord API.
+func (db *DiscordBot) resolveThreadParent(threadID string) string {
+	if db.threadParents == nil {
+		return ""
+	}
+	// Check cache (includes negative entries).
+	if parentID, cached := db.threadParents.get(threadID); cached {
+		return parentID
+	}
+	// Fallback: GET /channels/{threadID} and parse parent_id.
+	body, err := db.discordRequestWithResponse("GET", fmt.Sprintf("/channels/%s", threadID), nil)
+	if err != nil {
+		logDebug("resolveThreadParent API failed", "thread", threadID, "error", err)
+		// Cache negative result to avoid repeated API calls on failure.
+		db.threadParents.set(threadID, "")
+		return ""
+	}
+	var ch struct {
+		ParentID string `json:"parent_id"`
+	}
+	if err := json.Unmarshal(body, &ch); err != nil || ch.ParentID == "" {
+		db.threadParents.set(threadID, "")
+		return ""
+	}
+	db.threadParents.set(threadID, ch.ParentID)
+	logDebug("resolved thread parent", "thread", threadID, "parent", ch.ParentID)
+	return ch.ParentID
+}
+
+// isAllowedChannelOrThread checks if a channel is allowed, including thread→parent resolution.
+// If the channel itself isn't allowed but is a guild thread, resolves its parent and checks that.
+func (db *DiscordBot) isAllowedChannelOrThread(chID, guildID string) bool {
+	if db.isAllowedChannel(chID) {
+		return true
+	}
+	// Only attempt thread parent resolution for guild messages.
+	if guildID == "" {
+		return false
+	}
+	parentID := db.resolveThreadParent(chID)
+	if parentID != "" {
+		return db.isAllowedChannel(parentID)
 	}
 	return false
 }

@@ -765,10 +765,14 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		// Build context from previous messages.
+		// Skip text injection for providers with native session support (e.g. claude-code).
 		contextPrompt := prompt
 		if sess != nil {
-			ctx := buildSessionContext(dbPath, sess.ID, b.cfg.Session.contextMessagesOrDefault())
-			contextPrompt = wrapWithContext(ctx, prompt)
+			providerName := resolveProviderName(b.cfg, Task{}, "")
+			if !providerHasNativeSession(providerName) {
+				ctx := buildSessionContext(dbPath, sess.ID, b.cfg.Session.contextMessagesOrDefault())
+				contextPrompt = wrapWithContext(ctx, prompt)
+			}
 
 			// Record user message.
 			now := time.Now().Format(time.RFC3339)
@@ -881,10 +885,14 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 		}
 
 		// Step 3: Build context-aware prompt.
+		// Skip text injection for providers with native session support (e.g. claude-code).
 		contextPrompt := prompt
 		if sess != nil {
-			sessionCtx := buildSessionContext(dbPath, sess.ID, b.cfg.Session.contextMessagesOrDefault())
-			contextPrompt = wrapWithContext(sessionCtx, prompt)
+			providerName := resolveProviderName(b.cfg, Task{Agent: route.Agent}, route.Agent)
+			if !providerHasNativeSession(providerName) {
+				sessionCtx := buildSessionContext(dbPath, sess.ID, b.cfg.Session.contextMessagesOrDefault())
+				contextPrompt = wrapWithContext(sessionCtx, prompt)
+			}
 
 			// Record user message to session.
 			now := time.Now().Format(time.RFC3339)

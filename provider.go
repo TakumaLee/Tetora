@@ -118,6 +118,14 @@ func (r *providerRegistry) get(name string) (Provider, error) {
 
 // --- Provider Resolution ---
 
+// providerHasNativeSession returns true if the provider maintains its own
+// session state (e.g. claude-code with --session-id). For these providers,
+// Tetora should NOT inject conversation history as text — the provider
+// already resumes the session natively, and double-injection causes confusion.
+func providerHasNativeSession(providerName string) bool {
+	return providerName == "claude-code"
+}
+
 // resolveProviderName determines which provider to use for a task.
 // Chain: task.Provider → agent provider → config.DefaultProvider → "claude"
 func resolveProviderName(cfg *Config, task Task, agentName string) string {

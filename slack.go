@@ -276,10 +276,14 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	}
 
 	// Step 3: Build context-aware prompt.
+	// Skip text injection for providers with native session support (e.g. claude-code).
 	contextPrompt := prompt
 	if sess != nil {
-		sessionCtx := buildSessionContext(dbPath, sess.ID, sb.cfg.Session.contextMessagesOrDefault())
-		contextPrompt = wrapWithContext(sessionCtx, prompt)
+		providerName := resolveProviderName(sb.cfg, Task{Agent: route.Agent}, route.Agent)
+		if !providerHasNativeSession(providerName) {
+			sessionCtx := buildSessionContext(dbPath, sess.ID, sb.cfg.Session.contextMessagesOrDefault())
+			contextPrompt = wrapWithContext(sessionCtx, prompt)
+		}
 
 		// Record user message to session.
 		now := time.Now().Format(time.RFC3339)

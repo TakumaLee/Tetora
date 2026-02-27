@@ -11,6 +11,103 @@ import (
 	"time"
 )
 
+// --- Thread Parent Cache ---
+
+// threadParentCache caches the mapping from thread channel IDs to parent channel IDs.
+// Discord threads have their own channel IDs that don't appear in config allowlists.
+// This cache avoids repeated API calls to resolve thread→parent relationships.
+// Bounded to threadParentCacheMaxSize entries with LRU-style eviction.
+type threadParentCache struct {
+	mu    sync.RWMutex
+	items map[string]threadParentEntry
+}
+
+type threadParentEntry struct {
+	ParentID  string    // empty string = negative cache (thread has no parent / API failed)
+	ExpiresAt time.Time
+}
+
+const (
+	threadParentCacheTTL     = 24 * time.Hour   // thread→parent is immutable; long TTL, bounded by max size
+	threadParentNegativeTTL  = 5 * time.Minute  // shorter TTL for failed lookups (transient errors)
+	threadParentCacheMaxSize = 1000
+)
+
+func newThreadParentCache() *threadParentCache {
+	return &threadParentCache{
+		items: make(map[string]threadParentEntry),
+	}
+}
+
+// get returns the cached parent channel ID for a thread.
+// Returns ("", false) if not cached or expired.
+// Returns ("", true) if negative-cached (known non-thread or API failure).
+// Returns (parentID, true) on cache hit.
+func (c *threadParentCache) get(threadID string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, ok := c.items[threadID]
+	if !ok || time.Now().After(entry.ExpiresAt) {
+		return "", false
+	}
+	return entry.ParentID, true
+}
+
+// set caches a thread→parent mapping with TTL.
+// parentID == "" caches a negative result (shorter TTL).
+func (c *threadParentCache) set(threadID, parentID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Evict expired entries if at capacity.
+	if len(c.items) >= threadParentCacheMaxSize {
+		c.evictExpiredLocked()
+	}
+	// If still at capacity after eviction, drop oldest entry.
+	if len(c.items) >= threadParentCacheMaxSize {
+		c.evictOldestLocked()
+	}
+	ttl := threadParentCacheTTL
+	if parentID == "" {
+		ttl = threadParentNegativeTTL
+	}
+	c.items[threadID] = threadParentEntry{
+		ParentID:  parentID,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+}
+
+// cleanup removes all expired entries.
+func (c *threadParentCache) cleanup() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.evictExpiredLocked()
+}
+
+// evictExpiredLocked removes expired entries. Caller must hold write lock.
+func (c *threadParentCache) evictExpiredLocked() {
+	now := time.Now()
+	for k, v := range c.items {
+		if now.After(v.ExpiresAt) {
+			delete(c.items, k)
+		}
+	}
+}
+
+// evictOldestLocked removes the entry with the earliest expiration. Caller must hold write lock.
+func (c *threadParentCache) evictOldestLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, v := range c.items {
+		if oldestKey == "" || v.ExpiresAt.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.ExpiresAt
+		}
+	}
+	if oldestKey != "" {
+		delete(c.items, oldestKey)
+	}
+}
+
 // --- Config ---
 
 // DiscordThreadBindingsConfig configures per-thread agent session isolation.
@@ -74,16 +171,16 @@ func threadBindingKey(guildID, threadID string) string {
 }
 
 // bind creates or updates a thread binding. Returns the generated session ID.
-func (s *threadBindingStore) bind(guildID, threadID, role string, ttl time.Duration) string {
+func (s *threadBindingStore) bind(guildID, threadID, agent string, ttl time.Duration) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := threadBindingKey(guildID, threadID)
 	now := time.Now()
-	sessionID := threadSessionKey(role, guildID, threadID)
+	sessionID := threadSessionKey(agent, guildID, threadID)
 
 	s.bindings[key] = &threadBinding{
-		Agent:     role,
+		Agent:     agent,
 		GuildID:   guildID,
 		ThreadID:  threadID,
 		SessionID: sessionID,
@@ -145,14 +242,14 @@ func (s *threadBindingStore) count() int {
 
 // threadSessionKey generates a deterministic session key for a thread binding.
 // Format: agent:{agent}:discord:thread:{guildId}:{threadId}
-func threadSessionKey(role, guildID, threadID string) string {
-	return fmt.Sprintf("agent:%s:discord:thread:%s:%s", role, guildID, threadID)
+func threadSessionKey(agent, guildID, threadID string) string {
+	return fmt.Sprintf("agent:%s:discord:thread:%s:%s", agent, guildID, threadID)
 }
 
 // --- Cleanup Goroutine ---
 
-// startThreadCleanup runs periodic cleanup of expired thread bindings.
-func startThreadCleanup(ctx context.Context, store *threadBindingStore) {
+// startThreadCleanup runs periodic cleanup of expired thread bindings and parent cache entries.
+func startThreadCleanup(ctx context.Context, store *threadBindingStore, parentCache *threadParentCache) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 	for {
@@ -161,7 +258,10 @@ func startThreadCleanup(ctx context.Context, store *threadBindingStore) {
 			return
 		case <-ticker.C:
 			store.cleanup()
-			logDebug("discord thread bindings cleanup complete", "remaining", store.count())
+			if parentCache != nil {
+				parentCache.cleanup()
+			}
+			logDebug("discord thread cleanup complete", "bindings", store.count())
 		}
 	}
 }
@@ -272,24 +372,31 @@ func (db *DiscordBot) handleThreadMessage(msg discordMessage, channelType int) b
 		return false
 	}
 
-	if !isThreadChannel(channelType) {
+	// channelType may be 0 when Discord omits it from the payload.
+	// If it's explicitly a non-thread type (1-10), skip. If 0 or thread type, check binding.
+	if channelType > 0 && !isThreadChannel(channelType) {
 		return false
 	}
 
-	// Check for /focus and /unfocus commands first.
+	// For channelType == 0 (unknown), check if we have a binding as a fallback signal.
+	// This handles cases where Discord doesn't include channel_type in MESSAGE_CREATE.
+	binding := db.threads.get(msg.GuildID, msg.ChannelID)
+	isThread := isThreadChannel(channelType)
+
+	// Check for /focus and /unfocus commands (only in confirmed threads).
 	text := discordStripMention(msg.Content, db.botUserID)
 	text = strings.TrimSpace(text)
 
-	if strings.HasPrefix(text, "/focus") {
-		args := strings.TrimPrefix(text, "/focus")
-		return db.handleFocusCommand(msg, args, channelType)
-	}
-	if text == "/unfocus" {
-		return db.handleUnfocusCommand(msg, channelType)
+	if isThread {
+		if strings.HasPrefix(text, "/focus") {
+			args := strings.TrimPrefix(text, "/focus")
+			return db.handleFocusCommand(msg, args, channelType)
+		}
+		if text == "/unfocus" {
+			return db.handleUnfocusCommand(msg, channelType)
+		}
 	}
 
-	// Check if thread is bound.
-	binding := db.threads.get(msg.GuildID, msg.ChannelID)
 	if binding == nil {
 		return false // not bound, use normal routing
 	}
@@ -322,10 +429,14 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 	}
 
 	// Context-aware prompt.
+	// Skip text injection for providers with native session support (e.g. claude-code).
 	contextPrompt := prompt
 	if sess != nil {
-		sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.contextMessagesOrDefault())
-		contextPrompt = wrapWithContext(sessionCtx, prompt)
+		providerName := resolveProviderName(db.cfg, Task{Agent: role}, role)
+		if !providerHasNativeSession(providerName) {
+			sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.contextMessagesOrDefault())
+			contextPrompt = wrapWithContext(sessionCtx, prompt)
+		}
 		now := time.Now().Format(time.RFC3339)
 		addSessionMessage(dbPath, SessionMessage{
 			SessionID: sess.ID, Role: "user", Content: truncateStr(prompt, 5000), CreatedAt: now,

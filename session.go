@@ -586,11 +586,14 @@ func buildSessionContextWithLimit(dbPath, sessionID string, maxMessages int, max
 
 // wrapWithContext prepends conversation history to a new user prompt.
 // Returns the original prompt unchanged if there's no context.
+// Uses XML tags for clearer structure that LLMs parse more reliably.
 func wrapWithContext(sessionContext, prompt string) string {
 	if sessionContext == "" {
 		return prompt
 	}
-	return fmt.Sprintf("[Conversation history]\n%s\n\n[Current message]\n%s", sessionContext, prompt)
+	return fmt.Sprintf(
+		"<conversation_history>\nYou are in a continuous conversation. Continue naturally.\n\n%s\n</conversation_history>\n\n%s",
+		sessionContext, prompt)
 }
 
 // --- Context Compaction ---

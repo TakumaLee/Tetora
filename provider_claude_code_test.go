@@ -37,7 +37,7 @@ func TestBuildClaudeCodeArgs_Basic(t *testing.T) {
 	}
 	args := buildClaudeCodeArgs(req)
 
-	expected := []string{"--print", "--verbose", "--output-format", "stream-json", "--model", "claude-sonnet-4-5-20250929"}
+	expected := []string{"--print", "--verbose", "--output-format", "stream-json", "--model", "claude-sonnet-4-5-20250929", "--permission-mode", "acceptEdits"}
 	if len(args) != len(expected) {
 		t.Fatalf("len(args) = %d, want %d; args = %v", len(args), len(expected), args)
 	}
