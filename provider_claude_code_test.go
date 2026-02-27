@@ -51,6 +51,7 @@ func TestBuildClaudeCodeArgs_Basic(t *testing.T) {
 func TestBuildClaudeCodeArgs_AllOptions(t *testing.T) {
 	req := ProviderRequest{
 		Model:          "claude-opus-4-20250514",
+		SessionID:      "test-session-123",
 		SystemPrompt:   "You are a helpful assistant.",
 		Budget:         1.50,
 		PermissionMode: "bypassPermissions",
@@ -59,6 +60,7 @@ func TestBuildClaudeCodeArgs_AllOptions(t *testing.T) {
 
 	// Verify each expected flag is present.
 	assertContainsFlag(t, args, "--model", "claude-opus-4-20250514")
+	assertContainsFlag(t, args, "--session-id", "test-session-123")
 	assertContainsFlag(t, args, "--append-system-prompt", "You are a helpful assistant.")
 	assertContainsFlag(t, args, "--permission-mode", "bypassPermissions")
 

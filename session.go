@@ -792,7 +792,11 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 
 		// Mark session completed once the task reaches any terminal state.
 		// Multi-turn sessions via /sessions/{id}/message won't hit this path.
-		updateSessionStatus(dbPath, sessionID, "completed")
+		// Channel-bound sessions (Discord, etc.) stay active for conversation continuity.
+		existing, _ := querySessionByID(dbPath, sessionID)
+		if existing == nil || existing.ChannelKey == "" {
+			updateSessionStatus(dbPath, sessionID, "completed")
+		}
 	}()
 }
 

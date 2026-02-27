@@ -84,14 +84,29 @@ func (p *ClaudeCodeProvider) Execute(ctx context.Context, req ProviderRequest) (
 			// Emit SSE events for live streaming if channel is set.
 			if req.EventCh != nil && msg.Message != nil {
 				for _, block := range msg.Message.Content {
-					if block.Type == "text" && block.Text != "" {
+					switch block.Type {
+					case "text":
+						if block.Text != "" {
+							req.EventCh <- SSEEvent{
+								Type:      SSEOutputChunk,
+								TaskID:    req.SessionID,
+								SessionID: req.SessionID,
+								Data: map[string]any{
+									"chunk":     block.Text,
+									"chunkType": "text",
+								},
+								Timestamp: time.Now().Format(time.RFC3339),
+							}
+						}
+					case "tool_use":
 						req.EventCh <- SSEEvent{
-							Type:      SSEOutputChunk,
+							Type:      SSEToolCall,
 							TaskID:    req.SessionID,
 							SessionID: req.SessionID,
 							Data: map[string]any{
-								"chunk":     block.Text,
-								"chunkType": "text",
+								"name":  block.Name,
+								"id":    block.ID,
+								"input": string(block.Input),
 							},
 							Timestamp: time.Now().Format(time.RFC3339),
 						}
@@ -173,6 +188,10 @@ func buildClaudeCodeArgs(req ProviderRequest) []string {
 	// NOTE: --max-budget-usd is intentionally NOT passed.
 	// Tetora uses a soft-limit approach: log when budget is exceeded, but don't hard-stop.
 	// This allows large tasks to complete while surfacing cost data for optimization.
+
+	if req.SessionID != "" {
+		args = append(args, "--session-id", req.SessionID)
+	}
 
 	if req.PermissionMode != "" {
 		args = append(args, "--permission-mode", req.PermissionMode)
