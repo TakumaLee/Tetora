@@ -43,6 +43,31 @@ When external articles/references are shared for Tetora improvement:
 
 Same principles as `~/.claude/CLAUDE.md` §4: prefer strengthening existing over adding new. Flag conflicts for user decision.
 
+### Memory Write Discipline
+
+Agent 寫入記憶時必須遵守以下紀律，防止記憶幻覺（HaluMem）：
+
+**CRUD 驗證（先讀再寫）**
+寫入 `workspace/memory/` 之前，必須先讀取目標 key 的現有內容，然後分類處理：
+- **ADD** — 目標 key 不存在或內容無關 → 直接寫入
+- **UPDATE** — 新內容是對既有內容的更新 → 合併或替換，保留重要歷史
+- **NOOP** — 既有內容已覆蓋新知識 → 跳過，不寫重複資訊
+- **CONFLICT** — 新內容與既有內容矛盾 → 兩版都保留，新版加 `⚠️ CONFLICT` 標記，等人工裁決
+
+**衝突處理**
+- 發現矛盾時，**絕不靜默覆蓋**
+- 保留兩個版本，標記衝突來源和日期
+- Agent 讀取到 CONFLICT 標記的記憶時，應同時呈現兩個版本
+
+**4 種記憶幻覺風險**
+Agent 應自我檢查，避免以下寫入錯誤：
+- **編造（Fabrication）** — 寫入從未發生過的事情
+- **錯誤（Inaccuracy）** — 寫入不準確的資訊（如錯誤歸因）
+- **衝突（Contradiction）** — 同一事實的矛盾版本並存而未標記
+- **遺漏（Omission）** — 重要資訊發生在對話中但未寫入記憶
+
+> 來源：HaluMem 研究 + 「为什么 Agent 需要记忆系统」文章分析（2026-02-27 納入）
+
 ### Shared Knowledge Architecture
 - `workspace/rules/` — governance, auto-injected into ALL roles
 - `workspace/memory/` — shared observations, any role can read/write

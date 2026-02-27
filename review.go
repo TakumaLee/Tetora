@@ -110,7 +110,31 @@ func buildReviewDigest(cfg *Config, days int) string {
 		b.WriteString("\n")
 	}
 
-	// Section 5: Memory Status (with priority + last access).
+	// Section 5: Existing Rules.
+	b.WriteString("## Existing Rules\n\n")
+	rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+	if ruleEntries, err := os.ReadDir(rulesDir); err != nil || len(ruleEntries) == 0 {
+		b.WriteString("(none)\n\n")
+	} else {
+		for _, e := range ruleEntries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".md")
+			excerpt := ""
+			if data, err := os.ReadFile(filepath.Join(rulesDir, e.Name())); err == nil {
+				excerpt = string(data)
+				if len(excerpt) > 200 {
+					excerpt = excerpt[:200] + "..."
+				}
+				excerpt = strings.ReplaceAll(excerpt, "\n", " ")
+			}
+			b.WriteString(fmt.Sprintf("- **%s**: %s\n", name, excerpt))
+		}
+		b.WriteString("\n")
+	}
+
+	// Section 6: Memory Status (with priority + last access).
 	b.WriteString("## Memory Status\n\n")
 	memories, err := listMemory(cfg, "")
 	accessLog := loadMemoryAccessLog(cfg)
