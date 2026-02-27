@@ -1066,6 +1066,11 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			return
 		}
 
+		// Send slot pressure warning before response if present.
+		if sdr.Task.SlotWarning != "" {
+			b.reply(msg.Chat.ID, sdr.Task.SlotWarning)
+		}
+
 		// Format and send response.
 		b.sendRouteResponse(msg.Chat.ID, sdr, outputAlreadySent)
 	}()

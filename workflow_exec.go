@@ -1099,8 +1099,20 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem, chi
 	}
 
 	s := selectSem(sem, childSem, task.Depth)
-	s <- struct{}{}
-	defer func() { <-s }()
+	if task.Depth == 0 && cfg.slotPressureGuard != nil {
+		_, err := cfg.slotPressureGuard.AcquireSlot(ctx, s, task.Source)
+		if err != nil {
+			return TaskResult{
+				ID: task.ID, Name: task.Name, Status: "cancelled",
+				Error: "slot acquisition cancelled: " + err.Error(), Model: task.Model, SessionID: task.SessionID,
+			}
+		}
+		defer cfg.slotPressureGuard.ReleaseSlot()
+		defer func() { <-s }()
+	} else {
+		s <- struct{}{}
+		defer func() { <-s }()
+	}
 
 	providerName := resolveProviderName(cfg, task, agentName)
 

@@ -211,6 +211,18 @@ func main() {
 	// Prevents deadlock when parent tasks hold sem slots and spawn children that also need slots.
 	childSem := make(chan struct{}, childSemConcurrentOrDefault(cfg))
 
+	// Initialize slot pressure guard if enabled.
+	if cfg.SlotPressure.Enabled {
+		cfg.slotPressureGuard = &SlotPressureGuard{
+			cfg:    cfg.SlotPressure,
+			sem:    sem,
+			semCap: cfg.MaxConcurrent,
+		}
+		logInfo("slot pressure guard enabled",
+			"reserved", cfg.slotPressureGuard.reservedSlots(),
+			"warnThreshold", cfg.slotPressureGuard.warnThreshold())
+	}
+
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 
@@ -568,6 +580,16 @@ func main() {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
 			cron.start(ctx)
+		}
+
+		// Wire slot pressure guard to notification chain and SSE broker.
+		if cfg.slotPressureGuard != nil {
+			cfg.slotPressureGuard.notifyFn = notifyFn
+			cfg.slotPressureGuard.broker = state.broker
+			if cfg.SlotPressure.MonitorEnabled {
+				go cfg.slotPressureGuard.RunMonitor(ctx)
+				logInfo("slot pressure monitor started", "interval", cfg.slotPressureGuard.monitorInterval().String())
+			}
 		}
 
 		// Proactive engine.

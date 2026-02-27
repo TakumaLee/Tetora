@@ -88,6 +88,7 @@ type Config struct {
 	Push                  PushConfig                       `json:"push,omitempty"`
 	AccessControl         AccessControlConfig              `json:"accessControl,omitempty"`
 	AgentComm             AgentCommConfig                  `json:"agentComm,omitempty"`
+	SlotPressure          SlotPressureConfig               `json:"slotPressure,omitempty"`
 	Canvas                CanvasConfig                     `json:"canvas,omitempty"`
 	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"` // --- P13.1: Plugin System ---
 	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"` // --- P13.2: Sandbox Plugin ---
@@ -133,12 +134,13 @@ type Config struct {
 	CronNotify            *bool                            `json:"cronNotify,omitempty"`             // nil/true = send cron notifications, false = suppress all
 
 	// Resolved at runtime (not serialized).
-	baseDir      string
-	mcpPaths     map[string]string
-	tlsEnabled   bool
-	registry     *providerRegistry
-	circuits     *circuitRegistry
-	toolRegistry *ToolRegistry
+	baseDir           string
+	mcpPaths          map[string]string
+	tlsEnabled        bool
+	registry          *providerRegistry
+	circuits          *circuitRegistry
+	toolRegistry      *ToolRegistry
+	slotPressureGuard *SlotPressureGuard
 }
 
 // UnmarshalJSON implements backward compat: accepts both "roles" and "agents" keys.

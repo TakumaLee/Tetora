@@ -1375,6 +1375,11 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 		Model: result.Model, Output: truncate(result.Output, 500), Error: truncate(result.Error, 300),
 	})
 
+	// Send slot pressure warning before response if present.
+	if result.SlotWarning != "" {
+		db.sendMessage(msg.ChannelID, result.SlotWarning)
+	}
+
 	// Send response embed.
 	db.sendRouteResponse(msg.ChannelID, &route, result, task, outputAlreadySent)
 }

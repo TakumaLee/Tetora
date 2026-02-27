@@ -67,8 +67,9 @@ type TaskResult struct {
 	ProviderMs int64  `json:"providerMs,omitempty"`
 	TraceID    string `json:"traceId,omitempty"`
 	Provider   string `json:"provider,omitempty"`
-	TrustLevel string `json:"trustLevel,omitempty"`
-	Agent       string `json:"agent,omitempty"`
+	TrustLevel   string `json:"trustLevel,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	SlotWarning  string `json:"slotWarning,omitempty"`
 }
 
 type DispatchResult struct {
@@ -643,10 +644,26 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 		go func(t Task) {
 			defer wg.Done()
 			s := selectSem(sem, childSem, t.Depth)
-			s <- struct{}{}
-			defer func() { <-s }()
-			r := runTask(ctx, cfg, t, state)
-			results <- r
+			if t.Depth == 0 && cfg.slotPressureGuard != nil {
+				ar, err := cfg.slotPressureGuard.AcquireSlot(ctx, s, t.Source)
+				if err != nil {
+					results <- TaskResult{
+						ID: t.ID, Name: t.Name, Status: "cancelled",
+						Error: "slot acquisition cancelled: " + err.Error(), Model: t.Model, SessionID: t.SessionID,
+					}
+					return
+				}
+				defer cfg.slotPressureGuard.ReleaseSlot()
+				defer func() { <-s }()
+				r := runTask(ctx, cfg, t, state)
+				r.SlotWarning = ar.Warning
+				results <- r
+			} else {
+				s <- struct{}{}
+				defer func() { <-s }()
+				r := runTask(ctx, cfg, t, state)
+				results <- r
+			}
 		}(task)
 	}
 
@@ -703,9 +720,22 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	}
 
 	s := selectSem(sem, childSem, task.Depth)
-	s <- struct{}{}
-	defer func() { <-s }()
-
+	var slotWarning string
+	if task.Depth == 0 && cfg.slotPressureGuard != nil {
+		ar, err := cfg.slotPressureGuard.AcquireSlot(ctx, s, task.Source)
+		if err != nil {
+			return TaskResult{
+				ID: task.ID, Name: task.Name, Status: "cancelled",
+				Error: "slot acquisition cancelled: " + err.Error(), Model: task.Model, SessionID: task.SessionID,
+			}
+		}
+		defer cfg.slotPressureGuard.ReleaseSlot()
+		defer func() { <-s }()
+		slotWarning = ar.Warning
+	} else {
+		s <- struct{}{}
+		defer func() { <-s }()
+	}
 	// Budget check before execution.
 	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
@@ -863,6 +893,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 
 	// Note: history recording for runSingleTask is handled by the caller (cron.go).
 
+	result.SlotWarning = slotWarning
 	return result
 }
 
