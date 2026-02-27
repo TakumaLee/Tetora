@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"strings"
 )
 
@@ -110,7 +112,9 @@ func extractChannelFromSource(source string) string {
 
 // buildSkillsPrompt builds the skills section of the system prompt.
 // Only includes skills that are relevant to this task.
-func buildSkillsPrompt(cfg *Config, task Task) string {
+// Tier 1 (always): one-line summary per skill.
+// Tier 2 (Standard/Complex only): SKILL.md doc injection when available.
+func buildSkillsPrompt(cfg *Config, task Task, complexity RequestComplexity) string {
 	skills := selectSkills(cfg, task)
 	if len(skills) == 0 {
 		return ""
@@ -120,6 +124,7 @@ func buildSkillsPrompt(cfg *Config, task Task) string {
 	sb.WriteString("\n\n## Available Skills\n\n")
 	sb.WriteString("You have access to the following external commands/skills:\n\n")
 
+	// --- Tier 1: One-line summaries (always) ---
 	for _, skill := range skills {
 		sb.WriteString("- **")
 		sb.WriteString(skill.Name)
@@ -139,6 +144,39 @@ func buildSkillsPrompt(cfg *Config, task Task) string {
 	}
 
 	sb.WriteString("\nTo invoke a skill, use the `execute_skill` tool.\n")
+
+	// --- Tier 2: Skill documentation (Standard/Complex only) ---
+	if complexity != ComplexitySimple {
+		docBudget := cfg.PromptBudget.skillsMaxOrDefault()
+		docUsed := 0
+		for _, skill := range skills {
+			if skill.DocPath == "" {
+				continue
+			}
+			if skill.DocSize > 4096 {
+				// Too large — hint the path for agent to read manually.
+				sb.WriteString(fmt.Sprintf(
+					"\n- **%s** detailed docs: `%s` (read with file tool)\n",
+					skill.Name, skill.DocPath))
+				continue
+			}
+			if docUsed+skill.DocSize > docBudget {
+				sb.WriteString(fmt.Sprintf(
+					"\n- **%s** detailed docs: `%s` (budget exceeded, read with file tool)\n",
+					skill.Name, skill.DocPath))
+				continue
+			}
+			doc, err := os.ReadFile(skill.DocPath)
+			if err != nil {
+				logDebug("skill doc read failed", "skill", skill.Name, "path", skill.DocPath, "error", err)
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("\n<skill-doc name=\"%s\">\n%s\n</skill-doc>\n",
+				skill.Name, strings.TrimSpace(string(doc))))
+			docUsed += len(doc)
+		}
+	}
+
 	return sb.String()
 }
 

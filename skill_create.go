@@ -62,7 +62,12 @@ func isValidSkillName(name string) bool {
 }
 
 // skillsDir returns the path to the file-based skills directory.
+// Uses WorkspaceDir/skills/ (consistent with memory/rules/knowledge),
+// falling back to baseDir/skills/ for tests that only set baseDir.
 func skillsDir(cfg *Config) string {
+	if cfg.WorkspaceDir != "" {
+		return filepath.Join(cfg.WorkspaceDir, "skills")
+	}
 	return filepath.Join(cfg.baseDir, "skills")
 }
 
@@ -170,6 +175,14 @@ func loadFileSkills(cfg *Config) []SkillConfig {
 			Example:     meta.Example,
 			Workdir:     skillDir,
 		}
+
+		// Detect SKILL.md for Tier 2 doc injection.
+		skillMDPath := filepath.Join(skillDir, "SKILL.md")
+		if info, err := os.Stat(skillMDPath); err == nil {
+			sc.DocPath = skillMDPath
+			sc.DocSize = int(info.Size())
+		}
+
 		skills = append(skills, sc)
 	}
 	return skills
@@ -324,11 +337,12 @@ func listPendingSkills(cfg *Config) []SkillMetadata {
 // createSkillToolHandler is the tool handler for the create_skill built-in tool.
 func createSkillToolHandler(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Name        string       `json:"name"`
-		Description string       `json:"description"`
-		Script      string       `json:"script"`
-		Language    string       `json:"language"`
+		Name        string        `json:"name"`
+		Description string        `json:"description"`
+		Script      string        `json:"script"`
+		Language    string        `json:"language"`
 		Matcher     *SkillMatcher `json:"matcher"`
+		Doc         string        `json:"doc"` // optional SKILL.md content
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -380,6 +394,14 @@ func createSkillToolHandler(ctx context.Context, cfg *Config, input json.RawMess
 
 	if err := createSkill(cfg, meta, args.Script); err != nil {
 		return "", err
+	}
+
+	// Write SKILL.md if doc content was provided.
+	if args.Doc != "" {
+		skillMDPath := filepath.Join(skillsDir(cfg), args.Name, "SKILL.md")
+		if err := os.WriteFile(skillMDPath, []byte(args.Doc), 0o644); err != nil {
+			logWarn("failed to write SKILL.md", "skill", args.Name, "error", err)
+		}
 	}
 
 	// Record the creation event.

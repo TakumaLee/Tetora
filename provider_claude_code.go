@@ -195,6 +195,8 @@ func buildClaudeCodeArgs(req ProviderRequest) []string {
 
 	if req.PermissionMode != "" {
 		args = append(args, "--permission-mode", req.PermissionMode)
+	} else {
+		args = append(args, "--permission-mode", "acceptEdits")
 	}
 
 	// Prompt is piped via stdin, not as a positional arg.

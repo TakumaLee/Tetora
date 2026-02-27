@@ -130,6 +130,11 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity Req
 		task.SystemPrompt += "\n\n## Citation Rules\n" + citationRule
 	}
 
+	// --- 8.5. Skills injection (with doc tier) ---
+	if skillsPrompt := buildSkillsPrompt(cfg, *task, complexity); skillsPrompt != "" {
+		task.SystemPrompt += skillsPrompt
+	}
+
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call injectWorkspaceContent.
 	if complexity != ComplexitySimple {

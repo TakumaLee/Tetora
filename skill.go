@@ -21,6 +21,8 @@ type SkillConfig struct {
 	Workdir     string            `json:"workdir,omitempty"`   // working directory
 	Timeout     string            `json:"timeout,omitempty"`   // default "30s"
 	OutputAs    string            `json:"outputAs,omitempty"`  // "text" (default), "json"
+	DocPath     string            `json:"-"`                   // runtime: SKILL.md full path (not serialized)
+	DocSize     int               `json:"-"`                   // runtime: SKILL.md byte size (not serialized)
 }
 
 // SkillResult is the output of a skill execution.

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // MigrationReport tracks results of an OpenClaw-to-Tetora migration.
@@ -544,9 +545,10 @@ func migrateOpenClawWorkspace(cfg *Config, ocDir string, dryRun bool, report *Mi
 }
 
 // migrateOpenClawSkills imports skills from OpenClaw, supporting both file-based and folder-based skills.
+// For folder-based skills with SKILL.md but no metadata.json, auto-generates metadata.json.
 func migrateOpenClawSkills(cfg *Config, ocDir string, dryRun bool, report *MigrationReport) error {
-	skillsDir := filepath.Join(ocDir, "skills")
-	entries, err := os.ReadDir(skillsDir)
+	srcSkillsDir := filepath.Join(ocDir, "skills")
+	entries, err := os.ReadDir(srcSkillsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			report.Warnings = append(report.Warnings, "no skills/ directory found")
@@ -555,7 +557,7 @@ func migrateOpenClawSkills(cfg *Config, ocDir string, dryRun bool, report *Migra
 		return fmt.Errorf("reading skills dir: %w", err)
 	}
 
-	targetDir := filepath.Join(cfg.baseDir, "skills")
+	targetDir := skillsDir(cfg)
 	if !dryRun {
 		if err := os.MkdirAll(targetDir, 0o755); err != nil {
 			return fmt.Errorf("creating skills dir: %w", err)
@@ -565,7 +567,7 @@ func migrateOpenClawSkills(cfg *Config, ocDir string, dryRun bool, report *Migra
 	count := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		src := filepath.Join(skillsDir, name)
+		src := filepath.Join(srcSkillsDir, name)
 
 		if entry.IsDir() {
 			// Folder-based skill: must contain SKILL.md
@@ -578,6 +580,18 @@ func migrateOpenClawSkills(cfg *Config, ocDir string, dryRun bool, report *Migra
 				if err := copyDir(src, dst); err != nil {
 					report.Errors = append(report.Errors, fmt.Sprintf("copying skill folder %s: %v", name, err))
 					continue
+				}
+				// If no metadata.json exists, generate one from SKILL.md.
+				metaPath := filepath.Join(dst, "metadata.json")
+				if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+					mdContent, readErr := os.ReadFile(filepath.Join(dst, "SKILL.md"))
+					if readErr == nil {
+						meta := generateMetadataFromSkillMD(name, string(mdContent), dst)
+						if data, err := json.MarshalIndent(meta, "", "  "); err == nil {
+							os.WriteFile(metaPath, data, 0o644)
+							report.Warnings = append(report.Warnings, fmt.Sprintf("generated metadata.json for skill %q from SKILL.md", name))
+						}
+					}
 				}
 			}
 			count++
@@ -599,6 +613,58 @@ func migrateOpenClawSkills(cfg *Config, ocDir string, dryRun bool, report *Migra
 
 	report.SkillsImported = count
 	return nil
+}
+
+// generateMetadataFromSkillMD creates a SkillMetadata from SKILL.md content.
+// Uses the first heading as description, detects command from directory contents.
+func generateMetadataFromSkillMD(name, mdContent, skillDir string) SkillMetadata {
+	description := extractDescriptionFromMD(mdContent)
+	command, args := detectSkillCommand(skillDir)
+
+	return SkillMetadata{
+		Name:        name,
+		Description: description,
+		Command:     command,
+		Args:        args,
+		Approved:    false, // requires manual review
+		CreatedBy:   "migrate-openclaw",
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// extractDescriptionFromMD extracts a description from markdown content.
+// Uses the first heading text, or the first 200 chars if no heading found.
+func extractDescriptionFromMD(md string) string {
+	for _, line := range strings.Split(md, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			// Strip leading #s and whitespace.
+			desc := strings.TrimLeft(line, "# ")
+			if desc != "" {
+				if len(desc) > 200 {
+					return desc[:200]
+				}
+				return desc
+			}
+		}
+	}
+	// No heading found — use first 200 chars.
+	clean := strings.TrimSpace(md)
+	if len(clean) > 200 {
+		return clean[:200]
+	}
+	return clean
+}
+
+// detectSkillCommand checks a skill directory for run scripts and returns the command + args.
+func detectSkillCommand(dir string) (string, []string) {
+	if _, err := os.Stat(filepath.Join(dir, "run.py")); err == nil {
+		return "python3", []string{"run.py"}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "run.sh")); err == nil {
+		return "./run.sh", nil
+	}
+	return "./run.sh", nil
 }
 
 // migrateOpenClawCron reads OpenClaw cron jobs and converts them to Tetora format.

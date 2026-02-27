@@ -283,18 +283,10 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 		}
 	}
 
-	// Build system prompt with dynamic skill injection.
-	systemPrompt := task.SystemPrompt
-	if len(cfg.Skills) > 0 {
-		skillsPrompt := buildSkillsPrompt(cfg, task)
-		if skillsPrompt != "" {
-			systemPrompt = systemPrompt + skillsPrompt
-		}
-	}
-
+	// Skills are now injected in buildTieredPrompt() (step 8.5).
 	req := ProviderRequest{
 		Prompt:         task.Prompt,
-		SystemPrompt:   systemPrompt,
+		SystemPrompt:   task.SystemPrompt,
 		Model:          model,
 		Workdir:        task.Workdir,
 		Timeout:        timeout,

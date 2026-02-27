@@ -156,7 +156,7 @@ func cmdDispatch(args []string) {
 	if role != "" {
 		// Always pass the agent name to the daemon so it can apply agent config
 		// (model, permissionMode, workspace, etc.) server-side.
-		task["role"] = role
+		task["agent"] = role
 
 		resp, err := api.get("/roles/" + role)
 		if err != nil {
