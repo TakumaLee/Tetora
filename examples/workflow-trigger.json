@@ -1,0 +1,37 @@
+{
+  "_note": "Add these entries to the 'workflowTriggers' array in your config.json",
+  "workflowTriggers": [
+    {
+      "name": "daily-briefing",
+      "workflowName": "research-and-summarize",
+      "trigger": {
+        "type": "cron",
+        "cron": "0 8 * * *",
+        "tz": "Asia/Taipei"
+      },
+      "variables": {
+        "topic": "AI industry news"
+      },
+      "cooldown": "12h"
+    },
+    {
+      "name": "on-deploy-event",
+      "workflowName": "content-pipeline",
+      "trigger": {
+        "type": "event",
+        "event": "deploy_*"
+      },
+      "variables": {
+        "type": "technical"
+      }
+    },
+    {
+      "name": "external-webhook",
+      "workflowName": "content-pipeline",
+      "trigger": {
+        "type": "webhook",
+        "webhook": "content-request"
+      }
+    }
+  ]
+}

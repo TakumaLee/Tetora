@@ -186,6 +186,29 @@ Sinusuportahan ang hot-reload: magpadala ng `SIGHUP` sa tumatakbong daemon para 
 
 ---
 
+## Mga Workflow
+
+Ang Tetora ay may kasamang built-in na workflow engine para sa pag-oorkestra ng mga multi-step, multi-agent na gawain. I-define ang iyong pipeline sa JSON, at hayaang makipagtulungan ang mga agent nang awtomatiko.
+
+**[Kumpletong Dokumentasyon ng Workflow](docs/workflow.fil.md)** — mga uri ng hakbang, variable, trigger, sanggunian ng CLI at API.
+
+Mabilisang halimbawa:
+
+```bash
+# I-validate at i-import ang isang workflow
+tetora workflow create examples/workflow-basic.json
+
+# Patakbuhin ito
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# Tingnan ang mga resulta
+tetora workflow status <run-id>
+```
+
+Tingnan ang [`examples/`](examples/) para sa mga handang gamitin na workflow JSON file.
+
+---
+
 ## Sanggunian sa CLI
 
 | Utos | Paglalarawan |

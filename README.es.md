@@ -186,6 +186,29 @@ Se soporta la recarga en caliente: envía `SIGHUP` al daemon en ejecución para 
 
 ---
 
+## Workflows
+
+Tetora incluye un motor de workflows integrado para orquestar tareas de múltiples pasos y múltiples agentes. Define tu pipeline en JSON y deja que los agentes colaboren automáticamente.
+
+**[Documentación Completa de Workflows](docs/workflow.es.md)** — tipos de pasos, variables, disparadores, referencia de CLI y API.
+
+Ejemplo rápido:
+
+```bash
+# Validar e importar un workflow
+tetora workflow create examples/workflow-basic.json
+
+# Ejecutarlo
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# Consultar los resultados
+tetora workflow status <run-id>
+```
+
+Consulta [`examples/`](examples/) para archivos JSON de workflow listos para usar.
+
+---
+
 ## Referencia de CLI
 
 | Comando | Descripción |

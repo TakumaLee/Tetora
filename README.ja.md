@@ -186,6 +186,29 @@ make test
 
 ---
 
+## ワークフロー
+
+Tetora には、複数ステップ・複数エージェントのタスクを調整するための組み込みワークフローエンジンが搭載されています。パイプラインを JSON で定義するだけで、エージェントが自動的に連携して処理します。
+
+**[ワークフロー完全ドキュメント](docs/workflow.ja.md)** — ステップタイプ、変数、トリガー、CLI・API リファレンス。
+
+クイック例：
+
+```bash
+# ワークフローを検証してインポート
+tetora workflow create examples/workflow-basic.json
+
+# 実行する
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# 結果を確認
+tetora workflow status <run-id>
+```
+
+すぐに使えるワークフロー JSON ファイルは [`examples/`](examples/) を参照してください。
+
+---
+
 ## CLI リファレンス
 
 | コマンド | 説明 |

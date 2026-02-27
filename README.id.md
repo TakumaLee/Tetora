@@ -186,6 +186,29 @@ Hot-reload didukung: kirim `SIGHUP` ke daemon yang berjalan untuk memuat ulang `
 
 ---
 
+## Workflow
+
+Tetora dilengkapi dengan mesin workflow bawaan untuk mengorkestrasikan tugas multi-langkah dan multi-agen. Definisikan pipeline Anda dalam JSON, dan biarkan agen berkolaborasi secara otomatis.
+
+**[Dokumentasi Workflow Lengkap](docs/workflow.id.md)** — jenis langkah, variabel, trigger, referensi CLI & API.
+
+Contoh cepat:
+
+```bash
+# Validasi dan impor workflow
+tetora workflow create examples/workflow-basic.json
+
+# Jalankan
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# Periksa hasil
+tetora workflow status <run-id>
+```
+
+Lihat [`examples/`](examples/) untuk file JSON workflow yang siap digunakan.
+
+---
+
 ## Referensi CLI
 
 | Perintah | Deskripsi |

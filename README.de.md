@@ -186,6 +186,29 @@ Hot-Reload wird unterstützt: Sende `SIGHUP` an den laufenden Daemon, um `config
 
 ---
 
+## Workflows
+
+Tetora enthält eine integrierte Workflow-Engine zur Orchestrierung von mehrstufigen Aufgaben mit mehreren Agenten. Definiere deine Pipeline in JSON und lass die Agenten automatisch zusammenarbeiten.
+
+**[Vollständige Workflow-Dokumentation](docs/workflow.de.md)** — Schritttypen, Variablen, Trigger, CLI- und API-Referenz.
+
+Schnellbeispiel:
+
+```bash
+# Einen Workflow validieren und importieren
+tetora workflow create examples/workflow-basic.json
+
+# Ausführen
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# Ergebnisse prüfen
+tetora workflow status <run-id>
+```
+
+Unter [`examples/`](examples/) findest du gebrauchsfertige Workflow-JSON-Dateien.
+
+---
+
 ## CLI-Referenz
 
 | Befehl | Beschreibung |

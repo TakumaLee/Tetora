@@ -1,0 +1,57 @@
+{
+  "name": "content-pipeline",
+  "description": "依類型分流的內容產出流程",
+  "variables": {
+    "type": "technical",
+    "topic": ""
+  },
+  "timeout": "1h",
+  "steps": [
+    {
+      "id": "classify",
+      "type": "condition",
+      "if": "{{type}} == 'technical'",
+      "then": "parallel-research",
+      "else": "creative-draft"
+    },
+    {
+      "id": "parallel-research",
+      "type": "parallel",
+      "dependsOn": ["classify"],
+      "parallel": [
+        {
+          "id": "search-papers",
+          "agent": "hisui",
+          "prompt": "搜尋 {{topic}} 相關論文"
+        },
+        {
+          "id": "search-code",
+          "agent": "kokuyou",
+          "prompt": "搜尋 {{topic}} 相關開源專案"
+        }
+      ]
+    },
+    {
+      "id": "creative-draft",
+      "agent": "kohaku",
+      "prompt": "以創意角度撰寫 {{topic}} 草稿",
+      "dependsOn": ["classify"]
+    },
+    {
+      "id": "final-edit",
+      "agent": "ruri",
+      "prompt": "整合以下內容，產出最終文章：\n{{steps.parallel-research.output}}\n{{steps.creative-draft.output}}",
+      "dependsOn": ["parallel-research", "creative-draft"],
+      "onError": "skip",
+      "retryMax": 1,
+      "retryDelay": "10s"
+    },
+    {
+      "id": "deliver",
+      "type": "notify",
+      "notifyMsg": "文章完成：\n{{steps.final-edit.output}}",
+      "notifyTo": "telegram",
+      "dependsOn": ["final-edit"]
+    }
+  ]
+}

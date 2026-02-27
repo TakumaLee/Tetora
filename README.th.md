@@ -186,6 +186,29 @@ make test
 
 ---
 
+## Workflow
+
+Tetora มีเครื่องมือ workflow ในตัวสำหรับจัดการงานแบบหลายขั้นตอนและหลาย agent กำหนด pipeline ของคุณใน JSON แล้วให้ agent ทำงานร่วมกันโดยอัตโนมัติ
+
+**[เอกสาร Workflow ฉบับสมบูรณ์](docs/workflow.th.md)** — ประเภทขั้นตอน, ตัวแปร, trigger, ข้อมูลอ้างอิง CLI และ API
+
+ตัวอย่างเบื้องต้น:
+
+```bash
+# ตรวจสอบและนำเข้า workflow
+tetora workflow create examples/workflow-basic.json
+
+# รัน workflow
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# ตรวจสอบผลลัพธ์
+tetora workflow status <run-id>
+```
+
+ดูไฟล์ JSON workflow ที่พร้อมใช้งานได้ที่ [`examples/`](examples/)
+
+---
+
 ## คู่มือ CLI
 
 | คำสั่ง | คำอธิบาย |

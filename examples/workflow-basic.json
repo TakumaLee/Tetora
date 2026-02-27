@@ -1,0 +1,21 @@
+{
+  "name": "research-and-summarize",
+  "description": "收集資料後撰寫摘要",
+  "variables": {
+    "topic": "AI agents"
+  },
+  "timeout": "30m",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "hisui",
+      "prompt": "搜尋並整理 {{topic}} 的最新發展，列出 5 個重點"
+    },
+    {
+      "id": "summarize",
+      "agent": "kohaku",
+      "prompt": "根據以下資料撰寫 300 字摘要：\n{{steps.research.output}}",
+      "dependsOn": ["research"]
+    }
+  ]
+}

@@ -186,6 +186,29 @@ make test
 
 ---
 
+## 工作流程
+
+Tetora 內建工作流程引擎，可協調多步驟、多代理的任務。以 JSON 定義你的流程管線，讓代理自動協作完成。
+
+**[完整工作流程文件](docs/workflow.zh-TW.md)** — 步驟類型、變數、觸發器、CLI 與 API 參考。
+
+快速範例：
+
+```bash
+# 驗證並匯入工作流程
+tetora workflow create examples/workflow-basic.json
+
+# 執行工作流程
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# 查看結果
+tetora workflow status <run-id>
+```
+
+請參閱 [`examples/`](examples/) 取得可直接使用的工作流程 JSON 範例檔。
+
+---
+
 ## CLI 參考
 
 | 指令 | 說明 |

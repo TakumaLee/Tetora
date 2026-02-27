@@ -186,6 +186,29 @@ make test
 
 ---
 
+## 워크플로우
+
+Tetora에는 다단계, 다중 에이전트 작업을 조율하는 내장 워크플로우 엔진이 포함되어 있습니다. JSON으로 파이프라인을 정의하면 에이전트들이 자동으로 협력합니다.
+
+**[워크플로우 전체 문서](docs/workflow.ko.md)** — 단계 유형, 변수, 트리거, CLI 및 API 참조.
+
+빠른 예시:
+
+```bash
+# 워크플로우 유효성 검사 및 가져오기
+tetora workflow create examples/workflow-basic.json
+
+# 실행
+tetora workflow run research-and-summarize --var topic="LLM safety"
+
+# 결과 확인
+tetora workflow status <run-id>
+```
+
+바로 사용할 수 있는 워크플로우 JSON 파일은 [`examples/`](examples/)를 참조하세요.
+
+---
+
 ## CLI 레퍼런스
 
 | 명령어 | 설명 |
