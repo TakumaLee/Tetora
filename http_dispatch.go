@@ -53,6 +53,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFile(w, r, filepath.Join(spritesDir, name))
 	})
 

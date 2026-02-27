@@ -6744,10 +6744,11 @@ function escAttr(s) {
 
 // --- Agent World (SpriteEngine) ---
 var spriteEngine = null;
-var agentWorldOpen = false;
+var agentWorldOpen = localStorage.getItem('aw-open') === 'true';
 
 function toggleAgentWorld() {
   agentWorldOpen = !agentWorldOpen;
+  localStorage.setItem('aw-open', agentWorldOpen);
   var container = document.getElementById('agent-world-container');
   if (agentWorldOpen) {
     container.style.display = '';
@@ -6774,8 +6775,20 @@ function updateAgentWorldToggle(sprites) {
     _spriteConfigChecked = true;
     fetch(API + '/api/sprites/config').then(function(r) { return r.json(); }).then(function(cfg) {
       _hasSpriteAgents = cfg.agents && Object.keys(cfg.agents).length > 0;
-      if (_hasSpriteAgents) toggle.style.display = '';
+      if (_hasSpriteAgents) {
+        toggle.style.display = '';
+        // Restore persisted open state
+        if (agentWorldOpen) {
+          var ctr = document.getElementById('agent-world-container');
+          ctr.style.display = '';
+          if (!spriteEngine) {
+            spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
+            spriteEngine.init();
+          }
+        }
+      }
     }).catch(function() {});
+    return; // Wait for async check before hiding/showing
   }
 
   if (!_hasSpriteAgents) {
@@ -6851,8 +6864,11 @@ SpriteEngine.prototype.init = async function() {
     this.config = await res.json();
   } catch(e) {
     console.warn('SpriteEngine: failed to load config', e);
-    return;
+    this.config = { cellWidth: 32, cellHeight: 32, states: [], agents: {} };
   }
+  // Validate cell dimensions
+  if (!this.config.cellWidth || this.config.cellWidth <= 0) this.config.cellWidth = 32;
+  if (!this.config.cellHeight || this.config.cellHeight <= 0) this.config.cellHeight = 32;
 
   // Build state lookup
   if (this.config.states) {
@@ -7156,8 +7172,9 @@ SpriteEngine.prototype._drawOffice = function(ctx) {
 };
 
 SpriteEngine.prototype._drawAgent = function(ctx, agent) {
-  var cw = this.config.cellWidth;
-  var ch = this.config.cellHeight;
+  if (!this.config) return;
+  var cw = this.config.cellWidth || 32;
+  var ch = this.config.cellHeight || 32;
   var stDef = this.stateMap[agent.animState];
   if (!stDef) stDef = this.stateMap['idle'] || { row: 0, frames: 4 };
 
