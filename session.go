@@ -127,29 +127,44 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 
 // migrateRoleToAgent adds the `agent` column if the table still uses `role`,
 // and copies data over. Works on all SQLite versions (no RENAME COLUMN needed).
+// Uses PRAGMA table_info for column detection (reliable across all versions).
 func migrateRoleToAgent(dbPath string) {
-	// Check if `agent` column already exists by trying a harmless query.
-	_, err := queryDB(dbPath, `SELECT agent FROM sessions LIMIT 0`)
-	if err == nil {
-		return // `agent` column exists, nothing to do.
-	}
+	cols := tableColumns(dbPath, "sessions")
+	hasAgent := cols["agent"]
+	hasRole := cols["role"]
 
-	// Check if `role` column exists (old schema).
-	_, err = queryDB(dbPath, `SELECT role FROM sessions LIMIT 0`)
-	if err != nil {
-		return // Neither column exists — fresh table with `agent` in CREATE TABLE.
+	if hasAgent {
+		return // Already migrated or fresh schema.
+	}
+	if !hasRole {
+		return // Fresh table — CREATE TABLE already used `agent`.
 	}
 
 	// `role` exists but `agent` doesn't — add `agent` and copy data.
-	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT '';`); err != nil {
+	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT '';`); err != nil {
 		logWarn("migration: add agent column failed", "error", err)
 		return
 	}
-	if err := execDB(dbPath, `UPDATE sessions SET agent = role WHERE agent = '';`); err != nil {
+	if err := execDB(dbPath, `UPDATE sessions SET agent = role WHERE agent = '' OR agent IS NULL;`); err != nil {
 		logWarn("migration: copy role→agent failed", "error", err)
 	}
 	execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent);`)
 	logInfo("migration: role→agent column added and data copied")
+}
+
+// tableColumns returns a set of column names for a table using PRAGMA table_info.
+func tableColumns(dbPath, table string) map[string]bool {
+	rows, err := queryDB(dbPath, fmt.Sprintf("PRAGMA table_info(%s);", table))
+	if err != nil {
+		return nil
+	}
+	cols := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if name, ok := row["name"].(string); ok {
+			cols[name] = true
+		}
+	}
+	return cols
 }
 
 // ensureSystemLogSession creates the system log session if it doesn't exist.
