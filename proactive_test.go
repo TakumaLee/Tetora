@@ -48,7 +48,7 @@ func TestProactiveCooldown(t *testing.T) {
 		},
 	}
 
-	engine := newProactiveEngine(cfg, nil)
+	engine := newProactiveEngine(cfg, nil, nil, nil)
 
 	ruleName := "test-rule"
 
@@ -115,7 +115,7 @@ func TestProactiveTemplateResolution(t *testing.T) {
 	cfg := &Config{
 		HistoryDB: "", // no DB for this test
 	}
-	engine := newProactiveEngine(cfg, nil)
+	engine := newProactiveEngine(cfg, nil, nil, nil)
 
 	rule := ProactiveRule{
 		Name: "test-rule",
@@ -159,7 +159,7 @@ func TestProactiveRuleListInfo(t *testing.T) {
 		},
 	}
 
-	engine := newProactiveEngine(cfg, nil)
+	engine := newProactiveEngine(cfg, nil, nil, nil)
 	infos := engine.ListRules()
 
 	if len(infos) != 2 {
@@ -192,7 +192,7 @@ func TestProactiveTriggerRuleNotFound(t *testing.T) {
 		},
 	}
 
-	engine := newProactiveEngine(cfg, nil)
+	engine := newProactiveEngine(cfg, nil, nil, nil)
 
 	err := engine.TriggerRule("nonexistent")
 	if err == nil {
@@ -219,7 +219,7 @@ func TestProactiveTriggerRuleDisabled(t *testing.T) {
 		},
 	}
 
-	engine := newProactiveEngine(cfg, nil)
+	engine := newProactiveEngine(cfg, nil, nil, nil)
 
 	err := engine.TriggerRule("disabled-rule")
 	if err == nil {

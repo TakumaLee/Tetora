@@ -23,6 +23,8 @@ type ProactiveEngine struct {
 	cooldowns map[string]time.Time // rule name → last triggered
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
+	sem       chan struct{} // shared semaphore for top-level tasks
+	childSem  chan struct{} // shared semaphore for child tasks
 }
 
 // ProactiveRule defines a trigger → action → delivery pipeline.
@@ -55,11 +57,12 @@ type ProactiveTrigger struct {
 // ProactiveAction defines what happens when a rule triggers.
 type ProactiveAction struct {
 	Type           string                 `json:"type"` // "dispatch", "notify"
-	Agent           string                 `json:"agent,omitempty"`
+	Agent          string                 `json:"agent,omitempty"`
 	Prompt         string                 `json:"prompt,omitempty"`
 	PromptTemplate string                 `json:"promptTemplate,omitempty"`
 	Params         map[string]interface{} `json:"params,omitempty"`
 	Message        string                 `json:"message,omitempty"` // for notify type, supports {{.Var}} templates
+	Autonomous     bool                   `json:"autonomous,omitempty"` // if true, agent decides what to do based on context
 }
 
 // ProactiveDelivery defines where to send the result.
@@ -81,13 +84,15 @@ type ProactiveRuleInfo struct {
 // --- Engine Lifecycle ---
 
 // newProactiveEngine creates a new proactive engine instance.
-func newProactiveEngine(cfg *Config, broker *sseBroker) *ProactiveEngine {
+func newProactiveEngine(cfg *Config, broker *sseBroker, sem, childSem chan struct{}) *ProactiveEngine {
 	return &ProactiveEngine{
 		rules:     cfg.Proactive.Rules,
 		cfg:       cfg,
 		broker:    broker,
 		cooldowns: make(map[string]time.Time),
 		stopCh:    make(chan struct{}),
+		sem:       sem,
+		childSem:  childSem,
 	}
 }
 
@@ -480,17 +485,108 @@ func (e *ProactiveEngine) executeAction(ctx context.Context, rule ProactiveRule)
 
 // actionDispatch creates a new task dispatch.
 func (e *ProactiveEngine) actionDispatch(ctx context.Context, rule ProactiveRule) error {
+	if e.sem == nil {
+		logWarn("proactive dispatch skipped: sem not available", "rule", rule.Name)
+		return nil
+	}
+
 	prompt := rule.Action.Prompt
 	if rule.Action.PromptTemplate != "" {
 		prompt = e.resolveTemplate(rule.Action.PromptTemplate, rule)
 	}
 
-	// TODO: integrate with dispatch system when available.
-	logInfo("proactive dispatch action", "rule", rule.Name, "agent", rule.Action.Agent, "prompt", truncate(prompt, 100))
+	// Autonomous mode: override prompt with context-rich self-initiative prompt.
+	if rule.Action.Autonomous || prompt == "" {
+		prompt = e.buildAutonomousPrompt(rule)
+	}
 
-	// Deliver notification about the dispatch.
-	msg := fmt.Sprintf("Proactive rule %q triggered dispatch to agent %s", rule.Name, rule.Action.Agent)
-	return e.deliver(rule, msg)
+	agentName := rule.Action.Agent
+	if agentName == "" {
+		agentName = "ruri"
+	}
+
+	task := Task{
+		ID:     generateID("proactive"),
+		Name:   fmt.Sprintf("proactive:%s", rule.Name),
+		Prompt: prompt,
+		Source: "proactive",
+		Agent:  agentName,
+	}
+
+	logInfo("proactive dispatch action", "rule", rule.Name, "agent", agentName, "taskId", truncate(task.ID, 16), "prompt", truncate(prompt, 100))
+
+	// Run in background goroutine so the trigger loop is not blocked.
+	go func() {
+		result := runSingleTask(ctx, e.cfg, task, e.sem, e.childSem, agentName)
+		logInfo("proactive dispatch done", "rule", rule.Name, "taskId", truncate(task.ID, 16), "status", result.Status, "durationMs", result.DurationMs)
+
+		// Deliver the result output via configured channel.
+		out := result.Output
+		if out == "" {
+			out = result.Error
+		}
+		if out == "" {
+			out = fmt.Sprintf("Proactive rule %q completed with status %s", rule.Name, result.Status)
+		}
+		if err := e.deliver(rule, truncate(out, 1000)); err != nil {
+			logWarn("proactive deliver failed", "rule", rule.Name, "error", err)
+		}
+	}()
+
+	return nil
+}
+
+// buildAutonomousPrompt builds a context-rich prompt for an autonomous agent heartbeat.
+// The agent receives system state (recent tasks, available roles, pending items) and
+// decides on its own what — if anything — to do proactively.
+func (e *ProactiveEngine) buildAutonomousPrompt(rule ProactiveRule) string {
+	var b strings.Builder
+
+	b.WriteString("You are an autonomous AI agent doing a periodic self-check (heartbeat).\n")
+	b.WriteString("Review the current system state below and decide if there is anything useful to do proactively.\n")
+	b.WriteString("If nothing needs attention, respond with a brief status summary and stop.\n\n")
+
+	// Time context.
+	b.WriteString(fmt.Sprintf("Current time: %s\n\n", time.Now().Format("2006-01-02 15:04:05 MST")))
+
+	// Recent task stats from DB.
+	if e.cfg.HistoryDB != "" {
+		if dailyCost, err := e.getDailyCost(); err == nil {
+			b.WriteString(fmt.Sprintf("Today's API cost: $%.4f\n", dailyCost))
+		}
+		if failedTasks, err := e.getFailedTasksToday(); err == nil {
+			b.WriteString(fmt.Sprintf("Failed tasks today: %.0f\n", failedTasks))
+		}
+
+		// Recent 5 completed tasks.
+		rows, err := queryDB(e.cfg.HistoryDB, "SELECT name, status, started_at FROM runs ORDER BY started_at DESC LIMIT 5")
+		if err == nil && len(rows) > 0 {
+			b.WriteString("\nRecent tasks:\n")
+			for _, row := range rows {
+				name, _ := row["name"].(string)
+				status, _ := row["status"].(string)
+				startedAt, _ := row["started_at"].(string)
+				b.WriteString(fmt.Sprintf("  - %s [%s] at %s\n", name, status, startedAt))
+			}
+		}
+	}
+
+	// Available agents.
+	if len(e.cfg.Agents) > 0 {
+		b.WriteString("\nAvailable agents:\n")
+		for name, ag := range e.cfg.Agents {
+			b.WriteString(fmt.Sprintf("  - %s: %s\n", name, ag.Description))
+		}
+	}
+
+	// Rule-specific hint.
+	if rule.Action.Prompt != "" {
+		b.WriteString(fmt.Sprintf("\nHint from rule %q: %s\n", rule.Name, rule.Action.Prompt))
+	}
+
+	b.WriteString("\nDecide what — if anything — to do. Be concise and take action if warranted.")
+
+	return b.String()
 }
 
 // actionNotify sends a notification message.

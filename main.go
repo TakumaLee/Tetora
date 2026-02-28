@@ -611,7 +611,7 @@ func main() {
 		// Proactive engine.
 		var proactiveEngine *ProactiveEngine
 		if cfg.Proactive.Enabled {
-			proactiveEngine = newProactiveEngine(cfg, state.broker)
+			proactiveEngine = newProactiveEngine(cfg, state.broker, sem, childSem)
 			proactiveEngine.Start(ctx)
 			logInfo("proactive engine started", "rules", len(cfg.Proactive.Rules))
 		}

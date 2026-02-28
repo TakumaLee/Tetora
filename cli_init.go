@@ -18,9 +18,15 @@ import (
 // listen address (e.g. "127.0.0.1:52341"). Called once during init so the port
 // is written to config and stays stable across restarts.
 func randomListenAddr() string {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	return randomListenPort("127.0.0.1")
+}
+
+// randomListenPort picks a random available port on the given host and returns
+// the full listen address string (e.g. "0.0.0.0:52341").
+func randomListenPort(host string) string {
+	l, err := net.Listen("tcp", host+":0")
 	if err != nil {
-		return "127.0.0.1:8991"
+		return host + ":8991"
 	}
 	addr := l.Addr().String()
 	l.Close()
@@ -418,6 +424,34 @@ func cmdInit() {
 	fmt.Println()
 	fmt.Println(L.Step4Title)
 
+	// Listen address: local-only or all interfaces (required for Tailscale / remote access).
+	fmt.Println()
+	fmt.Println("Network access:")
+	listenHost := "127.0.0.1"
+	if interactiveChoose([]string{
+		"Local only (127.0.0.1) — more secure",
+		"All interfaces (0.0.0.0) — required for Tailscale / remote access",
+	}, 0) == 1 {
+		listenHost = "0.0.0.0"
+	}
+	listenAddr := randomListenPort(listenHost)
+
+	// Default task timeout.
+	fmt.Println()
+	fmt.Println("Default task timeout:")
+	timeoutLabels := []string{"5m — quick tasks", "15m — balanced (Recommended)", "30m — longer tasks", "1h — complex / research"}
+	timeoutVals := []string{"5m", "15m", "30m", "1h"}
+	timeoutIdx := interactiveChoose(timeoutLabels, 1)
+	if timeoutIdx < 0 {
+		timeoutIdx = 1
+	}
+	defaultTimeout := timeoutVals[timeoutIdx]
+
+	// Daily cost alert.
+	fmt.Println()
+	dailyCostStr := prompt("Daily cost alert in USD (0 = disable):", "0")
+	dailyCost, _ := strconv.ParseFloat(strings.TrimSpace(dailyCostStr), 64)
+
 	defaultWorkdir := filepath.Join(configDir, "workspace")
 
 	// Generate API token.
@@ -429,14 +463,22 @@ func cmdInit() {
 	cfg := map[string]any{
 		"maxConcurrent":         3,
 		"defaultModel":          defaultModel,
-		"defaultTimeout":        "15m",
+		"defaultTimeout":        defaultTimeout,
 		"defaultBudget":         2.0,
 		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
-		"listenAddr":            randomListenAddr(),
+		"listenAddr":            listenAddr,
 		"jobsFile":              "jobs.json",
 		"apiToken":              apiToken,
 		"log":                   true,
+	}
+
+	// Cost alert.
+	if dailyCost > 0 {
+		cfg["costAlert"] = map[string]any{
+			"dailyLimit": dailyCost,
+			"action":     "warn",
+		}
 	}
 
 	// Add defaultAddDirs if configured.
