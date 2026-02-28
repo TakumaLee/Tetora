@@ -836,6 +836,8 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		}
 	case "approve":
 		db.cmdApprove(msg, args)
+	case "version", "ver":
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Tetora v%s", tetoraVersion))
 	case "help":
 		db.cmdHelp(msg)
 	default:
@@ -862,6 +864,7 @@ func (db *DiscordBot) cmdStatus(msg discordMessage) {
 		Title: "Tetora Status",
 		Color: 0x5865F2,
 		Fields: []discordEmbedField{
+			{Name: "Version", Value: "v" + tetoraVersion, Inline: true},
 			{Name: "Running", Value: fmt.Sprintf("%d", running), Inline: true},
 			{Name: "Cron Jobs", Value: fmt.Sprintf("%d", jobs), Inline: true},
 		},
