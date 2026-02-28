@@ -137,13 +137,22 @@ type discordUser struct {
 	Bot      bool   `json:"bot"`
 }
 
+type discordAttachment struct {
+	ID          string `json:"id"`
+	URL         string `json:"url"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type,omitempty"`
+	Size        int64  `json:"size"`
+}
+
 type discordMessage struct {
-	ID        string        `json:"id"`
-	ChannelID string        `json:"channel_id"`
-	GuildID   string        `json:"guild_id,omitempty"`
-	Author    discordUser   `json:"author"`
-	Content   string        `json:"content"`
-	Mentions  []discordUser `json:"mentions,omitempty"`
+	ID          string               `json:"id"`
+	ChannelID   string               `json:"channel_id"`
+	GuildID     string               `json:"guild_id,omitempty"`
+	Author      discordUser          `json:"author"`
+	Content     string               `json:"content"`
+	Mentions    []discordUser        `json:"mentions,omitempty"`
+	Attachments []discordAttachment  `json:"attachments,omitempty"`
 }
 
 type discordEmbed struct {
@@ -163,6 +172,11 @@ type discordEmbedField struct {
 
 type discordEmbedFooter struct {
 	Text string `json:"text"`
+}
+
+type discordMessageRef struct {
+	MessageID       string `json:"message_id"`
+	FailIfNotExists bool   `json:"fail_if_not_exists"`
 }
 
 // --- Minimal WebSocket Client (RFC 6455, no external deps) ---
@@ -726,6 +740,20 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 
 	text := discordStripMention(msg.Content, db.botUserID)
 	text = strings.TrimSpace(text)
+
+	// Download attachments and inject into prompt.
+	var attachedFiles []*UploadedFile
+	for _, att := range msg.Attachments {
+		if f, err := downloadDiscordAttachment(db.cfg.baseDir, att); err != nil {
+			logWarn("discord: attachment download failed", "url", att.URL, "err", err)
+		} else {
+			attachedFiles = append(attachedFiles, f)
+		}
+	}
+	if prefix := buildFilePromptPrefix(attachedFiles); prefix != "" {
+		text = prefix + text
+	}
+
 	if text == "" {
 		return
 	}
@@ -783,6 +811,20 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	} else {
 		db.sendMessage(msg.ChannelID, "Smart dispatch is not enabled. Use `!help` for commands.")
 	}
+}
+
+// downloadDiscordAttachment fetches an attachment from Discord CDN and saves it locally.
+func downloadDiscordAttachment(baseDir string, att discordAttachment) (*UploadedFile, error) {
+	resp, err := http.Get(att.URL) //nolint:noctx
+	if err != nil {
+		return nil, fmt.Errorf("discord attachment: http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("discord attachment: HTTP %d for %s", resp.StatusCode, att.Filename)
+	}
+	uploadDir := initUploadDir(baseDir)
+	return saveUpload(uploadDir, att.Filename, resp.Body, att.Size, "discord")
 }
 
 // discordIsMentioned checks if the bot user ID appears in the mentions list.
@@ -1040,7 +1082,7 @@ func (db *DiscordBot) cmdAsk(msg discordMessage, prompt string) {
 		Color:       color,
 		Fields: []discordEmbedField{
 			{Name: "Cost", Value: fmt.Sprintf("$%.4f", result.CostUSD), Inline: true},
-			{Name: "Duration", Value: fmt.Sprintf("%dms", result.DurationMs), Inline: true},
+			{Name: "Duration", Value: formatDurationMs(result.DurationMs), Inline: true},
 		},
 		Footer:    &discordEmbedFooter{Text: fmt.Sprintf("ask | %s", task.ID[:8])},
 		Timestamp: time.Now().Format(time.RFC3339),
@@ -1406,10 +1448,10 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	}
 
 	// Send response embed.
-	db.sendRouteResponse(msg.ChannelID, &route, result, task, outputAlreadySent)
+	db.sendRouteResponse(msg.ChannelID, &route, result, task, outputAlreadySent, msg.ID)
 }
 
-func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task, skipOutput bool) {
+func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task, skipOutput bool, replyMsgID string) {
 	color := 0x57F287
 	if result.Status != "success" {
 		color = 0xED4245
@@ -1455,18 +1497,30 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 		}
 	}
 
-	// Send metadata as a small embed at the end.
-	db.sendEmbed(channelID, discordEmbed{
+	// Query today's cumulative token usage (this task already recorded before this call).
+	todayIn, todayOut := todayTotalTokens(db.cfg.HistoryDB)
+
+	// Send metadata as a small embed at the end, as a reply to the original message.
+	db.sendEmbedReply(channelID, replyMsgID, discordEmbed{
 		Color: color,
 		Fields: []discordEmbedField{
 			{Name: "Agent", Value: fmt.Sprintf("%s (%s)", route.Agent, route.Method), Inline: true},
 			{Name: "Status", Value: result.Status, Inline: true},
 			{Name: "Cost", Value: fmt.Sprintf("$%.4f", result.CostUSD), Inline: true},
-			{Name: "Duration", Value: fmt.Sprintf("%dms", result.DurationMs), Inline: true},
+			{Name: "Duration", Value: formatDurationMs(result.DurationMs), Inline: true},
+			{Name: "今日 Token", Value: fmt.Sprintf("%d in / %d out", todayIn, todayOut), Inline: true},
 		},
 		Footer:    &discordEmbedFooter{Text: fmt.Sprintf("Task: %s", task.ID[:8])},
 		Timestamp: time.Now().Format(time.RFC3339),
 	})
+}
+
+// formatDurationMs converts milliseconds to a human-readable string (e.g. "11.9s", "320ms").
+func formatDurationMs(ms int64) string {
+	if ms >= 1000 {
+		return fmt.Sprintf("%.1fs", float64(ms)/1000)
+	}
+	return fmt.Sprintf("%dms", ms)
 }
 
 // --- REST API Helpers ---
@@ -1480,6 +1534,14 @@ func (db *DiscordBot) sendMessage(channelID, content string) {
 
 func (db *DiscordBot) sendEmbed(channelID string, embed discordEmbed) {
 	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{"embeds": []discordEmbed{embed}})
+}
+
+func (db *DiscordBot) sendEmbedReply(channelID, replyToID string, embed discordEmbed) {
+	payload := map[string]any{"embeds": []discordEmbed{embed}}
+	if replyToID != "" {
+		payload["message_reference"] = discordMessageRef{MessageID: replyToID, FailIfNotExists: false}
+	}
+	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), payload)
 }
 
 func (db *DiscordBot) sendTyping(channelID string) {

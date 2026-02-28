@@ -73,7 +73,7 @@ func main() {
 		case "security":
 			cmdSecurity(os.Args[2:])
 			return
-		case "session":
+		case "session", "sessions":
 			cmdSession(os.Args[2:])
 			return
 		case "budget":
@@ -580,6 +580,22 @@ func main() {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
 			cron.start(ctx)
+		}
+
+		// Startup disk check.
+		if cfg.baseDir != "" {
+			free := diskFreeBytes(cfg.baseDir)
+			freeGB := float64(free) / (1024 * 1024 * 1024)
+			budgetGB := cfg.DiskBudgetGB
+			if budgetGB <= 0 {
+				budgetGB = 1.0
+			}
+			switch {
+			case freeGB < 0.5:
+				logWarn("startup disk critical: very low free space", "freeGB", fmt.Sprintf("%.2f", freeGB))
+			case freeGB < budgetGB:
+				logWarn("startup disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "thresholdGB", budgetGB)
+			}
 		}
 
 		// Wire slot pressure guard to notification chain and SSE broker.

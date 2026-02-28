@@ -38,15 +38,24 @@ type slackEventWrapper struct {
 	EventID   string          `json:"event_id"`
 }
 
+type slackFile struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Mimetype           string `json:"mimetype"`
+	URLPrivateDownload string `json:"url_private_download"`
+	Size               int64  `json:"size"`
+}
+
 type slackEvent struct {
-	Type     string `json:"type"`              // "message", "app_mention"
-	Text     string `json:"text"`
-	User     string `json:"user"`
-	Channel  string `json:"channel"`
-	TS       string `json:"ts"`                // message timestamp (used as thread ID)
-	ThreadTS string `json:"thread_ts,omitempty"` // parent thread
-	BotID    string `json:"bot_id,omitempty"`    // non-empty if from a bot
-	SubType  string `json:"subtype,omitempty"`   // e.g. "bot_message", "message_changed"
+	Type     string      `json:"type"`                // "message", "app_mention"
+	Text     string      `json:"text"`
+	User     string      `json:"user"`
+	Channel  string      `json:"channel"`
+	TS       string      `json:"ts"`                  // message timestamp (used as thread ID)
+	ThreadTS string      `json:"thread_ts,omitempty"` // parent thread
+	BotID    string      `json:"bot_id,omitempty"`    // non-empty if from a bot
+	SubType  string      `json:"subtype,omitempty"`   // e.g. "bot_message", "message_changed"
+	Files    []slackFile `json:"files,omitempty"`
 }
 
 // --- Slack Bot ---
@@ -181,6 +190,20 @@ func (sb *SlackBot) handleSlackEvent(event slackEvent) {
 	switch event.Type {
 	case "app_mention", "message":
 		text := stripSlackMentions(event.Text)
+
+		// Download attached files and inject into prompt.
+		var attachedFiles []*UploadedFile
+		for _, f := range event.Files {
+			if uf, err := sb.downloadSlackFile(f); err != nil {
+				logWarn("slack: file download failed", "name", f.Name, "err", err)
+			} else {
+				attachedFiles = append(attachedFiles, uf)
+			}
+		}
+		if prefix := buildFilePromptPrefix(attachedFiles); prefix != "" {
+			text = prefix + text
+		}
+
 		if text == "" {
 			return
 		}
@@ -707,6 +730,29 @@ func (sb *SlackBot) sendSlackNotify(text string) {
 	if sb.cfg.Slack.DefaultChannel != "" {
 		sb.slackReply(sb.cfg.Slack.DefaultChannel, "", text)
 	}
+}
+
+// downloadSlackFile downloads a file attached to a Slack message using the bot token.
+func (sb *SlackBot) downloadSlackFile(f slackFile) (*UploadedFile, error) {
+	if f.URLPrivateDownload == "" {
+		return nil, fmt.Errorf("slack file %s has no download URL", f.Name)
+	}
+	req, err := http.NewRequest("GET", f.URLPrivateDownload, nil)
+	if err != nil {
+		return nil, fmt.Errorf("slack file: build request: %w", err)
+	}
+	token := sb.cfg.Slack.BotToken
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("slack file: http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("slack file: HTTP %d for %s", resp.StatusCode, f.Name)
+	}
+	uploadDir := initUploadDir(sb.cfg.WorkspaceDir)
+	return saveUpload(uploadDir, f.Name, resp.Body, f.Size, "slack")
 }
 
 // --- P28.0: Slack Approval Gate ---

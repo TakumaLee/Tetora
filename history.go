@@ -86,7 +86,73 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		}
 	}
 
+	// Cron execution log: records each job trigger for startup replay / zombie detection.
+	if err := execDB(dbPath, `
+CREATE TABLE IF NOT EXISTS cron_execution_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  started_at TEXT NOT NULL DEFAULT '',
+  replayed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_cron_exec_log ON cron_execution_log(job_id, scheduled_at);
+`); err != nil {
+		logWarn("cron_execution_log init failed", "error", err)
+	}
+
 	return nil
+}
+
+// --- Cron Execution Log ---
+
+// insertCronExecLog records a cron job trigger for startup replay tracking.
+func insertCronExecLog(dbPath, jobID, scheduledAt, startedAt string, replayed bool) {
+	replayedInt := 0
+	if replayed {
+		replayedInt = 1
+	}
+	sql := fmt.Sprintf(
+		`INSERT INTO cron_execution_log (job_id, scheduled_at, started_at, replayed) VALUES ('%s','%s','%s',%d)`,
+		escapeSQLite(jobID), escapeSQLite(scheduledAt), escapeSQLite(startedAt), replayedInt,
+	)
+	if err := execDB(dbPath, sql); err != nil {
+		logWarn("cron exec log insert failed", "jobId", jobID, "error", err)
+	}
+}
+
+// cronExecLogExists returns true if there is a cron_execution_log entry for jobID
+// with scheduled_at within ±10 minutes of scheduledAt.
+func cronExecLogExists(dbPath, jobID string, scheduledAt time.Time) bool {
+	const tol = 10 * time.Minute
+	from := scheduledAt.Add(-tol).UTC().Format(time.RFC3339)
+	to := scheduledAt.Add(tol).UTC().Format(time.RFC3339)
+	sql := fmt.Sprintf(
+		`SELECT COUNT(*) as cnt FROM cron_execution_log WHERE job_id='%s' AND scheduled_at >= '%s' AND scheduled_at <= '%s'`,
+		escapeSQLite(jobID), escapeSQLite(from), escapeSQLite(to),
+	)
+	rows, err := queryDB(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	return jsonInt(rows[0]["cnt"]) > 0
+}
+
+// jobRunExistsNear returns true if job_runs has an entry for jobID with started_at
+// within ±10 minutes of near. Used as a backward-compat fallback before the
+// cron_execution_log table existed.
+func jobRunExistsNear(dbPath, jobID string, near time.Time) bool {
+	const tol = 10 * time.Minute
+	from := near.Add(-tol).UTC().Format(time.RFC3339)
+	to := near.Add(tol).UTC().Format(time.RFC3339)
+	sql := fmt.Sprintf(
+		`SELECT COUNT(*) as cnt FROM job_runs WHERE job_id='%s' AND started_at >= '%s' AND started_at <= '%s'`,
+		escapeSQLite(jobID), escapeSQLite(from), escapeSQLite(to),
+	)
+	rows, err := queryDB(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return false
+	}
+	return jsonInt(rows[0]["cnt"]) > 0
 }
 
 // --- Insert ---
@@ -185,6 +251,15 @@ func jobRunFromRow(row map[string]any) JobRun {
 }
 
 // --- Cost Stats ---
+
+// todayTotalTokens returns the total tokens_in and tokens_out recorded today.
+func todayTotalTokens(dbPath string) (int, int) {
+	rows, err := queryDB(dbPath, `SELECT COALESCE(SUM(tokens_in),0) as total_in, COALESCE(SUM(tokens_out),0) as total_out FROM job_runs WHERE date(started_at) = date('now','localtime')`)
+	if err != nil || len(rows) == 0 {
+		return 0, 0
+	}
+	return jsonInt(rows[0]["total_in"]), jsonInt(rows[0]["total_out"])
+}
 
 func queryCostStats(dbPath string) (CostStats, error) {
 	sql := `SELECT

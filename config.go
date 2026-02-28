@@ -74,6 +74,9 @@ type Config struct {
 	SLA                   SLAConfig                  `json:"sla,omitempty"`
 	OfflineQueue          OfflineQueueConfig         `json:"offlineQueue,omitempty"`
 	Budgets               BudgetConfig               `json:"budgets,omitempty"`
+	DiskBudgetGB          float64                    `json:"diskBudgetGB,omitempty"` // minimum free disk (GB); default 1.0; refuse cron at 0.5GB
+	DiskWarnMB            int                        `json:"diskWarnMB,omitempty"`   // free disk warn threshold (MB); default 500; log WARN, job continues
+	DiskBlockMB           int                        `json:"diskBlockMB,omitempty"`  // free disk block threshold (MB); default 200; log ERROR, job skipped as skipped_disk_full
 	Reflection            ReflectionConfig           `json:"reflection,omitempty"`
 	NotifyIntel           NotifyIntelConfig          `json:"notifyIntel,omitempty"`
 	Trust                 TrustConfig                `json:"trust,omitempty"`
@@ -132,6 +135,7 @@ type Config struct {
 	Lifecycle             LifecycleConfig                  `json:"lifecycle,omitempty"`             // --- P29.0: Lifecycle Automation ---
 	PromptBudget          PromptBudgetConfig               `json:"promptBudget,omitempty"`          // --- Tiered Prompt Builder ---
 	CronNotify            *bool                            `json:"cronNotify,omitempty"`             // nil/true = send cron notifications, false = suppress all
+	CronReplayHours       int                              `json:"cronReplayHours,omitempty"`        // hours to look back for missed jobs on startup (default 2)
 
 	// Resolved at runtime (not serialized).
 	baseDir           string

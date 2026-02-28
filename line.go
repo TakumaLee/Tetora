@@ -239,13 +239,26 @@ func (lb *LINEBot) handleMessageEvent(event lineEvent) {
 	}
 	lb.mu.Unlock()
 
-	// Only process text messages for dispatch.
-	if event.Message.Type != "text" || event.Message.Text == "" {
-		logDebug("line: non-text message ignored", "msgID", event.Message.ID, "type", event.Message.Type)
+	// Handle text and image messages; ignore other types.
+	var text string
+	var attachedFiles []*UploadedFile
+	switch event.Message.Type {
+	case "text":
+		text = strings.TrimSpace(event.Message.Text)
+	case "image":
+		if f, err := lb.downloadLineContent(event.Message.ID, event.Message.ID+".jpg"); err != nil {
+			logWarn("line: image download failed", "msgID", event.Message.ID, "err", err)
+		} else {
+			attachedFiles = append(attachedFiles, f)
+		}
+	default:
+		logDebug("line: unsupported message type ignored", "msgID", event.Message.ID, "type", event.Message.Type)
 		return
 	}
 
-	text := strings.TrimSpace(event.Message.Text)
+	if prefix := buildFilePromptPrefix(attachedFiles); prefix != "" {
+		text = prefix + text
+	}
 	if text == "" {
 		return
 	}
@@ -511,6 +524,26 @@ func (lb *LINEBot) getProfile(userID string) (*lineProfile, error) {
 	}
 
 	return &profile, nil
+}
+
+// downloadLineContent downloads binary content (e.g. images) from LINE Content API.
+func (lb *LINEBot) downloadLineContent(messageID, filename string) (*UploadedFile, error) {
+	url := fmt.Sprintf("https://api-data.line.me/v2/bot/message/%s/content", messageID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("line content: create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+lb.cfg.LINE.ChannelAccessToken)
+	resp, err := lb.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("line content: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("line content: HTTP %d", resp.StatusCode)
+	}
+	uploadDir := initUploadDir(lb.cfg.baseDir)
+	return saveUpload(uploadDir, filename, resp.Body, 0, "line")
 }
 
 // sendLINEAPIRequest sends a POST request to LINE Messaging API.

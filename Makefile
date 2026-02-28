@@ -1,13 +1,22 @@
-VERSION  := 1.6.18
+VERSION  := 1.6.19
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
-.PHONY: build install clean release test
+.PHONY: build dev reload install clean release test
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+
+dev:
+	go build -ldflags "$(LDFLAGS)" -o $(INSTALL)/$(BINARY) .
+
+reload: dev
+	$(INSTALL)/$(BINARY) stop 2>/dev/null || true
+	sleep 1
+	$(INSTALL)/$(BINARY) start 2>/dev/null || true
+	@echo "Reloaded v$(VERSION)"
 
 install: build
 	@mkdir -p $(INSTALL)

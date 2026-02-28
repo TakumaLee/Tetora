@@ -97,10 +97,31 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 	// --- Disk ---
 	if cfg.baseDir != "" {
 		di := diskInfo(cfg.baseDir)
-		checks["disk"] = di
-		if freeGB, ok := di["freeGB"].(float64); ok && freeGB < 1.0 {
-			overall = degradeStatus(overall, "degraded")
+		blockGB := 0.2 // 200MB default
+		if cfg.DiskBlockMB > 0 {
+			blockGB = float64(cfg.DiskBlockMB) / 1024
 		}
+		warnGB := 0.5 // 500MB default
+		if cfg.DiskWarnMB > 0 {
+			warnGB = float64(cfg.DiskWarnMB) / 1024
+		} else if cfg.DiskBudgetGB > 0 {
+			warnGB = cfg.DiskBudgetGB // backward compat
+		}
+		if freeGB, ok := di["freeGB"].(float64); ok {
+			switch {
+			case freeGB < blockGB:
+				di["status"] = "critical"
+				di["warn"] = true
+				overall = degradeStatus(overall, "unhealthy")
+			case freeGB < warnGB:
+				di["status"] = "warning"
+				di["warn"] = true
+				overall = degradeStatus(overall, "degraded")
+			default:
+				di["status"] = "ok"
+			}
+		}
+		checks["disk"] = di
 	}
 
 	// --- Dispatch State ---

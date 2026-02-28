@@ -505,6 +505,127 @@ func cleanupSessions(dbPath string, days int) error {
 	return execDB(dbPath, sessSQL)
 }
 
+// CleanupSessionStats holds the results of a sessions cleanup operation.
+type CleanupSessionStats struct {
+	SessionsDeleted  int
+	MessagesDeleted  int
+	OrphansFixed     int // stale active sessions marked completed (--fix-missing)
+	DryRun           bool
+	Sessions         []Session // populated for dry-run to show what would be deleted
+}
+
+// cleanupSessionsWithStats performs the same cleanup as cleanupSessions but
+// returns counts of deleted rows. When dryRun is true, no data is modified.
+func cleanupSessionsWithStats(dbPath string, days int, dryRun bool) (CleanupSessionStats, error) {
+	var stats CleanupSessionStats
+	stats.DryRun = dryRun
+
+	if dbPath == "" {
+		return stats, nil
+	}
+
+	// Count (and optionally collect) sessions that would be deleted.
+	countSQL := fmt.Sprintf(
+		`SELECT COUNT(*) as cnt FROM sessions WHERE status IN ('completed','archived')
+		 AND datetime(created_at) < datetime('now','-%d days')`, days)
+	rows, err := queryDB(dbPath, countSQL)
+	if err != nil {
+		return stats, fmt.Errorf("count sessions: %w", err)
+	}
+	if len(rows) > 0 {
+		stats.SessionsDeleted = jsonInt(rows[0]["cnt"])
+	}
+
+	// Count messages that would be deleted.
+	msgCountSQL := fmt.Sprintf(
+		`SELECT COUNT(*) as cnt FROM session_messages WHERE session_id IN (
+		  SELECT id FROM sessions WHERE status IN ('completed','archived')
+		  AND datetime(created_at) < datetime('now','-%d days')
+		)`, days)
+	mrows, err := queryDB(dbPath, msgCountSQL)
+	if err != nil {
+		return stats, fmt.Errorf("count messages: %w", err)
+	}
+	if len(mrows) > 0 {
+		stats.MessagesDeleted = jsonInt(mrows[0]["cnt"])
+	}
+
+	if dryRun {
+		// Collect session list for display.
+		listSQL := fmt.Sprintf(
+			`SELECT `+sessionSelectCols()+`
+			 FROM sessions WHERE status IN ('completed','archived')
+			 AND datetime(created_at) < datetime('now','-%d days')
+			 ORDER BY created_at ASC`, days)
+		srows, err := queryDB(dbPath, listSQL)
+		if err != nil {
+			return stats, fmt.Errorf("list sessions: %w", err)
+		}
+		for _, r := range srows {
+			stats.Sessions = append(stats.Sessions, sessionFromRow(r))
+		}
+		return stats, nil
+	}
+
+	// Perform actual deletion.
+	msgDelSQL := fmt.Sprintf(
+		`DELETE FROM session_messages WHERE session_id IN (
+		  SELECT id FROM sessions WHERE status IN ('completed','archived')
+		  AND datetime(created_at) < datetime('now','-%d days')
+		)`, days)
+	if err := execDB(dbPath, msgDelSQL); err != nil {
+		logWarn("cleanup session messages failed", "error", err)
+	}
+
+	sessDelSQL := fmt.Sprintf(
+		`DELETE FROM sessions WHERE status IN ('completed','archived')
+		 AND datetime(created_at) < datetime('now','-%d days')`, days)
+	if err := execDB(dbPath, sessDelSQL); err != nil {
+		return stats, fmt.Errorf("delete sessions: %w", err)
+	}
+
+	return stats, nil
+}
+
+// fixMissingSessions marks stale active sessions (older than days, non-system)
+// as 'completed'. These are sessions stuck in 'active' state due to crashes or
+// ungraceful shutdowns. Returns the number of sessions updated.
+func fixMissingSessions(dbPath string, days int, dryRun bool) (int, error) {
+	if dbPath == "" {
+		return 0, nil
+	}
+
+	countSQL := fmt.Sprintf(
+		`SELECT COUNT(*) as cnt FROM sessions
+		 WHERE status = 'active'
+		 AND id != '%s'
+		 AND datetime(updated_at) < datetime('now','-%d days')`,
+		SystemLogSessionID, days)
+	rows, err := queryDB(dbPath, countSQL)
+	if err != nil {
+		return 0, fmt.Errorf("count orphan sessions: %w", err)
+	}
+	count := 0
+	if len(rows) > 0 {
+		count = jsonInt(rows[0]["cnt"])
+	}
+	if dryRun || count == 0 {
+		return count, nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	fixSQL := fmt.Sprintf(
+		`UPDATE sessions SET status = 'completed', updated_at = '%s'
+		 WHERE status = 'active'
+		 AND id != '%s'
+		 AND datetime(updated_at) < datetime('now','-%d days')`,
+		now, SystemLogSessionID, days)
+	if err := execDB(dbPath, fixSQL); err != nil {
+		return 0, fmt.Errorf("fix orphan sessions: %w", err)
+	}
+	return count, nil
+}
+
 // --- Row Parsers ---
 
 func sessionFromRow(row map[string]any) Session {

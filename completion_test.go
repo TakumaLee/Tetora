@@ -47,7 +47,7 @@ func TestCompletionSubActions(t *testing.T) {
 		{"prompt", []string{"list", "show", "add", "edit", "remove"}},
 		{"memory", []string{"list", "get", "set", "delete"}},
 		{"mcp", []string{"list", "show", "add", "remove", "test"}},
-		{"session", []string{"list", "show"}},
+		{"session", []string{"list", "show", "cleanup"}},
 		{"skill", []string{"list", "run", "test"}},
 		{"budget", []string{"show", "pause", "resume"}},
 		{"webhook", []string{"list", "show", "test"}},

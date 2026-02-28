@@ -61,7 +61,7 @@ func completionSubActions(cmd string) []string {
 	case "mcp":
 		return []string{"list", "show", "add", "remove", "test"}
 	case "session":
-		return []string{"list", "show"}
+		return []string{"list", "show", "cleanup"}
 	case "knowledge":
 		return []string{"list", "add", "remove", "path", "search"}
 	case "skill":
@@ -180,7 +180,9 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 		}
 	case "session":
 		return map[string]string{
-			"list": "List recent sessions", "show": "Show session conversation",
+			"list":    "List recent sessions",
+			"show":    "Show session conversation",
+			"cleanup": "Remove old completed/archived sessions from DB",
 		}
 	case "knowledge":
 		return map[string]string{

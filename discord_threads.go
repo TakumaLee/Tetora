@@ -538,5 +538,5 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 
 	// Send response embed.
 	route := &RouteResult{Agent: role, Method: "thread-binding"}
-	db.sendRouteResponse(msg.ChannelID, route, result, task, false)
+	db.sendRouteResponse(msg.ChannelID, route, result, task, false, msg.ID)
 }

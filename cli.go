@@ -178,14 +178,18 @@ func cmdUpgrade() {
 	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
 	if _, err := os.Stat(plist); err == nil {
 		fmt.Println("Restarting service (launchd)...")
-		exec.Command("launchctl", "unload", plist).Run()
-		exec.Command("launchctl", "load", plist).Run()
-		fmt.Println("Service restarted.")
+		if err := restartLaunchd(plist); err != nil {
+			fmt.Fprintf(os.Stderr, "Restart failed: %v\n", err)
+			fmt.Println("Start manually with: tetora serve")
+			return
+		}
+		waitForHealthy()
 		return
 	}
 
 	// No launchd — find running daemon process and restart it.
 	if restartDaemonProcess(selfPath) {
+		waitForHealthy()
 		return
 	}
 
@@ -196,37 +200,13 @@ func cmdUpgrade() {
 // restartDaemonProcess finds a running "tetora serve" process, kills it,
 // and starts a new one in the background. Returns true if restart succeeded.
 func restartDaemonProcess(binaryPath string) bool {
-	// Find daemon PID via pgrep.
+	// Check if there's a running daemon to restart.
 	out, err := exec.Command("pgrep", "-f", "tetora serve").Output()
 	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
 		return false
 	}
 
-	// May have multiple PIDs (one per line), kill each with SIGTERM.
-	pids := strings.Fields(strings.TrimSpace(string(out)))
-	fmt.Printf("Stopping daemon (PID %s)...\n", strings.Join(pids, ", "))
-	for _, pid := range pids {
-		exec.Command("kill", pid).Run()
-	}
-
-	// Poll until all processes are dead (up to 3s), then SIGKILL stragglers.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(200 * time.Millisecond)
-		check, _ := exec.Command("pgrep", "-f", "tetora serve").Output()
-		if len(strings.TrimSpace(string(check))) == 0 {
-			break
-		}
-	}
-	// Force-kill any remaining processes.
-	if remaining, _ := exec.Command("pgrep", "-f", "tetora serve").Output(); len(strings.TrimSpace(string(remaining))) > 0 {
-		stragglers := strings.Fields(strings.TrimSpace(string(remaining)))
-		fmt.Printf("Force-killing stragglers (PID %s)...\n", strings.Join(stragglers, ", "))
-		for _, pid := range stragglers {
-			exec.Command("kill", "-9", pid).Run()
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	killDaemonProcess()
 
 	// Start new daemon in background.
 	fmt.Println("Starting daemon...")
@@ -261,19 +241,51 @@ func cmdRestart() {
 	plist := filepath.Join(home, "Library", "LaunchAgents", "com.tetora.daemon.plist")
 	if _, err := os.Stat(plist); err == nil {
 		fmt.Println("Restarting service (launchd)...")
-		exec.Command("launchctl", "unload", plist).Run()
-		exec.Command("launchctl", "load", plist).Run()
-		fmt.Println("Service restarted.")
+		if err := restartLaunchd(plist); err != nil {
+			fmt.Fprintf(os.Stderr, "Restart failed: %v\n", err)
+			fmt.Println("Start manually with: tetora serve")
+			return
+		}
+		waitForHealthy()
 		return
 	}
 
 	// No launchd — find running daemon process and restart it.
 	if restartDaemonProcess(selfPath) {
+		waitForHealthy()
 		return
 	}
 
 	fmt.Println("No running daemon found. Start with:")
 	fmt.Println("  tetora serve")
+}
+
+// waitForHealthy polls /healthz for up to 10 seconds after a restart to confirm
+// the daemon is up. Prints version on success or a warning on timeout.
+func waitForHealthy() {
+	cfg, _ := tryLoadConfig("")
+	if cfg == nil || cfg.ListenAddr == "" {
+		fmt.Println("Service restarted.")
+		return
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	url := fmt.Sprintf("http://%s/healthz", cfg.ListenAddr)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		var health map[string]any
+		json.NewDecoder(resp.Body).Decode(&health)
+		resp.Body.Close()
+		if v, ok := health["version"].(string); ok {
+			fmt.Printf("Service restarted. Health check: v%s OK\n", v)
+			return
+		}
+	}
+	fmt.Println("Service restarted (health check timed out — daemon may still be starting).")
 }
 
 // checkRunningJobs queries the daemon's /cron API and returns names of running jobs.

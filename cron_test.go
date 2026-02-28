@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -930,5 +931,61 @@ func TestTruncate_Table(t *testing.T) {
 				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
+	}
+}
+
+// --- Per-job concurrency tests ---
+
+func TestEffectiveMaxConcurrentRuns_Default(t *testing.T) {
+	// MaxConcurrentRuns == 0 (unset) should default to 1.
+	j := &cronJob{CronJobConfig: CronJobConfig{ID: "test", MaxConcurrentRuns: 0}}
+	if got := j.effectiveMaxConcurrentRuns(); got != 1 {
+		t.Errorf("expected 1 for unset MaxConcurrentRuns, got %d", got)
+	}
+}
+
+func TestEffectiveMaxConcurrentRuns_Explicit(t *testing.T) {
+	// Explicitly set value should be returned as-is.
+	for _, want := range []int{1, 2, 5, 10} {
+		j := &cronJob{CronJobConfig: CronJobConfig{ID: "test", MaxConcurrentRuns: want}}
+		if got := j.effectiveMaxConcurrentRuns(); got != want {
+			t.Errorf("MaxConcurrentRuns=%d: expected %d, got %d", want, want, got)
+		}
+	}
+}
+
+func TestEffectiveMaxConcurrentRuns_Negative(t *testing.T) {
+	// Negative value (invalid) falls back to default 1.
+	j := &cronJob{CronJobConfig: CronJobConfig{ID: "test", MaxConcurrentRuns: -1}}
+	if got := j.effectiveMaxConcurrentRuns(); got != 1 {
+		t.Errorf("expected 1 for negative MaxConcurrentRuns, got %d", got)
+	}
+}
+
+func TestCronJobConfig_MaxConcurrentRuns_JSONRoundtrip(t *testing.T) {
+	// Field absent → deserialises to 0; effectiveMaxConcurrentRuns() → 1 (default).
+	var cfgAbsent CronJobConfig
+	if err := json.Unmarshal([]byte(`{"id":"j1","name":"Job","enabled":true,"schedule":"* * * * *","task":{"prompt":"hi"}}`), &cfgAbsent); err != nil {
+		t.Fatalf("unmarshal without maxConcurrentRuns: %v", err)
+	}
+	if cfgAbsent.MaxConcurrentRuns != 0 {
+		t.Errorf("expected MaxConcurrentRuns=0 when field absent, got %d", cfgAbsent.MaxConcurrentRuns)
+	}
+	jAbsent := &cronJob{CronJobConfig: cfgAbsent}
+	if jAbsent.effectiveMaxConcurrentRuns() != 1 {
+		t.Errorf("expected effectiveMaxConcurrentRuns()=1 for absent field, got %d", jAbsent.effectiveMaxConcurrentRuns())
+	}
+
+	// Field present with explicit value → returned as-is.
+	var cfgPresent CronJobConfig
+	if err := json.Unmarshal([]byte(`{"id":"j2","name":"Job","enabled":true,"schedule":"* * * * *","task":{"prompt":"hi"},"maxConcurrentRuns":3}`), &cfgPresent); err != nil {
+		t.Fatalf("unmarshal with maxConcurrentRuns: %v", err)
+	}
+	if cfgPresent.MaxConcurrentRuns != 3 {
+		t.Errorf("expected MaxConcurrentRuns=3, got %d", cfgPresent.MaxConcurrentRuns)
+	}
+	jPresent := &cronJob{CronJobConfig: cfgPresent}
+	if jPresent.effectiveMaxConcurrentRuns() != 3 {
+		t.Errorf("expected effectiveMaxConcurrentRuns()=3, got %d", jPresent.effectiveMaxConcurrentRuns())
 	}
 }

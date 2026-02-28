@@ -36,6 +36,7 @@ type CronJobConfig struct {
 	RequireApproval bool           `json:"requireApproval,omitempty"` // true = wait for human approval before running
 	ApprovalTimeout string         `json:"approvalTimeout,omitempty"` // e.g. "10m"; default "10m"
 	IdleMinHours    int            `json:"idleMinHours,omitempty"`    // >0: only trigger when system idle for N hours
+	MaxConcurrentRuns int          `json:"maxConcurrentRuns,omitempty"` // max simultaneous instances of this job (default 1)
 }
 
 type CronTaskConfig struct {
@@ -63,7 +64,8 @@ type cronJob struct {
 	lastErr  string
 	lastCost float64
 	errors     int  // consecutive errors
-	running    bool
+	running    bool // true when runCount > 0 (kept for display/compat)
+	runCount   int  // number of currently executing instances
 	runStart   time.Time
 	runTimeout string
 	cancelFn   context.CancelFunc // cancel this specific job
@@ -72,9 +74,21 @@ type cronJob struct {
 	// Approval gate.
 	pendingApproval bool
 	approvalCh      chan bool // true = approved, false = rejected
+
+	// Startup replay marker: set to true when this run was triggered by startupReplay.
+	replayed bool
 }
 
 const maxChainDepth = 5
+
+// effectiveMaxConcurrentRuns returns the per-job instance limit.
+// Defaults to 1 (safe/conservative) when not configured.
+func (j *cronJob) effectiveMaxConcurrentRuns() int {
+	if j.MaxConcurrentRuns > 0 {
+		return j.MaxConcurrentRuns
+	}
+	return 1
+}
 
 // --- Cron Engine ---
 
@@ -97,6 +111,8 @@ type CronEngine struct {
 	budgetCacheTime time.Time
 	budgetCacheOver bool
 	budgetCacheMsg  string
+
+	diskWarnLogged bool
 
 	lastDigestDate string // "2006-01-02" — prevents firing more than once per day
 
@@ -253,6 +269,46 @@ func (ce *CronEngine) checkBudget() (exceeded bool, reason string) {
 	return false, ""
 }
 
+// diskWarnThresholdMB returns the warn threshold in MB (default 500).
+// Falls back to DiskBudgetGB (converted) for backward compat.
+func (ce *CronEngine) diskWarnThresholdMB() int {
+	if ce.cfg.DiskWarnMB > 0 {
+		return ce.cfg.DiskWarnMB
+	}
+	if ce.cfg.DiskBudgetGB > 0 {
+		return int(ce.cfg.DiskBudgetGB * 1024)
+	}
+	return 500
+}
+
+// diskBlockThresholdMB returns the block threshold in MB (default 200).
+func (ce *CronEngine) diskBlockThresholdMB() int {
+	if ce.cfg.DiskBlockMB > 0 {
+		return ce.cfg.DiskBlockMB
+	}
+	return 200
+}
+
+// checkDisk returns "ok", "warning", or "critical" with free GB.
+// warning  = below diskWarnMB threshold (default 500 MB)
+// critical = below diskBlockMB threshold (default 200 MB)
+func (ce *CronEngine) checkDisk() (status string, freeGB float64) {
+	if ce.cfg.baseDir == "" {
+		return "ok", 0
+	}
+	free := diskFreeBytes(ce.cfg.baseDir)
+	freeGB = float64(free) / (1024 * 1024 * 1024)
+	freeMB := freeGB * 1024
+	switch {
+	case freeMB < float64(ce.diskBlockThresholdMB()):
+		return "critical", freeGB
+	case freeMB < float64(ce.diskWarnThresholdMB()):
+		return "warning", freeGB
+	default:
+		return "ok", freeGB
+	}
+}
+
 // checkDigest sends a daily digest notification if configured and it's time.
 func (ce *CronEngine) checkDigest() {
 	if !ce.cfg.Digest.Enabled || ce.notifyFn == nil || ce.cfg.HistoryDB == "" {
@@ -372,6 +428,30 @@ func (ce *CronEngine) tick(ctx context.Context) {
 		}
 	}
 
+	// Disk budget check: log/notify when disk is low.
+	// Per-job skip + history recording is handled in runJob().
+	diskStatus, freeGB := ce.checkDisk()
+	switch diskStatus {
+	case "critical":
+		if !ce.diskWarnLogged {
+			ce.diskWarnLogged = true
+			logWarn("cron disk critical: new jobs will be skipped", "freeGB", fmt.Sprintf("%.2f", freeGB), "blockMB", ce.diskBlockThresholdMB())
+			if ce.notifyFn != nil {
+				ce.notifyFn(fmt.Sprintf("Disk critical: only %.2fGB free — new cron jobs will be skipped (block at %dMB)", freeGB, ce.diskBlockThresholdMB()))
+			}
+		}
+	case "warning":
+		if !ce.diskWarnLogged {
+			ce.diskWarnLogged = true
+			logWarn("cron disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "warnMB", ce.diskWarnThresholdMB())
+			if ce.notifyFn != nil {
+				ce.notifyFn(fmt.Sprintf("Disk warning: only %.2fGB free (threshold %dMB)", freeGB, ce.diskWarnThresholdMB()))
+			}
+		}
+	default:
+		ce.diskWarnLogged = false // reset when disk returns to healthy
+	}
+
 	// Pre-compute idle state before acquiring lock (DB query).
 	lastFinished := ce.cachedLastFinished()
 
@@ -380,7 +460,39 @@ func (ce *CronEngine) tick(ctx context.Context) {
 	defer ce.mu.Unlock()
 
 	for _, j := range ce.jobs {
-		if !j.Enabled || j.running {
+		if !j.Enabled {
+			continue
+		}
+
+		// Per-job concurrency gate: skip if already at the instance limit.
+		maxRuns := j.effectiveMaxConcurrentRuns()
+		if j.runCount >= maxRuns {
+			if j.runCount > 0 {
+				// Only warn when the schedule would have fired (avoid noise on every tick).
+				nowLocal := now.In(j.loc)
+				if j.expr.matches(nowLocal) {
+					logWarnCtx(ctx, "cron job skipped: already running max instances",
+						"jobId", j.ID, "name", j.Name,
+						"running", j.runCount, "maxConcurrentRuns", maxRuns)
+					// Record skip to history without blocking the ticker loop.
+					if ce.cfg.HistoryDB != "" {
+						jID, jName, running, maxR := j.ID, j.Name, j.runCount, maxRuns
+						histDB := ce.cfg.HistoryDB
+						go func() {
+							ts := time.Now().UTC().Format(time.RFC3339)
+							_ = insertJobRun(histDB, JobRun{
+								JobID:      jID,
+								Name:       jName,
+								Source:     "cron",
+								StartedAt:  ts,
+								FinishedAt: ts,
+								Status:     "skipped_concurrent_limit",
+								Error:      fmt.Sprintf("already %d instance(s) running (max %d)", running, maxR),
+							})
+						}()
+					}
+				}
+			}
 			continue
 		}
 
@@ -419,13 +531,15 @@ func (ce *CronEngine) tick(ctx context.Context) {
 				j.lastRun.In(j.loc).Truncate(time.Minute).Equal(nowLocal.Truncate(time.Minute)) {
 				continue
 			}
+			j.runCount++
 			j.running = true
 			ce.jobWg.Add(1)
 			go func(j *cronJob) {
 				defer ce.jobWg.Done()
 				defer func() {
 					ce.mu.Lock()
-					j.running = false
+					j.runCount--
+					j.running = j.runCount > 0
 					j.lastRun = time.Now()
 					j.nextRun = nextRunAfter(j.expr, j.loc, time.Now().In(j.loc))
 					ce.mu.Unlock()
@@ -464,6 +578,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 			continue
 		}
 
+		j.runCount++
 		j.running = true
 		jobCtx, jobCancel := context.WithCancel(ctx)
 		j.cancelFn = jobCancel
@@ -490,7 +605,8 @@ func (ce *CronEngine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	defer func() {
 		ce.mu.Lock()
-		j.running = false
+		j.runCount--
+		j.running = j.runCount > 0
 		j.runStart = time.Time{}
 		j.runTimeout = ""
 		if j.cancelFn != nil {
@@ -502,7 +618,34 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		ce.mu.Unlock()
 	}()
 
+	// Disk block check: skip job and record history if disk is critically low.
+	if diskStatus, diskFreeGB := ce.checkDisk(); diskStatus == "critical" {
+		logErrorCtx(ctx, "cron job skipped: disk full", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "blockMB", ce.diskBlockThresholdMB())
+		if ce.notifyFn != nil {
+			ce.notifyFn(fmt.Sprintf("Job %q skipped: disk full (%.2fGB free, block at %dMB)", j.Name, diskFreeGB, ce.diskBlockThresholdMB()))
+		}
+		if ce.cfg.HistoryDB != "" {
+			now := time.Now().UTC().Format(time.RFC3339)
+			_ = insertJobRun(ce.cfg.HistoryDB, JobRun{
+				JobID:      j.ID,
+				Name:       j.Name,
+				Source:     "cron",
+				StartedAt:  now,
+				FinishedAt: now,
+				Status:     "skipped_disk_full",
+				Error:      fmt.Sprintf("disk full: %.2fGB free (block threshold: %dMB)", diskFreeGB, ce.diskBlockThresholdMB()),
+			})
+		}
+		return
+	} else if diskStatus == "warning" {
+		logWarnCtx(ctx, "cron job disk warning", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "warnMB", ce.diskWarnThresholdMB())
+	}
+
 	// Build task from cron job config.
+	jobSource := "cron"
+	if j.replayed {
+		jobSource = "cron-replay"
+	}
 	task := Task{
 		Prompt:         j.Task.Prompt,
 		Workdir:        j.Task.Workdir,
@@ -514,7 +657,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		PermissionMode: j.Task.PermissionMode,
 		MCP:            j.Task.MCP,
 		AddDirs:        j.Task.AddDirs,
-		Source:         "cron",
+		Source:         jobSource,
 	}
 	fillDefaults(ce.cfg, &task)
 	task.Name = j.Name
@@ -622,6 +765,23 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	logInfoCtx(ctx, "cron running job", "jobId", j.ID, "name", j.Name)
 	jobStart := time.Now()
 
+	// Record in cron_execution_log for crash-recovery / startup replay.
+	// scheduled_at = j.nextRun (theoretical schedule); started_at = actual start.
+	// This record lets startupReplay skip re-running a job that already started
+	// (zombie detection) and prevents double-run on clean restart.
+	if ce.cfg.HistoryDB != "" {
+		ce.mu.RLock()
+		scheduledAt := j.nextRun
+		ce.mu.RUnlock()
+		if scheduledAt.IsZero() {
+			scheduledAt = jobStart
+		}
+		insertCronExecLog(ce.cfg.HistoryDB, j.ID,
+			scheduledAt.UTC().Format(time.RFC3339),
+			jobStart.UTC().Format(time.RFC3339),
+			j.replayed)
+	}
+
 	ce.mu.Lock()
 	j.runStart = jobStart
 	j.runTimeout = task.Timeout
@@ -656,7 +816,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 			task.SessionID = newUUID()
 
 			// Record the retry attempt in history.
-			recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Agent, task, result,
+			recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, jobSource, j.Agent, task, result,
 				jobStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 		}
 
@@ -676,7 +836,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	}
 
 	// Record final result to history DB.
-	recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, "cron", j.Agent, task, result,
+	recordHistory(ce.cfg.HistoryDB, j.ID, j.Name, jobSource, j.Agent, task, result,
 		jobStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
@@ -801,6 +961,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 }
 
 // RunJobByID manually triggers a cron job. Returns error if not found.
+// Respects the job's maxConcurrentRuns limit.
 func (ce *CronEngine) RunJobByID(ctx context.Context, id string) error {
 	ce.mu.Lock()
 	var target *cronJob
@@ -814,10 +975,12 @@ func (ce *CronEngine) RunJobByID(ctx context.Context, id string) error {
 		ce.mu.Unlock()
 		return fmt.Errorf("job %q not found", id)
 	}
-	if target.running {
+	maxRuns := target.effectiveMaxConcurrentRuns()
+	if target.runCount >= maxRuns {
 		ce.mu.Unlock()
-		return fmt.Errorf("job %q already running", id)
+		return fmt.Errorf("job %q already running %d/%d instances", id, target.runCount, maxRuns)
 	}
+	target.runCount++
 	target.running = true
 	jobCtx, jobCancel := context.WithCancel(ctx)
 	target.cancelFn = jobCancel
@@ -832,6 +995,7 @@ func (ce *CronEngine) RunJobByID(ctx context.Context, id string) error {
 }
 
 // runChainJob triggers a job as part of a chain with the given depth.
+// Respects the job's maxConcurrentRuns limit.
 func (ce *CronEngine) runChainJob(ctx context.Context, id string, depth int) error {
 	ce.mu.Lock()
 	var target *cronJob
@@ -845,10 +1009,12 @@ func (ce *CronEngine) runChainJob(ctx context.Context, id string, depth int) err
 		ce.mu.Unlock()
 		return fmt.Errorf("job %q not found", id)
 	}
-	if target.running {
+	maxRuns := target.effectiveMaxConcurrentRuns()
+	if target.runCount >= maxRuns {
 		ce.mu.Unlock()
-		return fmt.Errorf("job %q already running", id)
+		return fmt.Errorf("job %q already running %d/%d instances", id, target.runCount, maxRuns)
 	}
+	target.runCount++
 	target.running = true
 	target.chainDepth = depth
 	jobCtx, jobCancel := context.WithCancel(ctx)
@@ -943,22 +1109,24 @@ func (ce *CronEngine) ListJobs() []CronJobInfo {
 	var infos []CronJobInfo
 	for _, j := range ce.jobs {
 		info := CronJobInfo{
-			ID:        j.ID,
-			Name:      j.Name,
-			Enabled:   j.Enabled,
-			Schedule:  j.Schedule,
-			TZ:        j.TZ,
-			Agent:      j.Agent,
-			Running:   j.running,
-			NextRun:   j.nextRun,
-			LastRun:   j.lastRun,
-			LastErr:   j.lastErr,
-			LastCost:  j.lastCost,
-			AvgCost:   queryJobAvgCost(ce.cfg.HistoryDB, j.ID),
-			Errors:    j.errors,
-			OnSuccess:    j.OnSuccess,
-			OnFailure:    j.OnFailure,
-			IdleMinHours: j.IdleMinHours,
+			ID:                j.ID,
+			Name:              j.Name,
+			Enabled:           j.Enabled,
+			Schedule:          j.Schedule,
+			TZ:                j.TZ,
+			Agent:             j.Agent,
+			Running:           j.running,
+			RunCount:          j.runCount,
+			MaxConcurrentRuns: j.effectiveMaxConcurrentRuns(),
+			NextRun:           j.nextRun,
+			LastRun:           j.lastRun,
+			LastErr:           j.lastErr,
+			LastCost:          j.lastCost,
+			AvgCost:           queryJobAvgCost(ce.cfg.HistoryDB, j.ID),
+			Errors:            j.errors,
+			OnSuccess:         j.OnSuccess,
+			OnFailure:         j.OnFailure,
+			IdleMinHours:      j.IdleMinHours,
 		}
 		if j.running && !j.runStart.IsZero() {
 			info.RunStart = j.runStart
@@ -984,6 +1152,8 @@ type CronJobInfo struct {
 	TZ       string    `json:"tz"`
 	Agent     string    `json:"agent"`
 	Running  bool      `json:"running"`
+	RunCount int       `json:"runCount"`            // number of currently executing instances
+	MaxConcurrentRuns int `json:"maxConcurrentRuns"` // effective limit (1 if not set)
 	NextRun  time.Time `json:"nextRun"`
 	LastRun  time.Time `json:"lastRun"`
 	LastErr    string    `json:"lastErr,omitempty"`
@@ -1398,6 +1568,134 @@ func cronDiscordSendBotChannel(botToken, channelID, msg string) error {
 		return fmt.Errorf("Discord returned HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// --- Startup Replay ---
+
+// startupReplay detects cron jobs that should have run while the daemon was down
+// and schedules a single catch-up run (the most recent missed slot only) after a
+// 30-second delay to avoid startup conflicts.
+//
+// A job is considered "missed" when:
+//   - Its schedule expression places at least one trigger in [now-replayHours, now]
+//   - cron_execution_log has no entry for that job near the computed scheduled time
+//   - job_runs also has no entry (backward-compat fallback for existing DBs)
+//
+// Jobs with RequireApproval, IdleMinHours>0, or the built-in special jobs
+// (daily_notes, backlog-triage) are excluded from replay.
+func (ce *CronEngine) startupReplay(ctx context.Context) {
+	hours := ce.cfg.CronReplayHours
+	if hours <= 0 {
+		hours = 2
+	}
+	if ce.cfg.HistoryDB == "" {
+		return
+	}
+
+	now := time.Now()
+	from := now.Add(-time.Duration(hours) * time.Hour)
+
+	ce.mu.RLock()
+	jobs := make([]*cronJob, len(ce.jobs))
+	copy(jobs, ce.jobs)
+	ce.mu.RUnlock()
+
+	var missed []*cronJob
+	for _, j := range jobs {
+		if !j.Enabled {
+			continue
+		}
+		// Skip jobs that shouldn't run unsupervised.
+		if j.IdleMinHours > 0 || j.RequireApproval {
+			continue
+		}
+		// Skip built-in special jobs with custom dispatch logic.
+		if j.ID == "daily_notes" || j.ID == "backlog-triage" {
+			continue
+		}
+
+		scheduledAt := ce.mostRecentScheduledTime(j, from, now)
+		if scheduledAt.IsZero() {
+			continue // no trigger in window
+		}
+
+		// Check cron_execution_log first (authoritative from this version onwards).
+		if cronExecLogExists(ce.cfg.HistoryDB, j.ID, scheduledAt) {
+			continue // job ran or was a zombie — skip
+		}
+		// Fallback: check job_runs for DBs upgraded before cron_execution_log existed.
+		if jobRunExistsNear(ce.cfg.HistoryDB, j.ID, scheduledAt) {
+			continue
+		}
+
+		logInfo("cron startup replay: missed run detected",
+			"jobId", j.ID, "name", j.Name, "scheduledAt", scheduledAt.Format(time.RFC3339))
+		missed = append(missed, j)
+	}
+
+	if len(missed) == 0 {
+		return
+	}
+
+	logInfo("cron startup replay: scheduling missed jobs", "count", len(missed))
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+
+		for _, j := range missed {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			ce.mu.Lock()
+			maxRuns := j.effectiveMaxConcurrentRuns()
+			if j.runCount >= maxRuns {
+				ce.mu.Unlock()
+				logInfo("cron startup replay: job already running max instances, skipping",
+					"jobId", j.ID, "running", j.runCount, "maxConcurrentRuns", maxRuns)
+				continue
+			}
+			j.runCount++
+			j.running = true
+			j.replayed = true
+			jobCtx, jobCancel := context.WithCancel(ctx)
+			j.cancelFn = jobCancel
+			ce.mu.Unlock()
+
+			logInfo("cron startup replay: launching missed job", "jobId", j.ID, "name", j.Name)
+			ce.jobWg.Add(1)
+			go func(jj *cronJob) {
+				defer ce.jobWg.Done()
+				ce.runJob(jobCtx, jj)
+				ce.mu.Lock()
+				jj.replayed = false
+				ce.mu.Unlock()
+			}(j)
+		}
+	}()
+}
+
+// mostRecentScheduledTime returns the most recent time in [from, to] that the
+// job's cron expression would have triggered. Returns zero time if none.
+func (ce *CronEngine) mostRecentScheduledTime(j *cronJob, from, to time.Time) time.Time {
+	var last time.Time
+	// nextRunAfter starts from t+1min, so subtract 1min to include 'from' itself.
+	t := from.In(j.loc).Add(-time.Minute)
+	for {
+		next := nextRunAfter(j.expr, j.loc, t)
+		if next.IsZero() || next.After(to) {
+			break
+		}
+		last = next
+		t = next // nextRunAfter will advance by 1min internally on next call
+	}
+	return last
 }
 
 // cronDiscordSendWebhook sends a plain message to a Discord webhook URL.

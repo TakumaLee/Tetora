@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func cmdService(args []string) {
@@ -81,9 +82,8 @@ func launchdInstall() {
 		os.Exit(1)
 	}
 
-	out, err := exec.Command("launchctl", "load", plistPath).CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "launchctl load: %s\n", strings.TrimSpace(string(out)))
+	if err := restartLaunchd(plistPath); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
@@ -104,9 +104,63 @@ func launchdUninstall() {
 		return
 	}
 
-	exec.Command("launchctl", "unload", plistPath).CombinedOutput()
+	stopLaunchd(plistPath)
 	os.Remove(plistPath)
 	fmt.Println("Service stopped and removed.")
+}
+
+// killDaemonProcess finds and kills running "tetora serve" processes.
+// Sends SIGTERM first, waits up to 3s, then SIGKILL stragglers.
+func killDaemonProcess() {
+	out, err := exec.Command("pgrep", "-f", "tetora serve").Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return
+	}
+	pids := strings.Fields(strings.TrimSpace(string(out)))
+	fmt.Printf("Stopping daemon (PID %s)...\n", strings.Join(pids, ", "))
+	for _, pid := range pids {
+		exec.Command("kill", pid).Run()
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		check, _ := exec.Command("pgrep", "-f", "tetora serve").Output()
+		if len(strings.TrimSpace(string(check))) == 0 {
+			return
+		}
+	}
+	if remaining, _ := exec.Command("pgrep", "-f", "tetora serve").Output(); len(strings.TrimSpace(string(remaining))) > 0 {
+		for _, pid := range strings.Fields(strings.TrimSpace(string(remaining))) {
+			exec.Command("kill", "-9", pid).Run()
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// restartLaunchd kills the running daemon, then uses launchctl bootout/bootstrap
+// to restart the service. This is the modern replacement for unload/load.
+func restartLaunchd(plistPath string) error {
+	killDaemonProcess()
+
+	uid := fmt.Sprintf("%d", os.Getuid())
+	target := "gui/" + uid
+
+	// bootout (ignore errors — may not be bootstrapped yet)
+	exec.Command("launchctl", "bootout", target+"/"+plistLabel).Run()
+
+	// bootstrap
+	out, err := exec.Command("launchctl", "bootstrap", target, plistPath).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("launchctl bootstrap: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// stopLaunchd kills the daemon and bootout the service (for uninstall).
+func stopLaunchd(plistPath string) {
+	killDaemonProcess()
+	uid := fmt.Sprintf("%d", os.Getuid())
+	exec.Command("launchctl", "bootout", "gui/"+uid+"/"+plistLabel).Run()
 }
 
 func launchdStatus() {
