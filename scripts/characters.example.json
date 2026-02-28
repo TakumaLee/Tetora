@@ -1,0 +1,38 @@
+{
+  "gem_ruri": {
+    "name": "琉璃 (Ruri)",
+    "hair": "#111111",
+    "eyes": "#3355CC",
+    "skin": "#FFDDBB",
+    "shirt": "#EEEEEE",
+    "pants": "#222222",
+    "shoes": "#111111"
+  },
+  "gem_kohaku": {
+    "name": "琥珀 (Kohaku)",
+    "hair": "#FFD700",
+    "eyes": "#CC8800",
+    "skin": "#FFCC99",
+    "shirt": "#CC9955",
+    "pants": "#AA7744",
+    "shoes": "#665544"
+  },
+  "gem_hisui": {
+    "name": "翡翠 (Hisui)",
+    "hair": "#BBBBBB",
+    "eyes": "#33AA55",
+    "skin": "#FFDDCC",
+    "shirt": "#336644",
+    "pants": "#333333",
+    "shoes": "#222222"
+  },
+  "gem_kokuyou": {
+    "name": "黒曜 (Kokuyou)",
+    "hair": "#111111",
+    "eyes": "#8855CC",
+    "skin": "#EEDDCC",
+    "shirt": "#2A2A2A",
+    "pants": "#111111",
+    "shoes": "#1A1A1A"
+  }
+}

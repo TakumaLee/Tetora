@@ -73,6 +73,14 @@ type ProviderResult struct {
 	StopReason string     `json:"stopReason,omitempty"` // "end_turn", "tool_use"
 }
 
+// errResult returns a ProviderResult signaling an API-level error.
+// Use this (not a Go error return) when the provider reached the API but the
+// API responded with an error — callers distinguish infra errors (err != nil)
+// from API errors (result.IsError) to handle retries and reporting differently.
+func errResult(format string, args ...any) *ProviderResult {
+	return &ProviderResult{IsError: true, Error: fmt.Sprintf(format, args...)}
+}
+
 // Message represents a chat message for multi-turn conversations.
 type Message struct {
 	Role    string          `json:"role"`
@@ -186,13 +194,20 @@ func initProviders(cfg *Config) *providerRegistry {
 			if baseURL == "" {
 				baseURL = "https://api.anthropic.com/v1"
 			}
+			var ftt time.Duration
+			if pc.FirstTokenTimeout != "" {
+				if d, err := time.ParseDuration(pc.FirstTokenTimeout); err == nil && d > 0 {
+					ftt = d
+				}
+			}
 			reg.register(name, &ClaudeAPIProvider{
-				name:      name,
-				apiKey:    apiKey,
-				model:     model,
-				maxTokens: maxTokens,
-				baseURL:   baseURL,
-				cfg:       cfg,
+				name:              name,
+				apiKey:            apiKey,
+				model:             model,
+				maxTokens:         maxTokens,
+				baseURL:           baseURL,
+				cfg:               cfg,
+				firstTokenTimeout: ftt,
 			})
 
 		case "claude-code":
@@ -405,11 +420,15 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 }
 
 // publishFailoverEvent sends a provider_failover SSE event if eventCh is available.
+// The send is non-blocking (select + default) because this function is called from
+// executeWithProvider which has no ctx to guard against a full or closed channel.
+// Failover events are informational; dropping one is preferable to blocking or panicking.
 func publishFailoverEvent(eventCh chan<- SSEEvent, taskID, from, to, reason string) {
 	if eventCh == nil {
 		return
 	}
-	eventCh <- SSEEvent{
+	select {
+	case eventCh <- SSEEvent{
 		Type:   "provider_failover",
 		TaskID: taskID,
 		Data: map[string]any{
@@ -417,5 +436,8 @@ func publishFailoverEvent(eventCh chan<- SSEEvent, taskID, from, to, reason stri
 			"to":     to,
 			"reason": reason,
 		},
+	}:
+	default:
+		// Channel full or closed; drop the informational event rather than block or panic.
 	}
 }

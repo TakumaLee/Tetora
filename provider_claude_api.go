@@ -12,14 +12,40 @@ import (
 	"time"
 )
 
+// claudeHTTPClient is a dedicated HTTP client for Claude API calls.
+// Using a dedicated client avoids sharing state with http.DefaultClient
+// and allows us to set transport-level timeouts independently of ctx.
+//
+// Timeout layering:
+//   - ResponseHeaderTimeout (90s): transport-level guard; ensures the server sends
+//     response headers within 90s. This fires before any streaming body is read.
+//     It is intentionally shorter than the caller ctx deadline so we don't wait
+//     for a hung server beyond 90s waiting for headers alone.
+//   - firstTokenTimeout (60s default): application-level guard applied in handleStreaming;
+//     waits for the first SSE event after headers arrive. Since headers must arrive
+//     within 90s and then the first event within 60s, the worst-case latency before
+//     we give up is 90s + 60s = 150s. The ctx deadline set by the caller provides the
+//     overall ceiling for the entire request lifetime.
+//
+// Interaction note: ResponseHeaderTimeout fires independently of ctx. If ctx is
+// cancelled before ResponseHeaderTimeout, the transport respects ctx.Done first.
+// If ResponseHeaderTimeout fires first, claudeHTTPClient.Do returns an error that
+// wraps net.Error with Timeout() == true, which isTransientError() treats as transient.
+var claudeHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 90 * time.Second, // header must arrive within 90s (ctx handles body)
+	},
+}
+
 // ClaudeAPIProvider executes tasks using Anthropic Messages API directly.
 type ClaudeAPIProvider struct {
-	name      string
-	apiKey    string
-	model     string
-	maxTokens int
-	baseURL   string
-	cfg       *Config
+	name              string
+	apiKey            string
+	model             string
+	maxTokens         int
+	baseURL           string
+	cfg               *Config
+	firstTokenTimeout time.Duration // 0 means use the package-level default
 }
 
 func (p *ClaudeAPIProvider) Name() string { return p.name }
@@ -146,7 +172,9 @@ func (p *ClaudeAPIProvider) executeInternal(ctx context.Context, req ProviderReq
 		for _, t := range req.Tools {
 			var schema map[string]any
 			if len(t.InputSchema) > 0 {
-				json.Unmarshal(t.InputSchema, &schema)
+				if err := json.Unmarshal(t.InputSchema, &schema); err != nil {
+					return nil, fmt.Errorf("unmarshal tool input schema: %w", err)
+				}
 			}
 			tools = append(tools, map[string]any{
 				"name":         t.Name,
@@ -182,23 +210,28 @@ func (p *ClaudeAPIProvider) executeInternal(ctx context.Context, req ProviderReq
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	start := time.Now()
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := claudeHTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return &ProviderResult{
-			IsError: true,
-			Error:   fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(bodyBytes)),
-		}, nil
+		// Limit error body read to 10KB to prevent OOM on malformed/large responses.
+		// This executes on the goroutine that called claudeHTTPClient.Do, so there is
+		// no concurrent access to resp.Body — safe without additional synchronisation.
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 10*1024))
+		if readErr != nil {
+			logWarn("claude-api: failed to read error body", "status", resp.StatusCode, "error", readErr)
+		}
+		return errResult("HTTP %d: %s", resp.StatusCode, string(bodyBytes)), nil
 	}
 
 	// Handle streaming vs non-streaming.
 	if req.EventCh != nil {
-		return p.handleStreaming(ctx, resp, req.EventCh, start, model)
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		defer streamCancel()
+		return p.handleStreaming(streamCtx, streamCancel, resp, req.EventCh, start, model)
 	}
 
 	return p.handleNonStreaming(ctx, resp, start, model)
@@ -236,10 +269,7 @@ func (p *ClaudeAPIProvider) handleNonStreaming(ctx context.Context, resp *http.R
 	}
 
 	if apiResp.Error != nil {
-		return &ProviderResult{
-			IsError: true,
-			Error:   fmt.Sprintf("%s: %s", apiResp.Error.Type, apiResp.Error.Message),
-		}, nil
+		return errResult("%s: %s", apiResp.Error.Type, apiResp.Error.Message), nil
 	}
 
 	// Extract text and tool calls.
@@ -274,20 +304,184 @@ func (p *ClaudeAPIProvider) handleNonStreaming(ctx context.Context, resp *http.R
 	}, nil
 }
 
+// defaultFirstTokenTimeout is the fallback used when ProviderConfig.FirstTokenTimeout
+// is not set. Normal Anthropic API sends message_start within 2-10s; 60s is very
+// conservative and gives enough headroom for occasionally slow API responses.
+const defaultFirstTokenTimeout = 60 * time.Second
+
+// resolveFirstTokenTimeout returns the provider-level override if configured,
+// otherwise the package default.
+func (p *ClaudeAPIProvider) resolveFirstTokenTimeout() time.Duration {
+	if p.firstTokenTimeout > 0 {
+		return p.firstTokenTimeout
+	}
+	return defaultFirstTokenTimeout
+}
+
+// streamLine is a result from the scanner goroutine.
+type streamLine struct {
+	line string
+	err  error
+	done bool
+}
+
 // handleStreaming processes a streaming SSE response.
-func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Response, eventCh chan<- SSEEvent, start time.Time, model string) (*ProviderResult, error) {
+//
+// Caller contract:
+//   - cancel must be provided; handleStreaming calls cancel() on first-token timeout
+//     so that the body-closer goroutine's ctx.Done fires and resp.Body.Close() is
+//     called, which unblocks the blocked scanner.Scan() immediately.
+//   - handleStreaming also calls cancel() internally (via defer) so that the
+//     body-closer goroutine always exits — even on normal completion where ctx is
+//     never cancelled by the outer caller.
+//   - eventCh sends are guarded by a ctx-aware select, so cancelling ctx (from any
+//     source) causes handleStreaming to return before the caller closes eventCh.
+//     The caller must not close eventCh until handleStreaming (and therefore
+//     executeWithProvider) returns.
+func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, cancel context.CancelFunc, resp *http.Response, eventCh chan<- SSEEvent, start time.Time, model string) (*ProviderResult, error) {
+	// Always cancel the child context on return so the body-closer goroutine exits
+	// promptly on the normal completion path (where the outer ctx is never cancelled).
+	defer cancel()
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024) // 1MB max line
+
+	// Run scanner in a goroutine so we can apply a first-event timeout via select.
+	// scanner.Scan() is blocking I/O; a ctx check before Scan() is not sufficient.
+	// We close resp.Body when ctx is cancelled to force Scan() to return immediately.
+	//
+	// The inner goroutine that closes resp.Body uses a separate bodyCloseDone channel
+	// so it can exit as soon as the outer scanner goroutine finishes — even when ctx
+	// is never cancelled (normal completion path).  Without this, the inner goroutine
+	// would leak until the caller's ctx is eventually cancelled.
+	lineCh := make(chan streamLine, 32)
+	go func() {
+		// scannerDone is closed when the scanner goroutine exits, allowing the
+		// body-closer goroutine to exit on the normal (non-cancel) path as well.
+		// Declare it before the inner goroutine so both goroutines share the same
+		// channel; defer order is LIFO so scannerDone is closed after lineCh.
+		scannerDone := make(chan struct{})
+		defer close(scannerDone)
+		defer close(lineCh)
+
+		// Close the response body when ctx is cancelled so that scanner.Scan()
+		// unblocks immediately instead of waiting for the next read deadline.
+		// scannerDone lets the inner goroutine exit on the normal (non-cancel) path
+		// so it never leaks — even when ctx is a long-lived parent context.
+		go func() {
+			select {
+			case <-ctx.Done():
+				resp.Body.Close()
+			case <-scannerDone:
+				// Scanner finished (EOF or early exit); resp.Body will be closed by
+				// the defer in executeInternal. Nothing more to do here.
+			}
+		}()
+
+		for scanner.Scan() {
+			select {
+			case lineCh <- streamLine{line: scanner.Text()}:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		// scanner.Err() after ctx cancel returns a "use of closed network connection"
+		// error because resp.Body.Close() was called by the body-closer goroutine above.
+		// That error is expected; log it only when ctx is still alive (genuine error).
+		scanErr := scanner.Err()
+		if scanErr != nil && ctx.Err() == nil {
+			logWarn("claude-api: scanner error", "error", scanErr)
+		}
+
+		// Send done sentinel before defer close(lineCh) runs, so the receiver
+		// always sees a done=true entry rather than a closed channel on natural EOF.
+		// Carry the scanner error only when ctx is still alive; on ctx cancel the
+		// error is an artefact of resp.Body.Close() and should not surface to the caller.
+		var sentinelErr error
+		if ctx.Err() == nil {
+			sentinelErr = scanErr
+		}
+		select {
+		case lineCh <- streamLine{err: sentinelErr, done: true}:
+		case <-ctx.Done():
+		}
+	}()
 
 	var textParts []string
 	var toolCalls []ToolCall
 	var inputTokens, outputTokens int
-	var currentToolCall *ToolCall
+	var currentToolCall ToolCall
+	var hasCurrentToolCall bool
 	var toolInputBuffer strings.Builder
 	var stopReason string
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	// firstEventTimer guards against Anthropic API hanging after headers arrive.
+	// We manage Stop/drain explicitly on every return path rather than via defer
+	// to avoid the double-stop/double-drain confusion that arises when both a
+	// defer Stop and an inline Stop+drain coexist.
+	firstEventTimer := time.NewTimer(p.resolveFirstTokenTimeout())
+	// stopFirstEventTimer safely stops the timer and drains its channel if needed.
+	// Calling this multiple times is safe; subsequent calls are no-ops because the
+	// timer is already stopped and the channel is empty.
+	stopFirstEventTimer := func() {
+		if !firstEventTimer.Stop() {
+			select {
+			case <-firstEventTimer.C:
+			default:
+			}
+		}
+	}
+	firstEventSeen := false
+
+	for {
+		var sl streamLine
+		var ok bool
+		if !firstEventSeen {
+			// Before the first SSE event: apply first-token timeout.
+			select {
+			case sl, ok = <-lineCh:
+				if !ok {
+					// goroutine exited early (ctx cancel or unexpected close)
+					stopFirstEventTimer()
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					return nil, fmt.Errorf("stream closed unexpectedly")
+				}
+			case <-firstEventTimer.C:
+				// Timer already fired; channel is now empty — no drain needed.
+				// cancel() causes the body-closer goroutine's ctx.Done to fire,
+				// which closes resp.Body and unblocks the scanner immediately.
+				// (defer cancel() at function entry also guarantees this on all
+				// other return paths.)
+				return nil, fmt.Errorf("first token timeout: Anthropic API did not respond within %v", p.resolveFirstTokenTimeout())
+			case <-ctx.Done():
+				stopFirstEventTimer()
+				return nil, ctx.Err()
+			}
+		} else {
+			select {
+			case sl, ok = <-lineCh:
+				if !ok {
+					// goroutine exited early (ctx cancel or unexpected close)
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
+					return nil, fmt.Errorf("stream closed unexpectedly")
+				}
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		if sl.done {
+			if sl.err != nil {
+				return nil, fmt.Errorf("read stream: %w", sl.err)
+			}
+			break
+		}
+
+		line := sl.line
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -296,9 +490,18 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 			break
 		}
 
+		// We received the first real SSE event — API is alive, stop the first-token
+		// timer. Stop() + drain is the correct pattern: if Stop() returns false the
+		// timer already fired and its channel holds a value that we must drain to
+		// prevent a spurious select in a subsequent iteration.
+		if !firstEventSeen {
+			firstEventSeen = true
+			stopFirstEventTimer()
+		}
+
 		var chunk claudeStreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			logDebug("claude-api: failed to parse chunk", "error", err, "data", data)
+			logWarn("claude-api: failed to parse chunk", "error", err, "data", data)
 			continue
 		}
 
@@ -310,11 +513,19 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 
 		case "content_block_start":
 			if chunk.ContentBlock != nil && chunk.ContentBlock.Type == "tool_use" {
-				// Tool use started.
-				currentToolCall = &ToolCall{
+				// If a previous tool call was still open (nested blocks), flush it first
+				// so we don't lose its accumulated input.
+				if hasCurrentToolCall {
+					currentToolCall.Input = json.RawMessage(toolInputBuffer.String())
+					toolCalls = append(toolCalls, currentToolCall)
+					hasCurrentToolCall = false
+				}
+				// Start new tool call.
+				currentToolCall = ToolCall{
 					ID:   chunk.ContentBlock.ID,
 					Name: chunk.ContentBlock.Name,
 				}
+				hasCurrentToolCall = true
 				toolInputBuffer.Reset()
 			}
 
@@ -323,12 +534,20 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 				if chunk.Delta.Type == "text_delta" && chunk.Delta.Text != "" {
 					textParts = append(textParts, chunk.Delta.Text)
 					// Publish chunk event.
+					// Guard with ctx.Done() so we never send to eventCh after the
+					// caller has cancelled ctx (and potentially closed eventCh).
+					// recover() is intentionally absent: the select ensures we only
+					// send when ctx is still live, eliminating the send-vs-close race.
 					if eventCh != nil {
-						eventCh <- SSEEvent{
+						select {
+						case eventCh <- SSEEvent{
 							Type: "output_chunk",
 							Data: map[string]any{
 								"text": chunk.Delta.Text,
 							},
+						}:
+						case <-ctx.Done():
+							return nil, ctx.Err()
 						}
 					}
 				} else if chunk.Delta.Type == "input_json_delta" && chunk.Delta.PartialJSON != "" {
@@ -339,11 +558,11 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 
 		case "content_block_stop":
 			// Content block finished.
-			if currentToolCall != nil {
+			if hasCurrentToolCall {
 				// Finalize tool call input.
 				currentToolCall.Input = json.RawMessage(toolInputBuffer.String())
-				toolCalls = append(toolCalls, *currentToolCall)
-				currentToolCall = nil
+				toolCalls = append(toolCalls, currentToolCall)
+				hasCurrentToolCall = false
 			}
 
 		case "message_delta":
@@ -360,11 +579,7 @@ func (p *ClaudeAPIProvider) handleStreaming(ctx context.Context, resp *http.Resp
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read stream: %w", err)
-	}
-
-	output := strings.Join(textParts, "")
+	output := strings.Join(textParts, "\n")
 	elapsed := time.Since(start)
 
 	// Calculate cost.
