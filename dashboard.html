@@ -6414,7 +6414,12 @@ async function loadCostDashboard(period) {
       sessBody.innerHTML = sessions.map(function(s) {
         var title = s.title || '(untitled)';
         if (title.length > 40) title = title.substring(0, 40) + '...';
-        var tokens = (s.tokensIn || 0).toLocaleString() + ' / ' + (s.tokensOut || 0).toLocaleString();
+        var ctxLimit = 200000;
+        var ctxUsed = s.tokensIn || 0;
+        var ctxPct = Math.min((ctxUsed / ctxLimit) * 100, 100);
+        var ctxColor = ctxPct >= 90 ? 'var(--red)' : ctxPct >= 70 ? 'var(--yellow)' : 'var(--green)';
+        var ctxBar = '<div style="height:3px;background:var(--border);border-radius:2px;margin-top:3px;overflow:hidden"><div style="height:100%;width:' + ctxPct.toFixed(1) + '%;background:' + ctxColor + ';border-radius:2px"></div></div>';
+        var tokens = ctxUsed.toLocaleString() + ' / 200K (' + ctxPct.toFixed(0) + '%)' + ctxBar;
         var created = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '';
         return '<tr><td>' + esc(s.agent) + '</td><td title="' + esc(s.title || '') + '">' + esc(title) + '</td><td>' + s.messages + '</td><td style="font-size:12px">' + tokens + '</td><td>' + costFmt(s.totalCostUsd) + '</td><td style="font-size:12px">' + created + '</td></tr>';
       }).join('');
