@@ -95,12 +95,10 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 		return fmt.Errorf("init session db: %w", err)
 	}
 
-	// Migration: rename role -> agent in sessions table.
-	if err := execDB(dbPath, `ALTER TABLE sessions RENAME COLUMN role TO agent;`); err != nil {
-		if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
-			logWarn("session migration failed", "column", "role->agent", "error", err)
-		}
-	}
+	// Migration: role -> agent in sessions table.
+	// RENAME COLUMN requires SQLite 3.25+; many systems have older versions.
+	// Use ADD COLUMN + UPDATE as a portable fallback.
+	migrateRoleToAgent(dbPath)
 
 	// Migration: add channel_key column if it doesn't exist.
 	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`); err != nil {
@@ -125,6 +123,33 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	}
 
 	return nil
+}
+
+// migrateRoleToAgent adds the `agent` column if the table still uses `role`,
+// and copies data over. Works on all SQLite versions (no RENAME COLUMN needed).
+func migrateRoleToAgent(dbPath string) {
+	// Check if `agent` column already exists by trying a harmless query.
+	_, err := queryDB(dbPath, `SELECT agent FROM sessions LIMIT 0`)
+	if err == nil {
+		return // `agent` column exists, nothing to do.
+	}
+
+	// Check if `role` column exists (old schema).
+	_, err = queryDB(dbPath, `SELECT role FROM sessions LIMIT 0`)
+	if err != nil {
+		return // Neither column exists — fresh table with `agent` in CREATE TABLE.
+	}
+
+	// `role` exists but `agent` doesn't — add `agent` and copy data.
+	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT '';`); err != nil {
+		logWarn("migration: add agent column failed", "error", err)
+		return
+	}
+	if err := execDB(dbPath, `UPDATE sessions SET agent = role WHERE agent = '';`); err != nil {
+		logWarn("migration: copy role→agent failed", "error", err)
+	}
+	execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent);`)
+	logInfo("migration: role→agent column added and data copied")
 }
 
 // ensureSystemLogSession creates the system log session if it doesn't exist.
