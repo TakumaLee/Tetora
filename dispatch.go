@@ -1156,9 +1156,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
 		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
-	// Record session activity (skip for chat source — handled by HTTP handler).
-	if !strings.HasPrefix(task.Source, "chat") {
+	// Record session activity (skip for sources that manage their own sessions:
+	// "chat" → HTTP handler, "route:" → discord/telegram executeRoute).
+	if !strings.HasPrefix(task.Source, "chat") && !strings.HasPrefix(task.Source, "route:") {
 		recordSessionActivity(cfg.HistoryDB, task, result, task.Agent)
+	}
+	// Log to system dispatch log (skip only for chat — already handled there).
+	if !strings.HasPrefix(task.Source, "chat") {
 		logSystemDispatch(cfg.HistoryDB, task, result, task.Agent)
 	}
 
