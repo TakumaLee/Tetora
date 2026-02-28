@@ -2755,7 +2755,7 @@ async function refresh() {
         dHTML += dispatch.tasks.map(t => {
           const dot = t.status === 'running' ? 'dot-yellow' : t.status === 'success' ? 'dot-green' : 'dot-red';
           const info = t.elapsed || t.duration || '';
-          const roleLabel = t.role ? `<span style="color:var(--accent);font-size:12px;margin-right:4px">[${esc(t.role)}]</span>` : '';
+          const roleLabel = t.agent ? `<span style="color:var(--accent);font-size:12px;margin-right:4px">[${esc(t.agent)}]</span>` : '';
           return `<div class="dispatch-task"><span class="dot ${dot}"></span>${roleLabel}${esc(t.name)} <span style="color:var(--muted);font-size:12px">${info}</span></div>`;
         }).join('');
       }
@@ -2815,7 +2815,7 @@ async function refresh() {
           </td>
           <td class="job-name"><span class="dot ${dotClass}"></span>${esc(j.name)}</td>
           <td class="job-schedule">${esc(j.schedule)}</td>
-          <td class="job-role">${esc(j.role || '-')}</td>
+          <td class="job-role">${esc(j.agent || '-')}</td>
           <td style="font-size:11px;color:var(--muted)">${formatChain(j)}</td>
           <td class="job-next">${j.lastRun && !j.lastRun.startsWith('0001') ?
             (j.lastErr ? '<span style="color:var(--red)" title="' + esc(j.lastErr) + '">! </span>' : '') + dateTimeStr(j.lastRun)
@@ -3003,7 +3003,7 @@ async function refreshRunning() {
       const depth = t.depth || 0;
       const indentStyle = depth > 0 ? ` style="margin-left:${depth * 24}px"` : '';
       const indentClass = depth > 0 ? ' task-indent' : '';
-      const roleBadge = t.role ? `<span class="task-role">${esc(t.role)}</span>` : '';
+      const roleBadge = t.agent ? `<span class="task-role">${esc(t.agent)}</span>` : '';
       const subLabel = (t.source && t.source.startsWith('agent_dispatch')) ? '<span class="task-sub-label">sub-agent</span>' : '';
       const sourceDisplay = t.source || '';
 
@@ -3161,7 +3161,7 @@ async function openJobModal(editId) {
       document.getElementById('jf-name').value = j.name;
       document.getElementById('jf-schedule').value = j.schedule;
       document.getElementById('jf-tz').value = j.tz || 'Asia/Taipei';
-      document.getElementById('jf-role').value = j.role || '';
+      document.getElementById('jf-role').value = j.agent || '';
       document.getElementById('jf-prompt').value = (j.task && j.task.prompt) || '';
       document.getElementById('jf-model').value = (j.task && j.task.model) || 'sonnet';
       document.getElementById('jf-timeout').value = (j.task && j.task.timeout) || '5m';
@@ -3251,7 +3251,7 @@ async function submitJob(e) {
     enabled: true,
     schedule: document.getElementById('jf-schedule').value.trim(),
     tz: document.getElementById('jf-tz').value.trim() || 'Asia/Taipei',
-    role: document.getElementById('jf-role').value.trim(),
+    agent: document.getElementById('jf-role').value.trim(),
     task: {
       prompt: document.getElementById('jf-prompt').value.trim(),
       model: document.getElementById('jf-model').value.trim() || 'sonnet',
@@ -4282,7 +4282,7 @@ async function refreshRouting() {
         return `<tr>
           <td class="job-next">${dateTimeStr(h.timestamp)}</td>
           <td style="font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(h.prompt)}">${esc(prompt)}</td>
-          <td class="job-name">${esc(h.role)}</td>
+          <td class="job-name">${esc(h.agent)}</td>
           <td style="font-size:12px">${esc(h.method)}</td>
           <td style="font-size:12px;color:${confColor}">${esc(h.confidence)}</td>
           <td style="font-size:12px;color:var(--muted)">${esc(h.source)}</td>
@@ -4317,7 +4317,7 @@ async function refreshSessions() {
     if (!sessionRolesPopulated && Array.isArray(cachedJobs)) {
       const select = document.getElementById('session-role-filter');
       const roleSet = new Set();
-      sessions.forEach(s => { if (s.role) roleSet.add(s.role); });
+      sessions.forEach(s => { if (s.agent) roleSet.add(s.agent); });
       for (const [name] of Object.entries(window._cachedRoles || {})) roleSet.add(name);
       roleSet.forEach(r => {
         if ([...select.options].some(o => o.value === r)) return;
@@ -4333,7 +4333,7 @@ async function refreshSessions() {
       const title = esc((s.title || '(untitled)').substring(0, 60));
       const shortId = s.id.length > 12 ? s.id.substring(0, 12) : s.id;
       return `<tr>
-        <td><span style="color:var(--accent)">${esc(s.role || '-')}</span></td>
+        <td><span style="color:var(--accent)">${esc(s.agent || '-')}</span></td>
         <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.title)}">${title}</td>
         <td><span class="dot ${dot}"></span>${esc(s.status)}</td>
         <td>${s.messageCount || 0}</td>
@@ -4351,8 +4351,8 @@ async function viewSession(shortId, fullId) {
     if (!data || !data.session) return;
 
     const s = data.session;
-    sessionSSERole = s.role || 'agent';
-    document.getElementById('session-modal-title').textContent = s.role ? `${s.role} Session` : 'Session';
+    sessionSSERole = s.agent || 'agent';
+    document.getElementById('session-modal-title').textContent = s.agent ? `${s.agent} Session` : 'Session';
     document.getElementById('session-modal-meta').innerHTML =
       `ID: ${esc(s.id)}<br>Source: ${esc(s.source)} | Status: ${esc(s.status)} | ` +
       `Messages: ${s.messageCount} | Cost: ${costFmt(s.totalCost)} | ` +
@@ -4363,7 +4363,7 @@ async function viewSession(shortId, fullId) {
       const isUser = m.role === 'user';
       const isSys = m.role === 'system';
       const bgColor = isUser ? '#1a1a3a' : isSys ? '#1a1a1a' : '#0d1a1a';
-      const label = isUser ? 'USER' : isSys ? 'SYSTEM' : (s.role || 'AGENT');
+      const label = isUser ? 'USER' : isSys ? 'SYSTEM' : (s.agent || 'AGENT');
       const labelColor = isUser ? '#60a5fa' : isSys ? 'var(--muted)' : 'var(--green)';
       const costInfo = m.costUsd > 0 ? ` | ${costFmt(m.costUsd)}` : '';
       const modelInfo = m.model ? ` | ${esc(m.model)}` : '';
@@ -5586,9 +5586,9 @@ async function refreshChatSidebar() {
       var isActive = !taskViewId && s.id === chatSessionId;
       var dotCls = s.status === 'active' ? 'dot-green' : 'dot-gray';
       var title = (s.title || '(untitled)').substring(0, 50);
-      var color = chatRoleColor(s.role);
+      var color = chatRoleColor(s.agent);
       return '<div class="chat-session-item' + (isActive ? ' active' : '') + '" onclick="openChatSession(\'' + esc(s.id) + '\')">' +
-        '<div class="chat-session-role" style="color:' + color + '"><span class="dot ' + dotCls + '"></span>' + esc(s.role || 'unknown') + '</div>' +
+        '<div class="chat-session-role" style="color:' + color + '"><span class="dot ' + dotCls + '"></span>' + esc(s.agent || 'unknown') + '</div>' +
         '<div class="chat-session-title">' + esc(title) + '</div>' +
         '<div class="chat-session-meta">' + (s.messageCount || 0) + ' msgs &middot; ' + costFmt(s.totalCost || 0) + ' &middot; ' + dateTimeStr(s.updatedAt) + '</div>' +
       '</div>';
@@ -5792,7 +5792,7 @@ async function openChatSession(sessionId) {
     if (!data || !data.session) return;
 
     var s = data.session;
-    chatSessionRole = s.role || 'Agent';
+    chatSessionRole = s.agent || 'Agent';
     document.getElementById('chat-header-role').textContent = chatSessionRole;
     document.getElementById('chat-header-role').style.color = chatRoleColor(chatSessionRole);
     document.getElementById('chat-header-meta').textContent =
@@ -5836,7 +5836,7 @@ function renderChatBubble(m) {
 async function getChatEstimate(prompt, role) {
   try {
     var task = { prompt: prompt };
-    if (role) task.role = role;
+    if (role) task.agent = role;
     var resp = await fetch('/dispatch/estimate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -6223,7 +6223,7 @@ async function refreshTrust() {
 
       html += '<div style="background:' + bg + ';border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:180px;flex:1;max-width:240px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-          '<strong style="color:var(--text)">' + esc(s.role) + '</strong>' +
+          '<strong style="color:var(--text)">' + esc(s.agent) + '</strong>' +
           '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + icon + ' ' + s.level + '</span>' +
         '</div>' +
         '<div style="font-size:12px">' +
@@ -6275,7 +6275,7 @@ async function refreshSLA() {
 
       html += '<div style="background:' + bg + ';border:1px solid var(--border);border-radius:8px;padding:12px 16px;min-width:200px;flex:1;max-width:280px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-          '<strong style="color:var(--text)">' + esc(s.role) + '</strong>' +
+          '<strong style="color:var(--text)">' + esc(s.agent) + '</strong>' +
           '<span style="background:' + color + ';color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + label + '</span>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px">' +
@@ -6402,7 +6402,7 @@ async function loadCostDashboard(period) {
       roleBody.innerHTML = '<tr><td colspan="4" style="color:var(--muted);text-align:center">No data</td></tr>';
     } else {
       roleBody.innerHTML = roles.map(function(r) {
-        return '<tr><td>' + esc(r.role) + '</td><td>' + r.tasks + '</td><td>' + costFmt(r.costUsd) + '</td><td>' + r.pct.toFixed(1) + '%</td></tr>';
+        return '<tr><td>' + esc(r.agent) + '</td><td>' + r.tasks + '</td><td>' + costFmt(r.costUsd) + '</td><td>' + r.pct.toFixed(1) + '%</td></tr>';
       }).join('');
     }
 
@@ -6416,7 +6416,7 @@ async function loadCostDashboard(period) {
         if (title.length > 40) title = title.substring(0, 40) + '...';
         var tokens = (s.tokensIn || 0).toLocaleString() + ' / ' + (s.tokensOut || 0).toLocaleString();
         var created = s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '';
-        return '<tr><td>' + esc(s.role) + '</td><td title="' + esc(s.title || '') + '">' + esc(title) + '</td><td>' + s.messages + '</td><td style="font-size:12px">' + tokens + '</td><td>' + costFmt(s.totalCostUsd) + '</td><td style="font-size:12px">' + created + '</td></tr>';
+        return '<tr><td>' + esc(s.agent) + '</td><td title="' + esc(s.title || '') + '">' + esc(title) + '</td><td>' + s.messages + '</td><td style="font-size:12px">' + tokens + '</td><td>' + costFmt(s.totalCostUsd) + '</td><td style="font-size:12px">' + created + '</td></tr>';
       }).join('');
     }
   } catch(e) {
@@ -6525,13 +6525,13 @@ function layoutDAG(stepResults, wfDef) {
   if (wfDef && wfDef.steps) {
     wfDef.steps.forEach(function(s) {
       depMap[s.id] = s.dependsOn || [];
-      steps.push({id: s.id, type: s.type || 'dispatch', role: s.role || '', deps: s.dependsOn || [], handoffFrom: s.handoffFrom || ''});
+      steps.push({id: s.id, type: s.type || 'dispatch', agent: s.agent || '', deps: s.dependsOn || [], handoffFrom: s.handoffFrom || ''});
     });
   } else {
     // Fallback: infer from stepResults keys (no dependency info)
     Object.keys(stepResults).forEach(function(id) {
       depMap[id] = [];
-      steps.push({id: id, type: 'dispatch', role: '', deps: [], handoffFrom: ''});
+      steps.push({id: id, type: 'dispatch', agent: '', deps: [], handoffFrom: ''});
     });
   }
 
@@ -6635,7 +6635,7 @@ function renderWfDAG(run, wfDef) {
     var sr = (run.stepResults || {})[id] || {};
     var status = sr.status || 'pending';
     var label = id.length > 16 ? id.substring(0, 14) + '..' : id;
-    var role = n.step.role || '';
+    var role = n.step.agent || '';
     var roleLabel = role.length > 14 ? role.substring(0, 12) + '..' : role;
 
     html += '<g class="wf-node ' + status + '" onclick="showWfNodeDetail(\'' + escAttr(id) + '\')" id="wf-node-' + escAttr(id) + '">';
