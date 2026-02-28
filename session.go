@@ -86,7 +86,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at);
@@ -123,6 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 		sessionAgentCol = "role"
 		logWarn("session table still uses 'role' column — migration may have failed")
 	}
+	// Create index on whichever column exists (deferred from CREATE TABLE to avoid
+	// failure when old schema has 'role' instead of 'agent').
+	execDB(dbPath, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(%s);`, sessionAgentCol))
 
 	// Migration: add channel_key column if it doesn't exist.
 	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`); err != nil {
