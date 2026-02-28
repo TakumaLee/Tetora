@@ -398,12 +398,41 @@ func (db *DiscordBot) handleThreadMessage(msg discordMessage, channelType int) b
 	}
 
 	if binding == nil {
-		return false // not bound, use normal routing
+		// Auto-bind unbound threads to the default agent (parent route → system default).
+		// This ensures threads created from bot messages inherit session context without
+		// requiring an explicit /focus command.
+		if !isThread {
+			return false // channelType unknown and no binding, let normal routing handle
+		}
+		agent := db.resolveThreadDefaultAgent(msg.ChannelID, msg.GuildID)
+		if agent == "" {
+			return false // no default agent configured, fall through
+		}
+		ttl := db.cfg.Discord.ThreadBindings.threadBindingsTTL()
+		sessionID := db.threads.bind(msg.GuildID, msg.ChannelID, agent, ttl)
+		logInfo("discord thread auto-bound", "thread", msg.ChannelID, "agent", agent, "session", sessionID)
+		binding = db.threads.get(msg.GuildID, msg.ChannelID)
+		if binding == nil {
+			return false
+		}
 	}
 
 	// Thread is bound — route to the bound agent.
 	db.handleThreadRoute(msg, text, binding)
 	return true
+}
+
+// resolveThreadDefaultAgent returns the agent to use for auto-binding an unbound thread.
+// Priority: parent channel route → system-wide default agent.
+func (db *DiscordBot) resolveThreadDefaultAgent(threadID, guildID string) string {
+	if guildID != "" {
+		if parentID := db.resolveThreadParent(threadID); parentID != "" {
+			if route, ok := db.cfg.Discord.Routes[parentID]; ok && route.Agent != "" {
+				return route.Agent
+			}
+		}
+	}
+	return db.cfg.DefaultAgent
 }
 
 // handleThreadRoute dispatches a message in a bound thread to the bound agent.
