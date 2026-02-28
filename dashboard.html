@@ -2577,7 +2577,7 @@ function handleActivityEvent(type, ev) {
       break;
     case 'tool_result':
       badge = 'tool';
-      detail = esc(data.name || '?') + ' <span class="muted">' + (data.duration || 0) + 'ms</span>';
+      detail = esc(data.name || data.id || data.toolUseId || '(tool)') + ' <span class="muted">' + (data.duration || 0) + 'ms</span>';
       if (data.isError) detail += ' <span style="color:var(--red)">error</span>';
       break;
     case 'output_chunk':

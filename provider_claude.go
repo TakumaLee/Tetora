@@ -120,6 +120,7 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 
 	// Read stream-json lines: each line is a JSON object.
 	var resultMsg *claudeStreamMsg
+	toolNameByID := make(map[string]string) // tool_use ID → tool name for tool_result lookup
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024) // 1MB max line
 	for scanner.Scan() {
@@ -162,6 +163,9 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 							}
 						}
 					case "tool_use":
+						if block.ID != "" && block.Name != "" {
+							toolNameByID[block.ID] = block.Name
+						}
 						if req.EventCh != nil {
 							req.EventCh <- SSEEvent{
 								Type:      SSEToolCall,
@@ -201,7 +205,8 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 							TaskID:    req.SessionID,
 							SessionID: req.SessionID,
 							Data: map[string]any{
-								"toolUseId": block.ToolUseID,
+							"toolUseId": block.ToolUseID,
+								"name":      toolNameByID[block.ToolUseID],
 								"content":   contentStr,
 							},
 							Timestamp: time.Now().Format(time.RFC3339),
