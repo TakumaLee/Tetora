@@ -137,18 +137,30 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	// Ensure system log session exists.
 	ensureSystemLogSession(dbPath)
 
-	// Cleanup zombie sessions: mark stale active sessions as completed on startup.
-	cleanupSQL := fmt.Sprintf(
+	// NOTE: Zombie session cleanup is NOT done here. initSessionDB is called
+	// before port binding, so during a crash loop (port conflict + launchd
+	// KeepAlive) it would repeatedly mark all active channel sessions completed,
+	// breaking Discord conversation continuity. Use cleanupZombieSessions()
+	// after the HTTP server has successfully started.
+
+	return nil
+}
+
+// cleanupZombieSessions marks stale active sessions as completed.
+// Must be called AFTER confirming the daemon is the sole instance (port bound).
+func cleanupZombieSessions(dbPath string) {
+	if dbPath == "" {
+		return
+	}
+	sql := fmt.Sprintf(
 		`UPDATE sessions SET status = 'completed', updated_at = '%s' WHERE status = 'active' AND id != '%s'`,
 		time.Now().Format(time.RFC3339), SystemLogSessionID,
 	)
-	if err := execDB(dbPath, cleanupSQL); err != nil {
+	if err := execDB(dbPath, sql); err != nil {
 		logWarn("zombie session cleanup failed", "error", err)
 	} else {
 		logInfo("startup: cleaned up stale active sessions")
 	}
-
-	return nil
 }
 
 // migrateRoleToAgent adds the `agent` column if the table still uses `role`,

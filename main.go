@@ -939,6 +939,15 @@ func main() {
 		}
 		srv := startHTTPServer(srvInstance)
 
+		// Cleanup zombie sessions AFTER the HTTP server starts.
+		// Delayed so that if port binding fails (os.Exit in goroutine),
+		// the process dies before this runs, avoiding destructive cleanup
+		// during crash loops (launchd KeepAlive restart cycles).
+		go func() {
+			time.Sleep(2 * time.Second)
+			cleanupZombieSessions(cfg.HistoryDB)
+		}()
+
 		// Report degraded services.
 		if len(degradedServices) > 0 {
 			logWarn("starting in degraded mode", "failedServices", strings.Join(degradedServices, ", "))
