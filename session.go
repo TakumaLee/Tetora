@@ -7,6 +7,21 @@ import (
 	"time"
 )
 
+// sessionAgentCol is the actual column name for the agent field in the sessions table.
+// Old schemas use "role", new schemas use "agent". Detected once at init time.
+var sessionAgentCol = "agent"
+
+// sessionSelectCols returns the SELECT column list for session queries,
+// using the detected column name (agent or role) aliased as "agent".
+func sessionSelectCols() string {
+	col := sessionAgentCol
+	alias := col
+	if col != "agent" {
+		alias = col + " AS agent"
+	}
+	return fmt.Sprintf("id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at", alias)
+}
+
 // SystemLogSessionID is a fixed session ID that aggregates all non-chat dispatch task outputs.
 const SystemLogSessionID = "system:logs"
 
@@ -100,6 +115,15 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 	// Use ADD COLUMN + UPDATE as a portable fallback.
 	migrateRoleToAgent(dbPath)
 
+	// Detect actual column name — if migration failed, fall back to "role".
+	cols := tableColumns(dbPath, "sessions")
+	if cols["agent"] {
+		sessionAgentCol = "agent"
+	} else if cols["role"] {
+		sessionAgentCol = "role"
+		logWarn("session table still uses 'role' column — migration may have failed")
+	}
+
 	// Migration: add channel_key column if it doesn't exist.
 	if err := execDB(dbPath, `ALTER TABLE sessions ADD COLUMN channel_key TEXT DEFAULT '';`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
@@ -185,8 +209,9 @@ func ensureSystemLogSession(dbPath string) {
 
 func createSession(dbPath string, s Session) error {
 	sql := fmt.Sprintf(
-		`INSERT OR IGNORE INTO sessions (id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at)
+		`INSERT OR IGNORE INTO sessions (id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s',0,0,0,0,'%s','%s')`,
+		sessionAgentCol,
 		escapeSQLite(s.ID),
 		escapeSQLite(s.Agent),
 		escapeSQLite(s.Source),
@@ -273,7 +298,7 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 
 	var conditions []string
 	if q.Agent != "" {
-		conditions = append(conditions, fmt.Sprintf("agent = '%s'", escapeSQLite(q.Agent)))
+		conditions = append(conditions, fmt.Sprintf("%s = '%s'", sessionAgentCol, escapeSQLite(q.Agent)))
 	}
 	if q.Status != "" {
 		conditions = append(conditions, fmt.Sprintf("status = '%s'", escapeSQLite(q.Status)))
@@ -300,7 +325,7 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT `+sessionSelectCols()+`
 		 FROM sessions %s ORDER BY updated_at DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -318,7 +343,7 @@ func querySessions(dbPath string, q SessionQuery) ([]Session, int, error) {
 
 func querySessionByID(dbPath, id string) (*Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT `+sessionSelectCols()+`
 		 FROM sessions WHERE id = '%s'`, escapeSQLite(id))
 	rows, err := queryDB(dbPath, sql)
 	if err != nil {
@@ -335,7 +360,7 @@ func querySessionByID(dbPath, id string) (*Session, error) {
 // Returns all matching sessions ordered by updated_at DESC.
 func querySessionsByPrefix(dbPath, prefix string) ([]Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT `+sessionSelectCols()+`
 		 FROM sessions WHERE id LIKE '%s%%' ORDER BY updated_at DESC LIMIT 10`,
 		escapeSQLite(prefix))
 	rows, err := queryDB(dbPath, sql)
@@ -522,7 +547,7 @@ func channelSessionKey(source string, parts ...string) string {
 // Returns nil if no active session exists for this channel key.
 func findChannelSession(dbPath, chKey string) (*Session, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, agent, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at
+		`SELECT `+sessionSelectCols()+`
 		 FROM sessions WHERE channel_key = '%s' AND status = 'active' ORDER BY updated_at DESC LIMIT 1`,
 		escapeSQLite(chKey))
 	rows, err := queryDB(dbPath, sql)
