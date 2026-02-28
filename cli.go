@@ -227,6 +227,33 @@ func restartDaemonProcess(binaryPath string) bool {
 	return true
 }
 
+// cmdStart starts the tetora daemon if it is not already running.
+func cmdStart() {
+	out, _ := exec.Command("pgrep", "-f", "tetora serve").Output()
+	if len(strings.TrimSpace(string(out))) > 0 {
+		fmt.Println("Daemon is already running.")
+		return
+	}
+	selfPath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot determine executable path: %v\n", err)
+		os.Exit(1)
+	}
+	selfPath, _ = filepath.EvalSymlinks(selfPath)
+	fmt.Println("Starting daemon...")
+	cmd := exec.Command(selfPath, "serve")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start daemon: %v\n", err)
+		os.Exit(1)
+	}
+	cmd.Process.Release()
+	fmt.Printf("Daemon started (PID %d).\n", cmd.Process.Pid)
+	waitForHealthy()
+}
+
 // cmdRestart restarts the running tetora daemon.
 func cmdRestart() {
 	selfPath, err := os.Executable()

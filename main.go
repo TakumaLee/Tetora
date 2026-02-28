@@ -159,6 +159,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "stop":
+			killDaemonProcess()
+			return
+		case "start":
+			cmdStart()
+			return
 		case "drain":
 			cmdDrain()
 			return
