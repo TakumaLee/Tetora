@@ -1329,7 +1329,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 			progressMsgID = msgID
 			progressStopCh = make(chan struct{})
 			progressBuilder = newDiscordProgressBuilder()
-			go db.runDiscordProgressUpdater(msg.ChannelID, progressMsgID, task.ID, db.state.broker, progressStopCh, progressBuilder)
+			go db.runDiscordProgressUpdater(msg.ChannelID, progressMsgID, task.ID, task.SessionID, db.state.broker, progressStopCh, progressBuilder)
 		}
 	}
 
@@ -1868,7 +1868,7 @@ func (b *discordProgressBuilder) isDirty() bool {
 // runDiscordProgressUpdater subscribes to task SSE events and updates a Discord progress message.
 // It stops when stopCh is closed or the event channel closes.
 func (db *DiscordBot) runDiscordProgressUpdater(
-	channelID, progressMsgID, taskID string,
+	channelID, progressMsgID, taskID, sessionID string,
 	broker *sseBroker,
 	stopCh <-chan struct{},
 	builder *discordProgressBuilder,
@@ -1876,8 +1876,51 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 	eventCh, unsub := broker.Subscribe(taskID)
 	defer unsub()
 
-	ticker := time.NewTicker(3 * time.Second)
+	// Also subscribe to sessionID to receive output_chunk events, which are published
+	// under the session key by the provider.
+	var sessionEventCh chan SSEEvent
+	if sessionID != "" && sessionID != taskID {
+		ch, u := broker.Subscribe(sessionID)
+		sessionEventCh = ch
+		defer u()
+	}
+
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	var lastEdit time.Time
+
+	tryEdit := func() {
+		if builder.isDirty() && time.Since(lastEdit) >= 1500*time.Millisecond {
+			content := builder.render()
+			if err := db.editMessage(channelID, progressMsgID, content); err != nil {
+				logWarn("discord progress edit failed", "error", err)
+			}
+			db.sendTyping(channelID)
+			lastEdit = time.Now()
+		}
+	}
+
+	handleEvent := func(ev SSEEvent) (done bool) {
+		switch ev.Type {
+		case SSEToolCall:
+			if data, ok := ev.Data.(map[string]any); ok {
+				if name, _ := data["name"].(string); name != "" {
+					builder.addToolCall(name)
+					tryEdit() // trigger immediate update on each tool call
+				}
+			}
+		case SSEOutputChunk:
+			if data, ok := ev.Data.(map[string]any); ok {
+				if chunk, _ := data["chunk"].(string); chunk != "" {
+					builder.addText(chunk)
+				}
+			}
+		case SSECompleted, SSEError:
+			return true
+		}
+		return false
+	}
 
 	for {
 		select {
@@ -1887,32 +1930,17 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 			if !ok {
 				return
 			}
-			switch ev.Type {
-			case SSEToolCall:
-				if data, ok := ev.Data.(map[string]any); ok {
-					name, _ := data["name"].(string)
-					if name != "" {
-						builder.addToolCall(name)
-					}
-				}
-			case SSEOutputChunk:
-				if data, ok := ev.Data.(map[string]any); ok {
-					chunk, _ := data["chunk"].(string)
-					if chunk != "" {
-						builder.addText(chunk)
-					}
-				}
-			case SSECompleted, SSEError:
+			if handleEvent(ev) {
 				return
 			}
-		case <-ticker.C:
-			if builder.isDirty() {
-				content := builder.render()
-				if err := db.editMessage(channelID, progressMsgID, content); err != nil {
-					logWarn("discord progress edit failed", "error", err)
-				}
-				db.sendTyping(channelID)
+		case ev, ok := <-sessionEventCh:
+			if !ok {
+				sessionEventCh = nil
+			} else {
+				handleEvent(ev)
 			}
+		case <-ticker.C:
+			tryEdit()
 		}
 	}
 }

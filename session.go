@@ -19,7 +19,10 @@ func sessionSelectCols() string {
 	if col != "agent" {
 		alias = col + " AS agent"
 	}
-	return fmt.Sprintf("id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at", alias)
+	return fmt.Sprintf(
+		"id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at,"+
+			" COALESCE((SELECT tokens_in FROM session_messages WHERE session_id = id ORDER BY id DESC LIMIT 1), 0) AS context_size",
+		alias)
 }
 
 // SystemLogSessionID is a fixed session ID that aggregates all non-chat dispatch task outputs.
@@ -38,6 +41,7 @@ type Session struct {
 	TotalTokensIn  int     `json:"totalTokensIn"`
 	TotalTokensOut int     `json:"totalTokensOut"`
 	MessageCount   int     `json:"messageCount"`
+	ContextSize    int     `json:"contextSize"`    // tokens_in of the most recent message (current context pressure)
 	CreatedAt      string  `json:"createdAt"`
 	UpdatedAt      string  `json:"updatedAt"`
 }
@@ -640,6 +644,7 @@ func sessionFromRow(row map[string]any) Session {
 		TotalTokensIn:  jsonInt(row["total_tokens_in"]),
 		TotalTokensOut: jsonInt(row["total_tokens_out"]),
 		MessageCount:   jsonInt(row["message_count"]),
+		ContextSize:    jsonInt(row["context_size"]),
 		CreatedAt:      jsonStr(row["created_at"]),
 		UpdatedAt:      jsonStr(row["updated_at"]),
 	}

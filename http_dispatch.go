@@ -468,6 +468,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 	// --- Prompt Library ---
 	mux.HandleFunc("/prompts", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		w.Header().Set("Content-Type", "application/json")
 
 		switch r.Method {
@@ -505,6 +506,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/prompts/", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		name := strings.TrimPrefix(r.URL.Path, "/prompts/")
 		if name == "" {
 			http.Error(w, `{"error":"prompt name required"}`, http.StatusBadRequest)
@@ -536,6 +538,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 	// --- Cost Estimate ---
 	mux.HandleFunc("/dispatch/estimate", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
 			return
@@ -565,6 +568,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/dispatch/", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		// Parse /dispatch/{id}/{action}
 		path := strings.TrimPrefix(r.URL.Path, "/dispatch/")
 		if path == "failed" || path == "estimate" {
@@ -625,6 +629,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 	// --- Smart Dispatch Route ---
 	mux.HandleFunc("/route/classify", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
 			return
@@ -685,6 +690,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("/route", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.Cfg()
 		if r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{

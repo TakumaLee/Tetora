@@ -37,6 +37,7 @@ const (
 	SSEToolCall          = "tool_call"
 	SSEToolResult        = "tool_result"
 	SSESessionMessage    = "session_message"
+	SSEAgentState        = "agent_state"
 )
 
 // --- SSE Broker ---

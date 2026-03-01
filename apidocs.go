@@ -678,6 +678,36 @@ func buildPaths() map[string]any {
 		),
 	}
 
+	paths["/api/agents/running"] = map[string]any{
+		"get": opGet("List running agents", "Agents",
+			"Return all tasks currently executing in dispatchState.",
+			nil,
+			resp200(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"running": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"id":       prop("string", "Task ID"),
+								"name":     prop("string", "Task name"),
+								"agent":    prop("string", "Agent name"),
+								"source":   prop("string", "Source identifier"),
+								"prompt":   prop("string", "Prompt (truncated to 100 chars)"),
+								"elapsed":  prop("string", "Elapsed time (e.g. 5s)"),
+								"parentId": prop("string", "Parent task ID (sub-tasks only)"),
+								"depth":    map[string]any{"type": "integer", "description": "Nesting depth (0 = top-level)"},
+							},
+						},
+					},
+					"count": map[string]any{"type": "integer", "description": "Number of running tasks"},
+				},
+			}),
+			resp401(),
+		),
+	}
+
 	// ---- Route (Smart Dispatch) ----
 
 	paths["/route"] = map[string]any{

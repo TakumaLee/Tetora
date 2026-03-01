@@ -423,6 +423,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
   border-radius: 12px;
   padding: 24px;
   min-width: 460px;
+  position: relative;
   max-width: 600px;
   max-height: 85vh;
   overflow-y: auto;
@@ -682,6 +683,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
 }
 .btn-live:hover { background: rgba(167,139,250,0.1); }
 .btn-live.active { background: var(--accent); color: var(--bg); }
+.btn-period-active { border-color: var(--accent) !important; color: var(--accent) !important; }
 
 /* Markdown rendered output */
 .md-rendered {
@@ -1182,6 +1184,29 @@ tr:hover { background: rgba(255,255,255,0.02); }
   z-index: 2;
 }
 .agent-world-close:hover { color: var(--text); }
+
+/* Pixel Team */
+.pixel-team {
+  display: flex; align-items: center; gap: 20px;
+  padding: 10px 16px; margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(96,165,250,0.05), rgba(167,139,250,0.05));
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.pixel-team-title {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap;
+}
+.pixel-agents-row { display: flex; gap: 16px; align-items: flex-end; }
+.pixel-agent-card { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pixel-agent-canvas {
+  display: block; width: 48px; height: 72px;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+}
+.pixel-agent-name { font-size: 10px; color: var(--text); font-weight: 600; }
+.pixel-agent-status {
+  display: flex; align-items: center; gap: 3px; font-size: 9px; color: var(--muted);
+}
+.pixel-agent-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -1206,6 +1231,11 @@ tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 
   <div id="dashboard-content">
+  <!-- Pixel Team -->
+  <div class="pixel-team" id="pixel-team">
+    <span class="pixel-team-title">Team</span>
+    <div class="pixel-agents-row" id="pixel-agents-row"></div>
+  </div>
   <!-- Agent World -->
   <div class="agent-world-toggle" id="agent-world-toggle" style="display:none" onclick="toggleAgentWorld()">
     <span class="aw-title">Agent World</span>
@@ -1225,6 +1255,34 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <span class="section-title">7-Day Trend</span>
     </div>
     <div id="trend-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px"></div>
+  </div>
+
+  <!-- History Trends -->
+  <div class="section" id="history-trends-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">History Trends</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn" id="ht-btn-14" onclick="setHistoryPeriod(14)">14D</button>
+        <button class="btn" id="ht-btn-30" onclick="setHistoryPeriod(30)">30D</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px">Task Throughput</div>
+        <div id="ht-task-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px"></div>
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span><span style="color:var(--accent2)">▬</span> Created</span>
+          <span><span style="color:var(--green)">▬</span> Done</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px">Claude Usage (USD/day)</div>
+        <div id="ht-usage-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px"></div>
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span><span style="color:var(--accent)">▬</span> Cost/day</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- P18.1: Cost Dashboard -->
@@ -1371,7 +1429,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Role</th><th>Title</th><th>Status</th><th>Msgs</th><th>Cost</th><th>Updated</th><th style="width:60px"></th>
+          <th>Role</th><th>Title</th><th>Status</th><th>Msgs</th><th>Cost</th><th>Context</th><th>Updated</th><th style="width:60px"></th>
         </tr></thead>
         <tbody id="sessions-body"></tbody>
       </table>
@@ -1876,6 +1934,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
 <div class="modal-overlay" id="task-detail-modal">
   <div class="modal" style="max-width:600px">
     <button class="modal-close" onclick="closeTaskDetail()">&times;</button>
+    <button onclick="deleteTask()" style="position:absolute;top:14px;right:48px;background:var(--danger,#e53e3e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
     <h3 id="task-detail-title" style="margin-bottom:12px">Task Detail</h3>
     <input type="hidden" id="td-id" value="">
     <div class="task-detail-grid">
@@ -2513,7 +2572,7 @@ function connectDashboardSSE() {
     pollTimer = setInterval(refresh, 5000);
   };
 
-  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying'];
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying', 'agent_state'];
   eventTypes.forEach(function(evType) {
     es.addEventListener(evType, function(e) {
       try {
@@ -2574,6 +2633,7 @@ function handleActivityEvent(type, ev) {
     case 'tool_call':
       badge = 'tool';
       detail = esc(data.name || data.id || '(tool)');
+      if (data.preview) detail += ' <span class="muted" style="font-size:11px">' + esc(data.preview) + '</span>';
       break;
     case 'tool_result':
       badge = 'tool';
@@ -2789,6 +2849,9 @@ async function refresh() {
 
     // Trend chart
     await refreshTrend();
+
+    // History Trends
+    await refreshHistoryTrends();
 
     // Cache jobs for edit modal
     cachedJobs = Array.isArray(jobs) ? jobs : [];
@@ -3069,6 +3132,108 @@ async function refreshTrend() {
       }).join('') + '</div>';
   } catch(e) {
     document.getElementById('trend-section').style.display = 'none';
+  }
+}
+
+// --- History Trends ---
+
+let historyPeriodDays = 14;
+
+function setHistoryPeriod(days) {
+  historyPeriodDays = days;
+  document.querySelectorAll('#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
+  const btn = document.getElementById(`ht-btn-${days}`);
+  if (btn) btn.classList.add('btn-period-active');
+  refreshHistoryTrends();
+}
+
+function makeSVGLineChart(data, series, opts) {
+  opts = opts || {};
+  const W = 500, H = 110;
+  const PL = 38, PR = 8, PT = 8, PB = 22;
+  const cW = W - PL - PR, cH = H - PT - PB;
+
+  if (!data || data.length === 0) {
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto"><text x="${W/2}" y="${H/2}" fill="#6b6b80" font-size="11" text-anchor="middle">No data</text></svg>`;
+  }
+
+  const allVals = series.reduce((acc, s) => acc.concat(data.map(d => typeof d[s.key] === 'number' ? d[s.key] : 0)), []);
+  const maxVal = Math.max.apply(null, allVals.concat([0.0001]));
+
+  const n = data.length;
+  const xStep = n > 1 ? cW / (n - 1) : 0;
+
+  const gridLines = [0.25, 0.5, 0.75, 1].map(pct => {
+    const y = (PT + cH - pct * cH).toFixed(1);
+    const val = maxVal * pct;
+    const label = opts.formatVal ? opts.formatVal(val) : (val < 1 ? val.toFixed(3) : Math.round(val).toString());
+    return `<line x1="${PL}" y1="${y}" x2="${PL+cW}" y2="${y}" stroke="#1e1e2e" stroke-width="1"/><text x="${PL-3}" y="${(parseFloat(y)+3.5).toFixed(1)}" font-size="8" fill="#6b6b80" text-anchor="end">${label}</text>`;
+  }).join('');
+
+  const lines = series.map(s => {
+    const pts = data.map((d, i) => {
+      const x = (PL + i * xStep).toFixed(1);
+      const v = typeof d[s.key] === 'number' ? d[s.key] : 0;
+      const y = (PT + cH - (v / maxVal) * cH).toFixed(1);
+      return x + ',' + y;
+    }).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }).join('');
+
+  const dots = series.map(s => {
+    const d = data[data.length - 1];
+    const v = typeof d[s.key] === 'number' ? d[s.key] : 0;
+    const x = (PL + (n - 1) * xStep).toFixed(1);
+    const y = (PT + cH - (v / maxVal) * cH).toFixed(1);
+    return `<circle cx="${x}" cy="${y}" r="2.5" fill="${s.color}"/>`;
+  }).join('');
+
+  const skip = Math.max(1, Math.ceil(n / 7));
+  const xLabels = data.map((d, i) => {
+    if (i % skip !== 0 && i !== n - 1) return '';
+    const x = (PL + i * xStep).toFixed(1);
+    const lbl = esc((d.date || d.Date || '').slice(5));
+    return `<text x="${x}" y="${H - 4}" font-size="8" fill="#6b6b80" text-anchor="middle">${lbl}</text>`;
+  }).join('');
+
+  const axes = `<line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+cH}" stroke="#2a2a3e" stroke-width="1"/><line x1="${PL}" y1="${PT+cH}" x2="${PL+cW}" y2="${PT+cH}" stroke="#2a2a3e" stroke-width="1"/>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" overflow="visible">${gridLines}${axes}${lines}${dots}${xLabels}</svg>`;
+}
+
+async function refreshHistoryTrends() {
+  try {
+    const days = historyPeriodDays;
+    const [taskData, usageData] = await Promise.all([
+      fetchJSON('/api/tasks/trend?days=' + days),
+      fetchJSON('/api/usage/trend?days=' + days)
+    ]);
+
+    const section = document.getElementById('history-trends-section');
+    const hasTask = Array.isArray(taskData) && taskData.length > 0;
+    const hasUsage = Array.isArray(usageData) && usageData.length > 0;
+    if (!hasTask && !hasUsage) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    document.querySelectorAll('#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
+    const ab = document.getElementById('ht-btn-' + days);
+    if (ab) ab.classList.add('btn-period-active');
+
+    document.getElementById('ht-task-chart').innerHTML = makeSVGLineChart(
+      hasTask ? taskData : [],
+      [
+        { key: 'created', color: 'var(--accent2)' },
+        { key: 'done', color: 'var(--green)' }
+      ]
+    );
+
+    document.getElementById('ht-usage-chart').innerHTML = makeSVGLineChart(
+      hasUsage ? usageData : [],
+      [{ key: 'costUsd', color: 'var(--accent)' }],
+      { formatVal: function(v) { return '$' + v.toFixed(v < 0.01 ? 4 : 2); } }
+    );
+  } catch(e) {
+    document.getElementById('history-trends-section').style.display = 'none';
   }
 }
 
@@ -4332,12 +4497,24 @@ async function refreshSessions() {
       const dot = s.status === 'active' ? 'dot-green' : s.status === 'completed' ? 'dot-gray' : 'dot-red';
       const title = esc((s.title || '(untitled)').substring(0, 60));
       const shortId = s.id.length > 12 ? s.id.substring(0, 12) : s.id;
+      const ctxSize = s.contextSize || 0;
+      const ctxWindow = 200000;
+      const ctxPct = Math.min(100, (ctxSize / ctxWindow) * 100);
+      const ctxColor = ctxPct >= 80 ? '#ef4444' : ctxPct >= 50 ? '#f59e0b' : '#22c55e';
+      const ctxLabel = ctxSize > 0 ? (ctxSize >= 1000 ? Math.round(ctxSize/1000)+'k' : ctxSize) + '/200k' : '-';
+      const ctxBar = ctxSize > 0 ? `<div style="width:80px">
+        <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:2px">
+          <div style="height:100%;width:${ctxPct.toFixed(1)}%;background:${ctxColor};border-radius:2px"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);font-family:monospace">${ctxLabel}</div>
+      </div>` : '<span style="color:var(--muted);font-size:11px">-</span>';
       return `<tr>
         <td><span style="color:var(--accent)">${esc(s.agent || '-')}</span></td>
         <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(s.title)}">${title}</td>
         <td><span class="dot ${dot}"></span>${esc(s.status)}</td>
         <td>${s.messageCount || 0}</td>
         <td style="font-family:monospace;font-size:12px">${costFmt(s.totalCost)}</td>
+        <td>${ctxBar}</td>
         <td style="font-size:12px;color:var(--muted)">${dateTimeStr(s.updatedAt)}</td>
         <td><button class="btn btn-sm" onclick="viewSessionWithStream('${esc(shortId)}','${esc(s.id)}','${esc(s.status)}')">View</button></td>
       </tr>`;
@@ -5043,7 +5220,8 @@ async function openTaskDetail(taskId) {
       var roles = await fetchJSON('/roles');
       if (Array.isArray(roles)) {
         roles.forEach(function(r) {
-          if (agents.indexOf(r) < 0) agents.push(r);
+          var name = typeof r === 'string' ? r : r.name;
+          if (name && agents.indexOf(name) < 0) agents.push(name);
         });
       }
     } catch(e) {}
@@ -5088,6 +5266,20 @@ async function openTaskDetail(taskId) {
 
 function closeTaskDetail() {
   document.getElementById('task-detail-modal').classList.remove('open');
+}
+
+async function deleteTask() {
+  var id = document.getElementById('td-id').value;
+  if (!id) return;
+  if (!confirm('刪除這個 Task？此操作無法復原。')) return;
+  try {
+    await fetch('/api/tasks/' + id, { method: 'DELETE' });
+    closeTaskDetail();
+    loadKanbanBoard();
+    toast('Task 已刪除');
+  } catch(e) {
+    toast('刪除失敗: ' + e.message);
+  }
 }
 
 async function loadTaskComments(taskId) {
@@ -5198,8 +5390,10 @@ async function openTaskCreateModal() {
     var roles = await fetchJSON('/roles');
     if (Array.isArray(roles)) {
       roles.forEach(function(r) {
+        var name = typeof r === 'string' ? r : r.name;
+        if (!name) return;
         var opt = document.createElement('option');
-        opt.value = r; opt.textContent = r;
+        opt.value = name; opt.textContent = name;
         agentSel.appendChild(opt);
       });
     }

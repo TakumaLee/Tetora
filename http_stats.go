@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 )
 
@@ -375,6 +376,75 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 	})
 
 	// --- Token Telemetry API ---
+	// --- Task Trend (from dashboard.db) ---
+	mux.HandleFunc("/api/tasks/trend", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.DashboardDB == "" {
+			http.Error(w, `{"error":"dashboard DB not configured"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		days := 14
+		if d := r.URL.Query().Get("days"); d != "" {
+			if n, err := strconv.Atoi(d); err == nil && n > 0 && n <= 90 {
+				days = n
+			}
+		}
+
+		type TaskDayStat struct {
+			Date    string `json:"date"`
+			Created int    `json:"created"`
+			Done    int    `json:"done"`
+		}
+
+		byDate := map[string]*TaskDayStat{}
+		ensure := func(day string) *TaskDayStat {
+			if _, ok := byDate[day]; !ok {
+				byDate[day] = &TaskDayStat{Date: day}
+			}
+			return byDate[day]
+		}
+
+		createdRows, err := queryDB(cfg.DashboardDB, fmt.Sprintf(
+			`SELECT date(created_at, 'localtime') as day, COUNT(*) as cnt
+			 FROM tasks
+			 WHERE date(created_at, 'localtime') >= date('now', 'localtime', '-%d days')
+			 GROUP BY day`, days))
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		for _, row := range createdRows {
+			ensure(jsonStr(row["day"])).Created = jsonInt(row["cnt"])
+		}
+
+		doneRows, err := queryDB(cfg.DashboardDB, fmt.Sprintf(
+			`SELECT date(completed_at, 'localtime') as day, COUNT(*) as cnt
+			 FROM tasks
+			 WHERE completed_at IS NOT NULL AND completed_at != ''
+			   AND date(completed_at, 'localtime') >= date('now', 'localtime', '-%d days')
+			 GROUP BY day`, days))
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		for _, row := range doneRows {
+			ensure(jsonStr(row["day"])).Done = jsonInt(row["cnt"])
+		}
+
+		dates := make([]string, 0, len(byDate))
+		for d := range byDate {
+			dates = append(dates, d)
+		}
+		sort.Strings(dates)
+
+		result := make([]TaskDayStat, 0, len(dates))
+		for _, d := range dates {
+			result = append(result, *byDate[d])
+		}
+		json.NewEncoder(w).Encode(result)
+	})
+
 	mux.HandleFunc("/api/tokens/summary", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.HistoryDB == "" {
 			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)

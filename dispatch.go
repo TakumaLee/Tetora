@@ -173,6 +173,18 @@ func (s *dispatchState) publishSSE(event SSEEvent) {
 	s.broker.PublishMulti(keys, event)
 }
 
+// emitAgentState publishes an agent_state SSE event to the dashboard broker.
+// state is one of: "idle", "thinking", "working", "waiting", "done".
+func emitAgentState(broker *sseBroker, agent, state string) {
+	if broker == nil || agent == "" {
+		return
+	}
+	broker.Publish(SSEDashboardKey, SSEEvent{
+		Type: SSEAgentState,
+		Data: map[string]string{"agent": agent, "state": state},
+	})
+}
+
 // publishToSSEBroker publishes an SSE event directly via a broker reference.
 // Used by runSingleTask which has no access to dispatchState.
 func publishToSSEBroker(broker *sseBroker, event SSEEvent) {
@@ -1020,6 +1032,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			"model": task.Model,
 		},
 	})
+	emitAgentState(state.broker, agentName, "working")
 
 	// Create event channel for provider streaming.
 	var eventCh chan SSEEvent
@@ -1101,6 +1114,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 						"error": result.Error,
 					},
 				})
+				emitAgentState(state.broker, agentName, "waiting")
 			} else {
 				logWarnCtx(ctx, "failed to enqueue task", "taskId", task.ID[:8], "error", err)
 			}
@@ -1185,6 +1199,11 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				"error":      result.Error,
 			},
 		})
+		if result.Status == "success" {
+			emitAgentState(state.broker, agentName, "done")
+		} else {
+			emitAgentState(state.broker, agentName, "idle")
+		}
 	}
 
 	// Webhook notifications.
@@ -1532,13 +1551,30 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		// Publish SSE event for tool calls.
 		if broker != nil {
 			for _, tc := range result.ToolCalls {
+				// Extract a one-line preview from the tool input.
+				var preview string
+				if len(tc.Input) > 0 {
+					var inputMap map[string]any
+					if err := json.Unmarshal(tc.Input, &inputMap); err == nil {
+						if desc, ok := inputMap["description"].(string); ok && desc != "" {
+							preview = desc
+						} else if cmd, ok := inputMap["command"].(string); ok && cmd != "" {
+							if idx := strings.Index(cmd, "\n"); idx != -1 {
+								preview = cmd[:idx]
+							} else {
+								preview = cmd
+							}
+						}
+					}
+				}
 				broker.PublishMulti([]string{task.ID, task.SessionID, SSEDashboardKey}, SSEEvent{
 					Type:      "tool_call",
 					TaskID:    task.ID,
 					SessionID: task.SessionID,
 					Data: map[string]any{
-						"id":   tc.ID,
-						"name": tc.Name,
+						"id":      tc.ID,
+						"name":    tc.Name,
+						"preview": preview,
 					},
 				})
 			}

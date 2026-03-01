@@ -482,6 +482,12 @@ func initTriggerRunsTable(dbPath string) {
 	if dbPath == "" {
 		return
 	}
+	// Migration: add workflow_run_id column if missing (for DBs created before this column existed).
+	if err := execDB(dbPath, `ALTER TABLE workflow_trigger_runs ADD COLUMN workflow_run_id TEXT DEFAULT '';`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+			logWarn("workflow_trigger_runs migration failed", "error", err)
+		}
+	}
 	if _, err := queryDB(dbPath, triggerRunsTableSQL); err != nil {
 		logWarn("init workflow_trigger_runs table failed", "error", err)
 	}

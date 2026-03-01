@@ -176,6 +176,16 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 
 		taskID := parts[0]
 
+		// DELETE /api/tasks/{id} → delete task.
+		if r.Method == http.MethodDelete && len(parts) == 1 {
+			if err := taskBoardEngine.DeleteTask(taskID); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"deleted": taskID})
+			return
+		}
+
 		// GET /api/tasks/{id} → get single task.
 		if r.Method == http.MethodGet && len(parts) == 1 {
 			task, err := taskBoardEngine.GetTask(taskID)

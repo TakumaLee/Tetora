@@ -42,10 +42,15 @@ type TaskComment struct {
 }
 
 type TaskBoardDispatchConfig struct {
-	Enabled      bool    `json:"enabled"`
-	Interval     string  `json:"interval,omitempty"`     // default "5m"
-	DefaultModel string  `json:"defaultModel,omitempty"` // override model for auto-dispatched tasks
-	MaxBudget    float64 `json:"maxBudget,omitempty"`    // max cost per task in USD (default: no limit)
+	Enabled            bool    `json:"enabled"`
+	Interval           string  `json:"interval,omitempty"`           // default "5m"
+	DefaultModel       string  `json:"defaultModel,omitempty"`       // override model for auto-dispatched tasks
+	MaxBudget          float64 `json:"maxBudget,omitempty"`          // max cost per task in USD (default: no limit)
+	DefaultAgent       string  `json:"defaultAgent,omitempty"`       // fallback agent for unassigned todo tasks
+	BacklogAgent       string  `json:"backlogAgent,omitempty"`       // agent for backlog triage (default: "ruri")
+	ReviewAgent        string  `json:"reviewAgent,omitempty"`        // agent for review verification (default: "ruri")
+	StuckThreshold     string  `json:"stuckThreshold,omitempty"`     // max time a task can be in "doing" before reset (default: "2h")
+	MaxConcurrentTasks int     `json:"maxConcurrentTasks,omitempty"` // max tasks dispatched per scan cycle (0 = unlimited)
 }
 
 type TaskBoardConfig struct {
@@ -280,6 +285,19 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 
 	// Fetch and return updated task.
 	return tb.GetTask(id)
+}
+
+// DeleteTask removes a task and its comments from the DB.
+func (tb *TaskBoardEngine) DeleteTask(id string) error {
+	sql := fmt.Sprintf(`
+		DELETE FROM task_comments WHERE task_id = '%s';
+		DELETE FROM tasks WHERE id = '%s';
+	`, escapeSQLite(id), escapeSQLite(id))
+	cmd := exec.Command("sqlite3", tb.dbPath, sql)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("delete task: %s: %w", string(out), err)
+	}
+	return nil
 }
 
 // GetTask retrieves a single task by ID.
