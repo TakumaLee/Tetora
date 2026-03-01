@@ -1114,6 +1114,11 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem, chi
 		defer func() { <-s }()
 	}
 
+	// Signal that this task has acquired a slot and is about to execute.
+	if task.onStart != nil {
+		task.onStart()
+	}
+
 	providerName := resolveProviderName(cfg, task, agentName)
 
 	logDebugCtx(ctx, "shadow task start",

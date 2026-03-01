@@ -199,12 +199,6 @@ func (d *TaskBoardDispatcher) scan() {
 			break
 		}
 
-		// Move to "doing" before logging success.
-		if _, err := d.engine.MoveTask(t.ID, "doing"); err != nil {
-			logWarn("taskboard dispatch: failed to move task to doing", "id", t.ID, "error", err)
-			continue
-		}
-
 		logInfo("taskboard dispatch: picking up task", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
 		dispatched++
 
@@ -244,11 +238,17 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		prompt = t.Title + "\n\n" + t.Description
 	}
 
+	taskID := t.ID // capture for closure
 	task := Task{
 		Name:   "board:" + t.ID,
 		Prompt: prompt,
 		Agent:  t.Assignee,
 		Source: "taskboard",
+		onStart: func() {
+			if _, err := d.engine.MoveTask(taskID, "doing"); err != nil {
+				logWarn("taskboard dispatch: failed to move task to doing on start", "id", taskID, "error", err)
+			}
+		},
 	}
 	fillDefaults(d.cfg, &task)
 

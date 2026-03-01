@@ -47,6 +47,7 @@ type Task struct {
 	channelNotifier ChannelNotifier                     // P27.3: unexported, not serialized
 	approvalGate    ApprovalGate                        // P28.0: unexported, not serialized
 	sseBroker       *sseBroker                          // streaming: unexported, not serialized
+	onStart         func()                              // called after semaphore acquired, before execution
 }
 
 type TaskResult struct {
@@ -748,6 +749,12 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		s <- struct{}{}
 		defer func() { <-s }()
 	}
+
+	// Signal that this task has acquired a slot and is about to execute.
+	if task.onStart != nil {
+		task.onStart()
+	}
+
 	// Budget check before execution.
 	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)

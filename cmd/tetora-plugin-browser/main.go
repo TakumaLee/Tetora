@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -75,6 +76,7 @@ type browserSession struct {
 	targetID     string // current tab/target ID
 	sessionID    string // CDP session ID
 	readLoopDone chan struct{}
+	dead         int32 // atomic: set to 1 when readLoop exits (Chrome crash / WS disconnect)
 }
 
 var (
@@ -525,8 +527,13 @@ func handleWait(reqID int, input json.RawMessage) {
 // --- Browser Session Management ---
 
 func newBrowserSession(chromePath string) (*browserSession, error) {
+	// Find a free port for Chrome's remote debugging.
+	port, err := findFreePort()
+	if err != nil {
+		return nil, fmt.Errorf("find free port: %w", err)
+	}
+
 	// Launch Chrome in headless mode with remote debugging.
-	port := "9222"
 	cmd := exec.Command(chromePath,
 		"--headless",
 		"--disable-gpu",
@@ -606,6 +613,10 @@ func newBrowserSession(chromePath string) (*browserSession, error) {
 }
 
 func (s *browserSession) sendCDP(method string, params any) (json.RawMessage, error) {
+	if atomic.LoadInt32(&s.dead) != 0 {
+		return nil, fmt.Errorf("browser session dead (Chrome crashed or WebSocket disconnected)")
+	}
+
 	id := int(atomic.AddInt32(&s.nextID, 1))
 
 	var paramBytes json.RawMessage
@@ -654,6 +665,8 @@ func (s *browserSession) sendCDP(method string, params any) (json.RawMessage, er
 			return nil, fmt.Errorf("cdp error: %s", resp.Error.Message)
 		}
 		return resp.Result, nil
+	case <-s.readLoopDone:
+		return nil, fmt.Errorf("browser session dead during %s (Chrome crashed or WebSocket disconnected)", method)
 	case <-timer.C:
 		return nil, fmt.Errorf("cdp timeout (method=%s)", method)
 	}
@@ -661,18 +674,19 @@ func (s *browserSession) sendCDP(method string, params any) (json.RawMessage, er
 
 func (s *browserSession) readLoop() {
 	defer close(s.readLoopDone)
+	defer atomic.StoreInt32(&s.dead, 1)
 
 	buf := make([]byte, 4*1024*1024) // 4MB buffer for large messages
 	for {
 		n, err := s.wsConn.Read(buf)
 		if err != nil {
-			logDebug("websocket read error", "error", err)
+			logDebug("websocket read error (marking session dead)", "error", err)
 			return
 		}
 
 		var resp cdpResponse
 		if err := json.Unmarshal(buf[:n], &resp); err != nil {
-			logDebug("invalid cdp response", "error", err)
+			logDebug("invalid cdp response", "error", err, "len", n)
 			continue
 		}
 
@@ -780,8 +794,16 @@ func (w *wsConn) Read(p []byte) (int, error) {
 		payloadLen = int(extLen[4])<<24 | int(extLen[5])<<16 | int(extLen[6])<<8 | int(extLen[7])
 	}
 
+	// Always read the full frame payload to prevent stream corruption.
+	// If the payload exceeds the caller's buffer, allocate a temporary buffer
+	// so leftover bytes don't get misinterpreted as the next frame header.
 	if payloadLen > len(p) {
-		payloadLen = len(p)
+		tmp := make([]byte, payloadLen)
+		if _, err := io.ReadFull(w.conn, tmp); err != nil {
+			return 0, err
+		}
+		copy(p, tmp)
+		return len(p), nil
 	}
 
 	return io.ReadFull(w.conn, p[:payloadLen])
@@ -812,7 +834,17 @@ func (w *wsConn) Close() error {
 	return w.conn.Close()
 }
 
-// --- Chrome Path Detection ---
+// --- Port & Chrome Detection ---
+
+func findFreePort() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return strconv.Itoa(port), nil
+}
 
 func findChrome() string {
 	// Try common Chrome/Chromium paths.
