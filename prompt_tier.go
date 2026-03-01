@@ -42,9 +42,10 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity Req
 	}
 
 	// --- 2. Workspace directory setup (always) ---
+	// Only set Workdir if not already specified (e.g. by taskboard project-specific workdir).
 	if agentName != "" {
 		ws := resolveWorkspace(cfg, agentName)
-		if ws.Dir != "" {
+		if task.Workdir == "" && ws.Dir != "" {
 			task.Workdir = ws.Dir
 		}
 		task.AddDirs = append(task.AddDirs, cfg.baseDir)

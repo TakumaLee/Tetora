@@ -273,6 +273,20 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 
 			inFlight++
 			go func(id string) {
+				defer func() {
+					if r := recover(); r != nil {
+						logError("workflow step panic", "step", id, "recover", r)
+						doneCh <- stepDoneMsg{
+							id: id,
+							result: &StepRunResult{
+								StepID:     id,
+								Status:     "error",
+								Error:      fmt.Sprintf("panic: %v", r),
+								FinishedAt: time.Now().Format(time.RFC3339),
+							},
+						}
+					}
+				}()
 				step := stepMap[id]
 				result := e.executeStep(ctx, step)
 				doneCh <- stepDoneMsg{id: id, result: result}
@@ -319,7 +333,41 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 			// Handle condition step: may skip dependents.
 			step := stepMap[msg.id]
 			if stepType(step) == "condition" {
-				e.handleConditionResult(step, msg.result, remaining, dependents, readyCh)
+				skippedSteps := e.handleConditionResult(step, msg.result, remaining, dependents, readyCh)
+				// Propagate skipped steps through the DAG so their dependents get unblocked.
+				// Use index-based loop: nested condition branches append to skippedSteps.
+				visited := make(map[string]bool)
+				for i := 0; i < len(skippedSteps); i++ {
+					sid := skippedSteps[i]
+					if visited[sid] {
+						continue
+					}
+					visited[sid] = true
+					completed++
+
+					// If the skipped step is itself a condition, skip BOTH its branches
+					// (since the condition was never evaluated, neither branch should run).
+					if ss, ok := stepMap[sid]; ok && stepType(ss) == "condition" {
+						for _, target := range []string{ss.Then, ss.Else} {
+							if target == "" {
+								continue
+							}
+							e.mu.Lock()
+							if sr, ok := e.run.StepResults[target]; ok && sr.Status == "pending" {
+								sr.Status = "skipped"
+								skippedSteps = append(skippedSteps, target)
+							}
+							e.mu.Unlock()
+						}
+					}
+
+					for _, dep := range dependents[sid] {
+						remaining[dep]--
+						if remaining[dep] == 0 {
+							readyCh <- dep
+						}
+					}
+				}
 				continue
 			}
 
@@ -342,8 +390,9 @@ type stepDoneMsg struct {
 }
 
 // handleConditionResult processes condition branching after evaluation.
+// Returns the list of step IDs that were marked as skipped (for DAG propagation by caller).
 func (e *workflowExecutor) handleConditionResult(step *WorkflowStep, result *StepRunResult,
-	remaining map[string]int, dependents map[string][]string, readyCh chan string) {
+	remaining map[string]int, dependents map[string][]string, readyCh chan string) []string {
 
 	// The condition output is "then" or "else" — the chosen branch target.
 	chosenTarget := strings.TrimSpace(result.Output)
@@ -364,13 +413,16 @@ func (e *workflowExecutor) handleConditionResult(step *WorkflowStep, result *Ste
 		skipTarget = step.Then
 	}
 
+	var skipped []string
 	if skipTarget != "" {
 		e.mu.Lock()
 		if sr, ok := e.run.StepResults[skipTarget]; ok && sr.Status == "pending" {
 			sr.Status = "skipped"
+			skipped = append(skipped, skipTarget)
 		}
 		e.mu.Unlock()
 	}
+	return skipped
 }
 
 // executeStep runs a single step with retry logic.
@@ -742,7 +794,7 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 		ToStepID:      step.ID,
 		FromSessionID: fromSessionID,
 		ToSessionID:   toSessionID,
-		Context:       truncateStr(sourceOutput, 5000),
+		Context:       truncateStr(sourceOutput, e.cfg.PromptBudget.contextMaxOrDefault()),
 		Instruction:   instruction,
 		Status:        "pending",
 		CreatedAt:     now,

@@ -59,6 +59,8 @@ type WorkflowTriggerEngine struct {
 	cooldowns map[string]time.Time // trigger name -> cooldown expiry
 	lastFired map[string]time.Time // trigger name -> last fire time
 	mu        sync.RWMutex
+	ctx       context.Context    // engine-scoped context, cancelled on Stop
+	cancel    context.CancelFunc
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
 }
@@ -80,6 +82,8 @@ func newWorkflowTriggerEngine(cfg *Config, state *dispatchState, sem, childSem c
 
 // Start launches the cron loop and event listener goroutines.
 func (e *WorkflowTriggerEngine) Start(ctx context.Context) {
+	e.ctx, e.cancel = context.WithCancel(ctx)
+
 	if len(e.triggers) == 0 {
 		logInfo("workflow trigger engine: no triggers configured")
 		return
@@ -127,6 +131,9 @@ func (e *WorkflowTriggerEngine) Start(ctx context.Context) {
 // Stop gracefully shuts down the trigger engine.
 func (e *WorkflowTriggerEngine) Stop() {
 	close(e.stopCh)
+	if e.cancel != nil {
+		e.cancel()
+	}
 	e.wg.Wait()
 	logInfo("workflow trigger engine stopped")
 }
@@ -136,6 +143,7 @@ func (e *WorkflowTriggerEngine) cronLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	cleanupCounter := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -144,6 +152,25 @@ func (e *WorkflowTriggerEngine) cronLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			e.checkCronTriggers(ctx)
+
+			// Clean up expired cooldown entries every ~5 minutes (10 ticks × 30s).
+			cleanupCounter++
+			if cleanupCounter >= 10 {
+				cleanupCounter = 0
+				e.cleanupExpiredCooldowns()
+			}
+		}
+	}
+}
+
+// cleanupExpiredCooldowns removes expired entries from the cooldowns map to prevent memory leaks.
+func (e *WorkflowTriggerEngine) cleanupExpiredCooldowns() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := time.Now()
+	for k, v := range e.cooldowns {
+		if now.After(v) {
+			delete(e.cooldowns, k)
 		}
 	}
 }
@@ -272,7 +299,7 @@ func matchEventType(eventType, pattern string) bool {
 
 // HandleWebhookTrigger fires a webhook trigger by name with the given payload.
 func (e *WorkflowTriggerEngine) HandleWebhookTrigger(triggerName string, payload map[string]string) error {
-	e.mu.RLock()
+	e.mu.Lock()
 	var found *WorkflowTriggerConfig
 	for i := range e.triggers {
 		t := &e.triggers[i]
@@ -281,20 +308,37 @@ func (e *WorkflowTriggerEngine) HandleWebhookTrigger(triggerName string, payload
 			break
 		}
 	}
-	e.mu.RUnlock()
 
 	if found == nil {
+		e.mu.Unlock()
 		return fmt.Errorf("webhook trigger %q not found", triggerName)
 	}
 	if !found.isEnabled() {
+		e.mu.Unlock()
 		return fmt.Errorf("webhook trigger %q is disabled", triggerName)
 	}
-	if !e.checkCooldown(triggerName) {
+
+	// Check cooldown under write lock to prevent TOCTOU race.
+	expiry, ok := e.cooldowns[triggerName]
+	if ok && !time.Now().After(expiry) {
+		e.mu.Unlock()
 		return fmt.Errorf("webhook trigger %q is in cooldown", triggerName)
 	}
 
-	logInfo("workflow trigger webhook firing", "trigger", triggerName, "workflow", found.WorkflowName)
-	go e.executeTrigger(context.Background(), *found, payload)
+	// Set cooldown immediately before releasing lock.
+	if found.Cooldown != "" {
+		if d, err := time.ParseDuration(found.Cooldown); err == nil {
+			e.cooldowns[triggerName] = time.Now().Add(d)
+		} else {
+			logWarn("webhook trigger cooldown parse failed", "trigger", triggerName, "cooldown", found.Cooldown, "error", err)
+		}
+	}
+	e.lastFired[triggerName] = time.Now()
+	triggerCopy := *found
+	e.mu.Unlock()
+
+	logInfo("workflow trigger webhook firing", "trigger", triggerName, "workflow", triggerCopy.WorkflowName)
+	go e.executeTrigger(e.ctx, triggerCopy, payload)
 	return nil
 }
 
@@ -459,7 +503,7 @@ func (e *WorkflowTriggerEngine) FireTrigger(name string) error {
 	}
 
 	logInfo("workflow trigger manual fire", "trigger", name, "workflow", found.WorkflowName)
-	go e.executeTrigger(context.Background(), *found, map[string]string{
+	go e.executeTrigger(e.ctx, *found, map[string]string{
 		"_manual": "true",
 	})
 	return nil

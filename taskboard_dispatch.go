@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,7 +135,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 	threshold := d.parseStuckThreshold()
 	cutoff := time.Now().Add(-threshold).UTC().Format(time.RFC3339)
 
-	sql := fmt.Sprintf(`SELECT id, title FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, cutoff)
+	sql := fmt.Sprintf(`SELECT id, title FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, escapeSQLite(cutoff))
 	rows, err := queryDB(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("taskboard dispatch: resetStuckDoing query failed", "error", err)
@@ -147,7 +148,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
-			time.Now().UTC().Format(time.RFC3339),
+			escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
 			escapeSQLite(id),
 		)
 		if err := pragmaDB(d.engine.dbPath); err != nil {
@@ -192,7 +193,8 @@ func (d *TaskBoardDispatcher) scan() {
 
 	for _, t := range tasks {
 		if t.Assignee == "" {
-			continue // skip unassigned tasks
+			logInfo("taskboard dispatch: skipping unassigned task", "id", t.ID, "title", t.Title)
+			continue
 		}
 		if maxTasks > 0 && dispatched >= maxTasks {
 			logInfo("taskboard dispatch: maxConcurrentTasks reached, deferring remaining tasks", "limit", maxTasks)
@@ -236,6 +238,14 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	prompt := t.Title
 	if t.Description != "" {
 		prompt = t.Title + "\n\n" + t.Description
+	}
+
+	// Inject dependency context from completed upstream tasks.
+	if len(t.DependsOn) > 0 {
+		depContext := d.buildDependencyContext(t.DependsOn)
+		if depContext != "" {
+			prompt += "\n\n## Previous Task Results\n" + depContext
+		}
 	}
 
 	taskID := t.ID // capture for closure
@@ -310,6 +320,13 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 			logWarn("taskboard dispatch: failed to add completion comment", "id", t.ID, "error", err)
 		}
 
+		// Check for auto-delegations in the output.
+		delegations := parseAutoDelegate(result.Output)
+		if len(delegations) > 0 {
+			processAutoDelegations(ctx, d.cfg, delegations, result.Output,
+				"", t.Assignee, "", d.state, d.sem, d.childSem, nil)
+		}
+
 		logInfo("taskboard dispatch: task completed", "id", t.ID, "cost", result.CostUSD, "duration", duration.Round(time.Second))
 	} else {
 		// Move to "failed".
@@ -334,4 +351,40 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		// Auto-retry if enabled.
 		d.engine.AutoRetryFailed()
 	}
+}
+
+// buildDependencyContext fetches the latest completion comment from each dependency task
+// and concatenates them into context for the downstream task.
+func (d *TaskBoardDispatcher) buildDependencyContext(depIDs []string) string {
+	maxCtx := d.cfg.PromptBudget.contextMaxOrDefault()
+	var parts []string
+	totalLen := 0
+
+	for _, depID := range depIDs {
+		depTask, err := d.engine.GetTask(depID)
+		if err != nil {
+			continue
+		}
+
+		comments, err := d.engine.GetThread(depID)
+		if err != nil || len(comments) == 0 {
+			continue
+		}
+
+		// Use the last comment (most likely the completion output).
+		lastComment := comments[len(comments)-1].Content
+		entry := fmt.Sprintf("### %s (task %s)\n%s", depTask.Title, depID, lastComment)
+
+		if totalLen+len(entry) > maxCtx {
+			remaining := maxCtx - totalLen
+			if remaining > 200 {
+				parts = append(parts, truncateToChars(entry, remaining))
+			}
+			break
+		}
+		parts = append(parts, entry)
+		totalLen += len(entry)
+	}
+
+	return strings.Join(parts, "\n\n")
 }

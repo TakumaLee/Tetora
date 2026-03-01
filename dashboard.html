@@ -1262,6 +1262,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <div class="section-header">
       <span class="section-title">History Trends</span>
       <div style="display:flex;gap:6px">
+        <button class="btn" id="ht-btn-7" onclick="setHistoryPeriod(7)">7D</button>
         <button class="btn" id="ht-btn-14" onclick="setHistoryPeriod(14)">14D</button>
         <button class="btn" id="ht-btn-30" onclick="setHistoryPeriod(30)">30D</button>
       </div>
@@ -3141,7 +3142,7 @@ let historyPeriodDays = 14;
 
 function setHistoryPeriod(days) {
   historyPeriodDays = days;
-  document.querySelectorAll('#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
+  document.querySelectorAll('#ht-btn-7,#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
   const btn = document.getElementById(`ht-btn-${days}`);
   if (btn) btn.classList.add('btn-period-active');
   refreshHistoryTrends();
@@ -3202,39 +3203,35 @@ function makeSVGLineChart(data, series, opts) {
 }
 
 async function refreshHistoryTrends() {
-  try {
-    const days = historyPeriodDays;
-    const [taskData, usageData] = await Promise.all([
-      fetchJSON('/api/tasks/trend?days=' + days),
-      fetchJSON('/api/usage/trend?days=' + days)
-    ]);
+  const days = historyPeriodDays;
+  const section = document.getElementById('history-trends-section');
+  section.style.display = '';
 
-    const section = document.getElementById('history-trends-section');
-    const hasTask = Array.isArray(taskData) && taskData.length > 0;
-    const hasUsage = Array.isArray(usageData) && usageData.length > 0;
-    if (!hasTask && !hasUsage) { section.style.display = 'none'; return; }
-    section.style.display = '';
+  document.querySelectorAll('#ht-btn-7,#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
+  const ab = document.getElementById('ht-btn-' + days);
+  if (ab) ab.classList.add('btn-period-active');
 
-    document.querySelectorAll('#ht-btn-14,#ht-btn-30').forEach(b => b.classList.remove('btn-period-active'));
-    const ab = document.getElementById('ht-btn-' + days);
-    if (ab) ab.classList.add('btn-period-active');
+  const [taskData, usageData] = await Promise.all([
+    fetchJSON('/api/tasks/trend?days=' + days).catch(() => []),
+    fetchJSON('/api/usage/trend?days=' + days).catch(() => [])
+  ]);
 
-    document.getElementById('ht-task-chart').innerHTML = makeSVGLineChart(
-      hasTask ? taskData : [],
-      [
-        { key: 'created', color: 'var(--accent2)' },
-        { key: 'done', color: 'var(--green)' }
-      ]
-    );
+  const taskArr = Array.isArray(taskData) ? taskData : [];
+  const usageArr = Array.isArray(usageData) ? usageData : [];
 
-    document.getElementById('ht-usage-chart').innerHTML = makeSVGLineChart(
-      hasUsage ? usageData : [],
-      [{ key: 'costUsd', color: 'var(--accent)' }],
-      { formatVal: function(v) { return '$' + v.toFixed(v < 0.01 ? 4 : 2); } }
-    );
-  } catch(e) {
-    document.getElementById('history-trends-section').style.display = 'none';
-  }
+  document.getElementById('ht-task-chart').innerHTML = makeSVGLineChart(
+    taskArr,
+    [
+      { key: 'created', color: 'var(--accent2)' },
+      { key: 'done', color: 'var(--green)' }
+    ]
+  );
+
+  document.getElementById('ht-usage-chart').innerHTML = makeSVGLineChart(
+    usageArr,
+    [{ key: 'costUsd', color: 'var(--accent)' }],
+    { formatVal: function(v) { return '$' + v.toFixed(v < 0.01 ? 4 : 2); } }
+  );
 }
 
 // --- Job Actions ---

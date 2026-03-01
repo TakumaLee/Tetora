@@ -478,11 +478,18 @@ func resolveExpr(expr string, wCtx *WorkflowContext) string {
 		field := parts[2]
 		result, ok := wCtx.Steps[stepID]
 		if !ok {
+			logWarn("workflow template: step not found", "expr", expr)
 			return ""
 		}
 		switch field {
 		case "output":
-			return result.Output
+			output := result.Output
+			// Truncate to prevent context overflow.
+			const defaultContextMax = 16000
+			if len(output) > defaultContextMax {
+				output = truncateToChars(output, defaultContextMax)
+			}
+			return output
 		case "status":
 			return result.Status
 		case "error":

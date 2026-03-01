@@ -419,10 +419,10 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 		}
 
 		doneRows, err := queryDB(cfg.DashboardDB, fmt.Sprintf(
-			`SELECT date(completed_at, 'localtime') as day, COUNT(*) as cnt
+			`SELECT date(CASE WHEN completed_at != '' THEN completed_at ELSE updated_at END, 'localtime') as day, COUNT(*) as cnt
 			 FROM tasks
-			 WHERE completed_at IS NOT NULL AND completed_at != ''
-			   AND date(completed_at, 'localtime') >= date('now', 'localtime', '-%d days')
+			 WHERE status IN ('done', 'completed')
+			   AND date(CASE WHEN completed_at != '' THEN completed_at ELSE updated_at END, 'localtime') >= date('now', 'localtime', '-%d days')
 			 GROUP BY day`, days))
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
