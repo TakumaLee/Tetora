@@ -1526,6 +1526,14 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 	var taskBudgetWarnLogged bool // soft-limit: log once and continue instead of stopping
 
 	for i := 0; i < maxIter; i++ {
+		// Check context deadline before each iteration.
+		if ctx.Err() != nil {
+			finalResult = &ProviderResult{
+				Output: "[stopped: task deadline exceeded]",
+			}
+			break
+		}
+
 		req.Messages = messages
 
 		// P27.3: Send typing indicator at iteration start.
@@ -1536,6 +1544,13 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		// Call provider.
 		result, execErr := toolProvider.ExecuteWithTools(ctx, req)
 		if execErr != nil {
+			// If context was cancelled, treat as deadline rather than hard error.
+			if ctx.Err() != nil {
+				finalResult = &ProviderResult{
+					Output: "[stopped: task deadline exceeded]",
+				}
+				break
+			}
 			return &ProviderResult{IsError: true, Error: execErr.Error()}
 		}
 		if result.IsError {
@@ -1743,7 +1758,15 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 			Content: userMsg,
 		})
 
-		// --- Mid-loop budget + context checks ---
+		// --- Mid-loop budget + context + deadline checks ---
+
+		// Context deadline check: stop if task timeout has expired.
+		if ctx.Err() != nil {
+			finalResult = &ProviderResult{
+				Output: result.Output + "\n[stopped: task deadline exceeded]",
+			}
+			break
+		}
 
 		// Per-task budget soft limit: log once for analysis, then continue.
 		if task.Budget > 0 && totalCostUSD >= task.Budget && !taskBudgetWarnLogged {
