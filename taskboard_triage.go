@@ -126,13 +126,13 @@ Respond with ONLY valid JSON (no markdown fences):
 	task := Task{
 		Name:    "triage:" + t.ID,
 		Prompt:  prompt,
-		Model:   "haiku",
+		Model:   "sonnet",
 		Budget:  0.2,
 		Timeout: "30s",
 		Source:  "triage",
 	}
 	fillDefaults(cfg, &task)
-	task.Model = "haiku" // force haiku regardless of defaults
+	task.Model = "sonnet" // triage needs better judgement than haiku
 
 	result := runSingleTask(ctx, cfg, task, sem, childSem, "")
 	if result.Status != "success" {

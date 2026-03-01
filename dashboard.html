@@ -1154,6 +1154,77 @@ tr:hover { background: rgba(255,255,255,0.02); }
   .chat-input { font-size: 16px; }
 }
 
+/* Usage Alert Banner */
+.usage-alert-banner {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(248,113,113,0.12);
+  border: 1px solid rgba(248,113,113,0.4);
+  color: #fca5a5;
+  animation: banner-in 0.3s ease-out;
+}
+.usage-alert-banner.warn {
+  background: rgba(251,191,36,0.12);
+  border-color: rgba(251,191,36,0.4);
+  color: #fde68a;
+}
+.usage-alert-banner.visible { display: flex; }
+.usage-alert-banner .alert-icon { font-size: 16px; flex-shrink: 0; }
+.usage-alert-banner .alert-text { flex: 1; }
+.usage-alert-banner .alert-bar {
+  height: 4px; width: 120px; background: rgba(255,255,255,0.15);
+  border-radius: 2px; overflow: hidden; flex-shrink: 0;
+}
+.usage-alert-banner .alert-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.usage-alert-banner .alert-close {
+  background: none; border: none; color: inherit; cursor: pointer;
+  font-size: 16px; opacity: 0.7; padding: 0 2px; flex-shrink: 0;
+}
+.usage-alert-banner .alert-close:hover { opacity: 1; }
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Task Dependency Tree */
+.kanban-card-deps {
+  margin-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding-top: 6px;
+}
+.kanban-card-dep-toggle {
+  background: none; border: none; cursor: pointer;
+  font-size: 10px; color: var(--muted); padding: 0;
+  display: flex; align-items: center; gap: 4px;
+  transition: color 0.15s;
+}
+.kanban-card-dep-toggle:hover { color: var(--accent); }
+.kanban-card-dep-list {
+  margin-top: 5px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.kanban-dep-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--muted); padding: 3px 6px;
+  background: var(--bg); border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer; transition: border-color 0.15s;
+}
+.kanban-dep-item:hover { border-color: var(--accent); color: var(--text); }
+.kanban-dep-status { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.kanban-dep-status.done { background: var(--green); }
+.kanban-dep-status.doing { background: var(--yellow); }
+.kanban-dep-status.todo { background: var(--accent2); }
+.kanban-dep-status.backlog { background: #6b7280; }
+.kanban-dep-status.review { background: var(--accent); }
+.kanban-dep-status.failed { background: var(--red); }
+
 /* Agent World */
 .agent-world-toggle {
   display: flex; align-items: center; justify-content: space-between;
@@ -1220,6 +1291,14 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <span class="badge badge-ok" id="conn-badge">Connected</span>
     </div>
   </header>
+
+  <!-- Usage Alert Banner (Feature 1: idea-dashboard-003) -->
+  <div class="usage-alert-banner" id="usage-alert-banner" role="alert">
+    <span class="alert-icon">&#9888;</span>
+    <span class="alert-text" id="usage-alert-text"></span>
+    <div class="alert-bar"><div class="alert-bar-fill" id="usage-alert-bar-fill"></div></div>
+    <button class="alert-close" onclick="dismissUsageAlert()" aria-label="Dismiss">&#215;</button>
+  </div>
 
   <div class="tab-nav">
     <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
