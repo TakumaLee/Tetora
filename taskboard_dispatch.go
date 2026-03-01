@@ -286,29 +286,51 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, t.Assignee)
 	duration := time.Since(start)
 
-	// Record cost/duration on the board task.
-	costSQL := fmt.Sprintf(`
-		UPDATE tasks SET cost_usd = %.6f, duration_ms = %d, session_id = '%s', updated_at = '%s'
+	// Determine target status.
+	newStatus := "done"
+	if result.Status != "success" && result.ExitCode != 0 {
+		newStatus = "failed"
+	}
+
+	// Review gate: if requireReview is enabled, route to "review" instead of "done".
+	if d.engine.config.RequireReview && newStatus == "done" && t.Status != "review" {
+		newStatus = "review"
+	}
+
+	// Atomic status + cost update in a single SQL statement.
+	nowISO := escapeSQLite(time.Now().UTC().Format(time.RFC3339))
+	completedAt := ""
+	if newStatus == "done" {
+		completedAt = nowISO
+	}
+	combinedSQL := fmt.Sprintf(`
+		UPDATE tasks SET status = '%s', cost_usd = %.6f, duration_ms = %d,
+		session_id = '%s', updated_at = '%s', completed_at = '%s'
 		WHERE id = '%s'
 	`,
+		escapeSQLite(newStatus),
 		result.CostUSD,
 		result.DurationMs,
 		escapeSQLite(result.SessionID),
-		time.Now().UTC().Format(time.RFC3339),
+		nowISO,
+		completedAt,
 		escapeSQLite(t.ID),
 	)
 	if err := pragmaDB(d.engine.dbPath); err != nil {
 		logWarn("taskboard dispatch: pragmaDB failed", "id", t.ID, "error", err)
 	}
-	if _, err := queryDB(d.engine.dbPath, costSQL); err != nil {
-		logWarn("taskboard dispatch: failed to record cost/duration", "id", t.ID, "error", err)
+	if _, err := queryDB(d.engine.dbPath, combinedSQL); err != nil {
+		logWarn("taskboard dispatch: failed to update task status+cost", "id", t.ID, "error", err)
 	}
 
-	if result.Status == "success" || result.ExitCode == 0 {
-		// Move to "done".
-		if _, err := d.engine.MoveTask(t.ID, "done"); err != nil {
-			logWarn("taskboard dispatch: failed to move task to done", "id", t.ID, "error", err)
-		}
+	// Fire webhook event (MoveTask normally does this).
+	updatedTask := t
+	updatedTask.Status = newStatus
+	updatedTask.UpdatedAt = nowISO
+	updatedTask.CompletedAt = completedAt
+	go d.engine.fireWebhook("task.moved", updatedTask)
+
+	if newStatus == "done" || newStatus == "review" {
 
 		// Add result as comment.
 		output := result.Output
@@ -329,11 +351,6 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 
 		logInfo("taskboard dispatch: task completed", "id", t.ID, "cost", result.CostUSD, "duration", duration.Round(time.Second))
 	} else {
-		// Move to "failed".
-		if _, err := d.engine.MoveTask(t.ID, "failed"); err != nil {
-			logWarn("taskboard dispatch: failed to move task to failed", "id", t.ID, "error", err)
-		}
-
 		errMsg := result.Error
 		if errMsg == "" {
 			errMsg = result.Output

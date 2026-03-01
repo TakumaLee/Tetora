@@ -75,6 +75,7 @@ func newWorkflowTriggerEngine(cfg *Config, state *dispatchState, sem, childSem c
 		triggers:  cfg.WorkflowTriggers,
 		cooldowns: make(map[string]time.Time),
 		lastFired: make(map[string]time.Time),
+		ctx:       context.Background(), // safe default; overridden by Start()
 		stopCh:    make(chan struct{}),
 	}
 	return e

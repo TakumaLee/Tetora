@@ -271,6 +271,15 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 				continue
 			}
 
+			// Don't execute steps already marked as skipped by condition handling.
+			e.mu.Lock()
+			skipSr := e.run.StepResults[stepID]
+			isSkipped := skipSr != nil && skipSr.Status == "skipped"
+			e.mu.Unlock()
+			if isSkipped {
+				continue
+			}
+
 			inFlight++
 			go func(id string) {
 				defer func() {
@@ -368,7 +377,7 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 						}
 					}
 				}
-				continue
+				// Fall through to propagate the condition step's own dependents.
 			}
 
 			// Unblock dependents.
@@ -706,7 +715,25 @@ func (e *workflowExecutor) runParallelStep(ctx context.Context, step *WorkflowSt
 		}(i, sub)
 	}
 
-	wg.Wait()
+	// Wait with early cancellation support: if ctx is cancelled,
+	// give sub-steps a grace period to finish (they already received ctx cancellation).
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// All sub-steps completed normally.
+	case <-ctx.Done():
+		gracePeriod := time.NewTimer(10 * time.Second)
+		select {
+		case <-done:
+			gracePeriod.Stop()
+		case <-gracePeriod.C:
+			logWarn("workflow parallel step: sub-steps did not finish within grace period", "step", step.ID)
+		}
+	}
 
 	// Aggregate results.
 	var outputs []string
