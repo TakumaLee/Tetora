@@ -571,6 +571,22 @@ func (e *ProactiveEngine) buildAutonomousPrompt(rule ProactiveRule) string {
 		}
 	}
 
+	// Recent reflections (self-assessments from past tasks).
+	if e.cfg.HistoryDB != "" {
+		refRows, err := queryDB(e.cfg.HistoryDB, "SELECT agent, score, feedback, improvement, created_at FROM reflections ORDER BY created_at DESC LIMIT 5")
+		if err == nil && len(refRows) > 0 {
+			b.WriteString("\nRecent reflections:\n")
+			for _, row := range refRows {
+				agent, _ := row["agent"].(string)
+				score, _ := row["score"].(int64)
+				feedback, _ := row["feedback"].(string)
+				improvement, _ := row["improvement"].(string)
+				createdAt, _ := row["created_at"].(string)
+				b.WriteString(fmt.Sprintf("  - [%s] score:%d at %s\n    feedback: %s\n    improvement: %s\n", agent, score, createdAt, feedback, improvement))
+			}
+		}
+	}
+
 	// Available agents.
 	if len(e.cfg.Agents) > 0 {
 		b.WriteString("\nAvailable agents:\n")
