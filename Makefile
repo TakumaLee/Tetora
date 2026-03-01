@@ -1,12 +1,12 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 1.7.3
+VERSION  := 1.7.4
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
-.PHONY: build dev reload install clean release test
+.PHONY: build dev reload install clean release test bump
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -38,6 +38,23 @@ install: build
 		fi; \
 		echo "Run: source $$SHELL_RC  (or restart your shell)"; \
 	'
+
+bump:
+	@CURRENT=$(VERSION); \
+	PARTS=$$(echo $$CURRENT | tr '.' ' '); \
+	MAJOR=$$(echo $$CURRENT | cut -d. -f1); \
+	MINOR=$$(echo $$CURRENT | cut -d. -f2); \
+	PATCH=$$(echo $$CURRENT | cut -d. -f3); \
+	DEV=$$(echo $$CURRENT | cut -d. -f4 -s); \
+	if [ -z "$$DEV" ]; then NEXT="$$MAJOR.$$MINOR.$$PATCH.1"; \
+	else NEXT="$$MAJOR.$$MINOR.$$PATCH.$$((DEV+1))"; fi; \
+	echo "Bumping $$CURRENT → $$NEXT (dev)"; \
+	sed -i '' "s/^VERSION  := .*/VERSION  := $$NEXT/" Makefile; \
+	go build -ldflags "-s -w -X main.tetoraVersion=$$NEXT" -o $(INSTALL)/$(BINARY) .; \
+	$(INSTALL)/$(BINARY) stop 2>/dev/null || true; \
+	sleep 1; \
+	$(INSTALL)/$(BINARY) start 2>/dev/null || true; \
+	echo "v$$NEXT installed and reloaded"
 
 test:
 	go test ./...
