@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -134,11 +135,12 @@ func (d *TaskBoardDispatcher) parseStuckThreshold() time.Duration {
 	return dur
 }
 
-// resetOrphanedDoing resets ALL tasks in "doing" back to "todo" unconditionally.
-// Called once at startup — since the daemon just started, any task in "doing" is
-// an orphan from a previous crash or forced shutdown.
+// resetOrphanedDoing handles tasks stuck in "doing" at daemon startup.
+// Instead of unconditionally resetting all doing tasks, it checks for evidence
+// of completion (cost/duration/session data) and applies a grace period to avoid
+// resetting tasks that were killed mid-completion during a restart.
 func (d *TaskBoardDispatcher) resetOrphanedDoing() {
-	sql := `SELECT id, title FROM tasks WHERE status = 'doing'`
+	sql := `SELECT id, title, completed_at, cost_usd, duration_ms, session_id, updated_at FROM tasks WHERE status = 'doing'`
 	rows, err := queryDB(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("taskboard dispatch: resetOrphanedDoing query failed", "error", err)
@@ -148,25 +150,68 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 		return
 	}
 
-	now := escapeSQLite(time.Now().UTC().Format(time.RFC3339))
+	now := time.Now().UTC()
+	nowISO := escapeSQLite(now.Format(time.RFC3339))
+	gracePeriod := 2 * time.Minute
+
 	for _, row := range rows {
 		id := fmt.Sprintf("%v", row["id"])
 		title := fmt.Sprintf("%v", row["title"])
+		completedAt := fmt.Sprintf("%v", row["completed_at"])
+		costUSD := getFloat64(row, "cost_usd")
+		durationMs := getFloat64(row, "duration_ms")
+		sessionID := fmt.Sprintf("%v", row["session_id"])
+		updatedAt := fmt.Sprintf("%v", row["updated_at"])
 
+		// Evidence of completion: task has cost/duration/session data or completed_at.
+		// This means the subprocess finished but the daemon was killed before the
+		// final status update. Restore to "done" instead of wasting work.
+		hasCompletionEvidence := (completedAt != "" && completedAt != "<nil>") ||
+			costUSD > 0 || durationMs > 0 ||
+			(sessionID != "" && sessionID != "<nil>")
+
+		if hasCompletionEvidence {
+			updateSQL := fmt.Sprintf(
+				`UPDATE tasks SET status = 'done', updated_at = '%s', completed_at = CASE WHEN completed_at = '' THEN '%s' ELSE completed_at END WHERE id = '%s' AND status = 'doing'`,
+				nowISO, nowISO, escapeSQLite(id),
+			)
+			if err := execDB(d.engine.dbPath, updateSQL); err != nil {
+				logWarn("taskboard dispatch: failed to restore completed task", "id", id, "error", err)
+				continue
+			}
+			comment := fmt.Sprintf("[auto-restore] Task had completion evidence (cost=$%.4f, duration=%dms, session=%s) but was in 'doing' at startup. Restored to 'done'.",
+				costUSD, int64(durationMs), sessionID)
+			if _, err := d.engine.AddComment(id, "system", comment); err != nil {
+				logWarn("taskboard dispatch: failed to add restore comment", "id", id, "error", err)
+			}
+			logInfo("taskboard dispatch: restored completed task from doing", "id", id, "title", title)
+			continue
+		}
+
+		// Grace period: skip tasks updated very recently. They might be in a
+		// transient state from the previous daemon instance's shutdown sequence.
+		// resetStuckDoing() will catch them later if they're truly stuck.
+		if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+			if now.Sub(t) < gracePeriod {
+				logInfo("taskboard dispatch: skipping recently-updated doing task (grace period)",
+					"id", id, "title", title, "updatedAt", updatedAt, "age", now.Sub(t).Round(time.Second))
+				continue
+			}
+		}
+
+		// Truly orphaned: no completion evidence and not recent. Reset to todo.
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
-			now, escapeSQLite(id),
+			nowISO, escapeSQLite(id),
 		)
 		if err := execDB(d.engine.dbPath, updateSQL); err != nil {
 			logWarn("taskboard dispatch: failed to reset orphaned task", "id", id, "error", err)
 			continue
 		}
-
-		comment := "[auto-reset] Orphaned in 'doing' at daemon startup. Reset to 'todo' for re-dispatch."
+		comment := "[auto-reset] Orphaned in 'doing' at daemon startup (no completion evidence, past grace period). Reset to 'todo' for re-dispatch."
 		if _, err := d.engine.AddComment(id, "system", comment); err != nil {
 			logWarn("taskboard dispatch: failed to add orphan reset comment", "id", id, "error", err)
 		}
-
 		logInfo("taskboard dispatch: reset orphaned doing task", "id", id, "title", title)
 	}
 }
@@ -309,6 +354,13 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	}
 	fillDefaults(d.cfg, &task)
 
+	// LLM-based timeout estimation: replaces keyword heuristic with a quick
+	// haiku call that reads the actual task content to judge complexity.
+	if llmTimeout := estimateTimeoutLLM(ctx, d.cfg, prompt); llmTimeout != "" {
+		logInfo("taskboard dispatch: LLM timeout estimate", "id", t.ID, "keyword", task.Timeout, "llm", llmTimeout)
+		task.Timeout = llmTimeout
+	}
+
 	// Apply taskboard-specific cost controls.
 	// Priority: per-task model > dispatch defaultModel > agent model > global defaultModel.
 	dispatchCfg := d.engine.config.AutoDispatch
@@ -332,6 +384,20 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	start := time.Now()
 	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, t.Assignee)
 	duration := time.Since(start)
+
+	// Immediately persist cost/duration/session as completion evidence.
+	// If the daemon is killed before the final status update below, resetOrphanedDoing
+	// can use this evidence to restore the task to "done" instead of resetting to "todo".
+	if result.CostUSD > 0 || result.DurationMs > 0 || result.SessionID != "" {
+		evidenceSQL := fmt.Sprintf(
+			`UPDATE tasks SET cost_usd = %.6f, duration_ms = %d, session_id = '%s' WHERE id = '%s'`,
+			result.CostUSD, result.DurationMs,
+			escapeSQLite(result.SessionID), escapeSQLite(t.ID),
+		)
+		if err := execDB(d.engine.dbPath, evidenceSQL); err != nil {
+			logWarn("taskboard dispatch: failed to persist completion evidence", "id", t.ID, "error", err)
+		}
+	}
 
 	// Determine target status.
 	newStatus := "done"
@@ -412,6 +478,78 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		// Auto-retry if enabled.
 		d.engine.AutoRetryFailed()
 	}
+}
+
+// estimateTimeoutSem is a dedicated semaphore for timeout estimation LLM calls.
+var estimateTimeoutSem = make(chan struct{}, 3)
+
+// estimateTimeoutLLM uses a lightweight LLM call to estimate appropriate timeout
+// for a taskboard task. Returns a duration string (e.g. "45m", "2h") or empty
+// string on failure (caller should fall back to keyword-based estimation).
+func estimateTimeoutLLM(ctx context.Context, cfg *Config, prompt string) string {
+	estPrompt := fmt.Sprintf(`Estimate how long an AI coding agent will need to complete this task. Consider the complexity, number of files likely involved, and whether it requires research/analysis.
+
+Task:
+%s
+
+Reply with ONLY a single integer: the estimated minutes needed. Examples:
+- Simple bug fix or config change: 15
+- Moderate feature or multi-file fix: 45
+- Large feature, refactor, or codebase analysis: 120
+- Major rewrite or multi-project task: 180
+
+Minutes:`, truncateStr(prompt, 2000))
+
+	task := Task{
+		ID:             newUUID(),
+		Name:           "timeout-estimate",
+		Prompt:         estPrompt,
+		Model:          "haiku",
+		Budget:         0.02,
+		Timeout:        "15s",
+		PermissionMode: "plan",
+		Source:         "timeout-estimate",
+	}
+	fillDefaults(cfg, &task)
+	task.Model = "haiku"
+	task.Budget = 0.02
+
+	result := runSingleTask(ctx, cfg, task, estimateTimeoutSem, nil, "")
+	if result.Status != "success" || result.Output == "" {
+		return ""
+	}
+
+	// Parse the integer from output.
+	cleaned := strings.TrimSpace(result.Output)
+	// Extract first number found.
+	var numStr string
+	for _, ch := range cleaned {
+		if ch >= '0' && ch <= '9' {
+			numStr += string(ch)
+		} else if numStr != "" {
+			break
+		}
+	}
+	minutes, err := strconv.Atoi(numStr)
+	if err != nil || minutes < 5 || minutes > 480 {
+		return ""
+	}
+
+	// Apply 1.5x buffer to avoid premature timeout.
+	buffered := int(float64(minutes) * 1.5)
+	if buffered < 15 {
+		buffered = 15
+	}
+
+	if buffered >= 60 {
+		hours := buffered / 60
+		rem := buffered % 60
+		if rem == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh%dm", hours, rem)
+	}
+	return fmt.Sprintf("%dm", buffered)
 }
 
 // triageBacklog evaluates backlog tasks and promotes ready ones to todo.

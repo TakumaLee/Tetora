@@ -277,6 +277,11 @@ func buildResultFromStream(resultMsg *claudeStreamMsg, stderr []byte, exitCode i
 	if resultMsg.IsError {
 		pr.Error = resultMsg.Subtype
 	}
+	// Detect empty run: CLI reported success but nothing was actually processed.
+	if !pr.IsError && pr.TokensIn == 0 && pr.TokensOut == 0 && pr.CostUSD == 0 && strings.TrimSpace(pr.Output) == "" {
+		pr.IsError = true
+		pr.Error = "empty run: CLI returned success but no tokens were consumed"
+	}
 	return pr
 }
 
@@ -395,6 +400,10 @@ func parseClaudeOutput(stdout, stderr []byte, exitCode int) TaskResult {
 		if co.IsError {
 			result.Status = "error"
 			result.Error = co.Subtype
+		} else if result.TokensIn == 0 && result.TokensOut == 0 && co.CostUSD == 0 && strings.TrimSpace(co.Result) == "" {
+			// Empty run: CLI exited cleanly but never called the API.
+			result.Status = "error"
+			result.Error = "empty run: CLI returned success but no tokens were consumed"
 		} else {
 			result.Status = "success"
 		}

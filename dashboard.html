@@ -106,6 +106,10 @@ header {
   padding: 10px 16px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
   min-width: 120px;
 }
+.kanban-stat-chip { position: relative; }
+.kanban-stat-chip-edit { position: absolute; top: 6px; right: 6px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; opacity: 0.5; transition: opacity 0.15s; }
+.kanban-stat-chip:hover .kanban-stat-chip-edit { opacity: 1; }
+.kanban-stat-chip-edit:hover { color: var(--accent); background: rgba(167,139,250,0.12); }
 .kanban-stat-chip:hover { border-color: var(--accent); }
 .kanban-stat-chip.active { border-color: var(--accent); background: rgba(167,139,250,0.08); }
 .kanban-stat-chip-name { font-size: 13px; font-weight: 600; color: var(--text); }
@@ -2037,9 +2041,12 @@ tr:hover { background: rgba(255,255,255,0.02); }
           <input type="number" id="pjf-priority" value="0" min="0" max="100">
         </div>
       </div>
-      <div class="form-actions">
-        <button type="button" class="btn" onclick="closeProjectModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="pjf-submit">Add Project</button>
+      <div class="form-actions" style="justify-content:space-between">
+        <button type="button" class="btn" id="pjf-delete" style="color:var(--red);display:none" onclick="deleteFromProjectModal()">Delete</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn" onclick="closeProjectModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="pjf-submit">Add Project</button>
+        </div>
       </div>
     </form>
   </div>
@@ -2827,7 +2834,9 @@ function formatDuration(ms) {
 
 async function fetchJSON(url, opts) {
   const resp = await fetch(API + url, opts);
-  return resp.json();
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+  return data;
 }
 
 function toast(msg) {
@@ -5153,6 +5162,7 @@ function openProjectModal(editId) {
   document.getElementById('pjf-id').value = editId || '';
   document.getElementById('project-modal-title').textContent = editId ? 'Edit Project' : 'Add Project';
   document.getElementById('pjf-submit').textContent = editId ? 'Save Changes' : 'Add Project';
+  document.getElementById('pjf-delete').style.display = editId ? '' : 'none';
 
   if (editId) {
     var p = cachedProjects.find(function(x) { return x.id === editId; });
@@ -5207,10 +5217,27 @@ async function submitProject(e) {
     }
     closeProjectModal();
     refreshBoard();
+    refreshProjects();
   } catch(e) {
     toast('Error: ' + e.message);
   }
   return false;
+}
+
+async function deleteFromProjectModal() {
+  var id = document.getElementById('pjf-id').value;
+  var name = document.getElementById('pjf-name').value;
+  if (!id) return;
+  if (!confirm('Delete project "' + name + '"?')) return;
+  try {
+    await fetchJSON('/api/projects/' + id, { method: 'DELETE' });
+    toast('Project deleted');
+    closeProjectModal();
+    refreshBoard();
+    refreshProjects();
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
 }
 
 async function deleteProjectConfirm(id, name) {
@@ -5285,6 +5312,7 @@ function renderProjectStatsBar() {
     var cost = projectCosts[p.id] || projectCosts[p.name] || 0;
     var isActive = activeProject === p.id || activeProject === p.name;
     return '<div class="kanban-stat-chip' + (isActive ? ' active' : '') + '" onclick="filterByProject(\'' + esc(p.name) + '\')">' +
+      '<button class="kanban-stat-chip-edit" onclick="event.stopPropagation();openProjectModal(\'' + esc(p.id) + '\')" title="Edit project">&#9998;</button>' +
       '<span class="kanban-stat-chip-name">' + esc(p.name) + '</span>' +
       '<span class="kanban-stat-chip-info">' + count + ' task' + (count !== 1 ? 's' : '') + '</span>' +
       (cost > 0 ? '<span class="kanban-stat-chip-cost">$' + cost.toFixed(2) + '</span>' : '') +
@@ -7174,41 +7202,29 @@ function toggleAgentWorld() {
 }
 
 var _spriteConfigChecked = false;
-var _hasSpriteAgents = false;
 
 function updateAgentWorldToggle(sprites) {
   var toggle = document.getElementById('agent-world-toggle');
 
-  // One-time check: fetch sprite config to see if any agents have sheets
+  // One-time init: restore persisted open state on first call
   if (!_spriteConfigChecked) {
     _spriteConfigChecked = true;
-    fetch(API + '/api/sprites/config').then(function(r) { return r.json(); }).then(function(cfg) {
-      _hasSpriteAgents = cfg.agents && Object.keys(cfg.agents).length > 0;
-      if (_hasSpriteAgents) {
-        toggle.style.display = '';
-        // Restore persisted open state
-        if (agentWorldOpen && !spriteEngine && !_spriteInitializing) {
-          var ctr = document.getElementById('agent-world-container');
-          ctr.style.display = '';
-          _spriteInitializing = true;
-          spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
-          spriteEngine.init().then(function() {
-            _spriteInitializing = false;
-          }).catch(function(e) {
-            _spriteInitializing = false;
-            spriteEngine = null;
-            console.warn('SpriteEngine restore init failed', e);
-          });
-        }
-      }
-    }).catch(function() {});
-    return; // Wait for async check before hiding/showing
+    toggle.style.display = '';
+    if (agentWorldOpen && !spriteEngine && !_spriteInitializing) {
+      var ctr = document.getElementById('agent-world-container');
+      ctr.style.display = '';
+      _spriteInitializing = true;
+      spriteEngine = new SpriteEngine(document.getElementById('agent-world-cv'));
+      spriteEngine.init().then(function() {
+        _spriteInitializing = false;
+      }).catch(function(e) {
+        _spriteInitializing = false;
+        spriteEngine = null;
+        console.warn('SpriteEngine restore init failed', e);
+      });
+    }
   }
 
-  if (!_hasSpriteAgents) {
-    toggle.style.display = 'none';
-    return;
-  }
   toggle.style.display = '';
 
   var working = 0, idle = 0;
@@ -7587,6 +7603,120 @@ SpriteEngine.prototype._drawOffice = function(ctx) {
   }
 };
 
+// Default pixel agent colors (gem team)
+var AGENT_COLORS = {
+  ruri: '#4169E1', hisui: '#50C878', kokuyou: '#6B6B80', kohaku: '#FFBF00'
+};
+var DEFAULT_AGENT_COLOR = '#a78bfa';
+
+SpriteEngine.prototype._drawDefaultAgent = function(ctx, agent) {
+  var cw = this.config.cellWidth || 32;
+  var ch = this.config.cellHeight || 32;
+  var dx = Math.round(agent.x - cw / 2);
+  var dy = Math.round(agent.y - ch);
+  var color = AGENT_COLORS[agent.name] || DEFAULT_AGENT_COLOR;
+
+  // Idle bob: 1px vertical oscillation
+  var bob = 0;
+  if (agent.animState === 'idle') {
+    bob = Math.round(Math.sin(Date.now() / 400) * 1);
+  }
+  dy += bob;
+
+  // Error flash
+  if (agent.animState === 'error' && Math.floor(Date.now() / 300) % 2 === 0) {
+    color = '#f87171';
+  }
+  // Celebrate sparkle
+  var celebrating = agent.animState === 'celebrate';
+
+  // --- Head (8x8 rounded block, centered) ---
+  var headW = 10, headH = 9;
+  var headX = dx + Math.round((cw - headW) / 2);
+  var headY = dy + 4;
+  ctx.fillStyle = color;
+  // Rounded head: fill center + top/bottom inset for rounded look
+  ctx.fillRect(headX + 1, headY, headW - 2, 1);       // top edge inset
+  ctx.fillRect(headX, headY + 1, headW, headH - 2);    // main block
+  ctx.fillRect(headX + 1, headY + headH - 1, headW - 2, 1); // bottom edge inset
+
+  // --- Eyes (2x2 white dots) ---
+  ctx.fillStyle = '#ffffff';
+  var eyeY = headY + 3;
+  var eyeLX = headX + 2;
+  var eyeRX = headX + headW - 4;
+  // Blink every ~3s
+  var blink = Math.floor(Date.now() / 3000) % 10 === 0 && Math.floor(Date.now() / 150) % 2 === 0;
+  if (!blink) {
+    ctx.fillRect(eyeLX, eyeY, 2, 2);
+    ctx.fillRect(eyeRX, eyeY, 2, 2);
+  } else {
+    ctx.fillRect(eyeLX, eyeY + 1, 2, 1);
+    ctx.fillRect(eyeRX, eyeY + 1, 2, 1);
+  }
+
+  // --- Body (10x10 block, slightly darker) ---
+  var bodyW = 10, bodyH = 10;
+  var bodyX = dx + Math.round((cw - bodyW) / 2);
+  var bodyY = headY + headH;
+  // Darken color for body
+  ctx.fillStyle = _darkenColor(color, 0.25);
+  ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
+
+  // --- Legs (walk animation: alternate leg positions) ---
+  var legY = bodyY + bodyH;
+  var legW = 3, legH = 4;
+  var legLX = bodyX + 1;
+  var legRX = bodyX + bodyW - legW - 1;
+  ctx.fillStyle = _darkenColor(color, 0.4);
+  var walking = agent.animState && agent.animState.indexOf('walk') === 0;
+  if (walking) {
+    var step = Math.floor(Date.now() / 200) % 2;
+    ctx.fillRect(legLX, legY + (step === 0 ? 0 : 1), legW, legH - 1);
+    ctx.fillRect(legRX, legY + (step === 0 ? 1 : 0), legW, legH - 1);
+  } else {
+    ctx.fillRect(legLX, legY, legW, legH);
+    ctx.fillRect(legRX, legY, legW, legH);
+  }
+
+  // --- Work indicator: tiny tool above head ---
+  if (agent.animState === 'work' || agent.animState === 'think') {
+    ctx.fillStyle = '#fbbf24';
+    var dotPhase = Math.floor(Date.now() / 500) % 3;
+    for (var di = 0; di <= dotPhase; di++) {
+      ctx.fillRect(headX + headW + 2 + di * 3, headY - 2, 2, 2);
+    }
+  }
+
+  // Celebrate sparkles
+  if (celebrating) {
+    ctx.fillStyle = '#fbbf24';
+    var sp = Date.now() / 200;
+    for (var si = 0; si < 3; si++) {
+      var sx2 = dx + 4 + Math.round(Math.sin(sp + si * 2.1) * 14);
+      var sy2 = dy - 2 + Math.round(Math.cos(sp + si * 1.7) * 6);
+      ctx.fillRect(sx2, sy2, 2, 2);
+    }
+  }
+
+  // Name label
+  ctx.fillStyle = '#8888aa';
+  ctx.font = '7px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(agent.name, Math.round(agent.x), Math.round(agent.y + 4));
+  ctx.textAlign = 'start';
+};
+
+function _darkenColor(hex, amount) {
+  var r = parseInt(hex.slice(1, 3), 16);
+  var g = parseInt(hex.slice(3, 5), 16);
+  var b = parseInt(hex.slice(5, 7), 16);
+  r = Math.round(r * (1 - amount));
+  g = Math.round(g * (1 - amount));
+  b = Math.round(b * (1 - amount));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
 SpriteEngine.prototype._drawAgent = function(ctx, agent) {
   if (!this.config) return;
   var cw = this.config.cellWidth || 32;
@@ -7594,21 +7724,26 @@ SpriteEngine.prototype._drawAgent = function(ctx, agent) {
   var stDef = this.stateMap[agent.animState];
   if (!stDef) stDef = this.stateMap['idle'] || { row: 0, frames: 4 };
 
-  // Pick image: multi-sheet (per state) → single-sheet fallback
+  // Pick image: multi-sheet (per state) → single-sheet fallback → default pixel
   var img = null;
   var sy = 0;
   var multi = this.multiImages[agent.name];
   if (multi && multi[agent.animState]) {
     img = multi[agent.animState];
-    sy = 0; // multi-sheet: always row 0
+    sy = 0;
   } else if (multi && multi['idle']) {
     img = multi['idle'];
     sy = 0;
   } else {
     img = this.images[agent.name];
-    sy = stDef.row * ch; // single-sheet: use row mapping
+    sy = stDef.row * ch;
   }
-  if (!img || !img.complete || img.naturalWidth === 0) return;
+
+  // No spritesheet loaded — draw default pixel agent
+  if (!img || !img.complete || img.naturalWidth === 0) {
+    this._drawDefaultAgent(ctx, agent);
+    return;
+  }
 
   // Clamp frames to actual image width
   var maxFrames = Math.floor(img.naturalWidth / cw);

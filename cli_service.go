@@ -128,7 +128,8 @@ func findDaemonPIDs() []string {
 }
 
 // killDaemonProcess finds and kills running "tetora serve" processes.
-// Sends SIGTERM first, waits up to 3s, then SIGKILL stragglers.
+// Sends SIGTERM first, waits up to 15s for in-flight tasks to finish,
+// then SIGKILL stragglers.
 // Returns true if no daemon process remains.
 func killDaemonProcess() bool {
 	pids := findDaemonPIDs()
@@ -139,7 +140,7 @@ func killDaemonProcess() bool {
 	for _, pid := range pids {
 		exec.Command("kill", pid).Run() // SIGTERM
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
 		if len(findDaemonPIDs()) == 0 {

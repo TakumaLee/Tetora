@@ -80,15 +80,26 @@ func defaultSpriteConfig() SpriteConfig {
 
 // loadSpriteConfig reads config.json from the sprites directory.
 // Returns default config if file doesn't exist or is unreadable.
-func loadSpriteConfig(spritesDir string) SpriteConfig {
+// agentKeys are auto-registered into Agents if not already present,
+// so the frontend always sees all known agents (with or without custom sheets).
+func loadSpriteConfig(spritesDir string, agentKeys []string) SpriteConfig {
 	def := defaultSpriteConfig()
 	data, err := os.ReadFile(filepath.Join(spritesDir, "config.json"))
 	if err != nil {
-		return def
+		// No config file — start from defaults.
+		cfg := def
+		for _, k := range agentKeys {
+			cfg.Agents[k] = AgentSpriteDef{}
+		}
+		return cfg
 	}
 	var cfg SpriteConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return def
+		cfg = def
+		for _, k := range agentKeys {
+			cfg.Agents[k] = AgentSpriteDef{}
+		}
+		return cfg
 	}
 	// Fill zero values from defaults.
 	if cfg.CellWidth == 0 {
@@ -102,6 +113,12 @@ func loadSpriteConfig(spritesDir string) SpriteConfig {
 	}
 	if cfg.Agents == nil {
 		cfg.Agents = map[string]AgentSpriteDef{}
+	}
+	// Auto-register known agents that aren't in config yet.
+	for _, k := range agentKeys {
+		if _, exists := cfg.Agents[k]; !exists {
+			cfg.Agents[k] = AgentSpriteDef{}
+		}
 	}
 	return cfg
 }

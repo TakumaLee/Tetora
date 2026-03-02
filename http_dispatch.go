@@ -39,7 +39,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
 			return
 		}
-		spriteCfg := loadSpriteConfig(spritesDir)
+		cfg := s.Cfg()
+		var agentKeys []string
+		for k := range cfg.Agents {
+			agentKeys = append(agentKeys, k)
+		}
+		spriteCfg := loadSpriteConfig(spritesDir, agentKeys)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(spriteCfg)
 	})
