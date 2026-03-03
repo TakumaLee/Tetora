@@ -471,8 +471,8 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 			"[auto-flag] Task completed with empty output. Marked failed for investigation.")
 	}
 
-	// Review gate: if requireReview is enabled, route to "review" instead of "done".
-	if d.engine.config.RequireReview && newStatus == "done" && t.Status != "review" {
+	// Review gate: dispatch 結束一律進 review，由人工或 review agent 確認後再標 done。
+	if newStatus == "done" && t.Status != "review" {
 		newStatus = "review"
 	}
 
