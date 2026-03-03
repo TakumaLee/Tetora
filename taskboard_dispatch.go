@@ -168,12 +168,12 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 		sessionID := fmt.Sprintf("%v", row["session_id"])
 		updatedAt := fmt.Sprintf("%v", row["updated_at"])
 
-		// Evidence of completion: task has cost/duration/session data or completed_at.
-		// This means the subprocess finished but the daemon was killed before the
-		// final status update. Restore to "done" instead of wasting work.
+		// Evidence of completion: task has completed_at or meaningful cost.
+		// sessionID is NOT evidence — fillDefaults() pre-assigns it before execution.
+		// durationMs alone is NOT evidence — it's set as soon as the task starts.
+		// Only completed_at (set on status→done) and cost > threshold are reliable.
 		hasCompletionEvidence := (completedAt != "" && completedAt != "<nil>") ||
-			costUSD > 0 || durationMs > 0 ||
-			(sessionID != "" && sessionID != "<nil>")
+			costUSD > 0.001
 
 		if hasCompletionEvidence {
 			updateSQL := fmt.Sprintf(

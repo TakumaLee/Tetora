@@ -216,6 +216,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			ParentID    string   `json:"parentId"`
 			Model       string   `json:"model"`
 			DependsOn   []string `json:"dependsOn"`
+			Workflow    string   `json:"workflow"`
 		}
 		if err := json.Unmarshal(input, &args); err != nil {
 			return "", fmt.Errorf("invalid input: %w", err)
@@ -235,6 +236,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			ParentID:    args.ParentID,
 			Model:       args.Model,
 			DependsOn:   args.DependsOn,
+			Workflow:    args.Workflow,
 		})
 		if err != nil {
 			return "", err
@@ -259,6 +261,12 @@ func toolTaskboardMove(cfg *Config) ToolHandler {
 		}
 
 		tb := newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
+
+		// Agents cannot self-mark tasks as "done" — they must go through "review".
+		// The dispatch system handles the done transition after verifying output.
+		if args.Status == "done" {
+			return "", fmt.Errorf("agents cannot move tasks directly to 'done'; use status 'review' instead")
+		}
 
 		task, err := tb.MoveTask(args.ID, args.Status)
 		if err != nil {
