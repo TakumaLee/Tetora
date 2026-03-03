@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -305,14 +306,34 @@ func buildClaudeArgs(req ProviderRequest, streaming bool) []string {
 		"--verbose",
 		"--output-format", outputFormat,
 		"--model", req.Model,
-		"--session-id", req.SessionID,
 		"--permission-mode", cmp.Or(req.PermissionMode, "acceptEdits"),
 	}
-	// Only disable persistence for sessionless one-off tasks.
-	// When a session ID is provided (e.g. Discord channel sessions),
-	// let the CLI persist the session so subsequent calls can resume it.
-	if req.SessionID == "" {
-		args = append(args, "--no-session-persistence")
+	// Session handling: 3 modes based on Resume/PersistSession flags.
+	//   Resume=true:         --resume ID     (resume specific CLI session by ID)
+	//   PersistSession=true: --session-id ID (new channel session, persist for future --resume)
+	//   default:             --session-id ID --no-session-persistence (one-off task)
+	//
+	// IMPORTANT: Claude Code CLI's --continue takes NO arguments — it always
+	// resumes the most recent session in the workspace. To resume a SPECIFIC
+	// session by ID, use --resume SESSION_ID. Using --continue SESSION_ID would
+	// cause SESSION_ID to be parsed as the prompt text, and --continue would
+	// pick the most recent session → cross-channel context leakage.
+	//
+	// Safety: verify the session file actually exists before using --resume.
+	// If Claude Code didn't persist the session (crash, timeout, etc.), --resume
+	// with a missing session would fail.
+	resume := req.Resume
+	if resume && req.SessionID != "" && !claudeSessionFileExists(req.SessionID) {
+		logWarn("claude session file not found, falling back to new session", "sessionId", req.SessionID)
+		resume = false
+	}
+	if resume && req.SessionID != "" {
+		args = append(args, "--resume", req.SessionID)
+	} else {
+		args = append(args, "--session-id", req.SessionID)
+		if !req.PersistSession {
+			args = append(args, "--no-session-persistence")
+		}
 	}
 
 	if req.Budget > 0 {
@@ -335,6 +356,21 @@ func buildClaudeArgs(req ProviderRequest, streaming bool) []string {
 	// Prompt is NOT appended as a positional arg; it is piped via stdin
 	// in Execute() to avoid OS ARG_MAX limits and shell escaping issues.
 	return args
+}
+
+// claudeSessionFileExists checks whether a Claude Code session file (.jsonl) exists
+// for the given session ID. Claude Code stores sessions at:
+//   ~/.claude/projects/{projectKey}/{sessionID}.jsonl
+// Since the projectKey is derived from the workdir and we don't replicate that logic,
+// we glob across all project directories.
+func claudeSessionFileExists(sessionID string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false // assume exists on error to avoid breaking --continue
+	}
+	pattern := home + "/.claude/projects/*/" + sessionID + ".jsonl"
+	matches, err := filepath.Glob(pattern)
+	return err == nil && len(matches) > 0
 }
 
 // --- Claude Output Parsing ---
