@@ -41,4 +41,4 @@ tasks/gap*.md
 tasks/todo.md
 
 # Claude Code
-.claude/settings.local.json
+.claude/

@@ -472,8 +472,10 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	}
 
 	// Review gate: dispatch 結束一律進 review，由人工或 review agent 確認後再標 done。
+	// 同時將 assignee 切回 ruri，讓琉璃負責 review 確認。
 	if newStatus == "done" && t.Status != "review" {
 		newStatus = "review"
+		t.Assignee = "ruri"
 	}
 
 	// Atomic status + cost update in a single SQL statement.
@@ -483,11 +485,12 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		completedAt = nowISO
 	}
 	combinedSQL := fmt.Sprintf(`
-		UPDATE tasks SET status = '%s', cost_usd = %.6f, duration_ms = %d,
+		UPDATE tasks SET status = '%s', assignee = '%s', cost_usd = %.6f, duration_ms = %d,
 		session_id = '%s', updated_at = '%s', completed_at = '%s'
 		WHERE id = '%s'
 	`,
 		escapeSQLite(newStatus),
+		escapeSQLite(t.Assignee),
 		result.CostUSD,
 		result.DurationMs,
 		escapeSQLite(result.SessionID),

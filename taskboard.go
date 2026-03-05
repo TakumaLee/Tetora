@@ -322,7 +322,7 @@ func (tb *TaskBoardEngine) MoveTask(id, newStatus string) (TaskBoard, error) {
 	}
 
 	// Validate status transition.
-	validStatuses := []string{"backlog", "todo", "doing", "review", "done", "failed"}
+	validStatuses := []string{"idea", "needs-thought", "backlog", "todo", "doing", "review", "done", "failed"}
 	isValid := false
 	for _, s := range validStatuses {
 		if s == newStatus {
@@ -709,7 +709,7 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 		return nil, err
 	}
 
-	statuses := []string{"backlog", "todo", "doing", "review", "done", "failed"}
+	statuses := []string{"idea", "needs-thought", "backlog", "todo", "doing", "review", "done", "failed"}
 	columns := make(map[string][]TaskBoard)
 	for _, s := range statuses {
 		columns[s] = []TaskBoard{}
