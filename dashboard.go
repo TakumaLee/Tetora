@@ -13,3 +13,4 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(dashboardHTML)
 }
+

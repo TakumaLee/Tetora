@@ -133,6 +133,9 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(created)
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "board_updated", Data: map[string]any{"taskId": created.ID, "action": "created"}})
+			}
 
 		default:
 			http.Error(w, `{"error":"GET or POST only"}`, http.StatusMethodNotAllowed)
@@ -183,6 +186,9 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]any{"deleted": taskID})
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "board_updated", Data: map[string]any{"taskId": taskID, "action": "deleted"}})
+			}
 			return
 		}
 
@@ -210,6 +216,9 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(task)
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "board_updated", Data: map[string]any{"taskId": taskID, "action": "updated"}})
+			}
 			return
 		}
 
@@ -228,6 +237,9 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(task)
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "board_updated", Data: map[string]any{"taskId": taskID, "action": "moved", "status": req.Status}})
+			}
 			return
 		}
 
@@ -246,6 +258,9 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(task)
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "board_updated", Data: map[string]any{"taskId": taskID, "action": "assigned"}})
+			}
 			return
 		}
 
