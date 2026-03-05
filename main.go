@@ -232,6 +232,11 @@ func main() {
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 
+	// Initialize tmux worker supervisor.
+	tmuxSup := newTmuxSupervisor()
+	state.tmuxSupervisor = tmuxSup
+	cfg.tmuxSupervisor = tmuxSup
+
 	// Signal handling.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -710,6 +715,7 @@ func main() {
 		if cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
 			discordBot = newDiscordBot(cfg, state, sem, childSem, cron)
 			state.discordBot = discordBot // P14.1: store for interaction handler
+			cfg.discordBot = discordBot   // tmux provider approval routing
 			logInfo("discord bot enabled")
 
 			// Wire Discord into notification chain.

@@ -145,6 +145,8 @@ type Config struct {
 	circuits          *circuitRegistry
 	toolRegistry      *ToolRegistry
 	slotPressureGuard *SlotPressureGuard
+	discordBot        *DiscordBot
+	tmuxSupervisor    *tmuxSupervisor
 }
 
 // UnmarshalJSON implements backward compat: accepts both "roles" and "agents" keys.

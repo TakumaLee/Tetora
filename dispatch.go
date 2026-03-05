@@ -110,6 +110,7 @@ type dispatchState struct {
 	sandboxMgr        *SandboxManager              // --- P13.2: Sandbox Plugin ---
 	discordBot        *DiscordBot                  // --- P14.1: Discord Components v2 ---
 	discordActivities map[string]*discordActivity  // task ID -> active Discord task
+	tmuxSupervisor    *tmuxSupervisor              // tracks tmux-based Claude Code workers
 }
 
 // discordActivity tracks a Discord-initiated task for dashboard visibility.

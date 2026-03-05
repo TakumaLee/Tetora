@@ -39,6 +39,7 @@ type DiscordBotConfig struct {
 	Voice            DiscordVoiceConfig          `json:"voice,omitempty"`            // P14.5: voice channel integration
 	NotifyChannelID  string                      `json:"notifyChannelID,omitempty"`  // task notification channel (thread-per-task)
 	Routes           map[string]DiscordRouteConfig `json:"routes,omitempty"`           // per-channel agent routing
+	Terminal         DiscordTerminalConfig          `json:"terminal,omitempty"`          // terminal bridge
 }
 
 // DiscordRouteConfig binds a Discord channel to a specific agent.
@@ -428,6 +429,7 @@ type DiscordBot struct {
 	voice        *discordVoiceManager     // P14.5: voice channel manager
 	gatewayConn  *wsConn                  // P14.5: active gateway connection for voice state updates
 	notifier     *discordTaskNotifier     // task notification (thread-per-task)
+	terminal     *terminalBridge         // terminal bridge (tmux ↔ Discord)
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
@@ -475,6 +477,15 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 		logInfo("discord task notifier enabled", "channel", ch)
 	}
 
+	// Terminal bridge (tmux ↔ Discord).
+	if cfg.Discord.Terminal.Enabled {
+		db.terminal = newTerminalBridge(db, cfg.Discord.Terminal)
+		logInfo("discord terminal bridge enabled",
+			"maxSessions", cfg.Discord.Terminal.MaxSessions,
+			"cols", db.terminal.cfg.CaptureCols,
+			"rows", db.terminal.cfg.CaptureRows)
+	}
+
 	return db
 }
 
@@ -511,6 +522,9 @@ func (db *DiscordBot) Run(ctx context.Context) {
 
 // Stop signals the bot to disconnect.
 func (db *DiscordBot) Stop() {
+	if db.terminal != nil {
+		db.terminal.stopAllSessions()
+	}
 	select {
 	case <-db.stopCh:
 	default:
@@ -782,6 +796,18 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
+	// Terminal bridge: /term start|stop|status
+	if strings.HasPrefix(text, "/term") && db.terminal != nil {
+		args := strings.TrimPrefix(text, "/term")
+		db.terminal.handleTermCommand(msg, args)
+		return
+	}
+
+	// Terminal input interception: if there's an active session, route plain text to tmux.
+	if db.terminal != nil && db.terminal.handleTerminalInput(msg.ChannelID, text) {
+		return
+	}
+
 	// Command handling.
 	if strings.HasPrefix(text, "!") {
 		db.handleCommand(msg, text[1:])
@@ -878,6 +904,12 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		}
 	case "approve":
 		db.cmdApprove(msg, args)
+	case "workers":
+		db.cmdWorkers(msg)
+	case "peek":
+		db.cmdPeek(msg, args)
+	case "kill":
+		db.cmdKillWorker(msg, args)
 	case "version", "ver":
 		db.sendMessage(msg.ChannelID, fmt.Sprintf("Tetora v%s", tetoraVersion))
 	case "help":
@@ -1117,10 +1149,109 @@ func (db *DiscordBot) cmdHelp(msg discordMessage) {
 			{Name: "!cancel", Value: "Cancel all running tasks"},
 			{Name: "!ask <prompt>", Value: "Quick question (no routing, no session)"},
 			{Name: "!approve [tool|reset]", Value: "Manage auto-approved tools"},
+			{Name: "!workers", Value: "List active tmux workers"},
+			{Name: "!peek <name>", Value: "Show tmux worker screen"},
+			{Name: "!kill <name>", Value: "Kill a tmux worker"},
 			{Name: "!help", Value: "Show this help"},
 			{Name: "Free text", Value: "Mention me + your prompt for smart dispatch"},
 		},
 	})
+}
+
+// cmdWorkers lists all active tmux workers.
+func (db *DiscordBot) cmdWorkers(msg discordMessage) {
+	sup := db.getTmuxSupervisor()
+	if sup == nil {
+		db.sendMessage(msg.ChannelID, "Tmux supervisor not available.")
+		return
+	}
+	workers := sup.listWorkers()
+	if len(workers) == 0 {
+		db.sendMessage(msg.ChannelID, "No active tmux workers.")
+		return
+	}
+	var fields []discordEmbedField
+	for _, w := range workers {
+		age := time.Since(w.CreatedAt).Round(time.Second)
+		prompt := w.Prompt
+		if len(prompt) > 80 {
+			prompt = prompt[:80] + "..."
+		}
+		fields = append(fields, discordEmbedField{
+			Name:  w.TmuxName,
+			Value: fmt.Sprintf("State: `%s` | Agent: `%s` | Up: %s\n%s", w.State, w.Agent, age, prompt),
+		})
+	}
+	db.sendEmbed(msg.ChannelID, discordEmbed{
+		Title:  fmt.Sprintf("Tmux Workers (%d)", len(workers)),
+		Color:  0x57F287,
+		Fields: fields,
+	})
+}
+
+// cmdPeek captures and displays the current screen of a tmux worker.
+func (db *DiscordBot) cmdPeek(msg discordMessage, args string) {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		db.sendMessage(msg.ChannelID, "Usage: `!peek <worker-name>`")
+		return
+	}
+
+	sup := db.getTmuxSupervisor()
+	if sup == nil {
+		db.sendMessage(msg.ChannelID, "Tmux supervisor not available.")
+		return
+	}
+
+	w := sup.getWorker(name)
+	if w == nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Worker `%s` not found.", name))
+		return
+	}
+
+	capture, err := tmuxCapture(name)
+	if err != nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Capture failed: %v", err))
+		return
+	}
+
+	screen := renderTerminalScreen(capture, 1900)
+	db.sendMessage(msg.ChannelID, fmt.Sprintf("**%s** [%s]\n```\n%s\n```", name, w.State, screen))
+}
+
+// cmdKillWorker forcefully terminates a tmux worker session.
+func (db *DiscordBot) cmdKillWorker(msg discordMessage, args string) {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		db.sendMessage(msg.ChannelID, "Usage: `!kill <worker-name>`")
+		return
+	}
+
+	sup := db.getTmuxSupervisor()
+	if sup == nil {
+		db.sendMessage(msg.ChannelID, "Tmux supervisor not available.")
+		return
+	}
+
+	w := sup.getWorker(name)
+	if w == nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Worker `%s` not found.", name))
+		return
+	}
+
+	if tmuxHasSession(name) {
+		tmuxKill(name)
+	}
+	sup.unregister(name)
+	db.sendMessage(msg.ChannelID, fmt.Sprintf("Worker `%s` killed.", name))
+}
+
+// getTmuxSupervisor returns the tmux supervisor from the dispatch state.
+func (db *DiscordBot) getTmuxSupervisor() *tmuxSupervisor {
+	if db.state == nil {
+		return nil
+	}
+	return db.state.tmuxSupervisor
 }
 
 func (db *DiscordBot) cmdApprove(msg discordMessage, args string) {
@@ -1223,12 +1354,15 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	}
 
 	// Context-aware prompt.
-	// Skip text injection for providers with native session support (e.g. claude-code)
-	// to avoid double context — the provider already resumes the session natively.
+	// Skip text injection when:
+	//  - Provider has native session support (e.g. claude-code), OR
+	//  - Session has messages → CLI will --continue with native conversation history.
+	// Both cases already have full context; injecting again would double it.
 	contextPrompt := prompt
+	canResume := sess != nil && sess.MessageCount > 0
 	if sess != nil {
 		providerName := resolveProviderName(db.cfg, Task{Agent: route.Agent}, route.Agent)
-		if !providerHasNativeSession(providerName) {
+		if !providerHasNativeSession(providerName) && !canResume {
 			sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.contextMessagesOrDefault())
 			contextPrompt = wrapWithContext(sessionCtx, prompt)
 		}
@@ -1275,6 +1409,8 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	fillDefaults(db.cfg, &task)
 	if sess != nil {
 		task.SessionID = sess.ID
+		task.PersistSession = true // channel sessions persist for --continue on next message
+		task.Resume = canResume    // resume if session already has conversation history
 	}
 	if task.Agent != "" {
 		if soulPrompt, err := loadAgentPrompt(db.cfg, task.Agent); err == nil && soulPrompt != "" {

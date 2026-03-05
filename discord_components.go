@@ -148,13 +148,14 @@ type discordInteractionState struct {
 }
 
 type pendingInteraction struct {
-	CustomID   string
-	ChannelID  string
-	UserID     string
-	CreatedAt  time.Time
-	Callback   func(data discordInteractionData)
-	AllowedIDs []string // restrict to specific user IDs (empty = allow all)
-	Reusable   bool     // if true, don't remove after first use
+	CustomID      string
+	ChannelID     string
+	UserID        string
+	CreatedAt     time.Time
+	Callback      func(data discordInteractionData)
+	AllowedIDs    []string                    // restrict to specific user IDs (empty = allow all)
+	Reusable      bool                        // if true, don't remove after first use
+	ModalResponse *discordInteractionResponse // if set, respond with this modal instead of deferred update
 }
 
 func newDiscordInteractionState() *discordInteractionState {
@@ -465,11 +466,15 @@ func handleComponentInteraction(ctx context.Context, db *DiscordBot, w http.Resp
 				db.interactions.remove(data.CustomID)
 			}
 
-			// Acknowledge.
+			// Respond with modal if configured, otherwise deferred update.
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(discordInteractionResponse{
-				Type: interactionResponseDeferredUpdate,
-			})
+			if pi.ModalResponse != nil {
+				json.NewEncoder(w).Encode(*pi.ModalResponse)
+			} else {
+				json.NewEncoder(w).Encode(discordInteractionResponse{
+					Type: interactionResponseDeferredUpdate,
+				})
+			}
 			return
 		}
 	}
