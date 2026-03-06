@@ -234,6 +234,7 @@ func main() {
 
 	// Initialize tmux worker supervisor.
 	tmuxSup := newTmuxSupervisor()
+	tmuxSup.broker = state.broker
 	state.tmuxSupervisor = tmuxSup
 	cfg.tmuxSupervisor = tmuxSup
 
@@ -247,6 +248,14 @@ func main() {
 
 		// Track degraded services for health reporting.
 		var degradedServices []string
+
+		// Auto-install tmux if any provider requires it.
+		if hasTmuxProvider(cfg) {
+			if err := ensureTmux(); err != nil {
+				logWarn("tmux auto-install failed", "error", err)
+				degradedServices = append(degradedServices, "tmux")
+			}
+		}
 
 		// Init history DB.
 		if cfg.HistoryDB != "" {

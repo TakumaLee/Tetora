@@ -10,26 +10,55 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Tetora">
 <link rel="apple-touch-icon" href="/dashboard/icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Roboto:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
 <title>Tetora</title>
 <style>
 :root {
-  --bg: #08080d;
-  --surface: #111118;
-  --border: #1e1e2e;
-  --text: #e0e0e8;
-  --muted: #6b6b80;
-  --accent: #0078f8;
-  --accent2: #00b800;
-  --green: #00b800;
-  --red: #f83800;
-  --yellow: #fce0a8;
-  --pixel-border: #e0e0e8;
+  /* Default: glassmorphism (Control-Center inspired) */
+  --bg: #0a0a1a;
+  --surface: rgba(255,255,255,0.03);
+  --border: rgba(255,255,255,0.08);
+  --text: #e2e8f0;
+  --muted: #64748b;
+  --accent: #06b6d4;
+  --accent2: #8b5cf6;
+  --green: #34d399;
+  --red: #f87171;
+  --yellow: #fbbf24;
+  --pixel-border: rgba(255,255,255,0.08);
   --font-pixel: 'Press Start 2P', monospace;
   --font-terminal: 'VT323', monospace;
   --font-mono: 'SF Mono', 'Fira Code', monospace;
+  --panel-radius: 12px;
+  --panel-shadow: 0 0 1px rgba(255,255,255,0.05);
+  --panel-blur: blur(12px);
+  --panel-border: 1px solid rgba(255,255,255,0.08);
+  --header-border: 1px solid rgba(255,255,255,0.06);
+  --font-heading: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
-/* Themes */
+/* Retro themes: restore 8-bit panel style */
+body.theme-classic, body.theme-nes, body.theme-gameboy, body.theme-amber {
+  --panel-radius: 0;
+  --panel-shadow:
+    inset -2px -2px 0 0 #4a4a5a,
+    inset 2px 2px 0 0 var(--pixel-border),
+    inset -4px -4px 0 0 #2a2a3a,
+    inset 4px 4px 0 0 #8a8a9a;
+  --panel-blur: none;
+  --panel-border: none;
+  --header-border: 4px solid var(--pixel-border);
+  --font-heading: var(--font-pixel);
+  --font-body: var(--font-terminal);
+}
+body.theme-classic {
+  --bg: #08080d; --surface: #111118; --border: #1e1e2e; --text: #e0e0e8; --muted: #6b6b80;
+  --accent: #0078f8; --accent2: #00b800; --green: #00b800; --red: #f83800; --yellow: #fce0a8; --pixel-border: #e0e0e8;
+}
+body.theme-nes {
+  --bg: #08080d; --surface: #111118; --border: #1e1e2e; --text: #e0e0e8; --muted: #6b6b80;
+  --accent: #0078f8; --accent2: #00b800; --green: #00b800; --red: #f83800; --yellow: #fce0a8; --pixel-border: #e0e0e8;
+}
 body.theme-gameboy {
   --bg: #0f380f; --surface: #306230; --border: #8bac0f; --text: #9bbc0f; --muted: #6b8b0f;
   --accent: #9bbc0f; --accent2: #8bac0f; --green: #9bbc0f; --red: #8bac0f; --yellow: #9bbc0f; --pixel-border: #9bbc0f;
@@ -38,40 +67,55 @@ body.theme-amber {
   --bg: #0a0800; --surface: #1a1200; --border: #3a2800; --text: #ffa500; --muted: #8b5e00;
   --accent: #ffa500; --accent2: #cc8400; --green: #ffa500; --red: #ff6600; --yellow: #ffa500; --pixel-border: #ffa500;
 }
+body.theme-clean {
+  --bg: #0f1317; --surface: #171a1d; --border: #2c343d;
+  --text: #d1d5db; --muted: #6b7280;
+  --accent: #60a5fa; --accent2: #818cf8; --green: #34d399; --red: #f87171; --yellow: #fbbf24;
+  --pixel-border: #2c343d;
+  --panel-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  --panel-blur: none;
+  --panel-border: 1px solid #2c343d;
+  --header-border: 1px solid #2c343d;
+}
+body.theme-material {
+  --bg: #1c1b1f; --surface: #2b2930; --border: #3b3840;
+  --text: #e6e1e5; --muted: #938f99;
+  --accent: #d0bcff; --accent2: #ccc2dc; --green: #a8db8b; --red: #f2b8b5; --yellow: #e8c97a;
+  --pixel-border: #3b3840;
+  --panel-radius: 16px;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 4px 8px rgba(0,0,0,0.15);
+  --panel-blur: none;
+  --panel-border: none;
+  --header-border: none;
+  --font-heading: 'Roboto', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: 'Roboto', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 /* 8-Bit Pixel Borders */
 .pixel-panel {
-  border: none;
-  border-radius: 0;
-  box-shadow:
-    inset -2px -2px 0 0 #4a4a5a,
-    inset 2px 2px 0 0 var(--pixel-border),
-    inset -4px -4px 0 0 #2a2a3a,
-    inset 4px 4px 0 0 #8a8a9a;
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
 }
 
 /* Pixel Window Chrome */
 .pixel-window {
-  border: none;
-  border-radius: 0;
-  box-shadow:
-    inset -2px -2px 0 0 #4a4a5a,
-    inset 2px 2px 0 0 var(--pixel-border),
-    inset -4px -4px 0 0 #2a2a3a,
-    inset 4px 4px 0 0 #8a8a9a;
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
   overflow: hidden;
 }
 .pixel-window-title {
-  background: var(--accent);
   color: #fff;
-  font-family: var(--font-pixel);
-  font-size: 10px;
+  font-family: var(--font-heading);
+  font-size: 12px;
   padding: 6px 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  -webkit-font-smoothing: none;
 }
 .pixel-window-title .window-controls {
   display: flex;
@@ -92,9 +136,9 @@ body.theme-amber {
 }
 
 body {
-  font-family: var(--font-terminal), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-size: 18px;
-  -webkit-font-smoothing: none;
+  font-family: var(--font-body), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
@@ -109,25 +153,38 @@ header {
   align-items: center;
   margin-bottom: 28px;
   padding-bottom: 16px;
-  border-bottom: 4px solid var(--pixel-border);
+  border-bottom: var(--header-border);
 }
 .logo {
   font-size: 16px;
   font-weight: 700;
-  font-family: var(--font-pixel);
-  -webkit-font-smoothing: none;
+  font-family: var(--font-heading);
   background: linear-gradient(135deg, var(--accent), #fcbcb0);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 .logo span { font-size: 13px; font-weight: 400; opacity: 0.6; -webkit-text-fill-color: var(--muted); margin-left: 8px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
+.theme-switcher { position: relative; }
+.theme-dropdown {
+  display: none; position: absolute; top: 100%; right: 0; margin-top: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius);
+  backdrop-filter: var(--panel-blur); padding: 6px; z-index: 100; min-width: 120px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.theme-dropdown.open { display: flex; flex-direction: column; gap: 2px; }
+.theme-dropdown button {
+  background: none; border: none; color: var(--text); padding: 6px 12px;
+  font-size: 12px; cursor: pointer; border-radius: 6px; text-align: left;
+  font-family: inherit;
+}
+.theme-dropdown button:hover { background: rgba(255,255,255,0.06); }
 .badge {
   padding: 4px 14px;
   border-radius: 0;
   font-size: 10px;
   font-weight: 600;
-  font-family: var(--font-pixel);
+  font-family: var(--font-heading);
 }
 .badge-ok { background: #064e3b; color: var(--green); }
 .badge-err { background: #450a0a; color: var(--red); }
@@ -137,16 +194,13 @@ header {
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 28px; }
 .stat {
   background: var(--surface);
-  border: none;
-  border-radius: 0;
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   padding: 16px 18px;
-  box-shadow:
-    inset -2px -2px 0 0 #4a4a5a,
-    inset 2px 2px 0 0 var(--pixel-border),
-    inset -4px -4px 0 0 #2a2a3a,
-    inset 4px 4px 0 0 #8a8a9a;
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
 }
-.stat-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-family: var(--font-pixel); }
+.stat-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-family: var(--font-heading); }
 .stat-value { font-size: 26px; font-weight: 700; margin-top: 2px; }
 .stat-value.cost { font-family: 'SF Mono', 'Fira Code', monospace; }
 
@@ -155,9 +209,10 @@ header {
 .project-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--panel-radius);
   padding: 16px;
   transition: border-color 0.2s;
+  backdrop-filter: var(--panel-blur);
 }
 .project-card:hover { border-color: var(--accent); }
 .project-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
@@ -178,7 +233,7 @@ header {
 .kanban-stats-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .kanban-stat-chip {
   display: flex; flex-direction: column; gap: 2px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius);
   padding: 10px 16px; cursor: pointer; transition: border-color 0.2s, background 0.2s;
   min-width: 120px;
 }
@@ -218,7 +273,7 @@ header {
   letter-spacing: 0.6px; border-bottom: 1px solid var(--border);
   display: flex; justify-content: space-between; align-items: center;
   border-top: 3px solid var(--border); border-radius: 0;
-  font-family: var(--font-pixel);
+  font-family: var(--font-heading);
 }
 .kanban-column-header .count {
   background: var(--surface); padding: 1px 8px; border-radius: 10px; font-size: 11px;
@@ -234,8 +289,9 @@ header {
 .kanban-column[data-status="failed"] .kanban-column-header { border-top-color: #f87171; }
 .kanban-column-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .kanban-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 0;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius);
   padding: 10px 12px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+  backdrop-filter: var(--panel-blur);
 }
 .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 .kanban-card.dragging { opacity: 0.4; transform: scale(0.95); }
@@ -300,15 +356,16 @@ header {
   align-items: center;
   margin-bottom: 10px;
 }
-.section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-pixel); -webkit-font-smoothing: none; }
+.section-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-heading); }
 .section-meta { font-size: 12px; color: var(--muted); }
 
 /* Table */
 .table-wrap {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--panel-radius);
   overflow: hidden;
+  backdrop-filter: var(--panel-blur);
 }
 table { width: 100%; border-collapse: collapse; }
 th {
@@ -364,8 +421,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
   color: var(--muted);
   cursor: pointer;
   font-size: 10px;
-  font-family: var(--font-pixel);
-  -webkit-font-smoothing: none;
+  font-family: var(--font-heading);
   transition: .15s;
 }
 .btn:hover { background: var(--border); color: var(--text); filter: brightness(1.3); }
@@ -528,6 +584,167 @@ tr:hover { background: rgba(255,255,255,0.02); }
   50% { opacity: 0.4; }
 }
 
+/* --- Default Glass Effects (ambient orbs + hover glow) --- */
+body { position: relative; overflow-x: hidden; }
+.container { position: relative; z-index: 1; }
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+body::before {
+  width: 400px; height: 400px;
+  top: -80px; left: -100px;
+  background: radial-gradient(circle, rgba(6,182,212,0.12) 0%, transparent 70%);
+  filter: blur(80px);
+}
+body::after {
+  width: 350px; height: 350px;
+  bottom: -60px; right: -80px;
+  background: radial-gradient(circle, rgba(139,92,246,0.10) 0%, transparent 70%);
+  filter: blur(80px);
+}
+.container::before {
+  content: '';
+  position: fixed;
+  width: 200px; height: 200px;
+  top: 40%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(6,182,212,0.06) 0%, transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+.stat:hover,
+.project-card:hover,
+.kanban-card:hover {
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+.dot-green, .dot-blue {
+  animation: glass-pulse 2s ease-in-out infinite;
+}
+@keyframes glass-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+  50% { opacity: 0.7; box-shadow: 0 0 12px currentColor; }
+}
+.pixel-window-title { background: rgba(6,182,212,0.15); }
+.kanban-column { border-radius: var(--panel-radius); background: rgba(255,255,255,0.01); }
+.modal-overlay { background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+.stat-label { font-size: 10px; letter-spacing: 0.18em; }
+.badge { border-radius: 6px; }
+.kanban-badge, .project-badge { border-radius: 6px; }
+
+/* --- Retro theme overrides (disable glass effects) --- */
+body.theme-classic, body.theme-nes, body.theme-gameboy, body.theme-amber {
+  -webkit-font-smoothing: none;
+  font-size: 18px;
+}
+body.theme-classic::before, body.theme-classic::after,
+body.theme-nes::before, body.theme-nes::after,
+body.theme-gameboy::before, body.theme-gameboy::after,
+body.theme-amber::before, body.theme-amber::after,
+body.theme-classic .container::before,
+body.theme-nes .container::before,
+body.theme-gameboy .container::before,
+body.theme-amber .container::before {
+  display: none;
+}
+body.theme-classic .pixel-window-title,
+body.theme-nes .pixel-window-title,
+body.theme-gameboy .pixel-window-title,
+body.theme-amber .pixel-window-title {
+  background: var(--accent);
+  -webkit-font-smoothing: none;
+}
+body.theme-classic .kanban-column,
+body.theme-nes .kanban-column,
+body.theme-gameboy .kanban-column,
+body.theme-amber .kanban-column {
+  border-radius: 0;
+  background: var(--bg);
+}
+body.theme-classic .stat:hover,
+body.theme-nes .stat:hover,
+body.theme-gameboy .stat:hover,
+body.theme-amber .stat:hover,
+body.theme-classic .project-card:hover,
+body.theme-nes .project-card:hover,
+body.theme-gameboy .project-card:hover,
+body.theme-amber .project-card:hover,
+body.theme-classic .kanban-card:hover,
+body.theme-nes .kanban-card:hover,
+body.theme-gameboy .kanban-card:hover,
+body.theme-amber .kanban-card:hover {
+  box-shadow: none;
+}
+body.theme-classic .stat-label,
+body.theme-nes .stat-label,
+body.theme-gameboy .stat-label,
+body.theme-amber .stat-label {
+  font-size: 8px; letter-spacing: 0.8px;
+}
+body.theme-classic .badge, body.theme-classic .kanban-badge, body.theme-classic .project-badge,
+body.theme-nes .badge, body.theme-nes .kanban-badge, body.theme-nes .project-badge,
+body.theme-gameboy .badge, body.theme-gameboy .kanban-badge, body.theme-gameboy .project-badge,
+body.theme-amber .badge, body.theme-amber .kanban-badge, body.theme-amber .project-badge {
+  border-radius: 0;
+}
+body.theme-classic .modal-overlay, body.theme-nes .modal-overlay,
+body.theme-gameboy .modal-overlay, body.theme-amber .modal-overlay {
+  backdrop-filter: none;
+  background: rgba(0,0,0,0.7);
+}
+
+/* --- Clean Theme Extras --- */
+body.theme-clean .project-card:hover { background: #20252a; }
+body.theme-clean .kanban-card:hover { background: #1e2328; }
+
+/* --- Material Theme Extras --- */
+body.theme-material::before, body.theme-material::after,
+body.theme-material .container::before { display: none; }
+body.theme-material .pixel-window-title {
+  background: #4f378b; font-weight: 500; letter-spacing: 0.3px;
+}
+body.theme-material .stat {
+  background: var(--surface); border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25), 0 4px 8px rgba(0,0,0,0.15);
+}
+body.theme-material .stat:hover,
+body.theme-material .project-card:hover,
+body.theme-material .kanban-card:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 8px 16px rgba(0,0,0,0.2);
+  transform: translateY(-1px);
+}
+body.theme-material .project-card:hover { background: #332f38; }
+body.theme-material .kanban-card:hover { background: #332f38; }
+body.theme-material .kanban-column {
+  border-radius: 16px; background: #211f26;
+}
+body.theme-material .badge { border-radius: 8px; font-weight: 500; }
+body.theme-material .kanban-badge, body.theme-material .project-badge { border-radius: 8px; }
+body.theme-material .btn {
+  border-radius: 20px; font-weight: 500; letter-spacing: 0.3px;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+body.theme-material .btn:hover {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+body.theme-material .modal-overlay {
+  backdrop-filter: none; background: rgba(0,0,0,0.5);
+}
+body.theme-material .dot-green, body.theme-material .dot-blue {
+  animation: none;
+}
+body.theme-material .stat-label { letter-spacing: 0.12em; font-weight: 500; }
+body.theme-material .logo {
+  background: linear-gradient(135deg, #d0bcff, #efb8c8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 /* Modal */
 .modal-overlay {
   display: none;
@@ -541,8 +758,8 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .modal-overlay.open { display: flex; }
 .modal {
   background: var(--surface);
-  border: none;
-  border-radius: 0;
+  border: var(--panel-border);
+  border-radius: var(--panel-radius);
   padding: 24px;
   min-width: 460px;
   position: relative;
@@ -550,17 +767,14 @@ tr:hover { background: rgba(255,255,255,0.02); }
   max-height: 85vh;
   overflow-y: auto;
   position: relative;
-  box-shadow:
-    inset -2px -2px 0 0 #4a4a5a,
-    inset 2px 2px 0 0 var(--pixel-border),
-    inset -4px -4px 0 0 #2a2a3a,
-    inset 4px 4px 0 0 #8a8a9a;
+  box-shadow: var(--panel-shadow);
+  backdrop-filter: var(--panel-blur);
 }
 .modal h3 {
   font-size: 12px;
   margin-bottom: 16px;
   font-weight: 600;
-  font-family: var(--font-pixel);
+  font-family: var(--font-heading);
 }
 .modal-close {
   position: absolute;
@@ -979,8 +1193,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
-  font-family: var(--font-pixel);
-  -webkit-font-smoothing: none;
+  font-family: var(--font-heading);
   padding: 10px 20px;
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -1377,7 +1590,7 @@ tr:hover { background: rgba(255,255,255,0.02); }
   border: 1px solid var(--border); position: relative;
 }
 .agent-world-canvas canvas {
-  display: block; width: 100%; height: 200px;
+  display: block; width: 100%; aspect-ratio: 16/9;
   image-rendering: pixelated; image-rendering: crisp-edges;
   background: #0a0a12;
 }
@@ -1471,6 +1684,59 @@ tr:hover { background: rgba(255,255,255,0.02); }
 .memory-editor textarea:focus { border-color:var(--accent); }
 .memory-meta { font-size:11px; color:var(--muted); padding:6px 0; }
 @media (max-width:768px) { .memory-browser { grid-template-columns:1fr; } .memory-tree { max-height:200px; border-right:none; border-bottom:1px solid var(--border); padding-right:0; padding-bottom:8px; } }
+
+/* Ambient lighting orbs — Glass theme only */
+body:not([class*="theme-"])::before,
+body:not([class*="theme-"])::after,
+body.theme-default::before,
+body.theme-default::after {
+  content: '';
+  position: fixed;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  pointer-events: none; z-index: -1;
+  animation: orb-drift 20s ease-in-out infinite alternate;
+}
+body:not([class*="theme-"])::before, body.theme-default::before {
+  top: 10%; left: 3%;
+  background: radial-gradient(ellipse, rgba(6,182,212,0.06) 0%, transparent 70%);
+}
+body:not([class*="theme-"])::after, body.theme-default::after {
+  bottom: 5%; right: 3%;
+  background: radial-gradient(ellipse, rgba(139,92,246,0.05) 0%, transparent 70%);
+  animation-delay: -10s;
+}
+@keyframes orb-drift { 0% { transform: translate(0,0); } 100% { transform: translate(30px, -20px); } }
+
+/* Highlight flash for notification deep-linking */
+@keyframes highlight-flash { 0%,100% { box-shadow: none; } 25%,75% { box-shadow: 0 0 0 2px var(--yellow); } }
+.highlight-flash { animation: highlight-flash 2s ease; }
+
+/* Cron progress bar */
+.cron-progress { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.05); margin-top: 4px; overflow: hidden; }
+.cron-progress-fill { height: 100%; border-radius: 2px; transition: width 1s linear; }
+
+/* Onboarding banner */
+.onboarding-banner {
+  background: linear-gradient(135deg, rgba(6,182,212,0.1), rgba(139,92,246,0.1));
+  border: 1px solid var(--border); border-radius: var(--panel-radius);
+  padding: 20px 24px; margin-bottom: 16px; text-align: center;
+  animation: banner-in 0.3s ease;
+}
+.onboarding-banner h2 { font-size: 16px; margin-bottom: 8px; color: var(--accent); }
+.onboarding-banner p { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+
+/* Office zoom controls */
+.aw-zoom-controls {
+  position: absolute; top: 6px; right: 40px;
+  display: flex; gap: 2px; z-index: 2;
+}
+.aw-zoom-btn {
+  background: rgba(0,0,0,0.5); border: 1px solid var(--border); color: var(--muted);
+  font-size: 13px; cursor: pointer; border-radius: 4px; padding: 1px 7px;
+  font-family: monospace; line-height: 1.4;
+}
+.aw-zoom-btn:hover { color: var(--text); border-color: var(--text); }
 </style>
 </head>
 <body>
@@ -1479,6 +1745,18 @@ tr:hover { background: rgba(255,255,255,0.02); }
   <header>
     <div class="logo">Tetora <span id="version"></span></div>
     <div class="header-right">
+      <div class="theme-switcher" id="theme-switcher">
+        <button class="btn" onclick="toggleThemeDropdown()" id="theme-toggle-btn" title="Switch theme" style="padding:6px 10px;font-size:13px">&#127912;</button>
+        <div class="theme-dropdown" id="theme-dropdown">
+          <button onclick="setTheme('default')">Glass</button>
+          <button onclick="setTheme('clean')">Clean</button>
+          <button onclick="setTheme('material')">Material</button>
+          <button onclick="setTheme('classic')">Retro</button>
+          <button onclick="setTheme('nes')">NES Dark</button>
+          <button onclick="setTheme('gameboy')">Game Boy</button>
+          <button onclick="setTheme('amber')">Amber</button>
+        </div>
+      </div>
       <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
       <button class="btn btn-run" onclick="openDispatchModal()" style="padding:6px 14px;font-size:12px">Quick Dispatch</button>
       <div class="notif-bell" onclick="toggleNotifDropdown()" id="notif-bell-container">&#x1F514;<span class="notif-badge-count" id="notif-badge" style="display:none">0</span><div class="notif-dropdown" id="notif-dropdown"><div class="notif-empty">No notifications</div></div></div>
@@ -1502,9 +1780,16 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
     <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
     <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
+    <button id="tab-workers" onclick="switchTab('workers')">Workers</button>
   </div>
 
   <div id="dashboard-content">
+  <!-- Onboarding Banner -->
+  <div class="onboarding-banner" id="onboarding-banner" style="display:none">
+    <h2>Welcome to Tetora</h2>
+    <p>Run <code style="color:var(--accent);background:rgba(6,182,212,0.1);padding:2px 8px;border-radius:4px">tetora init</code> in your terminal to get started.</p>
+    <button class="btn" onclick="document.getElementById('onboarding-banner').style.display='none';localStorage.setItem('tetora-onboarded','1')" style="padding:6px 16px">Dismiss</button>
+  </div>
   <!-- Pixel Team -->
   <div class="pixel-team" id="pixel-team">
     <span class="pixel-team-title">Team</span>
@@ -1520,6 +1805,12 @@ tr:hover { background: rgba(255,255,255,0.02); }
     <canvas id="agent-world-cv"></canvas>
     <button class="agent-world-close" onclick="toggleAgentWorld()">&times;</button>
     <button class="agent-world-edit" id="aw-edit-btn" onclick="toggleDecorEditMode()">Edit</button>
+    <button class="agent-world-edit" onclick="openSpriteGuide()" style="left:52px" title="Sprite Guide">?</button>
+    <div class="aw-zoom-controls">
+      <button class="aw-zoom-btn" onclick="officeZoom(-1)" title="Zoom out">-</button>
+      <span id="aw-zoom-label" style="font-size:10px;color:var(--muted);padding:2px 4px;white-space:nowrap">1x</span>
+      <button class="aw-zoom-btn" onclick="officeZoom(1)" title="Zoom in">+</button>
+    </div>
     <div class="decor-palette" id="decor-palette" style="display:none"></div>
   </div>
 
@@ -2065,7 +2356,10 @@ tr:hover { background: rgba(255,255,255,0.02); }
       <div class="section">
         <div class="section-header"><span class="section-title">Theme</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
-          <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Classic</button>
+          <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
+          <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
+          <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
+          <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
           <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
           <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
           <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
@@ -2173,6 +2467,26 @@ tr:hover { background: rgba(255,255,255,0.02); }
       </div>
     </div>
   </div><!-- /workspace-content -->
+
+  <div id="workers-content" style="display:none">
+    <div class="section">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <h3 style="font-family:var(--font-heading);font-size:14px;color:var(--accent)">Tmux Workers</h3>
+        <span id="workers-count" style="font-size:12px;color:var(--muted)">0 active</span>
+        <button class="btn" onclick="refreshWorkers()" style="margin-left:auto;font-size:12px">Refresh</button>
+      </div>
+      <div id="workers-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px"></div>
+      <div id="workers-empty" style="text-align:center;padding:40px;color:var(--muted);font-size:13px">No active workers</div>
+    </div>
+    <div id="terminal-viewer" style="display:none" class="section">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <h3 id="terminal-viewer-title" style="font-family:var(--font-heading);font-size:14px;color:var(--accent)">Terminal</h3>
+        <span id="terminal-viewer-state" style="font-size:12px;padding:2px 8px;border-radius:4px;background:var(--surface);color:var(--muted)"></span>
+        <button class="btn" onclick="closeTerminalViewer()" style="margin-left:auto;font-size:12px">Close</button>
+      </div>
+      <pre id="terminal-viewer-output" style="background:#0a0a0f;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:'SF Mono','Fira Code','VT323',monospace;font-size:13px;line-height:1.4;color:#e0e0e0;overflow:auto;max-height:600px;white-space:pre;tab-size:8"></pre>
+    </div>
+  </div><!-- /workers-content -->
 
 <!-- Project Modal -->
 <div class="modal-overlay" id="project-modal">
@@ -2846,6 +3160,124 @@ tr:hover { background: rgba(255,255,255,0.02); }
   </div>
 </div>
 
+<!-- Sprite Customization Guide Modal -->
+<div class="modal-overlay" id="sprite-guide-modal" onclick="if(event.target===this)closeSpriteGuide()">
+  <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeSpriteGuide()">&times;</button>
+    <h3>Sprite Customization Guide</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Sprite files: <code style="color:var(--accent)">~/.tetora/media/sprites/</code>
+    </div>
+    <div style="font-size:13px;line-height:1.6;color:var(--text)">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Image Format</div>
+        <table style="font-size:12px;border-collapse:collapse;width:100%">
+          <tr><td style="padding:2px 8px;color:var(--muted)">Size</td><td><b>128 x 64 px</b></td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Cell</td><td><b>16 x 32 px</b> (8 cols x 2 rows = 16 frames)</td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Format</td><td>PNG, transparent background, no anti-aliasing</td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Style</td><td>16-bit chibi pixel art (2.5 head proportion)</td></tr>
+        </table>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Grid Layout</div>
+<pre style="font-size:11px;color:var(--text);margin:0;line-height:1.4;font-family:var(--font-mono,'SF Mono',monospace)">128px
+&#9500;&#9472;16&#9472;&#9508;
+&#9484;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9488;
+&#9474;00&#9474;01&#9474;02&#9474;03&#9474;04&#9474;05&#9474;06&#9474;07&#9474; Row 0: front-facing (walk + idle/action)
+&#9500;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9508;
+&#9474;08&#9474;09&#9474;10&#9474;11&#9474;12&#9474;13&#9474;14&#9474;15&#9474; Row 1: back/side-facing (walk + alt actions)
+&#9492;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9496;</pre>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Cell Rules</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px">
+          <li>Character <b>centered horizontally</b> in each 16px cell</li>
+          <li>Feet <b>aligned to bottom</b> of each 32px cell</li>
+          <li>Consistent position across all frames (no jittering)</li>
+          <li>No part extends beyond cell boundary</li>
+        </ul>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">config.json</div>
+<pre style="font-size:11px;color:var(--text);margin:0;line-height:1.4;font-family:var(--font-mono,'SF Mono',monospace)">{
+  "cellWidth": 16, "cellHeight": 32,
+  "states": [
+    { "name": "idle",  "row": 0, "frames": 4 },
+    { "name": "work",  "row": 0, "frames": 4 },
+    { "name": "think", "row": 1, "frames": 4 },
+    ...
+  ],
+  "agents": {
+    "ruri": { "sheet": "ruri.png" }
+  }
+}</pre>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          <b>row</b> = which row (0=top, 1=bottom) &nbsp;|&nbsp; <b>frames</b> = how many cols to cycle
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Animation</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px">
+          <li><b>200ms per frame</b> (5 FPS), auto-looping</li>
+          <li>Walk cycle: left-step &#x2192; stand &#x2192; right-step &#x2192; stand</li>
+          <li>Agents walk between rooms based on task status</li>
+          <li>idle &#x2192; lounge, work/think &#x2192; desk, talk/review &#x2192; meeting room</li>
+        </ul>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--green)">AI Prompt — Gemini</div>
+        <div style="position:relative">
+<pre id="sg-prompt-gemini" style="font-size:11px;color:var(--text);margin:0;line-height:1.4;white-space:pre-wrap;font-family:var(--font-mono,'SF Mono',monospace)">Generate a pixel art character sprite sheet for a retro RPG game.
+
+Character: [DESCRIBE CHARACTER HERE]
+
+Requirements:
+- Image size: exactly 128 x 64 pixels
+- Grid layout: 8 columns x 2 rows, each cell is 16x32 pixels
+- Style: 16-bit SNES/RPG Maker chibi, 2-3 head tall
+- Background: fully transparent (PNG)
+- No anti-aliasing, hard pixel edges only
+- Each cell contains exactly ONE pose, centered, feet at bottom
+
+Row 0 (top): front-facing — 4 walk cycle + 4 idle/action
+Row 1 (bottom): back-facing — 4 walk cycle + 4 side-view
+
+Consistent palette across all 16 frames. No borders or grid lines.</pre>
+          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('sg-prompt-gemini').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)" style="position:absolute;top:4px;right:4px;padding:2px 8px;font-size:10px">Copy</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--green)">AI Prompt — ChatGPT</div>
+        <div style="position:relative">
+<pre id="sg-prompt-chatgpt" style="font-size:11px;color:var(--text);margin:0;line-height:1.4;white-space:pre-wrap;font-family:var(--font-mono,'SF Mono',monospace)">Create a single pixel art sprite sheet PNG, exactly 128x64 pixels.
+Grid: 8 columns x 2 rows. Each cell: 16px wide x 32px tall.
+
+Character: [DESCRIBE CHARACTER HERE]
+
+Style: 16-bit retro RPG chibi (RPG Maker / FF6), 2.5-head proportion, hard pixel edges, no smoothing, transparent background, limited palette (12-16 colors).
+
+Row 1 (top 32px): front-facing walk cycle (4 frames) + idle/action (4 frames)
+Row 2 (bottom 32px): back-facing walk cycle (4 frames) + alt actions (4 frames)
+
+CRITICAL: Each character centered in 16x32 cell. Feet at bottom. No grid lines. Exactly 128x64 pixels.</pre>
+          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('sg-prompt-chatgpt').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)" style="position:absolute;top:4px;right:4px;padding:2px 8px;font-size:10px">Copy</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Checklist</div>
+        <ol style="margin:0;padding-left:18px;font-size:12px">
+          <li>Image is exactly 128x64 px</li>
+          <li>Each 16x32 cell has one pose only</li>
+          <li>Feet aligned, character centered, no jitter</li>
+          <li>Transparent background, no white edges</li>
+          <li>Recognizable at actual 16px size</li>
+          <li>Same palette across all frames</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '';
 let pollTimer;
@@ -2883,7 +3315,7 @@ function connectDashboardSSE() {
     pollTimer = setInterval(refresh, 5000);
   };
 
-  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying', 'agent_state', 'board_updated'];
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying', 'agent_state', 'board_updated', 'worker_update'];
   eventTypes.forEach(function(evType) {
     es.addEventListener(evType, function(e) {
       try {
@@ -2929,7 +3361,7 @@ function handleActivityEvent(type, ev) {
       if (data.durationMs) detail += ' in ' + formatDuration(data.durationMs);
       if (data.costUsd) detail += ' &middot; $' + Number(data.costUsd).toFixed(4);
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success');
+      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success', {tab:'workspace'});
       play8BitSound('complete');
       break;
     case 'error':
@@ -2937,7 +3369,7 @@ function handleActivityEvent(type, ev) {
       detail = esc(data.error || data.status || 'error');
       if (data.durationMs) detail += ' <span class="muted">(' + formatDuration(data.durationMs) + ')</span>';
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Error: ' + (data.error || data.name || 'task'), 'error');
+      addNotification('Error: ' + (data.error || data.name || 'task'), 'error', {tab:'workspace'});
       play8BitSound('error');
       break;
     case 'task_queued':
@@ -2978,6 +3410,10 @@ function handleActivityEvent(type, ev) {
       break;
     case 'board_updated':
       refreshBoard();
+      return;
+    case 'worker_update':
+      if (currentTab === 'workers') refreshWorkers();
+      if (data.action === 'unregistered' && _terminalViewerName === data.name) closeTerminalViewer();
       return;
     default:
       detail = type;
@@ -3197,6 +3633,14 @@ async function refresh() {
     // Alert banner
     checkAlerts(cost, doingTasks);
 
+    // Onboarding banner
+    var ob = document.getElementById('onboarding-banner');
+    if (ob && !localStorage.getItem('tetora-onboarded')) {
+      var noAgents = !Array.isArray(roles) || roles.length === 0;
+      var noTasks = !tasks || (Array.isArray(tasks) && tasks.length === 0);
+      ob.style.display = (noAgents && noTasks) ? '' : 'none';
+    }
+
     // Agent World — update sprite states + toggle visibility
     var dispSprites = dispatch.sprites || {};
     updateAgentWorldToggle(dispSprites);
@@ -3273,6 +3717,18 @@ async function refresh() {
           j.errors > 0 ? `Err x${j.errors}` : j.enabled ? 'Ready' : 'Off';
         const statusColor = j.running ? 'var(--yellow)' :
           j.errors > 0 ? 'var(--red)' : j.enabled ? '' : 'var(--muted)';
+        let progressBar = '';
+        if (j.enabled && !j.running && j.lastRun && !j.lastRun.startsWith('0001') && j.nextRun) {
+          const last = new Date(j.lastRun).getTime();
+          const next = new Date(j.nextRun).getTime();
+          const now = Date.now();
+          const total = next - last;
+          if (total > 0) {
+            const pct = Math.min(100, Math.max(0, ((now - last) / total) * 100));
+            const pColor = pct > 95 ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : 'var(--green)';
+            progressBar = `<tr><td colspan="11" style="padding:0 8px 4px"><div class="cron-progress"><div class="cron-progress-fill" style="width:${pct.toFixed(1)}%;background:${pColor}"></div></div></td></tr>`;
+          }
+        }
         return `<tr>
           <td>
             <label class="toggle">
@@ -3296,7 +3752,7 @@ async function refresh() {
             <button class="btn btn-edit" onclick="editJob('${esc(j.id)}')" ${j.running ? 'disabled' : ''}>Edit</button>
             <button class="btn btn-del" onclick="deleteJob('${esc(j.id)}')" ${j.running ? 'disabled' : ''}>Del</button>
           </td>
-        </tr>`;
+        </tr>` + progressBar;
       }).join('');
     }
 
@@ -6196,7 +6652,7 @@ function onJobProjectChange() {
 
 function switchTab(tab) {
   currentTab = tab;
-  ['dashboard','chat','workflows','integrations','settings','workspace'].forEach(function(t) {
+  ['dashboard','chat','workflows','integrations','settings','workspace','workers'].forEach(function(t) {
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
     document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
   });
@@ -6216,6 +6672,9 @@ function switchTab(tab) {
   if (tab === 'workspace') {
     refreshBoard();
     loadMemoryBrowser();
+  }
+  if (tab === 'workers') {
+    refreshWorkers();
   }
 }
 
@@ -7507,20 +7966,27 @@ function updateAgentWorldToggle(sprites) {
   renderMinimap(sprites);
 }
 
+// --- Agent Colors (derived from GEM_TEAM for minimap, modals, etc.) ---
+var AGENT_COLORS = {};
+var DEFAULT_AGENT_COLOR = '#a78bfa';
+(function() {
+  for (var k in GEM_TEAM) { AGENT_COLORS[k] = GEM_TEAM[k].color; }
+})();
+
 // --- Mini-map ---
 function renderMinimap(sprites) {
   var cv = document.getElementById('aw-minimap');
   if (!cv) return;
   var ctx = cv.getContext('2d');
   var W = 120, H = 40;
-  var scaleX = W / 600, scaleY = H / 200;
+  var scaleX = W / OFFICE.W, scaleY = H / OFFICE.H;
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0a0a12';
+  ctx.fillStyle = '#2a2218';
   ctx.fillRect(0, 0, W, H);
   // Draw room outlines
   var rooms = typeof OFFICE !== 'undefined' ? OFFICE.rooms : null;
   if (rooms) {
-    ctx.strokeStyle = '#333355';
+    ctx.strokeStyle = '#5a4a38';
     ctx.lineWidth = 0.5;
     for (var rk in rooms) {
       var r = rooms[rk];
@@ -7568,8 +8034,8 @@ function renderMinimap(sprites) {
     e.stopPropagation();
     if (!spriteEngine || !spriteEngine.agents) return;
     var rect = cv.getBoundingClientRect();
-    var scaleX = 600 / rect.width;
-    var scaleY = 200 / rect.height;
+    var scaleX = OFFICE.W / rect.width;
+    var scaleY = OFFICE.H / rect.height;
     var mx = (e.clientX - rect.left) * scaleX;
     var my = (e.clientY - rect.top) * scaleY;
     // Find nearest agent
@@ -7589,28 +8055,30 @@ function renderMinimap(sprites) {
 })();
 
 // Office layout constants (in canvas pixels, scaled for 600×200 logical size)
+// Office uses Star-Office-UI background at 640x360 (half of 1280x720)
+var OFFICE_PALETTE = {
+  minimapBg: '#2a2218', minimapGrid: '#5a4a38'
+};
 var OFFICE = {
-  W: 600, H: 200,
-  WALL_H: 24,
-  FLOOR_COLOR_A: '#1a1a28', FLOOR_COLOR_B: '#161622',
-  WALL_COLOR: '#252538',
-  // Room definitions: { x, y, w, h, label, seats: [{x,y}] }
+  W: 640, H: 360,
+  WALL_H: 0,
+  // Room zones mapped to Star-Office-UI background layout (at 640x360 scale)
+  // Left room: library — used for meeting/review
+  // Center: main hall — used for work (desk area)
+  // Right-top: server room — used for error state
+  // Right-bottom: break room (sofa) — used for idle/lounge
   rooms: {
-    meeting: { x: 10, y: 30, w: 160, h: 130, label: 'Meeting', color: '#1e1e30',
-      furniture: [{ x: 50, y: 60, w: 70, h: 40, color: '#3a2a1a', type: 'table' }],
-      seats: [{ x: 45, y: 110 }, { x: 95, y: 110 }, { x: 45, y: 50 }, { x: 95, y: 50 }]
+    meeting: { x: 10, y: 40, w: 195, h: 280, label: '',
+      furniture: [],
+      seats: [{ x: 60, y: 200 }, { x: 140, y: 200 }, { x: 60, y: 280 }, { x: 140, y: 280 }]
     },
-    work: { x: 190, y: 30, w: 220, h: 130, label: 'Work', color: '#1a1a2a',
-      furniture: [
-        { x: 210, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
-        { x: 280, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
-        { x: 350, y: 70, w: 40, h: 28, color: '#2a2018', type: 'desk' },
-      ],
-      seats: [{ x: 220, y: 105 }, { x: 290, y: 105 }, { x: 360, y: 105 }]
+    work: { x: 215, y: 40, w: 210, h: 280, label: '',
+      furniture: [],
+      seats: [{ x: 260, y: 210 }, { x: 340, y: 210 }, { x: 300, y: 280 }]
     },
-    lounge: { x: 430, y: 30, w: 160, h: 130, label: 'Lounge', color: '#1e1e2e',
-      furniture: [{ x: 460, y: 65, w: 100, h: 36, color: '#2a1a3a', type: 'sofa' }],
-      seats: [{ x: 470, y: 110 }, { x: 520, y: 110 }, { x: 470, y: 55 }, { x: 520, y: 55 }]
+    lounge: { x: 435, y: 180, w: 195, h: 170, label: '',
+      furniture: [],
+      seats: [{ x: 480, y: 260 }, { x: 560, y: 260 }, { x: 480, y: 310 }, { x: 560, y: 310 }]
     }
   }
 };
@@ -7628,6 +8096,7 @@ function SpriteEngine(canvas) {
   this.config = null;
   this.images = {};      // agentName -> Image (single-sheet) or null
   this.multiImages = {}; // agentName -> { stateName: Image } (multi-sheet)
+  this.splitFrames = {}; // agentName -> { frames: [ImageBitmap...], cols, rows }
   this.agents = {};      // agentName -> agent object
   this.stateMap = {};    // stateName -> { row, frames }
   this.bgImage = null;
@@ -7658,47 +8127,92 @@ SpriteEngine.prototype.init = async function() {
     }
   }
 
-  // Load background image if specified
+  // Load background image (custom or default office_bg)
+  var bgImg = new Image();
   if (this.config.background) {
-    var bgImg = new Image();
     bgImg.src = API + '/media/sprites/' + this.config.background;
-    this.bgImage = bgImg;
+  } else {
+    bgImg.src = '/dashboard/office-bg.webp';
   }
+  this.bgImage = bgImg;
 
-  // Load sprite sheets (single-sheet or multi-sheet per agent)
+  // Load sprite sheets — pre-split into individual frames via createImageBitmap.
+  // This avoids ALL drawImage source-clipping issues by making each frame an independent bitmap.
   var agents = this.config.agents || {};
   var promises = [];
   var self = this;
+  var cw = this.config.cellWidth || 32;
+  var ch = this.config.cellHeight || 32;
+  // Helper: load image as Image element (works in ALL browsers, no createImageBitmap needed)
+  function _loadImg(url) {
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      img.onload = function() { resolve(img); };
+      img.onerror = function() { reject('Failed to load: ' + url); };
+      img.src = url;
+    });
+  }
+  // Helper: split a loaded Image into individual frame canvases.
+  // Each canvas is exactly cw×ch pixels — physically cannot show adjacent frames.
+  function _splitSheet(img, cellW, cellH) {
+    var cols = Math.max(1, Math.floor(img.width / cellW));
+    var rows = Math.max(1, Math.floor(img.height / cellH));
+    var frames = [];
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var fc = document.createElement('canvas');
+        fc.width = cellW;
+        fc.height = cellH;
+        var fctx = fc.getContext('2d');
+        fctx.drawImage(img, c * cellW, r * cellH, cellW, cellH, 0, 0, cellW, cellH);
+        frames.push(fc);
+      }
+    }
+    return { frames: frames, cols: cols, rows: rows };
+  }
+
   for (var name in agents) {
     var def = agents[name];
-    // Multi-sheet mode: one PNG per state
+    // Single-sheet: split into per-frame canvas elements
+    if (def.sheet) {
+      (function(n, sheet) {
+        promises.push(
+          _loadImg(API + '/media/sprites/' + sheet)
+            .then(function(img) {
+              var result = _splitSheet(img, cw, ch);
+              self.splitFrames[n] = result;
+              console.log('[Sprites] ' + n + ': ' + result.cols + 'x' + result.rows + ' = ' + result.frames.length + ' frames (canvas-split)');
+            })
+            .catch(function(e) { console.warn('[Sprites] Failed to split ' + n + ':', e); })
+        );
+      })(name, def.sheet);
+    }
+    // Multi-sheet mode: one image per state
     if (def.sheets && Object.keys(def.sheets).length > 0) {
-      self.multiImages[name] = {};
       (function(n, sheets) {
+        if (!self.splitFrames[n]) self.splitFrames[n] = { frames: [], cols: 0, rows: 0, perState: {} };
         for (var state in sheets) {
           (function(st, file) {
-            var img = new Image();
-            img.src = API + '/media/sprites/' + file;
-            self.multiImages[n][st] = img;
-            promises.push(new Promise(function(resolve) {
-              img.onload = resolve;
-              img.onerror = resolve;
-            }));
+            promises.push(
+              _loadImg(API + '/media/sprites/' + file)
+                .then(function(img) {
+                  var cols = Math.max(1, Math.floor(img.width / cw));
+                  var frames = [];
+                  for (var c = 0; c < cols; c++) {
+                    var fc = document.createElement('canvas');
+                    fc.width = cw; fc.height = ch;
+                    var fctx = fc.getContext('2d');
+                    fctx.drawImage(img, c * cw, 0, cw, ch, 0, 0, cw, ch);
+                    frames.push(fc);
+                  }
+                  self.splitFrames[n].perState = self.splitFrames[n].perState || {};
+                  self.splitFrames[n].perState[st] = frames;
+                })
+                .catch(function() {})
+            );
           })(state, sheets[state]);
         }
       })(name, def.sheets);
-    }
-    // Single-sheet fallback
-    if (def.sheet) {
-      (function(n, sheet) {
-        var img = new Image();
-        img.src = API + '/media/sprites/' + sheet;
-        self.images[n] = img;
-        promises.push(new Promise(function(resolve) {
-          img.onload = resolve;
-          img.onerror = resolve;
-        }));
-      })(name, def.sheet);
     }
   }
 
@@ -7743,6 +8257,8 @@ SpriteEngine.prototype.start = function() {
     if (!self.running) return;
     var dt = ts - self.lastTime;
     self.lastTime = ts;
+    // Cap dt to prevent runaway after tab switch (rAF pauses but timestamp jumps)
+    if (dt > 100) dt = 16;
     self.frameTick += dt;
     self.update(dt);
     self.render();
@@ -7816,7 +8332,7 @@ SpriteEngine.prototype.updateAgentStates = function(sprites) {
 };
 
 SpriteEngine.prototype.update = function(dt) {
-  var SPEED = 0.08; // pixels per ms
+  var SPEED = 0.06; // pixels per ms
   var cw = this.config ? this.config.cellWidth : 32;
 
   for (var name in this.agents) {
@@ -7875,8 +8391,10 @@ SpriteEngine.prototype.update = function(dt) {
   }
 
   // Advance animation frames (~200ms per frame)
+  // Use modulo to prevent runaway: if frameTick somehow accumulates (e.g. init delay),
+  // only advance one frame and reset cleanly.
   if (this.frameTick >= 200) {
-    this.frameTick -= 200;
+    this.frameTick = this.frameTick % 200;
     for (var name in this.agents) {
       var a = this.agents[name];
       var stDef = this.stateMap[a.animState];
@@ -7918,164 +8436,210 @@ SpriteEngine.prototype.render = function() {
 };
 
 SpriteEngine.prototype._drawOffice = function(ctx) {
-  var W = OFFICE.W, H = OFFICE.H;
+  // Fallback when background image hasn't loaded yet
+  ctx.fillStyle = '#2a2218';
+  ctx.fillRect(0, 0, OFFICE.W, OFFICE.H);
+};
 
-  // Floor — checkerboard
-  var tileSize = 16;
-  for (var ty = 0; ty < H; ty += tileSize) {
-    for (var tx = 0; tx < W; tx += tileSize) {
-      ctx.fillStyle = ((tx + ty) / tileSize) % 2 === 0 ? OFFICE.FLOOR_COLOR_A : OFFICE.FLOOR_COLOR_B;
-      ctx.fillRect(tx, ty, tileSize, tileSize);
-    }
-  }
+// Built-in sprite frames — loaded as PNG, split using createImageBitmap (browser-native crop).
+// Each agent gets an array of 8 ImageBitmap frames: [row0col0, row0col1, ..., row1col0, ...]
+var BUILTIN_SPRITE_FW = 32, BUILTIN_SPRITE_FH = 32, BUILTIN_SPRITE_COLS = 4, BUILTIN_SPRITE_ROWS = 2;
+var SPRITE_FRAMES = {}; // { agentName: [ImageBitmap, ...] }
 
-  // Wall
-  ctx.fillStyle = OFFICE.WALL_COLOR;
-  ctx.fillRect(0, 0, W, OFFICE.WALL_H);
-  // Wall bottom edge highlight
-  ctx.fillStyle = '#3a3a50';
-  ctx.fillRect(0, OFFICE.WALL_H - 2, W, 2);
+// Gem team identity — color palette, glow, and canvas filter for each agent
+var GEM_TEAM = {
+  ruri:    { color: '#5599ff', glow: 'rgba(85,153,255,0.28)', label: '琉璃', filter: '' },
+  hisui:   { color: '#44cc88', glow: 'rgba(68,204,136,0.28)', label: '翡翠', filter: '' },
+  kokuyou: { color: '#9977bb', glow: 'rgba(102,68,140,0.28)', label: '黒曜', filter: 'hue-rotate(240deg) brightness(0.65) saturate(1.3)' },
+  kohaku:  { color: '#eebb33', glow: 'rgba(238,187,51,0.28)', label: '琥珀', filter: '' }
+};
 
-  // Rooms
-  var rooms = OFFICE.rooms;
-  for (var rk in rooms) {
-    var rm = rooms[rk];
-    // Room floor
-    ctx.fillStyle = rm.color;
-    ctx.fillRect(rm.x, rm.y, rm.w, rm.h);
-    // Room border
-    ctx.strokeStyle = '#333350';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rm.x + 0.5, rm.y + 0.5, rm.w - 1, rm.h - 1);
-    // Label
-    ctx.fillStyle = '#555570';
-    ctx.font = '9px monospace';
-    ctx.fillText(rm.label, rm.x + 6, rm.y + 14);
-    // Furniture
-    if (rm.furniture) {
-      for (var fi = 0; fi < rm.furniture.length; fi++) {
-        var f = rm.furniture[fi];
-        ctx.fillStyle = f.color;
-        ctx.fillRect(f.x, f.y, f.w, f.h);
-        // Highlight edge
-        ctx.fillStyle = 'rgba(255,255,255,0.05)';
-        ctx.fillRect(f.x, f.y, f.w, 2);
+// Load built-in sprite sheet PNG — split into individual canvas frames.
+// Uses offscreen canvas (not createImageBitmap) for maximum browser compatibility.
+async function _loadSpriteFrames(name, url) {
+  try {
+    var img = await new Promise(function(resolve, reject) {
+      var i = new Image(); i.onload = function() { resolve(i); }; i.onerror = reject; i.src = url;
+    });
+    var fw = BUILTIN_SPRITE_FW, fh = BUILTIN_SPRITE_FH;
+    var gem = GEM_TEAM[name];
+    var needsTint = gem && gem.filter;
+    var frames = [];
+    for (var r = 0; r < BUILTIN_SPRITE_ROWS; r++) {
+      for (var c = 0; c < BUILTIN_SPRITE_COLS; c++) {
+        var fc = document.createElement('canvas');
+        fc.width = fw; fc.height = fh;
+        var fctx = fc.getContext('2d');
+        if (needsTint) fctx.filter = gem.filter;
+        fctx.drawImage(img, c * fw, r * fh, fw, fh, 0, 0, fw, fh);
+        fctx.filter = 'none';
+        frames.push(fc);
       }
     }
+    SPRITE_FRAMES[name] = frames;
+    console.log('[Sprites] ' + name + ': ' + frames.length + ' frames loaded (canvas-split)');
+  } catch(e) {
+    console.warn('[Sprites] Failed to load ' + name, e);
   }
-};
+}
 
-// Default pixel agent colors (gem team)
-var AGENT_COLORS = {
-  ruri: '#4169E1', hisui: '#50C878', kokuyou: '#6B6B80', kohaku: '#FFBF00'
-};
-var DEFAULT_AGENT_COLOR = '#a78bfa';
+(function() {
+  var agents = [
+    ['ruri', '/dashboard/sprites/ruri.png'],
+    ['hisui', '/dashboard/sprites/hisui.png'],
+    ['kokuyou', '/dashboard/sprites/kokuyou.png'],
+    ['kohaku', '/dashboard/sprites/kohaku.png'],
+    ['_default', '/dashboard/sprites/default.png']
+  ];
+  for (var i = 0; i < agents.length; i++) {
+    _loadSpriteFrames(agents[i][0], agents[i][1]);
+  }
+})();
 
 SpriteEngine.prototype._drawDefaultAgent = function(ctx, agent) {
-  var cw = this.config.cellWidth || 32;
-  var ch = this.config.cellHeight || 32;
-  var dx = Math.round(agent.x - cw / 2);
-  var dy = Math.round(agent.y - ch);
-  var color = AGENT_COLORS[agent.name] || DEFAULT_AGENT_COLOR;
+  var fw = BUILTIN_SPRITE_FW, fh = BUILTIN_SPRITE_FH;
+  var cols = BUILTIN_SPRITE_COLS;
+  var gem = GEM_TEAM[agent.name];
 
-  // Idle bob: 1px vertical oscillation
-  var bob = 0;
+  // Look up pre-split frame canvases (split at load time, no runtime clipping needed)
+  var frames = SPRITE_FRAMES[agent.name] || SPRITE_FRAMES._default;
+
+  var scale = 1.8;
+  var dw = Math.round(fw * scale), dh = Math.round(fh * scale);
+  var cx = Math.round(agent.x);
+  var baseY = Math.round(agent.y);
+  var dx = cx - Math.round(dw / 2);
+  var dy = baseY - dh;
+  var now = Date.now();
+
+  // Idle bob
   if (agent.animState === 'idle') {
-    bob = Math.round(Math.sin(Date.now() / 400) * 1);
+    dy += Math.round(Math.sin(now / 500) * 1.5);
   }
-  dy += bob;
+
+  // Gem aura glow (soft radial beneath character)
+  if (gem) {
+    var grad = ctx.createRadialGradient(cx, baseY + 1, 2, cx, baseY + 1, dw * 0.55);
+    grad.addColorStop(0, gem.glow);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + 1, dw * 0.55, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(cx, baseY + 2, dw * 0.35, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pick frame index: row 0 = idle/right, row 1 = walking/left
+  var row = 0;
+  var walking = agent.animState && agent.animState.indexOf('walk') === 0;
+  if (walking || agent.facing === 'left') row = 1;
+  var col = agent.frame % cols;
+  var frameIdx = row * cols + col; // index into pre-split frames array
 
   // Error flash
-  if (agent.animState === 'error' && Math.floor(Date.now() / 300) % 2 === 0) {
-    color = '#f87171';
+  if (agent.animState === 'error' && Math.floor(now / 300) % 2 === 0) {
+    ctx.globalAlpha = 0.5;
   }
-  // Celebrate sparkle
-  var celebrating = agent.animState === 'celebrate';
 
-  // --- Head (8x8 rounded block, centered) ---
-  var headW = 10, headH = 9;
-  var headX = dx + Math.round((cw - headW) / 2);
-  var headY = dy + 4;
-  ctx.fillStyle = color;
-  // Rounded head: fill center + top/bottom inset for rounded look
-  ctx.fillRect(headX + 1, headY, headW - 2, 1);       // top edge inset
-  ctx.fillRect(headX, headY + 1, headW, headH - 2);    // main block
-  ctx.fillRect(headX + 1, headY + headH - 1, headW - 2, 1); // bottom edge inset
-
-  // --- Eyes (2x2 white dots) ---
-  ctx.fillStyle = '#ffffff';
-  var eyeY = headY + 3;
-  var eyeLX = headX + 2;
-  var eyeRX = headX + headW - 4;
-  // Blink every ~3s
-  var blink = Math.floor(Date.now() / 3000) % 10 === 0 && Math.floor(Date.now() / 150) % 2 === 0;
-  if (!blink) {
-    ctx.fillRect(eyeLX, eyeY, 2, 2);
-    ctx.fillRect(eyeRX, eyeY, 2, 2);
+  // Draw pre-split frame canvas (no source clipping — each frame is its own 32x32 canvas)
+  if (frames && frames[frameIdx]) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(frames[frameIdx], dx, dy, dw, dh);
   } else {
-    ctx.fillRect(eyeLX, eyeY + 1, 2, 1);
-    ctx.fillRect(eyeRX, eyeY + 1, 2, 1);
+    // Fallback: gem-colored pixel block
+    ctx.fillStyle = gem ? gem.color : '#a78bfa';
+    ctx.fillRect(dx + 8, dy + 8, dw - 16, dh - 8);
   }
+  ctx.globalAlpha = 1;
 
-  // --- Body (10x10 block, slightly darker) ---
-  var bodyW = 10, bodyH = 10;
-  var bodyX = dx + Math.round((cw - bodyW) / 2);
-  var bodyY = headY + headH;
-  // Darken color for body
-  ctx.fillStyle = _darkenColor(color, 0.25);
-  ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
-
-  // --- Legs (walk animation: alternate leg positions) ---
-  var legY = bodyY + bodyH;
-  var legW = 3, legH = 4;
-  var legLX = bodyX + 1;
-  var legRX = bodyX + bodyW - legW - 1;
-  ctx.fillStyle = _darkenColor(color, 0.4);
-  var walking = agent.animState && agent.animState.indexOf('walk') === 0;
-  if (walking) {
-    var step = Math.floor(Date.now() / 200) % 2;
-    ctx.fillRect(legLX, legY + (step === 0 ? 0 : 1), legW, legH - 1);
-    ctx.fillRect(legRX, legY + (step === 0 ? 1 : 0), legW, legH - 1);
-  } else {
-    ctx.fillRect(legLX, legY, legW, legH);
-    ctx.fillRect(legRX, legY, legW, legH);
-  }
-
-  // --- Work indicator: tiny tool above head ---
-  if (agent.animState === 'work' || agent.animState === 'think') {
-    ctx.fillStyle = '#fbbf24';
-    var dotPhase = Math.floor(Date.now() / 500) % 3;
-    for (var di = 0; di <= dotPhase; di++) {
-      ctx.fillRect(headX + headW + 2 + di * 3, headY - 2, 2, 2);
-    }
-  }
-
-  // Celebrate sparkles
-  if (celebrating) {
-    ctx.fillStyle = '#fbbf24';
-    var sp = Date.now() / 200;
-    for (var si = 0; si < 3; si++) {
-      var sx2 = dx + 4 + Math.round(Math.sin(sp + si * 2.1) * 14);
-      var sy2 = dy - 2 + Math.round(Math.cos(sp + si * 1.7) * 6);
-      ctx.fillRect(sx2, sy2, 2, 2);
-    }
-  }
-
-  // Flash highlight ring (minimap click)
-  if (agent._flashTimer > 0) {
-    var flashAlpha = 0.3 + 0.7 * Math.abs(Math.sin(Date.now() / 150));
-    ctx.globalAlpha = flashAlpha;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(dx - 2, dy - 2, cw + 4, ch + 6);
+  // Idle gem sparkle — subtle floating particles in gem color
+  if (gem && agent.animState === 'idle') {
+    var sparkT = now / 1200;
+    ctx.globalAlpha = 0.4 + 0.3 * Math.sin(sparkT * 2);
+    ctx.fillStyle = gem.color;
+    ctx.fillRect(cx - 10 + Math.round(Math.sin(sparkT) * 8), dy + 4 + Math.round(Math.cos(sparkT * 0.7) * 12), 2, 2);
+    ctx.fillRect(cx + 6 + Math.round(Math.cos(sparkT * 1.3) * 6), dy + 10 + Math.round(Math.sin(sparkT * 0.9) * 8), 2, 2);
     ctx.globalAlpha = 1;
   }
 
-  // Name label
-  ctx.fillStyle = '#8888aa';
-  ctx.font = '7px monospace';
+  // Work indicator: thought dots above head
+  if (agent.animState === 'work' || agent.animState === 'think') {
+    ctx.fillStyle = gem ? gem.color : '#fbbf24';
+    var dotP = Math.floor(now / 400) % 4;
+    for (var di = 0; di < Math.min(dotP, 3); di++) {
+      ctx.fillRect(cx + dw / 2 + di * 4, dy - 4 - di * 3, 3, 3);
+    }
+  }
+
+  // Celebrate sparkles — gem-colored burst
+  if (agent.animState === 'celebrate') {
+    var sp = now / 200;
+    var sparkColors = gem
+      ? [gem.color, '#ffffff', gem.color, '#fbbf24']
+      : ['#fbbf24', '#f87171', '#34d399', '#60a5fa'];
+    for (var si = 0; si < 6; si++) {
+      ctx.fillStyle = sparkColors[si % sparkColors.length];
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(sp + si);
+      ctx.fillRect(
+        cx - 14 + Math.round(Math.sin(sp + si * 1.3) * 20),
+        dy - 8 + Math.round(Math.cos(sp + si * 1.7) * 14), 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Error exclamation
+  if (agent.animState === 'error') {
+    ctx.fillStyle = '#f87171';
+    ctx.fillRect(cx + dw / 2 + 2, dy, 4, 8);
+    ctx.fillRect(cx + dw / 2 + 2, dy + 10, 4, 3);
+  }
+
+  // Flash highlight ring (minimap click) — gem colored
+  if (agent._flashTimer > 0) {
+    var fa = 0.3 + 0.7 * Math.abs(Math.sin(now / 150));
+    ctx.globalAlpha = fa;
+    ctx.strokeStyle = gem ? gem.color : '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - dh / 2, dw / 2 + 4, dh / 2 + 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Name label — gem-colored text on dark bg
+  ctx.font = 'bold 9px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(agent.name, Math.round(agent.x), Math.round(agent.y + 4));
+  var nameW = ctx.measureText(agent.name).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  var labelX = cx - nameW / 2 - 4;
+  var labelY = baseY + 4;
+  var labelW = nameW + 8;
+  var labelH = 13;
+  ctx.beginPath();
+  ctx.moveTo(labelX + 3, labelY);
+  ctx.lineTo(labelX + labelW - 3, labelY);
+  ctx.quadraticCurveTo(labelX + labelW, labelY, labelX + labelW, labelY + 3);
+  ctx.lineTo(labelX + labelW, labelY + labelH - 3);
+  ctx.quadraticCurveTo(labelX + labelW, labelY + labelH, labelX + labelW - 3, labelY + labelH);
+  ctx.lineTo(labelX + 3, labelY + labelH);
+  ctx.quadraticCurveTo(labelX, labelY + labelH, labelX, labelY + labelH - 3);
+  ctx.lineTo(labelX, labelY + 3);
+  ctx.quadraticCurveTo(labelX, labelY, labelX + 3, labelY);
+  ctx.fill();
+  if (gem) {
+    ctx.strokeStyle = gem.color;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = gem ? gem.color : '#e8e8e8';
+  ctx.fillText(agent.name, cx, baseY + 14);
   ctx.textAlign = 'start';
 };
 
@@ -8096,59 +8660,126 @@ SpriteEngine.prototype._drawAgent = function(ctx, agent) {
   var stDef = this.stateMap[agent.animState];
   if (!stDef) stDef = this.stateMap['idle'] || { row: 0, frames: 4 };
 
-  // Pick image: multi-sheet (per state) → single-sheet fallback → default pixel
-  var img = null;
-  var sy = 0;
-  var multi = this.multiImages[agent.name];
-  if (multi && multi[agent.animState]) {
-    img = multi[agent.animState];
-    sy = 0;
-  } else if (multi && multi['idle']) {
-    img = multi['idle'];
-    sy = 0;
-  } else {
-    img = this.images[agent.name];
-    sy = stDef.row * ch;
+  // Use pre-split frames (createImageBitmap at load time — no runtime source clipping)
+  var split = this.splitFrames[agent.name];
+  var frame = null;
+  if (split) {
+    // Multi-sheet: per-state frame arrays
+    if (split.perState) {
+      var stFrames = split.perState[agent.animState] || split.perState['idle'];
+      if (stFrames && stFrames.length > 0) {
+        frame = stFrames[agent.frame % stFrames.length];
+      }
+    }
+    // Single-sheet: row * cols + col
+    if (!frame && split.frames && split.frames.length > 0) {
+      var row = Math.min(stDef.row, split.rows - 1);
+      if (row < 0) row = 0;
+      var col = agent.frame % Math.min(stDef.frames, split.cols);
+      var idx = row * split.cols + col;
+      if (idx < split.frames.length) frame = split.frames[idx];
+    }
   }
 
-  // No spritesheet loaded — draw default pixel agent
-  if (!img || !img.complete || img.naturalWidth === 0) {
+  // No pre-split frames — fall back to built-in sprites
+  if (!frame) {
     this._drawDefaultAgent(ctx, agent);
     return;
   }
 
-  // Clamp frames to actual image width
-  var maxFrames = Math.floor(img.naturalWidth / cw);
-  var frames = Math.min(stDef.frames, maxFrames || 1);
-  var sx = (agent.frame % frames) * cw;
+  // Scale up for 640x360 canvas
+  var scale = 1.8;
+  var dw = Math.round(cw * scale), dh = Math.round(ch * scale);
+  var cx = Math.round(agent.x);
+  var baseY = Math.round(agent.y);
+  var dx = cx - Math.round(dw / 2);
+  var dy = baseY - dh;
+  var now = Date.now();
+  var gem = GEM_TEAM[agent.name];
 
-  // Draw sprite centered on agent position
-  var dx = Math.round(agent.x - cw / 2);
-  var dy = Math.round(agent.y - ch);
+  // Idle bob
+  if (agent.animState === 'idle') dy += Math.round(Math.sin(now / 500) * 1.5);
 
-  // Error state: red tint flash
-  if (agent.animState === 'error' && Math.floor(Date.now() / 300) % 2 === 0) {
-    ctx.globalAlpha = 0.7;
+  // Gem aura glow
+  if (gem) {
+    var grad = ctx.createRadialGradient(cx, baseY + 1, 2, cx, baseY + 1, dw * 0.55);
+    grad.addColorStop(0, gem.glow);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + 1, dw * 0.55, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
-  ctx.drawImage(img, sx, sy, cw, ch, dx, dy, cw, ch);
-  ctx.globalAlpha = 1.0;
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.beginPath();
+  ctx.ellipse(cx, baseY + 2, dw * 0.35, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Flash highlight ring (minimap click)
+  // Error flash
+  if (agent.animState === 'error' && Math.floor(now / 300) % 2 === 0) ctx.globalAlpha = 0.5;
+
+  // Draw single pre-split frame — simple 5-param drawImage, NO source clipping
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(frame, dx, dy, dw, dh);
+  ctx.globalAlpha = 1;
+
+  // Effects (same as _drawDefaultAgent)
+  if (gem && agent.animState === 'idle') {
+    var sparkT = now / 1200;
+    ctx.globalAlpha = 0.4 + 0.3 * Math.sin(sparkT * 2);
+    ctx.fillStyle = gem.color;
+    ctx.fillRect(cx - 10 + Math.round(Math.sin(sparkT) * 8), dy + 4 + Math.round(Math.cos(sparkT * 0.7) * 12), 2, 2);
+    ctx.fillRect(cx + 6 + Math.round(Math.cos(sparkT * 1.3) * 6), dy + 10 + Math.round(Math.sin(sparkT * 0.9) * 8), 2, 2);
+    ctx.globalAlpha = 1;
+  }
+  if (agent.animState === 'work' || agent.animState === 'think') {
+    ctx.fillStyle = gem ? gem.color : '#fbbf24';
+    var dotP = Math.floor(now / 400) % 4;
+    for (var di = 0; di < Math.min(dotP, 3); di++) ctx.fillRect(cx + dw / 2 + di * 4, dy - 4 - di * 3, 3, 3);
+  }
+  if (agent.animState === 'celebrate') {
+    var sp = now / 200;
+    var sparkColors = gem ? [gem.color, '#fff', gem.color, '#fbbf24'] : ['#fbbf24', '#f87171', '#34d399', '#60a5fa'];
+    for (var si = 0; si < 6; si++) {
+      ctx.fillStyle = sparkColors[si % sparkColors.length];
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(sp + si);
+      ctx.fillRect(cx - 14 + Math.round(Math.sin(sp + si * 1.3) * 20), dy - 8 + Math.round(Math.cos(sp + si * 1.7) * 14), 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (agent.animState === 'error') {
+    ctx.fillStyle = '#f87171';
+    ctx.fillRect(cx + dw / 2 + 2, dy, 4, 8);
+    ctx.fillRect(cx + dw / 2 + 2, dy + 10, 4, 3);
+  }
   if (agent._flashTimer > 0) {
-    var flashAlpha = 0.3 + 0.7 * Math.abs(Math.sin(Date.now() / 150));
-    ctx.globalAlpha = flashAlpha;
-    ctx.strokeStyle = '#ffffff';
+    ctx.globalAlpha = 0.3 + 0.7 * Math.abs(Math.sin(now / 150));
+    ctx.strokeStyle = gem ? gem.color : '#fff';
     ctx.lineWidth = 2;
-    ctx.strokeRect(dx - 2, dy - 2, cw + 4, ch + 4);
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - dh / 2, dw / 2 + 4, dh / 2 + 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.globalAlpha = 1;
   }
 
   // Name label
-  ctx.fillStyle = '#8888aa';
-  ctx.font = '7px monospace';
+  ctx.font = 'bold 9px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(agent.name, Math.round(agent.x), Math.round(agent.y + 4));
+  var nameW = ctx.measureText(agent.name).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  var lx = cx - nameW / 2 - 4, ly = baseY + 4, lw = nameW + 8, lh = 13;
+  ctx.beginPath();
+  ctx.moveTo(lx + 3, ly); ctx.lineTo(lx + lw - 3, ly);
+  ctx.quadraticCurveTo(lx + lw, ly, lx + lw, ly + 3); ctx.lineTo(lx + lw, ly + lh - 3);
+  ctx.quadraticCurveTo(lx + lw, ly + lh, lx + lw - 3, ly + lh); ctx.lineTo(lx + 3, ly + lh);
+  ctx.quadraticCurveTo(lx, ly + lh, lx, ly + lh - 3); ctx.lineTo(lx, ly + 3);
+  ctx.quadraticCurveTo(lx, ly, lx + 3, ly);
+  ctx.fill();
+  if (gem) { ctx.strokeStyle = gem.color; ctx.lineWidth = 1; ctx.globalAlpha = 0.5; ctx.stroke(); ctx.globalAlpha = 1; }
+  ctx.fillStyle = gem ? gem.color : '#e8e8e8';
+  ctx.fillText(agent.name, cx, baseY + 14);
   ctx.textAlign = 'start';
 };
 
@@ -8278,6 +8909,28 @@ var DECOR_DRAW = {
   }
 };
 
+function openSpriteGuide() {
+  document.getElementById('sprite-guide-modal').classList.add('open');
+}
+function closeSpriteGuide() {
+  document.getElementById('sprite-guide-modal').classList.remove('open');
+}
+
+// Office zoom
+var _officeZoom = parseInt(localStorage.getItem('tetora-office-zoom')) || 1;
+function officeZoom(dir) {
+  _officeZoom = Math.max(1, Math.min(3, _officeZoom + dir));
+  var cv = document.getElementById('agent-world-cv');
+  cv.style.transform = _officeZoom > 1 ? 'scale('+_officeZoom+')' : '';
+  cv.style.transformOrigin = 'top left';
+  var ctr = document.getElementById('agent-world-container');
+  if (_officeZoom > 1) { ctr.style.overflow = 'auto'; } else { ctr.style.overflow = ''; }
+  document.getElementById('aw-zoom-label').textContent = _officeZoom + 'x';
+  localStorage.setItem('tetora-office-zoom', _officeZoom);
+}
+// Apply saved zoom on load
+(function() { if (_officeZoom > 1) setTimeout(function() { officeZoom(0); }, 500); })();
+
 function toggleDecorEditMode() {
   _decorEditMode = !_decorEditMode;
   _decorSelected = -1;
@@ -8288,7 +8941,7 @@ function toggleDecorEditMode() {
     btn.classList.add('active');
     palette.style.display = 'flex';
     // Populate palette if empty
-    if (palette.children.length === 0) {
+    if (!palette.dataset.built) {
       for (var type in DECOR_CATALOG) {
         var item = document.createElement('canvas');
         item.className = 'decor-palette-item';
@@ -8305,6 +8958,23 @@ function toggleDecorEditMode() {
         })(type));
         palette.appendChild(item);
       }
+      // Export/Import buttons
+      var sep = document.createElement('div');
+      sep.style.cssText = 'width:1px;background:var(--border);flex-shrink:0;margin:0 4px';
+      palette.appendChild(sep);
+      var expBtn = document.createElement('button');
+      expBtn.className = 'btn';
+      expBtn.style.cssText = 'padding:4px 8px;font-size:10px;white-space:nowrap;flex-shrink:0';
+      expBtn.textContent = 'Export';
+      expBtn.onclick = function(e) { e.stopPropagation(); exportOfficeLayout(); };
+      palette.appendChild(expBtn);
+      var impBtn = document.createElement('button');
+      impBtn.className = 'btn';
+      impBtn.style.cssText = 'padding:4px 8px;font-size:10px;white-space:nowrap;flex-shrink:0';
+      impBtn.textContent = 'Import';
+      impBtn.onclick = function(e) { e.stopPropagation(); importOfficeLayout(); };
+      palette.appendChild(impBtn);
+      palette.dataset.built = '1';
     }
   } else {
     btn.textContent = 'Edit';
@@ -8316,6 +8986,40 @@ function toggleDecorEditMode() {
 function addDecoration(type) {
   _decorations.push({ type: type, x: 300 - DECOR_CATALOG[type].w/2, y: 100 - DECOR_CATALOG[type].h/2 });
   _saveDecorations();
+}
+
+function exportOfficeLayout() {
+  var data = JSON.stringify(_decorations, null, 2);
+  var blob = new Blob([data], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tetora-office-layout.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importOfficeLayout() {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json';
+  inp.onchange = function() {
+    var file = inp.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function() {
+      try {
+        var parsed = JSON.parse(reader.result);
+        if (!Array.isArray(parsed)) throw new Error('invalid');
+        _decorations = parsed;
+        _saveDecorations();
+        addNotification('Office layout imported (' + parsed.length + ' items)', 'success');
+      } catch(e) {
+        addNotification('Import failed: invalid JSON', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
 }
 
 function _canvasCoords(e) {
@@ -8985,7 +9689,7 @@ function dcmSave() {
 }
 
 // --- Theme System ---
-var THEMES = ['default', 'nes', 'gameboy', 'amber'];
+var THEMES = ['default', 'clean', 'material', 'classic', 'nes', 'gameboy', 'amber'];
 function setTheme(name) {
   THEMES.forEach(function(t) { document.body.classList.remove('theme-' + t); });
   if (name && name !== 'default') document.body.classList.add('theme-' + name);
@@ -8994,7 +9698,19 @@ function setTheme(name) {
     var b = document.getElementById('theme-btn-' + t);
     if (b) b.style.borderColor = (t === (name || 'default')) ? 'var(--accent)' : '';
   });
+  // Close dropdown after selection
+  var dd = document.getElementById('theme-dropdown');
+  if (dd) dd.classList.remove('open');
 }
+function toggleThemeDropdown() {
+  var dd = document.getElementById('theme-dropdown');
+  if (dd) dd.classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  var sw = document.getElementById('theme-switcher');
+  var dd = document.getElementById('theme-dropdown');
+  if (sw && dd && !sw.contains(e.target)) dd.classList.remove('open');
+});
 (function() {
   var s = localStorage.getItem('tetora-theme'); if (s && s !== 'default') setTheme(s);
   var st = document.getElementById('sound-toggle');
@@ -9049,11 +9765,23 @@ function onSearchInput(q) {
 
 // --- Notification Center ---
 var _notifications = [], _notifUnread = 0;
-function addNotification(msg, type) {
-  _notifications.unshift({msg:msg, type:type||'info', time:new Date().toLocaleTimeString(), read:false});
+function addNotification(msg, type, link) {
+  _notifications.unshift({msg:msg, type:type||'info', time:new Date().toLocaleTimeString(), read:false, link:link||null});
   if (_notifications.length > 50) _notifications.pop();
   _notifUnread++;
   renderNotifications();
+}
+function notifNavigate(idx) {
+  var n = _notifications[idx];
+  if (!n || !n.link) return;
+  document.getElementById('notif-dropdown').classList.remove('open');
+  switchTab(n.link.tab);
+  if (n.link.highlight) {
+    setTimeout(function() {
+      var el = document.querySelector(n.link.highlight);
+      if (el) { el.classList.add('highlight-flash'); el.scrollIntoView({behavior:'smooth',block:'nearest'}); setTimeout(function(){el.classList.remove('highlight-flash')},2200); }
+    }, 200);
+  }
 }
 function renderNotifications() {
   var badge = document.getElementById('notif-badge');
@@ -9062,8 +9790,9 @@ function renderNotifications() {
   var dd = document.getElementById('notif-dropdown');
   if (_notifications.length === 0) { dd.innerHTML = '<div class="notif-empty">No notifications</div>'; return; }
   var html = '';
-  _notifications.slice(0,20).forEach(function(n) {
-    html += '<div class="notif-item"><div class="notif-item-time">'+n.time+'</div><div class="notif-item-msg">'+n.msg.replace(/</g,'&lt;')+'</div></div>';
+  _notifications.slice(0,20).forEach(function(n, i) {
+    var clickable = n.link ? ' style="cursor:pointer" onclick="notifNavigate('+i+')"' : '';
+    html += '<div class="notif-item"'+clickable+'><div class="notif-item-time">'+n.time+'</div><div class="notif-item-msg">'+n.msg.replace(/</g,'&lt;')+'</div></div>';
   });
   dd.innerHTML = html;
 }
@@ -9140,6 +9869,85 @@ function refreshHealth() {
       h.appendChild(el);
     });
   }).catch(function(){});
+}
+
+// --- Workers Tab ---
+var _terminalViewerName = '';
+var _terminalPollTimer = null;
+
+function refreshWorkers() {
+  fetch(API + '/api/workers').then(function(r){return r.json()}).then(function(d) {
+    var workers = d.workers || [];
+    var grid = document.getElementById('workers-grid');
+    var empty = document.getElementById('workers-empty');
+    document.getElementById('workers-count').textContent = workers.length + ' active';
+    if (workers.length === 0) {
+      grid.innerHTML = '';
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+    grid.innerHTML = '';
+    workers.forEach(function(w) {
+      var stateColor = w.state === 'working' ? 'var(--green)' : w.state === 'approval' ? 'var(--yellow)' : w.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
+      var card = document.createElement('div');
+      card.className = 'pixel-panel';
+      card.style.cssText = 'padding:14px;cursor:pointer;transition:border-color .15s';
+      card.onclick = function() { openTerminalViewer(w.name); };
+      card.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+          '<span style="width:8px;height:8px;border-radius:50%;background:' + stateColor + ';flex-shrink:0"></span>' +
+          '<b style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(w.name) + '</b>' +
+          '<span style="margin-left:auto;font-size:11px;color:var(--muted)">' + esc(w.uptime) + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">' +
+          '<span style="display:inline-block;padding:1px 6px;border-radius:3px;background:var(--surface);border:1px solid var(--border);font-size:11px;color:' + stateColor + '">' + esc(w.state) + '</span>' +
+          (w.agent ? ' <span style="margin-left:6px">' + esc(w.agent) + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">' + esc(w.prompt || '') + '</div>';
+      grid.appendChild(card);
+    });
+  }).catch(function(err) {
+    console.error('refreshWorkers error:', err);
+  });
+}
+
+function openTerminalViewer(name) {
+  _terminalViewerName = name;
+  document.getElementById('terminal-viewer').style.display = '';
+  document.getElementById('terminal-viewer-title').textContent = name;
+  document.getElementById('terminal-viewer-output').textContent = 'Loading...';
+  fetchTerminalCapture();
+  if (_terminalPollTimer) clearInterval(_terminalPollTimer);
+  _terminalPollTimer = setInterval(fetchTerminalCapture, 2000);
+}
+
+function fetchTerminalCapture() {
+  if (!_terminalViewerName) return;
+  fetch(API + '/api/workers/capture?name=' + encodeURIComponent(_terminalViewerName))
+    .then(function(r){return r.json()})
+    .then(function(d) {
+      if (d.error) {
+        document.getElementById('terminal-viewer-output').textContent = 'Error: ' + d.error;
+        closeTerminalViewer();
+        return;
+      }
+      var pre = document.getElementById('terminal-viewer-output');
+      var wasAtBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 30;
+      pre.textContent = d.capture || '(empty)';
+      if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
+      var stateEl = document.getElementById('terminal-viewer-state');
+      stateEl.textContent = d.state || '';
+      var sc = d.state === 'working' ? 'var(--green)' : d.state === 'approval' ? 'var(--yellow)' : d.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
+      stateEl.style.color = sc;
+    })
+    .catch(function(){});
+}
+
+function closeTerminalViewer() {
+  _terminalViewerName = '';
+  if (_terminalPollTimer) { clearInterval(_terminalPollTimer); _terminalPollTimer = null; }
+  document.getElementById('terminal-viewer').style.display = 'none';
 }
 </script>
 <div class="search-overlay" id="search-overlay" onclick="if(event.target===this)closeSearch()">

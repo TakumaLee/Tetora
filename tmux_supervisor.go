@@ -55,6 +55,7 @@ type tmuxWorker struct {
 type tmuxSupervisor struct {
 	mu      sync.RWMutex
 	workers map[string]*tmuxWorker // tmuxName → worker
+	broker  *sseBroker             // optional, for SSE worker_update events
 }
 
 func newTmuxSupervisor() *tmuxSupervisor {
@@ -65,14 +66,28 @@ func newTmuxSupervisor() *tmuxSupervisor {
 
 func (s *tmuxSupervisor) register(name string, w *tmuxWorker) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.workers[name] = w
+	broker := s.broker
+	s.mu.Unlock()
+	if broker != nil {
+		broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSEWorkerUpdate,
+			Data: map[string]string{"action": "registered", "name": name, "state": w.State.String()},
+		})
+	}
 }
 
 func (s *tmuxSupervisor) unregister(name string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.workers, name)
+	broker := s.broker
+	s.mu.Unlock()
+	if broker != nil {
+		broker.Publish(SSEDashboardKey, SSEEvent{
+			Type: SSEWorkerUpdate,
+			Data: map[string]string{"action": "unregistered", "name": name},
+		})
+	}
 }
 
 func (s *tmuxSupervisor) listWorkers() []*tmuxWorker {

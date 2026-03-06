@@ -41,6 +41,7 @@ const (
 	SSEHeartbeatAlert    = "heartbeat_alert"
 	SSETaskStalled       = "task_stalled"
 	SSETaskRecovered     = "task_recovered"
+	SSEWorkerUpdate      = "worker_update"
 )
 
 // --- SSE Broker ---

@@ -143,7 +143,7 @@ func dashboardAuthMiddleware(cfg *Config, next http.Handler) http.Handler {
 		}
 
 		// Allow PWA assets through.
-		if p == "/dashboard/manifest.json" || p == "/dashboard/sw.js" || p == "/dashboard/icon.svg" {
+		if p == "/dashboard/manifest.json" || p == "/dashboard/sw.js" || p == "/dashboard/icon.svg" || p == "/dashboard/office-bg.webp" || strings.HasPrefix(p, "/dashboard/sprites/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -515,6 +515,7 @@ func startHTTPServer(s *Server) *http.Server {
 	s.registerProjectRoutes(mux)
 	s.registerWSEventsRoutes(mux)
 	s.registerDiscordRoutes(mux)
+	s.registerWorkersRoutes(mux)
 
 	// PWA assets.
 	mux.HandleFunc("/dashboard/manifest.json", handlePWAManifest)
@@ -522,6 +523,8 @@ func startHTTPServer(s *Server) *http.Server {
 	mux.HandleFunc("/dashboard/icon.svg", handlePWAIcon)
 
 	// Dashboard.
+	mux.HandleFunc("/dashboard/office-bg.webp", handleOfficeBg)
+	mux.HandleFunc("/dashboard/sprites/", handleSprite)
 	mux.HandleFunc("/dashboard", handleDashboard)
 
 	// Middleware chain: recovery → trace → body size → rate limit → dashboard auth → IP allowlist → API auth → mux

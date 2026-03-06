@@ -201,6 +201,13 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 			if worker.State != state {
 				worker.State = state
 				worker.LastChanged = time.Now()
+				// Publish state change via SSE.
+				if p.supervisor != nil && p.supervisor.broker != nil {
+					p.supervisor.broker.Publish(SSEDashboardKey, SSEEvent{
+						Type: SSEWorkerUpdate,
+						Data: map[string]string{"action": "state_changed", "name": tmuxName, "state": state.String()},
+					})
+				}
 			}
 
 			switch state {

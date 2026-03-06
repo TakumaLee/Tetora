@@ -181,7 +181,20 @@ func cmdDoctor() {
 		check(true, "ffmpeg", "available")
 	}
 
-	// 13. sqlite3
+	// 13. tmux (required for claude-tmux / codex-tmux providers)
+	if _, err := exec.LookPath("tmux"); err != nil {
+		if hasTmuxProvider(cfg) {
+			check(false, "tmux", "not found — required by tmux provider")
+			ok = false
+		} else {
+			suggestions = append(suggestions, "Install tmux for terminal worker support: brew install tmux")
+		}
+	} else {
+		out, _ := exec.Command("tmux", "-V").CombinedOutput()
+		check(true, "tmux", strings.TrimSpace(string(out)))
+	}
+
+	// 14. sqlite3
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		check(false, "sqlite3", "not found — required for DB operations")
 		ok = false
@@ -189,14 +202,14 @@ func cmdDoctor() {
 		check(true, "sqlite3", "available")
 	}
 
-	// 14. Security scan tool
+	// 15. Security scan tool
 	if _, err := exec.LookPath("npx"); err == nil {
 		suggestions = append(suggestions, "Security: run 'npx @nexylore/sentori scan .' for security audit")
 	} else {
 		suggestions = append(suggestions, "Install Node.js for security scanning with Sentori: npx @nexylore/sentori scan .")
 	}
 
-	// 15. New directory structure check
+	// 16. New directory structure check
 	if _, err := os.Stat(filepath.Join(cfg.AgentsDir)); err == nil {
 		agentEntries, _ := os.ReadDir(cfg.AgentsDir)
 		check(true, "Agents Dir", fmt.Sprintf("%s (%d agents)", cfg.AgentsDir, len(agentEntries)))
