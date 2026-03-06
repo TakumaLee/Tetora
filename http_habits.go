@@ -11,8 +11,8 @@ func (s *Server) registerHabitsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/habits", s.handleHabits)
 	mux.HandleFunc("/api/habits/log", s.handleHabitsLog)
 	mux.HandleFunc("/api/habits/report", s.handleHabitsReport)
-	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/health/summary", s.handleHealthSummary)
+	mux.HandleFunc("/api/wellness", s.handleHealth)
+	mux.HandleFunc("/api/wellness/summary", s.handleHealthSummary)
 }
 
 // handleHabits handles listing and creating habits.

@@ -255,8 +255,16 @@ func main() {
 				logWarn("tmux auto-install failed", "error", err)
 				degradedServices = append(degradedServices, "tmux")
 			}
-			// Kill orphaned tmux sessions from previous daemon run.
-			tmuxSup.cleanupOrphanedSessions()
+			// Clean up orphaned tmux sessions from previous daemon run.
+			// Keep one idle session for reuse if any provider has keepSessions.
+			keepOne := false
+			for _, pc := range cfg.Providers {
+				if pc.TmuxKeepSessions {
+					keepOne = true
+					break
+				}
+			}
+			tmuxSup.cleanupOrphanedSessions(keepOne, &claudeTmuxProfile{})
 		}
 
 		// Init history DB.

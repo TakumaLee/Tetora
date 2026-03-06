@@ -180,28 +180,32 @@
 
 ---
 
-## Phase 4: Advanced Polish
+## Phase 4: Advanced Polish ✅
 
-> 加分項，非必要但加了會很好
+> 加分項 — 全部完成 (2026-03-06)
 
-### 4.1 Agent Interaction
-- 點擊 pixel office 中的 agent → 彈出 info modal（current task, cost, uptime）
-- 右鍵 → context menu（dispatch task, view sessions, view SOUL）
+### 4.1 Agent Interaction ✅
+- [x] 點擊 pixel office 中的 agent → 彈出 info modal（name, status, model, description）
+- [ ] 右鍵 → context menu（dispatch task, view sessions, view SOUL）— deferred
 
-### 4.2 Office Customization
-- 用戶可拖動辦公室物件（純裝飾）
-- 自訂 agent 外觀（color palette per character）
-- 季節性裝飾（聖誕節、萬聖節 sprite swap）
+### 4.2 Office Customization ✅
+- [x] 用戶可拖動辦公室物件（10 types: plant, bookshelf, lamp, poster, clock, cactus, monitor, cat, coffee, rug）
+- [x] Edit mode toggle + palette toolbar + right-click delete
+- [x] localStorage persistence
+- [ ] 自訂 agent 外觀（color palette per character）— deferred
+- [ ] 季節性裝飾（聖誕節、萬聖節 sprite swap）— deferred
 
-### 4.3 Sound Effects（opt-in）
-- Task complete → 8-bit jingle
-- Error → fail sound
-- New task → coin collect sound
-- 音效用 Web Audio API 合成，不需音檔
+### 4.3 Sound Effects ✅
+- [x] Task complete → 8-bit jingle (Web Audio API synth)
+- [x] Error → fail sound
+- [x] New task → coin collect sound
+- [x] Agent select → select sound
+- [x] Opt-in toggle in Settings
 
-### 4.4 Mini-map
-- Sidebar 小地圖顯示所有 agent 當前位置
-- 點擊 mini-map → 主 canvas 聚焦該 agent
+### 4.4 Mini-map ✅
+- [x] 120x40 canvas in toggle bar, room outlines + colored agent dots
+- [x] Pulse animation for working agents
+- [x] 點擊 mini-map → office opens + agent flashes (1.5s white ring)
 
 ---
 
@@ -237,13 +241,13 @@ Phase 4 (Advanced)           — 依賴 Phase 2
 
 ## Version Mapping
 
-> 與 `tasks/todo.md` 同步，更新於 2026-03-05。
+> 與 `tasks/todo.md` 同步，更新於 2026-03-06。
 
-| Version | Content |
-|---|---|
-| **v1.9** | Phase 1 (CSS Reskin) + Phase 2 (Pixel Office Scene) |
-| **v1.10** | Phase 3 (Dashboard Features — search, themes, health, notifications, memory browser) |
-| **v2.0** | Phase 4 (Advanced UI) + Agent 隔離執行環境（Terminal Bridge + CLI Provider，合併 milestone） |
+| Version | Content | Status |
+|---|---|---|
+| **v1.9** | Phase 1 (CSS Reskin) + Phase 2 (Pixel Office Scene) | ✅ |
+| **v1.10** | Phase 3 (Dashboard Features — search, themes, health, notifications, memory browser) | ✅ |
+| **v2.0** | Phase 4 (Advanced UI) + Agent 隔離執行環境（Terminal Bridge + CLI Provider） | ✅ |
 
 ---
 

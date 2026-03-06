@@ -106,13 +106,13 @@ func (s *tmuxSupervisor) getWorker(name string) *tmuxWorker {
 	return s.workers[name]
 }
 
-// cleanupOrphanedSessions kills all tetora-worker-* tmux sessions left over
-// from a previous daemon run. These sessions have no dispatch context (no
-// task ID, no reply channel) so they can't return results. Keeping them
-// wastes resources and confuses the dashboard.
-func (s *tmuxSupervisor) cleanupOrphanedSessions() {
+// cleanupOrphanedSessions handles tetora-worker-* tmux sessions left over
+// from a previous daemon run. If keepSessions is true, it keeps ONE idle
+// session alive for reuse and kills the rest. Otherwise kills all.
+func (s *tmuxSupervisor) cleanupOrphanedSessions(keepOne bool, profile tmuxCLIProfile) {
 	sessions := tmuxListSessions()
 	cleaned := 0
+	kept := false
 	for _, name := range sessions {
 		if !strings.HasPrefix(name, "tetora-worker-") {
 			continue
@@ -120,6 +120,26 @@ func (s *tmuxSupervisor) cleanupOrphanedSessions() {
 		if s.getWorker(name) != nil {
 			continue // actively managed by current daemon
 		}
+
+		// Keep one idle session for reuse if requested.
+		if keepOne && !kept && profile != nil {
+			if capture, err := tmuxCapture(name); err == nil {
+				if profile.DetectState(capture) == tmuxStateWaiting {
+					// Re-register this session as idle for reuse.
+					w := &tmuxWorker{
+						TmuxName:    name,
+						State:       tmuxStateWaiting,
+						CreatedAt:   time.Now(),
+						LastChanged: time.Now(),
+					}
+					s.register(name, w)
+					kept = true
+					logInfo("keeping idle tmux session for reuse", "tmux", name)
+					continue
+				}
+			}
+		}
+
 		tmuxKill(name)
 		cleaned++
 	}

@@ -30,43 +30,17 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 	pollInterval := parseDurationOr(p.provCfg.TmuxPollInterval, 2*time.Second)
 	approvalTimeout := parseDurationOr(p.provCfg.TmuxApprovalTimeout, 5*time.Minute)
 
-	// Generate unique tmux session name.
-	taskShort := req.SessionID
-	if len(taskShort) > 8 {
-		taskShort = taskShort[:8]
-	}
-	if taskShort == "" {
-		taskShort = fmt.Sprintf("%d", time.Now().UnixNano()%100000000)
-	}
-	tmuxName := "tetora-worker-" + taskShort
-
-	// Build the CLI command via profile.
-	command := p.profile.BuildCommand(p.binaryPath, req)
-
-	// Step 1: Create tmux session.
 	workdir := req.Workdir
 	if workdir == "" {
 		workdir = p.cfg.DefaultWorkdir
 	}
-	if err := tmuxCreate(tmuxName, cols, rows, command, workdir); err != nil {
-		return nil, fmt.Errorf("tmux create: %w", err)
+
+	// Try to reuse an existing idle session (keepSessions mode).
+	tmuxName, worker, reused := p.findOrCreateSession(ctx, req, cols, rows, workdir)
+	if tmuxName == "" {
+		return nil, fmt.Errorf("tmux session setup failed")
 	}
 
-	// Register worker in supervisor.
-	promptPreview := req.Prompt
-	if len(promptPreview) > 200 {
-		promptPreview = promptPreview[:200]
-	}
-	worker := &tmuxWorker{
-		TmuxName:    tmuxName,
-		TaskID:      req.SessionID,
-		Agent:       "", // caller can set via supervisor after Execute returns
-		Prompt:      promptPreview,
-		Workdir:     workdir,
-		State:       tmuxStateStarting,
-		CreatedAt:   time.Now(),
-		LastChanged: time.Now(),
-	}
 	if p.supervisor != nil {
 		p.supervisor.register(tmuxName, worker)
 		defer func() {
@@ -83,12 +57,14 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 		}
 	}()
 
-	// Step 2: Wait for CLI tool to become ready (input prompt).
-	if err := p.waitForReady(ctx, tmuxName, 60*time.Second); err != nil {
-		return errResult("%s startup failed: %v", p.Name(), err), nil
+	// Wait for CLI tool to become ready (skip if reusing idle session).
+	if !reused {
+		if err := p.waitForReady(ctx, tmuxName, 60*time.Second); err != nil {
+			return errResult("%s startup failed: %v", p.Name(), err), nil
+		}
 	}
 
-	// Step 3: Send prompt.
+	// Send prompt.
 	if err := p.sendPrompt(tmuxName, req.Prompt); err != nil {
 		return errResult("send prompt: %v", err), nil
 	}
@@ -97,10 +73,16 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 	worker.State = tmuxStateWorking
 	worker.LastChanged = time.Now()
 
-	// Step 4: Poll until done.
+	// Poll until done.
 	output, err := p.pollUntilDone(ctx, tmuxName, worker, pollInterval, approvalTimeout)
 	if err != nil {
 		return errResult("poll: %v", err), nil
+	}
+
+	// If keepSessions, mark worker as idle for reuse (not "done").
+	if p.provCfg.TmuxKeepSessions {
+		worker.State = tmuxStateWaiting
+		worker.LastChanged = time.Now()
 	}
 
 	elapsed := time.Since(start)
@@ -109,6 +91,60 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 		DurationMs: elapsed.Milliseconds(),
 		Provider:   p.Name(),
 	}, nil
+}
+
+// findOrCreateSession tries to reuse an existing idle tmux session (when keepSessions
+// is enabled) or creates a new one. Returns the tmux session name, worker info, and
+// whether an existing session was reused.
+func (p *TmuxProvider) findOrCreateSession(ctx context.Context, req ProviderRequest, cols, rows int, workdir string) (string, *tmuxWorker, bool) {
+	promptPreview := req.Prompt
+	if len(promptPreview) > 200 {
+		promptPreview = promptPreview[:200]
+	}
+
+	// Try reuse: find an existing idle session managed by the supervisor.
+	if p.provCfg.TmuxKeepSessions && p.supervisor != nil {
+		for _, w := range p.supervisor.listWorkers() {
+			if w.State == tmuxStateWaiting && tmuxHasSession(w.TmuxName) {
+				// Verify it's actually at the prompt.
+				if capture, err := tmuxCapture(w.TmuxName); err == nil {
+					if p.profile.DetectState(capture) == tmuxStateWaiting {
+						w.TaskID = req.SessionID
+						w.Prompt = promptPreview
+						w.LastChanged = time.Now()
+						return w.TmuxName, w, true
+					}
+				}
+			}
+		}
+	}
+
+	// Create new session.
+	taskShort := req.SessionID
+	if len(taskShort) > 8 {
+		taskShort = taskShort[:8]
+	}
+	if taskShort == "" {
+		taskShort = fmt.Sprintf("%d", time.Now().UnixNano()%100000000)
+	}
+	tmuxName := "tetora-worker-" + taskShort
+
+	command := p.profile.BuildCommand(p.binaryPath, req)
+	if err := tmuxCreate(tmuxName, cols, rows, command, workdir); err != nil {
+		logWarn("tmux create failed", "error", err, "name", tmuxName)
+		return "", nil, false
+	}
+
+	worker := &tmuxWorker{
+		TmuxName:    tmuxName,
+		TaskID:      req.SessionID,
+		Prompt:      promptPreview,
+		Workdir:     workdir,
+		State:       tmuxStateStarting,
+		CreatedAt:   time.Now(),
+		LastChanged: time.Now(),
+	}
+	return tmuxName, worker, false
 }
 
 // waitForReady polls the tmux session until the CLI tool shows its input prompt.

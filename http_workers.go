@@ -157,19 +157,21 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 						raw["providers"] = providers
 					}
 					providers["claude-tmux"] = map[string]any{
-						"type": "claude-tmux",
-						"path": claudePath,
+						"type":             "claude-tmux",
+						"path":             claudePath,
+						"tmuxKeepSessions": true,
 					}
 				})
 				if cfg.Providers == nil {
 					cfg.Providers = make(map[string]ProviderConfig)
 				}
-				cfg.Providers["claude-tmux"] = ProviderConfig{Type: "claude-tmux", Path: claudePath}
+				provCfg := ProviderConfig{Type: "claude-tmux", Path: claudePath, TmuxKeepSessions: true}
+				cfg.Providers["claude-tmux"] = provCfg
 				if cfg.registry != nil {
 					cfg.registry.register("claude-tmux", &TmuxProvider{
 						binaryPath: claudePath,
 						cfg:        cfg,
-						provCfg:    ProviderConfig{Type: "claude-tmux", Path: claudePath},
+						provCfg:    provCfg,
 						supervisor: cfg.tmuxSupervisor,
 						profile:    &claudeTmuxProfile{},
 					})
