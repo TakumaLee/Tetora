@@ -77,6 +77,15 @@ func newTerminalBridge(bot *DiscordBot, cfg DiscordTerminalConfig) *terminalBrid
 
 // --- tmux Primitives ---
 
+// tmuxBin returns the tmux binary path, resolving via findBinary for
+// environments with minimal PATH (e.g. launchd on macOS).
+func tmuxBin() string {
+	if p := findBinary("tmux"); p != "" {
+		return p
+	}
+	return "tmux" // fallback to PATH
+}
+
 // tmuxCreate creates a new tmux session with the given dimensions and command.
 func tmuxCreate(name string, cols, rows int, command, workdir string) error {
 	args := []string{
@@ -88,7 +97,7 @@ func tmuxCreate(name string, cols, rows int, command, workdir string) error {
 	if command != "" {
 		args = append(args, command)
 	}
-	cmd := exec.Command("tmux", args...)
+	cmd := exec.Command(tmuxBin(), args...)
 	if workdir != "" {
 		cmd.Dir = workdir
 	}
@@ -112,7 +121,7 @@ func tmuxCreate(name string, cols, rows int, command, workdir string) error {
 
 // tmuxCapture captures the current visible content of a tmux pane (clean text, no ANSI).
 func tmuxCapture(name string) (string, error) {
-	cmd := exec.Command("tmux", "capture-pane", "-t", name, "-p")
+	cmd := exec.Command(tmuxBin(), "capture-pane", "-t", name, "-p")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux capture-pane: %w", err)
@@ -123,7 +132,7 @@ func tmuxCapture(name string) (string, error) {
 // tmuxSendKeys sends key names (Up, Down, Enter, etc.) to a tmux session.
 func tmuxSendKeys(name string, keys ...string) error {
 	args := append([]string{"send-keys", "-t", name}, keys...)
-	cmd := exec.Command("tmux", args...)
+	cmd := exec.Command(tmuxBin(), args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux send-keys: %w: %s", err, string(out))
@@ -133,7 +142,7 @@ func tmuxSendKeys(name string, keys ...string) error {
 
 // tmuxSendText sends literal text to a tmux session (uses -l flag to prevent key name interpretation).
 func tmuxSendText(name string, text string) error {
-	cmd := exec.Command("tmux", "send-keys", "-t", name, "-l", text)
+	cmd := exec.Command(tmuxBin(), "send-keys", "-t", name, "-l", text)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux send-keys -l: %w: %s", err, string(out))
@@ -143,7 +152,7 @@ func tmuxSendText(name string, text string) error {
 
 // tmuxKill kills a tmux session.
 func tmuxKill(name string) error {
-	cmd := exec.Command("tmux", "kill-session", "-t", name)
+	cmd := exec.Command(tmuxBin(), "kill-session", "-t", name)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux kill-session: %w: %s", err, string(out))
@@ -153,13 +162,13 @@ func tmuxKill(name string) error {
 
 // tmuxHasSession checks if a tmux session exists.
 func tmuxHasSession(name string) bool {
-	cmd := exec.Command("tmux", "has-session", "-t", name)
+	cmd := exec.Command(tmuxBin(), "has-session", "-t", name)
 	return cmd.Run() == nil
 }
 
 // tmuxCaptureHistory captures the full scrollback history of a tmux pane (not just visible area).
 func tmuxCaptureHistory(name string) (string, error) {
-	cmd := exec.Command("tmux", "capture-pane", "-t", name, "-p", "-S", "-")
+	cmd := exec.Command(tmuxBin(), "capture-pane", "-t", name, "-p", "-S", "-")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux capture-pane history: %w", err)
@@ -184,13 +193,13 @@ func tmuxLoadAndPaste(name, text string) error {
 	f.Close()
 
 	// Load into tmux buffer.
-	cmd := exec.Command("tmux", "load-buffer", tmpPath)
+	cmd := exec.Command(tmuxBin(), "load-buffer", tmpPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux load-buffer: %w: %s", err, string(out))
 	}
 
 	// Paste into the target pane.
-	cmd = exec.Command("tmux", "paste-buffer", "-t", name)
+	cmd = exec.Command(tmuxBin(), "paste-buffer", "-t", name)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux paste-buffer: %w: %s", err, string(out))
 	}
