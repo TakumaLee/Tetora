@@ -45,7 +45,10 @@ func (p *claudeTmuxProfile) BuildCommand(binaryPath string, req ProviderRequest)
 		args = append(args, "--mcp-config", req.MCPPath)
 	}
 
-	return binaryPath + " " + strings.Join(args, " ")
+	// Unset Claude Code session env vars to prevent nested-session detection.
+	// tmux server may have inherited these from the parent process, so cmd.Env
+	// filtering on tmux itself is not enough — we must clear them in the shell.
+	return "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_TEAM_MODE " + binaryPath + " " + strings.Join(args, " ")
 }
 
 func (p *claudeTmuxProfile) DetectState(capture string) tmuxScreenState {
@@ -75,8 +78,13 @@ func (p *claudeTmuxProfile) DetectState(capture string) tmuxScreenState {
 	}
 
 	// Waiting detection: Claude Code input prompt.
+	// Claude Code uses "❯" (U+276F) as the prompt character, or "> " in older versions.
+	trimmedLast := strings.TrimSpace(lastLine)
 	waitingPatterns := []string{
 		"> ", "what would you like", "how can i help",
+	}
+	if trimmedLast == "❯" || strings.HasPrefix(trimmedLast, "❯ ") {
+		return tmuxStateWaiting
 	}
 	for _, pat := range waitingPatterns {
 		if strings.Contains(strings.ToLower(lastLine), pat) {
