@@ -109,6 +109,8 @@ func (s *tmuxSupervisor) getWorker(name string) *tmuxWorker {
 // recoverWorkers scans for existing tetora-worker-* tmux sessions and
 // re-registers them in the supervisor. This handles daemon restarts where
 // tmux sessions survive but the in-memory supervisor state is lost.
+// If a session is detected as "waiting" with text in the prompt (i.e. the
+// daemon died between paste and Enter), it sends Enter to resume.
 func (s *tmuxSupervisor) recoverWorkers(profile tmuxCLIProfile) {
 	sessions := tmuxListSessions()
 	recovered := 0
@@ -121,9 +123,20 @@ func (s *tmuxSupervisor) recoverWorkers(profile tmuxCLIProfile) {
 		}
 		// Detect current state from capture.
 		state := tmuxStateUnknown
-		if capture, err := tmuxCapture(name); err == nil && profile != nil {
-			state = profile.DetectState(capture)
+		var capture string
+		if c, err := tmuxCapture(name); err == nil && profile != nil {
+			capture = c
+			state = profile.DetectState(c)
 		}
+
+		// If "waiting" with text on prompt line, the daemon likely died
+		// between paste and Enter. Send Enter to resume the stuck prompt.
+		if state == tmuxStateWaiting && hasPromptText(capture) {
+			logInfo("recovered worker has stuck prompt, sending Enter", "tmux", name)
+			tmuxSendKeys(name, "Enter")
+			state = tmuxStateWorking
+		}
+
 		w := &tmuxWorker{
 			TmuxName:    name,
 			State:       state,
@@ -136,6 +149,24 @@ func (s *tmuxSupervisor) recoverWorkers(profile tmuxCLIProfile) {
 	if recovered > 0 {
 		logInfo("recovered orphaned tmux workers", "count", recovered)
 	}
+}
+
+// hasPromptText checks if the capture has text after the ❯ prompt character,
+// indicating a prompt was typed/pasted but not submitted.
+func hasPromptText(capture string) bool {
+	for _, line := range strings.Split(capture, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Has ❯ followed by non-whitespace content (regular space, NBSP, or tab).
+		if strings.HasPrefix(trimmed, "❯") && len(trimmed) > len("❯") {
+			after := trimmed[len("❯"):]
+			after = strings.TrimSpace(after)
+			after = strings.ReplaceAll(after, "\u00a0", "")
+			if after != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isShellPrompt checks if a line looks like a shell prompt ($ or % at the end).
