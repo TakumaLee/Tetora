@@ -484,51 +484,139 @@ func (p *TmuxProvider) requestApproval(ctx context.Context, tmuxName, capture st
 	customApprove := "tmux_approve:" + tmuxName
 	customReject := "tmux_reject:" + tmuxName
 
-	// Build approval message.
-	text := fmt.Sprintf("**Worker Approval Needed**\n\nWorker: `%s`\nTask: `%s`\n```\n%s\n```",
-		tmuxName, worker.TaskID, renderTerminalScreen(approvalContext, 1500))
-
-	components := []discordComponent{{
-		Type: componentTypeActionRow,
-		Components: []discordComponent{
-			{Type: componentTypeButton, Style: buttonStyleSuccess, Label: "Approve", CustomID: customApprove},
-			{Type: componentTypeButton, Style: buttonStyleDanger, Label: "Reject", CustomID: customReject},
-		},
-	}}
-
 	ch := bot.notifyChannelID()
 	if ch == "" {
 		logWarn("no notify channel for tmux approval", "tmux", tmuxName)
 		return false
 	}
 
-	// Register callbacks.
-	bot.interactions.register(&pendingInteraction{
-		CustomID:  customApprove,
-		CreatedAt: time.Now(),
-		Callback: func(data discordInteractionData) {
-			select {
-			case approvalCh <- true:
-			default:
-			}
-		},
-	})
-	bot.interactions.register(&pendingInteraction{
-		CustomID:  customReject,
-		CreatedAt: time.Now(),
-		Callback: func(data discordInteractionData) {
-			select {
-			case approvalCh <- false:
-			default:
-			}
-		},
-	})
-	defer func() {
-		bot.interactions.remove(customApprove)
-		bot.interactions.remove(customReject)
-	}()
+	// Check if this is a plan mode review (hook-detected ExitPlanMode).
+	isPlanReview := false
+	var cachedPlanData *cachedPlan
+	if hookRecv := p.cfg.hookRecv; hookRecv != nil {
+		// Try to find plan by session ID (from worker).
+		if worker.TaskID != "" {
+			cachedPlanData = hookRecv.GetCachedPlan(worker.TaskID)
+		}
+	}
+	// Also detect plan mode from capture content.
+	if cachedPlanData == nil {
+		isPlanReview = isPlanModeCapture(approvalContext)
+	} else {
+		isPlanReview = cachedPlanData.ReadyForReview
+	}
 
-	bot.sendMessageWithComponents(ch, text, components)
+	if isPlanReview && cachedPlanData != nil && cachedPlanData.Content != "" {
+		// Rich plan review with embed.
+		reviewID := fmt.Sprintf("pr-%s-%d", truncate(worker.TaskID, 8), time.Now().Unix())
+		review := &PlanReview{
+			ID:         reviewID,
+			SessionID:  worker.TaskID,
+			WorkerName: tmuxName,
+			Agent:      worker.Agent,
+			PlanText:   cachedPlanData.Content,
+			CreatedAt:  time.Now().Format(time.RFC3339),
+		}
+
+		// Store in DB for dashboard.
+		if p.cfg.HistoryDB != "" {
+			if err := insertPlanReview(p.cfg.HistoryDB, review); err != nil {
+				logWarn("failed to insert plan review", "error", err)
+			}
+		}
+
+		// Build rich Discord embed.
+		embed := buildPlanReviewEmbed(review)
+		components := buildPlanReviewComponents(reviewID)
+
+		// Override component custom IDs to route back to our approval channel.
+		components = []discordComponent{
+			discordActionRow(
+				discordButton(customApprove, "Approve Plan", buttonStyleSuccess),
+				discordButton(customReject, "Reject Plan", buttonStyleDanger),
+			),
+		}
+
+		logInfo("sending plan review to Discord", "reviewId", reviewID, "worker", tmuxName)
+
+		// Register callbacks.
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  customApprove,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				// Mark review as approved in DB.
+				if p.cfg.HistoryDB != "" {
+					updatePlanReviewStatus(p.cfg.HistoryDB, reviewID, "approved", "discord", "")
+				}
+				select {
+				case approvalCh <- true:
+				default:
+				}
+			},
+		})
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  customReject,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				if p.cfg.HistoryDB != "" {
+					updatePlanReviewStatus(p.cfg.HistoryDB, reviewID, "rejected", "discord", "")
+				}
+				select {
+				case approvalCh <- false:
+				default:
+				}
+			},
+		})
+		defer func() {
+			bot.interactions.remove(customApprove)
+			bot.interactions.remove(customReject)
+			// Clear cached plan after review.
+			if hookRecv := p.cfg.hookRecv; hookRecv != nil {
+				hookRecv.ClearPlanCache(worker.TaskID)
+			}
+		}()
+
+		bot.sendEmbedWithComponents(ch, embed, components)
+	} else {
+		// Standard approval message (non-plan).
+		text := fmt.Sprintf("**Worker Approval Needed**\n\nWorker: `%s`\nTask: `%s`\n```\n%s\n```",
+			tmuxName, worker.TaskID, renderTerminalScreen(approvalContext, 1500))
+
+		components := []discordComponent{
+			discordActionRow(
+				discordButton(customApprove, "Approve", buttonStyleSuccess),
+				discordButton(customReject, "Reject", buttonStyleDanger),
+			),
+		}
+
+		// Register callbacks.
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  customApprove,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				select {
+				case approvalCh <- true:
+				default:
+				}
+			},
+		})
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  customReject,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				select {
+				case approvalCh <- false:
+				default:
+				}
+			},
+		})
+		defer func() {
+			bot.interactions.remove(customApprove)
+			bot.interactions.remove(customReject)
+		}()
+
+		bot.sendMessageWithComponents(ch, text, components)
+	}
 
 	// Wait for response.
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -1014,4 +1102,17 @@ func parseDurationOr(s string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// isPlanModeCapture checks if a tmux capture looks like a plan mode approval.
+// This is a heuristic fallback when hooks haven't detected the plan.
+func isPlanModeCapture(capture string) bool {
+	lower := strings.ToLower(capture)
+	planKeywords := []string{"plan mode", "exitplanmode", "implementation plan", "approve this plan"}
+	for _, kw := range planKeywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }

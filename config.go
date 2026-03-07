@@ -149,6 +149,7 @@ type Config struct {
 	slotPressureGuard *SlotPressureGuard
 	discordBot        *DiscordBot
 	tmuxSupervisor    *tmuxSupervisor
+	hookRecv          *hookReceiver
 }
 
 // UnmarshalJSON implements backward compat: accepts both "roles" and "agents" keys.

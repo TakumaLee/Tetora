@@ -517,6 +517,7 @@ func startHTTPServer(s *Server) *http.Server {
 	s.registerDiscordRoutes(mux)
 	s.registerWorkersRoutes(mux)
 	s.registerHookRoutes(mux)
+	s.registerPlanReviewRoutes(mux)
 
 	// PWA assets.
 	mux.HandleFunc("/dashboard/manifest.json", handlePWAManifest)

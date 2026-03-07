@@ -246,6 +246,7 @@ func main() {
 
 	// Initialize hooks event receiver.
 	hookRecv := newHookReceiver(state.broker, tmuxSup, cfg)
+	cfg.hookRecv = hookRecv
 
 	// Signal handling.
 	sigCh := make(chan os.Signal, 1)
@@ -283,6 +284,11 @@ func main() {
 				degradedServices = append(degradedServices, "historyDB")
 			} else {
 				logInfo("history db initialized", "path", cfg.HistoryDB)
+
+				// Init plan reviews table.
+				if err := initPlanReviewDB(cfg.HistoryDB); err != nil {
+					logWarn("init plan_reviews table failed", "error", err)
+				}
 
 				// Set SQLite pragmas for reliability.
 				if err := pragmaDB(cfg.HistoryDB); err != nil {
