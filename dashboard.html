@@ -1928,7 +1928,26 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <span class="section-meta" id="tv-state-inline"></span>
       <button class="btn" onclick="closeTerminalViewer()" style="margin-left:auto;font-size:12px;padding:3px 10px">Close</button>
     </div>
+    <div id="tv-subagents-inline" style="display:none;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:6px"></div>
     <pre id="tv-output-inline" style="background:#0a0a0f;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:'SF Mono','Fira Code','VT323',monospace;font-size:13px;line-height:1.4;color:#e0e0e0;overflow:auto;max-height:500px;white-space:pre;tab-size:8"></pre>
+    <div id="tv-question-inline" style="display:none;margin-top:8px;padding:10px;background:rgba(234,179,8,0.08);border:1px solid var(--yellow);border-radius:8px">
+      <div id="tv-question-text" style="font-size:13px;color:var(--yellow);margin-bottom:8px;font-weight:600"></div>
+      <div id="tv-question-options" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    </div>
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+      <button class="btn" onclick="sendWorkerKey('Y')" style="padding:4px 10px;font-size:12px;min-width:32px">Y</button>
+      <button class="btn" onclick="sendWorkerKey('N')" style="padding:4px 10px;font-size:12px;min-width:32px">N</button>
+      <button class="btn" onclick="sendWorkerKey('Enter')" style="padding:4px 10px;font-size:12px;min-width:32px">Enter</button>
+      <button class="btn" onclick="sendWorkerKey('Up')" style="padding:4px 10px;font-size:12px;min-width:32px">&uarr;</button>
+      <button class="btn" onclick="sendWorkerKey('Down')" style="padding:4px 10px;font-size:12px;min-width:32px">&darr;</button>
+      <button class="btn" onclick="sendWorkerKey('Tab')" style="padding:4px 10px;font-size:12px;min-width:32px">Tab</button>
+      <button class="btn" onclick="sendWorkerKey('Escape')" style="padding:4px 10px;font-size:12px;min-width:32px">Esc</button>
+      <button class="btn" onclick="sendWorkerKey('Space')" style="padding:4px 10px;font-size:12px;min-width:32px">Space</button>
+      <button class="btn" onclick="sendWorkerKey('C-c')" style="padding:4px 10px;font-size:12px;min-width:32px;color:var(--red)">Ctrl+C</button>
+      <span style="width:1px;height:20px;background:var(--border);margin:0 4px"></span>
+      <input id="tv-text-input" type="text" placeholder="Type text..." onkeydown="if(event.key==='Enter'&&!event.isComposing)sendWorkerText()" style="flex:1;min-width:120px;padding:4px 10px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none">
+      <button class="btn" onclick="sendWorkerText()" style="padding:4px 12px;font-size:12px">Send</button>
+    </div>
   </div>
 
   <!-- Running Tasks -->
@@ -2400,6 +2419,22 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <div class="section">
         <div class="section-header"><span class="section-title">Integrations</span></div>
         <div id="settings-integrations"></div>
+      </div>
+      <!-- Discord -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Discord</span></div>
+        <div style="padding:8px 0">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <label class="toggle" style="margin:0">
+              <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
+              <span class="slider"></span>
+            </label>
+            Show streaming progress
+          </label>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
+            Display live "Working..." updates in Discord while tasks are running
+          </div>
+        </div>
       </div>
       <!-- Tools -->
       <div class="section">
@@ -9403,6 +9438,7 @@ function refreshSettings() {
       renderSettingsSecurity(data.security || {});
       renderSettingsTaskBoard(data.taskBoard || {});
       refreshNotificationsTable();
+      refreshDiscordSettings();
     })
     .catch(function(e) {
       document.getElementById('settings-loading').innerHTML = '<span style="color:var(--red)">Failed to load: ' + e + '</span>';
@@ -9508,6 +9544,32 @@ function toggleConfigKey(key, value) {
     } else {
       alert('Error: ' + (data.error || 'unknown'));
     }
+  })
+  .catch(function(e) { alert('Error: ' + e); });
+}
+
+// --- Discord Settings ---
+
+function refreshDiscordSettings() {
+  fetch('/api/settings/discord')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var cb = document.getElementById('discord-show-progress');
+      if (cb) cb.checked = !!data.showProgress;
+    })
+    .catch(function() {});
+}
+
+function toggleDiscordShowProgress(enabled) {
+  fetch('/api/settings/discord', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({showProgress: enabled})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var cb = document.getElementById('discord-show-progress');
+    if (cb) cb.checked = !!data.showProgress;
   })
   .catch(function(e) { alert('Error: ' + e); });
 }
@@ -9939,7 +10001,7 @@ function refreshWorkers() {
     document.getElementById('workers-count-inline').textContent = workers.length || '0';
     grid.innerHTML = '';
     workers.forEach(function(w) {
-      var stateColor = w.state === 'working' ? 'var(--green)' : w.state === 'approval' ? 'var(--yellow)' : w.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
+      var stateColor = w.state === 'working' ? 'var(--green)' : w.state === 'approval' ? 'var(--yellow)' : w.state === 'question' ? 'var(--yellow)' : w.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
       var card = document.createElement('div');
       card.className = 'pixel-panel';
       card.style.cssText = 'padding:12px;cursor:pointer';
@@ -9976,7 +10038,11 @@ function fetchTerminalCapture() {
     .then(function(d) {
       if (d.error) {
         document.getElementById('tv-output-inline').textContent = 'Error: ' + d.error;
-        closeTerminalViewer();
+        // Session ended — close viewer and refresh worker list.
+        if (d.error.indexOf('session ended') >= 0) {
+          closeTerminalViewer();
+          refreshWorkers();
+        }
         return;
       }
       var pre = document.getElementById('tv-output-inline');
@@ -9985,10 +10051,93 @@ function fetchTerminalCapture() {
       if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
       var stateEl = document.getElementById('tv-state-inline');
       stateEl.textContent = d.state || '';
-      var sc = d.state === 'working' ? 'var(--green)' : d.state === 'approval' ? 'var(--yellow)' : d.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
+      var sc = d.state === 'working' ? 'var(--green)' : (d.state === 'approval' || d.state === 'question') ? 'var(--yellow)' : d.state === 'waiting' ? 'var(--accent)' : 'var(--muted)';
       stateEl.style.color = sc;
+
+      // Question display.
+      var qEl = document.getElementById('tv-question-inline');
+      if (d.question && d.options && d.options.length > 0) {
+        qEl.style.display = '';
+        document.getElementById('tv-question-text').textContent = d.question;
+        var optEl = document.getElementById('tv-question-options');
+        optEl.innerHTML = '';
+        d.options.forEach(function(opt, idx) {
+          var btn = document.createElement('button');
+          btn.className = 'btn';
+          btn.style.cssText = 'padding:4px 12px;font-size:12px';
+          if (idx === 0) btn.style.cssText += ';border-color:var(--yellow);color:var(--yellow)';
+          btn.textContent = opt;
+          btn.onclick = function() { selectQuestionOption(idx, d.options.length); };
+          optEl.appendChild(btn);
+        });
+      } else {
+        qEl.style.display = 'none';
+      }
+
+      // Subagent badges.
+      var subEl = document.getElementById('tv-subagents-inline');
+      if (d.subagents && d.subagents.length > 0) {
+        subEl.style.display = 'flex';
+        subEl.innerHTML = '';
+        d.subagents.forEach(function(sa) {
+          var badge = document.createElement('span');
+          badge.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:6px;background:rgba(96,165,250,0.12);color:var(--accent);border:1px solid rgba(96,165,250,0.2)';
+          badge.textContent = '\u2699 Agent (' + sa.type + ')';
+          subEl.appendChild(badge);
+        });
+      } else {
+        subEl.style.display = 'none';
+      }
     })
     .catch(function(){});
+}
+
+function sendWorkerKey(key) {
+  if (!_terminalViewerName) return;
+  fetch(API + '/api/workers/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: _terminalViewerName, type: 'keys', value: key})
+  }).then(function(r){return r.json()}).then(function(d) {
+    if (d.error) console.warn('sendWorkerKey error:', d.error);
+    setTimeout(fetchTerminalCapture, 300);
+  }).catch(function(err) { console.warn('sendWorkerKey failed:', err); });
+}
+
+function sendWorkerText() {
+  if (!_terminalViewerName) return;
+  var input = document.getElementById('tv-text-input');
+  var text = input.value;
+  if (!text) return;
+  input.value = '';
+  fetch(API + '/api/workers/input', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name: _terminalViewerName, type: 'text', value: text})
+  }).then(function(r){return r.json()}).then(function(d) {
+    if (d.error) console.warn('sendWorkerText error:', d.error);
+    setTimeout(fetchTerminalCapture, 300);
+  }).catch(function(err) { console.warn('sendWorkerText failed:', err); });
+}
+
+function selectQuestionOption(idx, total) {
+  if (!_terminalViewerName) return;
+  // Navigate: Up 20 times to top, then Down to target, then Enter.
+  var keys = [];
+  for (var i = 0; i < 20; i++) keys.push('Up');
+  for (var i = 0; i < idx; i++) keys.push('Down');
+  keys.push('Enter');
+
+  function sendNext(k) {
+    if (k >= keys.length) { setTimeout(fetchTerminalCapture, 500); return; }
+    fetch(API + '/api/workers/input', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: _terminalViewerName, type: 'keys', value: keys[k]})
+    }).then(function() { setTimeout(function(){ sendNext(k+1); }, 50); })
+    .catch(function() { setTimeout(function(){ sendNext(k+1); }, 50); });
+  }
+  sendNext(0);
 }
 
 function closeTerminalViewer() {

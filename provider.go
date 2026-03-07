@@ -43,6 +43,9 @@ type ProviderRequest struct {
 	Resume         bool // use --continue to resume existing CLI session
 	PersistSession bool // don't add --no-session-persistence (channel sessions)
 
+	// AgentName is the Tetora agent name (e.g. "ruri") for worker display.
+	AgentName string
+
 	// Docker sandbox override (nil=use config default).
 	Docker *bool
 
@@ -350,6 +353,7 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 		PersistSession: task.PersistSession,
 		Docker:         docker,
 		EventCh:        eventCh,
+		AgentName:      agentName,
 	}
 
 	if task.MCP != "" {

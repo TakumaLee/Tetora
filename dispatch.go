@@ -823,6 +823,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		eventCh = make(chan SSEEvent, 128)
 		go func() {
 			for ev := range eventCh {
+				logDebug("sse forward", "type", ev.Type, "taskID", ev.TaskID, "sessionID", ev.SessionID)
 				publishToSSEBroker(task.sseBroker, ev)
 			}
 		}()
@@ -1051,7 +1052,9 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		"role", agentName, "workdir", task.Workdir)
 
 	// Discord thread-per-task notification (top-level tasks only).
-	doDiscordNotify := task.Depth == 0 && state.discordBot != nil && state.discordBot.notifier != nil
+	// Skip for Discord-sourced tmux tasks — the user already sees the response inline.
+	isDiscordTmux := strings.HasPrefix(task.Source, "discord") && strings.HasSuffix(providerName, "-tmux")
+	doDiscordNotify := task.Depth == 0 && state.discordBot != nil && state.discordBot.notifier != nil && !isDiscordTmux
 	if doDiscordNotify {
 		state.discordBot.notifier.NotifyStart(task)
 	}
@@ -1070,19 +1073,16 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	emitAgentState(state.broker, agentName, "working")
 
 	// Create event channel for provider streaming.
+	// Always create when broker exists — subscribers may join after task starts
+	// (e.g. Discord progress updater subscribes in a goroutine).
 	var eventCh chan SSEEvent
 	if state.broker != nil {
-		hasSub := state.broker.HasSubscribers(task.ID) ||
-			state.broker.HasSubscribers(task.SessionID) ||
-			state.broker.HasSubscribers(SSEDashboardKey)
-		if hasSub {
-			eventCh = make(chan SSEEvent, 128)
-			go func() {
-				for ev := range eventCh {
-					state.publishSSE(ev)
-				}
-			}()
-		}
+		eventCh = make(chan SSEEvent, 128)
+		go func() {
+			for ev := range eventCh {
+				state.publishSSE(ev)
+			}
+		}()
 	}
 
 	// Reuse complexity from tiered prompt builder for tool trimming.

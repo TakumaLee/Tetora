@@ -102,6 +102,8 @@ func tmuxCreate(name string, cols, rows int, command, workdir string) error {
 		cmd.Dir = workdir
 	}
 	// Filter out Claude Code session env vars to prevent nested-session detection.
+	// Also ensure PATH includes common tool directories (Homebrew, nvm, etc.)
+	// so that CLI tool hooks (which may need node, etc.) work correctly.
 	rawEnv := os.Environ()
 	filteredEnv := make([]string, 0, len(rawEnv))
 	for _, e := range rawEnv {
@@ -111,12 +113,66 @@ func tmuxCreate(name string, cols, rows int, command, workdir string) error {
 			filteredEnv = append(filteredEnv, e)
 		}
 	}
+	// Ensure PATH includes Homebrew and common tool paths.
+	filteredEnv = ensurePathDirs(filteredEnv,
+		"/opt/homebrew/bin", "/opt/homebrew/sbin",
+		"/usr/local/bin",
+		os.Getenv("HOME")+"/.nvm/versions/node",
+	)
 	cmd.Env = filteredEnv
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux new-session: %w: %s", err, string(out))
 	}
 	return nil
+}
+
+// ensurePathDirs adds directories to the PATH env var if they exist and aren't already present.
+func ensurePathDirs(env []string, dirs ...string) []string {
+	pathIdx := -1
+	pathVal := ""
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			pathIdx = i
+			pathVal = e[5:]
+			break
+		}
+	}
+	if pathIdx < 0 {
+		return env
+	}
+	parts := strings.Split(pathVal, ":")
+	existing := make(map[string]bool, len(parts))
+	for _, p := range parts {
+		existing[p] = true
+	}
+	for _, d := range dirs {
+		if existing[d] {
+			continue
+		}
+		// For nvm: find the latest installed node version directory.
+		if strings.Contains(d, ".nvm/versions/node") {
+			entries, err := os.ReadDir(d)
+			if err != nil {
+				continue
+			}
+			for i := len(entries) - 1; i >= 0; i-- {
+				binDir := d + "/" + entries[i].Name() + "/bin"
+				if _, err := os.Stat(binDir); err == nil && !existing[binDir] {
+					parts = append(parts, binDir)
+					existing[binDir] = true
+					break
+				}
+			}
+			continue
+		}
+		if _, err := os.Stat(d); err == nil {
+			parts = append(parts, d)
+			existing[d] = true
+		}
+	}
+	env[pathIdx] = "PATH=" + strings.Join(parts, ":")
+	return env
 }
 
 // tmuxCapture captures the current visible content of a tmux pane (clean text, no ANSI).

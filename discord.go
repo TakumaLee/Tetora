@@ -38,6 +38,7 @@ type DiscordBotConfig struct {
 	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
 	Voice            DiscordVoiceConfig          `json:"voice,omitempty"`            // P14.5: voice channel integration
 	NotifyChannelID  string                      `json:"notifyChannelID,omitempty"`  // task notification channel (thread-per-task)
+	ShowProgress     *bool                       `json:"showProgress,omitempty"`    // show live "Working..." streaming in Discord (default: true)
 	Routes           map[string]DiscordRouteConfig `json:"routes,omitempty"`           // per-channel agent routing
 	Terminal         DiscordTerminalConfig          `json:"terminal,omitempty"`          // terminal bridge
 }
@@ -696,7 +697,114 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 		if json.Unmarshal(payload.D, &vsuData) == nil {
 			db.voice.handleVoiceServerUpdate(vsuData)
 		}
+	case "INTERACTION_CREATE":
+		// Handle button clicks and component interactions via Gateway.
+		var interaction discordInteraction
+		if json.Unmarshal(payload.D, &interaction) == nil {
+			go db.handleGatewayInteraction(&interaction)
+		}
 	}
+}
+
+// handleGatewayInteraction processes Discord interactions received via the Gateway
+// (as opposed to the HTTP webhook endpoint). Responds via REST API callback.
+func (db *DiscordBot) handleGatewayInteraction(interaction *discordInteraction) {
+	ctx := withTraceID(context.Background(), newTraceID("discord-interaction"))
+
+	switch interaction.Type {
+	case interactionTypePing:
+		db.respondToInteraction(interaction, discordInteractionResponse{Type: interactionResponsePong})
+
+	case interactionTypeMessageComponent:
+		resp := db.handleGatewayComponent(ctx, interaction)
+		db.respondToInteraction(interaction, resp)
+
+	case interactionTypeModalSubmit:
+		resp := db.handleGatewayModal(ctx, interaction)
+		db.respondToInteraction(interaction, resp)
+	}
+}
+
+// handleGatewayComponent routes button clicks received via Gateway.
+func (db *DiscordBot) handleGatewayComponent(ctx context.Context, interaction *discordInteraction) discordInteractionResponse {
+	var data discordInteractionData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		logWarnCtx(ctx, "discord gateway component: invalid data", "error", err)
+		return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
+	}
+
+	userID := interactionUserID(interaction)
+	logInfoCtx(ctx, "discord gateway component interaction",
+		"customID", data.CustomID, "userID", userID)
+
+	// Check registered interaction callbacks.
+	if db.interactions != nil {
+		if pi := db.interactions.lookup(data.CustomID); pi != nil {
+			if len(pi.AllowedIDs) > 0 && !sliceContainsStr(pi.AllowedIDs, userID) {
+				return discordInteractionResponse{
+					Type: interactionResponseMessage,
+					Data: &discordInteractionResponseData{
+						Content: "You are not allowed to use this component.",
+						Flags:   64,
+					},
+				}
+			}
+			if pi.Callback != nil {
+				go pi.Callback(data)
+			}
+			if !pi.Reusable {
+				db.interactions.remove(data.CustomID)
+			}
+			if pi.ModalResponse != nil {
+				return *pi.ModalResponse
+			}
+			return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
+		}
+	}
+
+	// Fall through to built-in handlers.
+	return handleBuiltinComponent(ctx, db, data, userID)
+}
+
+// handleGatewayModal routes modal submissions received via Gateway.
+func (db *DiscordBot) handleGatewayModal(ctx context.Context, interaction *discordInteraction) discordInteractionResponse {
+	var data discordInteractionData
+	if err := json.Unmarshal(interaction.Data, &data); err != nil {
+		logWarnCtx(ctx, "discord gateway modal: invalid data", "error", err)
+		return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
+	}
+
+	userID := interactionUserID(interaction)
+	logInfoCtx(ctx, "discord gateway modal submit", "customID", data.CustomID, "userID", userID)
+
+	if db.interactions != nil {
+		if pi := db.interactions.lookup(data.CustomID); pi != nil {
+			if len(pi.AllowedIDs) > 0 && !sliceContainsStr(pi.AllowedIDs, userID) {
+				return discordInteractionResponse{
+					Type: interactionResponseMessage,
+					Data: &discordInteractionResponseData{
+						Content: "You are not allowed to submit this form.",
+						Flags:   64,
+					},
+				}
+			}
+			if pi.Callback != nil {
+				go pi.Callback(data)
+			}
+			db.interactions.remove(data.CustomID)
+			return discordInteractionResponse{
+				Type: interactionResponseDeferredUpdate,
+			}
+		}
+	}
+
+	return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
+}
+
+// respondToInteraction sends an interaction response via REST API (for Gateway-received interactions).
+func (db *DiscordBot) respondToInteraction(interaction *discordInteraction, resp discordInteractionResponse) {
+	path := fmt.Sprintf("/interactions/%s/%s/callback", interaction.ID, interaction.Token)
+	db.discordPost(path, resp)
 }
 
 // handleMessageWithType is the top-level message handler that checks for thread bindings
@@ -1624,10 +1732,12 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	}
 
 	// Start progress message for live Discord updates.
+	// Controlled by showProgress config (default: true).
+	showProgress := db.cfg.Discord.ShowProgress == nil || *db.cfg.Discord.ShowProgress
 	var progressMsgID string
 	var progressStopCh chan struct{}
 	var progressBuilder *discordProgressBuilder
-	if db.state != nil && db.state.broker != nil {
+	if showProgress && db.state != nil && db.state.broker != nil {
 		msgID, err := db.sendMessageReturningID(msg.ChannelID, "Working...")
 		if err == nil && msgID != "" {
 			progressMsgID = msgID
@@ -1782,8 +1892,24 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 		}
 
 		// Send output as plain text messages (split into 2000-char chunks).
-		// This avoids embed description truncation and is more readable.
+		// For very long outputs, truncate the middle to preserve the conclusion.
 		const maxChunk = 1900 // leave room for markdown formatting
+		const maxTotal = 5700 // 3 messages max — Discord rate-limits beyond this
+		if len(output) > maxTotal {
+			// Keep beginning (context) + end (conclusion), separated by "...".
+			headSize := maxTotal * 2 / 5
+			tailSize := maxTotal * 3 / 5
+			// Find clean break points at newlines.
+			if idx := strings.LastIndex(output[:headSize], "\n"); idx > headSize/2 {
+				headSize = idx
+			}
+			tailStart := len(output) - tailSize
+			if idx := strings.Index(output[tailStart:], "\n"); idx >= 0 && idx < tailSize/3 {
+				tailStart += idx + 1
+			}
+			output = output[:headSize] + "\n\n... (truncated) ...\n\n" + output[tailStart:]
+		}
+		chunkCount := 0
 		for len(output) > 0 {
 			chunk := output
 			if len(chunk) > maxChunk {
@@ -1797,7 +1923,11 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 			} else {
 				output = ""
 			}
+			if chunkCount > 0 {
+				time.Sleep(300 * time.Millisecond) // avoid Discord rate limiting
+			}
 			db.sendMessage(channelID, chunk)
+			chunkCount++
 		}
 	}
 
@@ -2150,6 +2280,15 @@ func (b *discordProgressBuilder) addText(text string) {
 	b.dirty = true
 }
 
+func (b *discordProgressBuilder) replaceText(text string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	text = ansiEscapeRe.ReplaceAllString(text, "")
+	b.text.Reset()
+	b.text.WriteString(text)
+	b.dirty = true
+}
+
 func (b *discordProgressBuilder) render() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -2216,6 +2355,8 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 	eventCh, unsub := broker.Subscribe(taskID)
 	defer unsub()
 
+	logDebug("discord progress updater started", "taskID", taskID, "sessionID", sessionID)
+
 	// Also subscribe to sessionID to receive output_chunk events, which are published
 	// under the session key by the provider.
 	var sessionEventCh chan SSEEvent
@@ -2223,6 +2364,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 		ch, u := broker.Subscribe(sessionID)
 		sessionEventCh = ch
 		defer u()
+		logDebug("discord progress updater subscribed to session", "sessionID", sessionID)
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -2233,6 +2375,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 	tryEdit := func() {
 		if builder.isDirty() && time.Since(lastEdit) >= 1500*time.Millisecond {
 			content := builder.render()
+			logDebug("discord progress edit", "contentLen", len(content), "taskID", taskID)
 			if err := db.editMessage(channelID, progressMsgID, content); err != nil {
 				logWarn("discord progress edit failed", "error", err)
 			}
@@ -2253,10 +2396,17 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 		case SSEOutputChunk:
 			if data, ok := ev.Data.(map[string]any); ok {
 				if chunk, _ := data["chunk"].(string); chunk != "" {
-					builder.addText(chunk)
+					logDebug("discord progress got chunk", "len", len(chunk), "taskID", taskID)
+					if replace, _ := data["replace"].(bool); replace {
+						builder.replaceText(chunk)
+					} else {
+						builder.addText(chunk)
+					}
+					tryEdit()
 				}
 			}
 		case SSECompleted, SSEError:
+			logDebug("discord progress terminal event", "type", ev.Type, "taskID", taskID)
 			return true
 		}
 		return false

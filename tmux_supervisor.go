@@ -18,6 +18,7 @@ const (
 	tmuxStateWorking                  // CLI tool is actively processing (screen changing)
 	tmuxStateWaiting                  // CLI tool is idle at input prompt
 	tmuxStateApproval                 // CLI tool is asking for permission
+	tmuxStateQuestion                 // CLI tool is showing AskUserQuestion choices
 	tmuxStateDone                     // session exited or returned to shell prompt
 )
 
@@ -31,6 +32,8 @@ func (s tmuxScreenState) String() string {
 		return "waiting"
 	case tmuxStateApproval:
 		return "approval"
+	case tmuxStateQuestion:
+		return "question"
 	case tmuxStateDone:
 		return "done"
 	default:

@@ -79,6 +79,13 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 
 		capture, err := tmuxCapture(name)
 		if err != nil {
+			// Tmux session is gone — unregister the stale worker.
+			if !tmuxHasSession(name) {
+				sup.unregister(name)
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("worker %q session ended", name)})
+				return
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("capture failed: %v", err)})
 			return
@@ -94,12 +101,27 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 		// Strip ANSI escape sequences.
 		cleaned := ansiEscapeRe.ReplaceAllString(capture, "")
 
-		json.NewEncoder(w).Encode(map[string]any{
+		resp := map[string]any{
 			"name":    name,
 			"state":   worker.State.String(),
 			"agent":   worker.Agent,
 			"capture": cleaned,
-		})
+		}
+
+		// Parse question info if in question state.
+		if worker.State == tmuxStateQuestion {
+			if q, opts := parseQuestionFromCapture(cleaned); q != "" {
+				resp["question"] = q
+				resp["options"] = opts
+			}
+		}
+
+		// Parse subagent info from capture.
+		if subs := parseSubagentsFromCapture(cleaned); len(subs) > 0 {
+			resp["subagents"] = subs
+		}
+
+		json.NewEncoder(w).Encode(resp)
 	})
 
 	// POST /api/workers/terminal — enable/disable terminal mode for an agent.
@@ -202,6 +224,88 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 		}
 	})
 
+	// POST /api/workers/input — send input to a tmux worker.
+	// Body: {"name": "tetora-worker-xxx", "type": "keys"|"text", "value": "Enter"}
+	mux.HandleFunc("/api/workers/input", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Name  string `json:"name"`
+			Type  string `json:"type"`  // "keys" or "text"
+			Value string `json:"value"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			return
+		}
+		if req.Name == "" || req.Value == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "name and value required"})
+			return
+		}
+
+		sup := s.state.tmuxSupervisor
+		if sup == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "supervisor not available"})
+			return
+		}
+		if sup.getWorker(req.Name) == nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("worker %q not found", req.Name)})
+			return
+		}
+
+		switch req.Type {
+		case "keys":
+			// Whitelist allowed key names.
+			allowed := map[string]bool{
+				"Enter": true, "Up": true, "Down": true, "Left": true, "Right": true,
+				"Tab": true, "Escape": true, "Space": true, "BSpace": true,
+				"y": true, "Y": true, "n": true, "N": true,
+				"C-c": true, "C-d": true, "C-z": true, "C-l": true,
+				"1": true, "2": true, "3": true, "4": true,
+			}
+			if !allowed[req.Value] {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("key %q not allowed", req.Value)})
+				return
+			}
+			if err := tmuxSendKeys(req.Name, req.Value); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("send keys: %v", err)})
+				return
+			}
+		case "text":
+			if len(req.Value) > 10000 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "text too long (max 10000)"})
+				return
+			}
+			if err := tmuxSendText(req.Name, req.Value); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("send text: %v", err)})
+				return
+			}
+			if err := tmuxSendKeys(req.Name, "Enter"); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("send enter: %v", err)})
+				return
+			}
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "type must be \"keys\" or \"text\""})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+
 	// GET /api/workers/agents — list agents with their terminal (tmux) status.
 	mux.HandleFunc("/api/workers/agents", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -234,5 +338,47 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 			})
 		}
 		json.NewEncoder(w).Encode(map[string]any{"agents": agents})
+	})
+
+	// GET/PATCH /api/settings/discord — Discord display settings.
+	mux.HandleFunc("/api/settings/discord", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.Method {
+		case http.MethodGet:
+			showProgress := s.cfg.Discord.ShowProgress == nil || *s.cfg.Discord.ShowProgress
+			json.NewEncoder(w).Encode(map[string]any{
+				"showProgress": showProgress,
+			})
+
+		case http.MethodPatch:
+			var body struct {
+				ShowProgress *bool `json:"showProgress"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid body"})
+				return
+			}
+			if body.ShowProgress != nil {
+				s.cfg.Discord.ShowProgress = body.ShowProgress
+				configPath := findConfigPath()
+				if configPath != "" {
+					updateConfigField(configPath, func(raw map[string]any) {
+						disc, _ := raw["discord"].(map[string]any)
+						if disc == nil {
+							disc = map[string]any{}
+							raw["discord"] = disc
+						}
+						disc["showProgress"] = *body.ShowProgress
+					})
+				}
+			}
+			showProgress := s.cfg.Discord.ShowProgress == nil || *s.cfg.Discord.ShowProgress
+			json.NewEncoder(w).Encode(map[string]any{"showProgress": showProgress})
+
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
 	})
 }

@@ -15,11 +15,24 @@ type TmuxProvider struct {
 	binaryPath string
 	cfg        *Config
 	provCfg    ProviderConfig
-	supervisor *tmuxSupervisor
+	supervisor *tmuxSupervisor // legacy: kept for API-registered providers
 	profile    tmuxCLIProfile
 }
 
 func (p *TmuxProvider) Name() string { return p.profile.Name() + "-tmux" }
+
+// getSupervisor returns the tmux supervisor, preferring the live cfg reference
+// over the stored field (which may be nil if the provider was created during
+// initProviders before the supervisor was initialized).
+func (p *TmuxProvider) getSupervisor() *tmuxSupervisor {
+	if p.supervisor != nil {
+		return p.supervisor
+	}
+	if p.cfg != nil {
+		return p.cfg.tmuxSupervisor
+	}
+	return nil
+}
 
 func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*ProviderResult, error) {
 	start := time.Now()
@@ -41,11 +54,11 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 		return nil, fmt.Errorf("tmux session setup failed")
 	}
 
-	if p.supervisor != nil {
-		p.supervisor.register(tmuxName, worker)
+	if sup := p.getSupervisor(); sup != nil {
+		sup.register(tmuxName, worker)
 		defer func() {
 			if !p.provCfg.TmuxKeepSessions {
-				p.supervisor.unregister(tmuxName)
+				p.getSupervisor().unregister(tmuxName)
 			}
 		}()
 	}
@@ -74,8 +87,19 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 	worker.LastChanged = time.Now()
 
 	// Poll until done.
-	output, err := p.pollUntilDone(ctx, tmuxName, worker, pollInterval, approvalTimeout)
+	logDebug("tmux execute poll start", "tmux", tmuxName, "hasEventCh", req.EventCh != nil, "sessionID", req.SessionID)
+	output, err := p.pollUntilDone(ctx, tmuxName, worker, pollInterval, approvalTimeout, req.EventCh, req.SessionID)
 	if err != nil {
+		// If we captured partial output before the error, include it in the result.
+		if output != "" {
+			return &ProviderResult{
+				Output:     output,
+				IsError:    true,
+				Error:      err.Error(),
+				DurationMs: time.Since(start).Milliseconds(),
+				Provider:   p.Name(),
+			}, nil
+		}
 		return errResult("poll: %v", err), nil
 	}
 
@@ -103,17 +127,34 @@ func (p *TmuxProvider) findOrCreateSession(ctx context.Context, req ProviderRequ
 	}
 
 	// Try reuse: find an existing idle session managed by the supervisor.
-	if p.provCfg.TmuxKeepSessions && p.supervisor != nil {
-		for _, w := range p.supervisor.listWorkers() {
-			if w.State == tmuxStateWaiting && tmuxHasSession(w.TmuxName) {
-				// Verify it's actually at the prompt.
-				if capture, err := tmuxCapture(w.TmuxName); err == nil {
-					if p.profile.DetectState(capture) == tmuxStateWaiting {
-						w.TaskID = req.SessionID
-						w.Prompt = promptPreview
-						w.LastChanged = time.Now()
-						return w.TmuxName, w, true
-					}
+	// When the request has a SessionID (e.g. Discord channel session), only reuse
+	// the worker that previously served that same session — different channels must
+	// not share workers because the Claude Code conversation context would mix.
+	sup := p.getSupervisor()
+	if p.provCfg.TmuxKeepSessions && sup != nil {
+		for _, w := range sup.listWorkers() {
+			// Auto-clean dead sessions: if tmux session is gone, unregister the stale worker.
+			if !tmuxHasSession(w.TmuxName) {
+				logInfo("tmux worker session dead, cleaning up", "tmux", w.TmuxName)
+				sup.unregister(w.TmuxName)
+				continue
+			}
+			if w.State != tmuxStateWaiting {
+				continue
+			}
+			// Session affinity: only reuse worker with matching session ID.
+			// Recovered workers (TaskID="") can be claimed by any session.
+			if req.SessionID != "" && w.TaskID != "" && w.TaskID != req.SessionID {
+				continue
+			}
+			// Verify it's actually at the prompt.
+			if capture, err := tmuxCapture(w.TmuxName); err == nil {
+				if p.profile.DetectState(capture) == tmuxStateWaiting {
+					w.TaskID = req.SessionID
+					w.Agent = req.AgentName
+					w.Prompt = promptPreview
+					w.LastChanged = time.Now()
+					return w.TmuxName, w, true
 				}
 			}
 		}
@@ -129,6 +170,12 @@ func (p *TmuxProvider) findOrCreateSession(ctx context.Context, req ProviderRequ
 	}
 	tmuxName := "tetora-worker-" + taskShort
 
+	// If a tmux session with this name already exists (e.g. previous task still running
+	// or worker in non-waiting state), append a suffix to avoid duplicate names.
+	if tmuxHasSession(tmuxName) {
+		tmuxName = fmt.Sprintf("%s-%d", tmuxName, time.Now().UnixNano()%10000)
+	}
+
 	command := p.profile.BuildCommand(p.binaryPath, req)
 	if err := tmuxCreate(tmuxName, cols, rows, command, workdir); err != nil {
 		logWarn("tmux create failed", "error", err, "name", tmuxName)
@@ -138,6 +185,7 @@ func (p *TmuxProvider) findOrCreateSession(ctx context.Context, req ProviderRequ
 	worker := &tmuxWorker{
 		TmuxName:    tmuxName,
 		TaskID:      req.SessionID,
+		Agent:       req.AgentName,
 		Prompt:      promptPreview,
 		Workdir:     workdir,
 		State:       tmuxStateStarting,
@@ -193,25 +241,54 @@ func (p *TmuxProvider) sendPrompt(tmuxName, prompt string) error {
 		}
 	}
 
+	// Delay to let tmux/CLI TUI fully process the pasted text before Enter.
+	time.Sleep(500 * time.Millisecond)
+
 	// Press Enter to submit.
-	return tmuxSendKeys(tmuxName, "Enter")
+	if err := tmuxSendKeys(tmuxName, "Enter"); err != nil {
+		return err
+	}
+
+	// Verify Enter was received: check if the prompt still shows the text
+	// (meaning Enter was lost/swallowed by the TUI). Retry once if stuck.
+	time.Sleep(500 * time.Millisecond)
+	if capture, err := tmuxCapture(tmuxName); err == nil {
+		if isPromptStuck(capture) {
+			logInfo("prompt Enter may not have registered, retrying", "tmux", tmuxName)
+			time.Sleep(300 * time.Millisecond)
+			return tmuxSendKeys(tmuxName, "Enter")
+		}
+	}
+	return nil
 }
 
 // pollUntilDone monitors the tmux session, handling approvals and detecting completion.
-func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worker *tmuxWorker, pollInterval, approvalTimeout time.Duration) (string, error) {
+func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worker *tmuxWorker, pollInterval, approvalTimeout time.Duration, eventCh chan<- SSEEvent, sessionID string) (string, error) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	// Stability check: consecutive unchanged captures while in waiting state.
+	// sawNonWaiting prevents premature completion if Enter didn't register —
+	// we only count stability after the worker has actually started processing.
+	// waitingTicks counts how long we've been in waiting without seeing work;
+	// after a threshold, we resend Enter (in case it was lost) and start counting.
 	const stabilityNeeded = 3
+	const waitingTicksBeforeRetry = 5 // ~10s at 2s poll
 	stableCount := 0
-	lastCapture := ""
+	lastStripped := "" // capture with status bars removed, for stability comparison
 	inApproval := false
+	sawNonWaiting := false
+	waitingTicks := 0
+	enterRetried := false // safety net: retry Enter once if prompt appears stuck in "working"
 
 	for {
 		select {
 		case <-ctx.Done():
 			logInfo("tmux worker cancelled", "tmux", tmuxName)
+			// Collect whatever output we have before returning the error.
+			if worker.LastCapture != "" {
+				return extractScrollbackOutput(worker.LastCapture), fmt.Errorf("cancelled: %w", ctx.Err())
+			}
 			return "", fmt.Errorf("cancelled: %w", ctx.Err())
 
 		case <-ticker.C:
@@ -229,8 +306,14 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 			}
 
 			state := p.profile.DetectState(capture)
-			changed := capture != lastCapture
-			lastCapture = capture
+			// Use stripped capture (status bars removed) for change detection,
+			// so that status bar updates (timestamps, CPU, etc.) don't count as changes.
+			stripped := stripStatusBars(capture)
+			changed := stripped != lastStripped
+			if changed {
+				logDebug("tmux poll state", "tmux", tmuxName, "state", state.String(), "changed", changed)
+			}
+			lastStripped = stripped
 
 			// Update worker state.
 			worker.LastCapture = capture
@@ -238,8 +321,8 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 				worker.State = state
 				worker.LastChanged = time.Now()
 				// Publish state change via SSE.
-				if p.supervisor != nil && p.supervisor.broker != nil {
-					p.supervisor.broker.Publish(SSEDashboardKey, SSEEvent{
+				if sup := p.getSupervisor(); sup != nil && sup.broker != nil {
+					sup.broker.Publish(SSEDashboardKey, SSEEvent{
 						Type: SSEWorkerUpdate,
 						Data: map[string]string{"action": "state_changed", "name": tmuxName, "state": state.String()},
 					})
@@ -248,6 +331,7 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 
 			switch state {
 			case tmuxStateApproval:
+				sawNonWaiting = true
 				if !inApproval {
 					inApproval = true
 					stableCount = 0
@@ -260,9 +344,57 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 					inApproval = false
 				}
 
+			case tmuxStateQuestion:
+				sawNonWaiting = true
+				if !inApproval {
+					inApproval = true
+					stableCount = 0
+					selectedOption := p.requestQuestionChoice(ctx, tmuxName, capture, approvalTimeout)
+					if selectedOption >= 0 {
+						// Navigate to selected option: go to top first, then down to target.
+						for i := 0; i < 20; i++ {
+							tmuxSendKeys(tmuxName, "Up")
+							time.Sleep(50 * time.Millisecond)
+						}
+						for i := 0; i < selectedOption; i++ {
+							tmuxSendKeys(tmuxName, "Down")
+							time.Sleep(50 * time.Millisecond)
+						}
+						tmuxSendKeys(tmuxName, "Enter")
+					}
+					inApproval = false
+				}
+
 			case tmuxStateWaiting:
+				if !sawNonWaiting {
+					waitingTicks++
+					if waitingTicks >= waitingTicksBeforeRetry {
+						// Waited long enough — either Enter was lost or task completed
+						// before our first poll. Resend Enter as safety net, then
+						// start counting stability.
+						logInfo("tmux worker still waiting, resending Enter", "tmux", tmuxName, "ticks", waitingTicks)
+						tmuxSendKeys(tmuxName, "Enter")
+						sawNonWaiting = true
+					}
+					stableCount = 0
+					break
+				}
 				if changed {
 					stableCount = 1
+					// Stream during generation phase: Claude is outputting (⏺ blocks)
+					// but ✽ is gone, so state shows waiting. Content still changing =
+					// generation in progress, so stream the output to Discord.
+					if eventCh != nil {
+						cleaned := cleanCaptureForStreaming(capture)
+						if cleaned != "" {
+							eventCh <- SSEEvent{
+								Type:      SSEOutputChunk,
+								TaskID:    sessionID,
+								SessionID: sessionID,
+								Data:      map[string]any{"chunk": cleaned, "replace": true},
+							}
+						}
+					}
 				} else {
 					stableCount++
 				}
@@ -280,7 +412,28 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 				return output, nil
 
 			default:
+				sawNonWaiting = true
 				stableCount = 0
+				// Safety: if "working" but the prompt is stuck (Enter lost), retry once.
+				if !enterRetried && isPromptStuck(capture) {
+					logInfo("prompt stuck in working state, retrying Enter", "tmux", tmuxName)
+					time.Sleep(300 * time.Millisecond)
+					tmuxSendKeys(tmuxName, "Enter")
+					enterRetried = true
+				}
+				// Stream current visible output to Discord progress updater.
+				if changed && eventCh != nil {
+					cleaned := cleanCaptureForStreaming(capture)
+					logDebug("tmux streaming", "hasContent", cleaned != "", "contentLen", len(cleaned), "tmux", tmuxName)
+					if cleaned != "" {
+						eventCh <- SSEEvent{
+							Type:      SSEOutputChunk,
+							TaskID:    sessionID,
+							SessionID: sessionID,
+							Data:      map[string]any{"chunk": cleaned, "replace": true},
+						}
+					}
+				}
 			}
 		}
 	}
@@ -298,12 +451,13 @@ func (p *TmuxProvider) requestApproval(ctx context.Context, tmuxName, capture st
 	approvalContext := strings.Join(contextLines, "\n")
 
 	// Find the supervisor's bot for Discord routing.
-	if p.supervisor == nil {
+	sup := p.getSupervisor()
+	if sup == nil {
 		logWarn("tmux approval requested but no supervisor (auto-rejecting)", "tmux", tmuxName)
 		return false
 	}
 
-	worker := p.supervisor.getWorker(tmuxName)
+	worker := sup.getWorker(tmuxName)
 	if worker == nil {
 		return false
 	}
@@ -381,12 +535,148 @@ func (p *TmuxProvider) requestApproval(ctx context.Context, tmuxName, capture st
 	}
 }
 
+// requestQuestionChoice sends AskUserQuestion options to Discord and waits for selection.
+// Returns the 0-based index of the selected option, or -1 on timeout/error.
+func (p *TmuxProvider) requestQuestionChoice(ctx context.Context, tmuxName, capture string, timeout time.Duration) int {
+	question, options := parseQuestionFromCapture(capture)
+	if question == "" || len(options) == 0 {
+		logWarn("tmux question detected but could not parse options", "tmux", tmuxName)
+		return -1
+	}
+
+	sup := p.getSupervisor()
+	if sup == nil {
+		logWarn("tmux question but no supervisor (ignoring)", "tmux", tmuxName)
+		return -1
+	}
+
+	worker := sup.getWorker(tmuxName)
+	if worker == nil {
+		return -1
+	}
+
+	logInfo("tmux worker question detected", "tmux", tmuxName, "question", question, "options", len(options))
+
+	bot := p.getDiscordBot()
+	if bot == nil {
+		logWarn("tmux question but no Discord bot (ignoring)", "tmux", tmuxName)
+		return -1
+	}
+
+	choiceCh := make(chan int, 1)
+
+	// Build buttons for each option.
+	var buttons []discordComponent
+	for i, opt := range options {
+		label := opt
+		if len(label) > 80 {
+			label = label[:77] + "..."
+		}
+		customID := fmt.Sprintf("tmux_question:%s:%d", tmuxName, i)
+		style := buttonStyleSecondary
+		if i == 0 {
+			style = buttonStylePrimary
+		}
+		idx := i
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  customID,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				select {
+				case choiceCh <- idx:
+				default:
+				}
+			},
+		})
+		defer bot.interactions.remove(customID)
+		buttons = append(buttons, discordComponent{
+			Type: componentTypeButton, Style: style, Label: label, CustomID: customID,
+		})
+	}
+
+	// Discord limits 5 buttons per action row.
+	var components []discordComponent
+	for i := 0; i < len(buttons); i += 5 {
+		end := i + 5
+		if end > len(buttons) {
+			end = len(buttons)
+		}
+		components = append(components, discordComponent{
+			Type:       componentTypeActionRow,
+			Components: buttons[i:end],
+		})
+	}
+
+	agentLabel := ""
+	if worker.Agent != "" {
+		agentLabel = " (" + worker.Agent + ")"
+	}
+	text := fmt.Sprintf("**Question%s**\n\n%s\nWorker: `%s`", agentLabel, question, tmuxName)
+
+	ch := bot.notifyChannelID()
+	if ch == "" {
+		logWarn("no notify channel for tmux question", "tmux", tmuxName)
+		return -1
+	}
+
+	bot.sendMessageWithComponents(ch, text, components)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	select {
+	case idx := <-choiceCh:
+		return idx
+	case <-timeoutCtx.Done():
+		logWarn("tmux question timed out", "tmux", tmuxName)
+		return -1
+	}
+}
+
 // getDiscordBot retrieves the DiscordBot from the config if available.
 func (p *TmuxProvider) getDiscordBot() *DiscordBot {
 	if p.cfg == nil {
 		return nil
 	}
 	return p.cfg.discordBot
+}
+
+// cleanCaptureForStreaming strips Claude Code UI chrome from a visible capture
+// for streaming progress display. Simpler than extractScrollbackOutput — just
+// removes status bars and prompt from the bottom of the current screen.
+func cleanCaptureForStreaming(capture string) string {
+	lines := strings.Split(capture, "\n")
+
+	// Strip from bottom: empty lines, prompt, status bars, separators.
+	for len(lines) > 0 {
+		trimmed := strings.TrimSpace(lines[len(lines)-1])
+		if trimmed == "" ||
+			trimmed == "❯" || strings.HasPrefix(trimmed, "❯ ") || strings.HasPrefix(trimmed, "❯\t") ||
+			strings.Contains(trimmed, "───") ||
+			strings.Contains(trimmed, "⏵") ||
+			strings.Contains(trimmed, "⏰") ||
+			strings.Contains(trimmed, "🤖") ||
+			strings.Contains(trimmed, "📝") ||
+			strings.Contains(trimmed, "💻") ||
+			strings.Contains(trimmed, "📁") ||
+			strings.Contains(trimmed, "🆔") {
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		break
+	}
+
+	// Take last 30 lines as a streaming preview (don't overwhelm Discord).
+	if len(lines) > 30 {
+		lines = lines[len(lines)-30:]
+	}
+
+	// Trim leading empty lines.
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 // collectOutput extracts the last meaningful output from a capture string.
@@ -410,8 +700,9 @@ func (p *TmuxProvider) collectOutputFromHistory(tmuxName string) string {
 	return extractScrollbackOutput(history)
 }
 
-// extractScrollbackOutput parses tmux scrollback to extract the CLI tool's response text.
-// It returns the last substantial block of text, skipping the initial prompt.
+// extractScrollbackOutput parses tmux scrollback to extract only the LAST response.
+// With keepSessions the scrollback contains all previous conversation turns — we must
+// isolate the latest one by finding the last user prompt submission (❯ <text>).
 func extractScrollbackOutput(history string) string {
 	lines := strings.Split(history, "\n")
 
@@ -419,20 +710,94 @@ func extractScrollbackOutput(history string) string {
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
-
 	if len(lines) == 0 {
 		return "(empty output)"
 	}
 
-	// Simple approach: return the last portion of scrollback (up to 500 lines).
-	// The caller gets raw terminal output; structured parsing isn't possible
-	// since interactive mode doesn't produce JSON.
+	// Strip Claude Code terminal UI from the bottom:
+	// status bars (⏰, 💻, 📁, ⏵), prompt (❯), separator (────).
+	// Keep 🤖 (model) and 📝 (token usage) lines.
+	var keptStatusLines []string
+	for len(lines) > 0 {
+		trimmed := strings.TrimSpace(lines[len(lines)-1])
+		if trimmed == "" ||
+			trimmed == "❯" || strings.HasPrefix(trimmed, "❯ ") || strings.HasPrefix(trimmed, "❯\t") ||
+			strings.Contains(trimmed, "───") ||
+			strings.Contains(trimmed, "⏵") ||
+			strings.Contains(trimmed, "⏰") ||
+			strings.Contains(trimmed, "💻") ||
+			strings.Contains(trimmed, "📁") ||
+			strings.Contains(trimmed, "🆔") {
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		if strings.Contains(trimmed, "🤖") || strings.Contains(trimmed, "📝") {
+			keptStatusLines = append([]string{trimmed}, keptStatusLines...)
+			lines = lines[:len(lines)-1]
+			continue
+		}
+		break
+	}
+
+	// Find the last user prompt submission line (❯ <text>) to isolate the latest response.
+	// Scan from bottom up — the first ❯ line with actual text is the prompt for this turn.
+	lastPromptIdx := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if (strings.HasPrefix(trimmed, "❯ ") || strings.HasPrefix(trimmed, "❯\t")) && len(trimmed) > 3 {
+			lastPromptIdx = i
+			break
+		}
+	}
+	if lastPromptIdx >= 0 && lastPromptIdx+1 < len(lines) {
+		lines = lines[lastPromptIdx+1:]
+	} else {
+		// No prompt marker found — fall back to stripping welcome banner from top.
+		startIdx := 0
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "╰") && strings.Contains(trimmed, "───") {
+				startIdx = i + 1
+				break
+			}
+			if i > 20 {
+				break
+			}
+		}
+		if startIdx > 0 && startIdx < len(lines) {
+			lines = lines[startIdx:]
+		}
+	}
+
+	// Trim leading/trailing empty lines after stripping.
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	if len(lines) == 0 && len(keptStatusLines) == 0 {
+		return "(empty output)"
+	}
+
+	// Append kept status lines (🤖 model, 📝 tokens) at the end.
+	if len(keptStatusLines) > 0 {
+		lines = append(lines, keptStatusLines...)
+	}
+
+	// Cap at 500 lines.
 	maxLines := 500
 	if len(lines) > maxLines {
 		lines = lines[len(lines)-maxLines:]
 	}
 
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	result := strings.TrimSpace(strings.Join(lines, "\n"))
+
+	// Strip ANSI escape codes — they add invisible bytes and look like garbage on Discord.
+	result = ansiEscapeRe.ReplaceAllString(result, "")
+
+	return result
 }
 
 // shellQuote wraps a string in single quotes for shell safety.
