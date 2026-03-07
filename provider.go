@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 )
@@ -183,37 +182,14 @@ func initProviders(cfg *Config) *providerRegistry {
 			})
 
 		case "claude-api":
-			apiKey := pc.APIKey
-			if apiKey == "" {
-				apiKey = os.Getenv("ANTHROPIC_API_KEY")
+			// Deprecated in v3: claude-api provider removed. Use "claude-code" instead.
+			logWarn("provider type 'claude-api' is deprecated in v3, use 'claude-code' instead", "name", name)
+			// Fall through to claude-code as a compatibility shim.
+			path := pc.Path
+			if path == "" {
+				path = "/usr/local/bin/claude"
 			}
-			model := pc.Model
-			if model == "" {
-				model = "claude-sonnet-4-5-20250929"
-			}
-			maxTokens := pc.MaxTokens
-			if maxTokens <= 0 {
-				maxTokens = 8192
-			}
-			baseURL := pc.BaseURL
-			if baseURL == "" {
-				baseURL = "https://api.anthropic.com/v1"
-			}
-			var ftt time.Duration
-			if pc.FirstTokenTimeout != "" {
-				if d, err := time.ParseDuration(pc.FirstTokenTimeout); err == nil && d > 0 {
-					ftt = d
-				}
-			}
-			reg.register(name, &ClaudeAPIProvider{
-				name:              name,
-				apiKey:            apiKey,
-				model:             model,
-				maxTokens:         maxTokens,
-				baseURL:           baseURL,
-				cfg:               cfg,
-				firstTokenTimeout: ftt,
-			})
+			reg.register(name, &ClaudeCodeProvider{binaryPath: path, cfg: cfg})
 
 		case "claude-code":
 			path := pc.Path

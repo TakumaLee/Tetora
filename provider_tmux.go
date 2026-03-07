@@ -41,6 +41,10 @@ func (p *TmuxProvider) Execute(ctx context.Context, req ProviderRequest) (*Provi
 	cols := cmp.Or(p.provCfg.TmuxCols, 160)
 	rows := cmp.Or(p.provCfg.TmuxRows, 50)
 	pollInterval := parseDurationOr(p.provCfg.TmuxPollInterval, 2*time.Second)
+	// Relax poll interval when hooks are active (hooks provide instant state updates).
+	if p.cfg.hookRecv != nil && p.cfg.Hooks.Enabled && pollInterval < 10*time.Second {
+		pollInterval = 15 * time.Second
+	}
 	approvalTimeout := parseDurationOr(p.provCfg.TmuxApprovalTimeout, 5*time.Minute)
 
 	workdir := req.Workdir

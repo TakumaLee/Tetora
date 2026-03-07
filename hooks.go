@@ -35,9 +35,8 @@ type HookToolInfo struct {
 
 // HookSession identifies the Claude Code session that fired the hook.
 type HookSession struct {
-	ID        string `json:"session_id"`
-	Cwd       string `json:"cwd,omitempty"`
-	SessionID string `json:"session_id,omitempty"` // alias
+	ID  string `json:"session_id"`
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // HookStopInfo contains details about why Claude Code stopped.
@@ -500,13 +499,8 @@ func (hr *hookReceiver) toolName(event *HookEvent) string {
 // extractSessionID tries to extract the session ID from various locations in the event.
 func (hr *hookReceiver) extractSessionID(event *HookEvent, body []byte) string {
 	// Try session field first.
-	if event.Session != nil {
-		if event.Session.ID != "" {
-			return event.Session.ID
-		}
-		if event.Session.SessionID != "" {
-			return event.Session.SessionID
-		}
+	if event.Session != nil && event.Session.ID != "" {
+		return event.Session.ID
 	}
 
 	// Try to extract from raw JSON (Claude Code may place it at different levels).
