@@ -110,9 +110,10 @@ func (s *Server) registerWorkersRoutes(mux *http.ServeMux) {
 
 		// Parse question info if in question state.
 		if worker.State == tmuxStateQuestion {
-			if q, opts := parseQuestionFromCapture(cleaned); q != "" {
-				resp["question"] = q
-				resp["options"] = opts
+			if parsed := parseQuestionFromCapture(cleaned); parsed != nil {
+				resp["question"] = parsed.Question
+				resp["options"] = parsed.Options
+				resp["isMultiSelect"] = parsed.IsMultiSelect
 			}
 		}
 

@@ -349,18 +349,26 @@ func (p *TmuxProvider) pollUntilDone(ctx context.Context, tmuxName string, worke
 				if !inApproval {
 					inApproval = true
 					stableCount = 0
-					selectedOption := p.requestQuestionChoice(ctx, tmuxName, capture, approvalTimeout)
-					if selectedOption >= 0 {
-						// Navigate to selected option: go to top first, then down to target.
-						for i := 0; i < 20; i++ {
-							tmuxSendKeys(tmuxName, "Up")
-							time.Sleep(50 * time.Millisecond)
+					parsed := parseQuestionFromCapture(capture)
+					if parsed != nil && parsed.IsMultiSelect {
+						result := p.requestMultiSelectChoice(ctx, tmuxName, parsed, approvalTimeout)
+						if result != nil {
+							p.executeMultiSelect(tmuxName, result, parsed)
 						}
-						for i := 0; i < selectedOption; i++ {
-							tmuxSendKeys(tmuxName, "Down")
-							time.Sleep(50 * time.Millisecond)
+					} else if parsed != nil {
+						selectedOption := p.requestQuestionChoice(ctx, tmuxName, parsed, approvalTimeout)
+						if selectedOption >= 0 {
+							// Navigate to selected option: go to top first, then down to target.
+							for i := 0; i < 20; i++ {
+								tmuxSendKeys(tmuxName, "Up")
+								time.Sleep(50 * time.Millisecond)
+							}
+							for i := 0; i < selectedOption; i++ {
+								tmuxSendKeys(tmuxName, "Down")
+								time.Sleep(50 * time.Millisecond)
+							}
+							tmuxSendKeys(tmuxName, "Enter")
 						}
-						tmuxSendKeys(tmuxName, "Enter")
 					}
 					inApproval = false
 				}
@@ -537,12 +545,13 @@ func (p *TmuxProvider) requestApproval(ctx context.Context, tmuxName, capture st
 
 // requestQuestionChoice sends AskUserQuestion options to Discord and waits for selection.
 // Returns the 0-based index of the selected option, or -1 on timeout/error.
-func (p *TmuxProvider) requestQuestionChoice(ctx context.Context, tmuxName, capture string, timeout time.Duration) int {
-	question, options := parseQuestionFromCapture(capture)
-	if question == "" || len(options) == 0 {
+func (p *TmuxProvider) requestQuestionChoice(ctx context.Context, tmuxName string, parsed *parsedQuestion, timeout time.Duration) int {
+	if parsed == nil || len(parsed.Options) == 0 {
 		logWarn("tmux question detected but could not parse options", "tmux", tmuxName)
 		return -1
 	}
+	question := parsed.Question
+	options := parsed.Options
 
 	sup := p.getSupervisor()
 	if sup == nil {
@@ -630,6 +639,196 @@ func (p *TmuxProvider) requestQuestionChoice(ctx context.Context, tmuxName, capt
 	case <-timeoutCtx.Done():
 		logWarn("tmux question timed out", "tmux", tmuxName)
 		return -1
+	}
+}
+
+// multiSelectResult holds the user's response to a multi-select question.
+type multiSelectResult struct {
+	Indices   []int  // selected option indices (from the original parsed list)
+	TypedText string // custom text from "Type something" modal
+}
+
+// requestMultiSelectChoice sends a multi-select question to Discord as a string select menu
+// and waits for the user to make selections. Returns nil on timeout/error.
+func (p *TmuxProvider) requestMultiSelectChoice(ctx context.Context, tmuxName string, parsed *parsedQuestion, timeout time.Duration) *multiSelectResult {
+	sup := p.getSupervisor()
+	if sup == nil {
+		logWarn("tmux multi-select but no supervisor (ignoring)", "tmux", tmuxName)
+		return nil
+	}
+	worker := sup.getWorker(tmuxName)
+	if worker == nil {
+		return nil
+	}
+
+	logInfo("tmux worker multi-select question detected", "tmux", tmuxName, "question", parsed.Question, "options", len(parsed.Options))
+
+	bot := p.getDiscordBot()
+	if bot == nil {
+		logWarn("tmux multi-select but no Discord bot (ignoring)", "tmux", tmuxName)
+		return nil
+	}
+
+	resultCh := make(chan *multiSelectResult, 1)
+	selectCustomID := fmt.Sprintf("tmux_multiselect:%s", tmuxName)
+	typeButtonID := fmt.Sprintf("tmux_multiselect_type:%s", tmuxName)
+	typeModalID := fmt.Sprintf("tmux_multiselect_modal:%s", tmuxName)
+
+	// Build selectable options (exclude Submit and Type entries).
+	var selectOptions []discordSelectOption
+	for i, opt := range parsed.Options {
+		if i == parsed.SubmitIndex || i == parsed.TypeIndex {
+			continue
+		}
+		label := opt
+		if len(label) > 100 {
+			label = label[:97] + "..."
+		}
+		selectOptions = append(selectOptions, discordSelectOption{
+			Label: label,
+			Value: fmt.Sprintf("%d", i),
+		})
+	}
+
+	if len(selectOptions) == 0 {
+		logWarn("tmux multi-select: no selectable options after filtering", "tmux", tmuxName)
+		return nil
+	}
+	if len(selectOptions) > 25 {
+		selectOptions = selectOptions[:25]
+	}
+
+	// Register select menu callback.
+	bot.interactions.register(&pendingInteraction{
+		CustomID:  selectCustomID,
+		CreatedAt: time.Now(),
+		Callback: func(data discordInteractionData) {
+			var indices []int
+			for _, v := range data.Values {
+				var idx int
+				fmt.Sscanf(v, "%d", &idx)
+				indices = append(indices, idx)
+			}
+			select {
+			case resultCh <- &multiSelectResult{Indices: indices}:
+			default:
+			}
+		},
+	})
+	defer bot.interactions.remove(selectCustomID)
+
+	// Build components: multi-select menu + optional type button.
+	maxVals := len(selectOptions)
+	menu := discordMultiSelectMenu(selectCustomID, "Select options...", selectOptions, maxVals)
+	var components []discordComponent
+	components = append(components, discordActionRow(menu))
+
+	if parsed.HasTypeOption {
+		// Button click shows a modal for custom text input.
+		modalResp := discordBuildModal(typeModalID, "Custom Answer",
+			discordTextInput("custom_text", "Your answer", true))
+		bot.interactions.register(&pendingInteraction{
+			CustomID:      typeButtonID,
+			CreatedAt:     time.Now(),
+			ModalResponse: &modalResp,
+			Callback:      func(data discordInteractionData) {},
+		})
+		defer bot.interactions.remove(typeButtonID)
+
+		// Register modal submit callback.
+		bot.interactions.register(&pendingInteraction{
+			CustomID:  typeModalID,
+			CreatedAt: time.Now(),
+			Callback: func(data discordInteractionData) {
+				values := extractModalValues(data.Components)
+				text := values["custom_text"]
+				if text != "" {
+					select {
+					case resultCh <- &multiSelectResult{TypedText: text}:
+					default:
+					}
+				}
+			},
+		})
+		defer bot.interactions.remove(typeModalID)
+
+		components = append(components, discordActionRow(
+			discordButton(typeButtonID, "Type custom answer", buttonStyleSecondary),
+		))
+	}
+
+	// Build and send message.
+	agentLabel := ""
+	if worker.Agent != "" {
+		agentLabel = " (" + worker.Agent + ")"
+	}
+	text := fmt.Sprintf("**Multi-Select Question%s**\n\n%s\nWorker: `%s`\n\n*Select one or more options from the menu*",
+		agentLabel, parsed.Question, tmuxName)
+
+	ch := bot.notifyChannelID()
+	if ch == "" {
+		logWarn("no notify channel for tmux multi-select", "tmux", tmuxName)
+		return nil
+	}
+
+	bot.sendMessageWithComponents(ch, text, components)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	select {
+	case result := <-resultCh:
+		return result
+	case <-timeoutCtx.Done():
+		logWarn("tmux multi-select question timed out", "tmux", tmuxName)
+		return nil
+	}
+}
+
+// executeMultiSelect drives tmux navigation for a multi-select question response.
+// Strategy: go to top of list, walk linearly toggling selected items, then submit.
+func (p *TmuxProvider) executeMultiSelect(tmuxName string, result *multiSelectResult, parsed *parsedQuestion) {
+	// Build set of indices to toggle.
+	selectedSet := make(map[int]bool)
+	for _, idx := range result.Indices {
+		selectedSet[idx] = true
+	}
+
+	// If typed text was provided, select the Type option checkbox.
+	if result.TypedText != "" && parsed.TypeIndex >= 0 {
+		selectedSet[parsed.TypeIndex] = true
+	}
+
+	// Go to top of list.
+	for i := 0; i < 20; i++ {
+		tmuxSendKeys(tmuxName, "Up")
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Walk linearly from option 0 to submitIndex-1, toggling selected items.
+	endIdx := len(parsed.Options) - 1
+	if parsed.SubmitIndex >= 0 {
+		endIdx = parsed.SubmitIndex - 1
+	}
+
+	for i := 0; i <= endIdx; i++ {
+		if selectedSet[i] {
+			tmuxSendKeys(tmuxName, "Space")
+			time.Sleep(50 * time.Millisecond)
+		}
+		tmuxSendKeys(tmuxName, "Down")
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Now at Submit → Enter.
+	tmuxSendKeys(tmuxName, "Enter")
+
+	// If custom text was typed, wait for the text input to appear and send it.
+	if result.TypedText != "" {
+		time.Sleep(500 * time.Millisecond)
+		tmuxSendText(tmuxName, result.TypedText)
+		time.Sleep(100 * time.Millisecond)
+		tmuxSendKeys(tmuxName, "Enter")
 	}
 }
 

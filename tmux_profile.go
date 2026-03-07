@@ -222,13 +222,14 @@ func detectQuestionBlock(capture string) bool {
 	for i >= 0 && strings.TrimSpace(lines[i]) == "" {
 		i--
 	}
-	// Skip Claude Code status bars at the very bottom (contain ───, ⏵, 🤖, 📝, etc.)
+	// Skip Claude Code status bars and hint/chip lines at the very bottom.
 	for i >= 0 {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" || strings.Contains(trimmed, "───") || strings.Contains(trimmed, "⏵") ||
 			strings.Contains(trimmed, "🤖") || strings.Contains(trimmed, "📝") ||
 			strings.Contains(trimmed, "🆔") || strings.Contains(trimmed, "💻") ||
-			strings.Contains(trimmed, "📁") || strings.Contains(trimmed, "⏰") {
+			strings.Contains(trimmed, "📁") || strings.Contains(trimmed, "⏰") ||
+			isHintOrChipLine(trimmed) {
 			i--
 			continue
 		}
@@ -242,6 +243,11 @@ func detectQuestionBlock(capture string) bool {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
 			break // gap = end of option block
+		}
+		// Skip hint/chip lines within the question block.
+		if isHintOrChipLine(trimmed) {
+			i--
+			continue
 		}
 		// Selected option: ❯ followed by text.
 		if (strings.HasPrefix(trimmed, "❯ ") || strings.HasPrefix(trimmed, "❯\u00a0")) && len(trimmed) > 3 {
@@ -277,22 +283,38 @@ func detectQuestionBlock(capture string) bool {
 
 // --- Question & Subagent Parsing ---
 
+// parsedQuestion holds parsed information from an AskUserQuestion capture.
+type parsedQuestion struct {
+	Question      string
+	Options       []string // display labels (checkbox prefix stripped)
+	IsMultiSelect bool     // true if [ ] or [x] patterns detected
+	HasTypeOption bool     // true if "Type something"/"Other" found
+	SubmitIndex   int      // index of "Submit" in raw list (-1 if absent)
+	TypeIndex     int      // index of "Type something" (-1 if absent)
+}
+
 // parseQuestionFromCapture extracts the question text and option list from an
-// AskUserQuestion capture. Returns ("", nil) if not detected.
-func parseQuestionFromCapture(capture string) (string, []string) {
+// AskUserQuestion capture. Returns nil if not detected.
+func parseQuestionFromCapture(capture string) *parsedQuestion {
 	lines := strings.Split(capture, "\n")
 
 	// Scan from bottom to find the question block.
 	var question string
-	var options []string
+	var rawOptions []string
+	isMulti := false
 
 	// Find option lines and question line (scan upward from bottom).
 	for i := len(lines) - 1; i >= 0; i-- {
 		trimmed := strings.TrimSpace(lines[i])
 		if trimmed == "" {
-			if len(options) > 0 {
+			if len(rawOptions) > 0 {
 				break // hit blank line above the option block
 			}
+			continue
+		}
+
+		// Skip hint/chip lines that appear in multi-select UI.
+		if isHintOrChipLine(trimmed) {
 			continue
 		}
 
@@ -306,7 +328,10 @@ func parseQuestionFromCapture(capture string) (string, []string) {
 		if strings.HasPrefix(trimmed, "❯ ") || strings.HasPrefix(trimmed, "❯\u00a0") {
 			optText := strings.TrimSpace(trimmed[len("❯"):])
 			if optText != "" {
-				options = append([]string{optText}, options...)
+				if hasCheckbox(optText) {
+					isMulti = true
+				}
+				rawOptions = append([]string{optText}, rawOptions...)
 			}
 			continue
 		}
@@ -314,21 +339,51 @@ func parseQuestionFromCapture(capture string) (string, []string) {
 		// Non-selected option: indented text
 		if len(lines[i]) > 0 && (lines[i][0] == ' ' || lines[i][0] == '\t') && len(trimmed) < 100 {
 			if !strings.Contains(trimmed, "───") {
-				options = append([]string{trimmed}, options...)
+				if hasCheckbox(trimmed) {
+					isMulti = true
+				}
+				rawOptions = append([]string{trimmed}, rawOptions...)
 			}
 			continue
 		}
 
 		// Something else — stop scanning.
-		if len(options) > 0 {
+		if len(rawOptions) > 0 {
 			break
 		}
 	}
 
-	if question == "" || len(options) == 0 {
-		return "", nil
+	if question == "" || len(rawOptions) == 0 {
+		return nil
 	}
-	return question, options
+
+	// Build parsed result: strip checkbox prefixes, find Submit/Type indices.
+	parsed := &parsedQuestion{
+		Question:      question,
+		IsMultiSelect: isMulti,
+		SubmitIndex:   -1,
+		TypeIndex:     -1,
+	}
+	for i, raw := range rawOptions {
+		label := raw
+		if isMulti {
+			label = stripCheckboxPrefix(label)
+		}
+		label = strings.TrimSpace(label)
+
+		lower := strings.ToLower(label)
+		if lower == "submit" {
+			parsed.SubmitIndex = i
+		}
+		if lower == "other" || strings.Contains(lower, "type something") || strings.Contains(lower, "type custom") {
+			parsed.HasTypeOption = true
+			parsed.TypeIndex = i
+		}
+
+		parsed.Options = append(parsed.Options, label)
+	}
+
+	return parsed
 }
 
 // subagentInfo describes a detected subagent running inside Claude Code.
@@ -423,6 +478,51 @@ func stripStatusBars(capture string) string {
 		}
 	}
 	return strings.Join(result, "\n")
+}
+
+// isHintOrChipLine checks if a line is a Claude Code hint or chip bar from multi-select UI.
+// Hint lines: "↑/↓ navigate", "Space toggles", "Enter to select", "Esc to cancel"
+// Chip bars: lines containing both "←" and "→" (tag navigation indicators).
+func isHintOrChipLine(s string) bool {
+	if strings.Contains(s, "←") && strings.Contains(s, "→") {
+		return true
+	}
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "↑/↓") ||
+		strings.Contains(lower, "enter to select") ||
+		strings.Contains(lower, "esc to cancel") ||
+		strings.Contains(lower, "space toggles")
+}
+
+// hasCheckbox checks if a string contains a checkbox pattern from multi-select UI.
+func hasCheckbox(s string) bool {
+	return strings.Contains(s, "[ ]") || strings.Contains(s, "[x]") ||
+		strings.Contains(s, "[X]") || strings.Contains(s, "[✔]")
+}
+
+// stripCheckboxPrefix removes leading "N. [ ] " or "[ ] " patterns from an option label.
+func stripCheckboxPrefix(s string) string {
+	t := s
+	// Strip leading number+dot: "1. "
+	if idx := strings.Index(t, ". "); idx >= 0 && idx <= 3 {
+		allDigits := true
+		for _, c := range t[:idx] {
+			if c < '0' || c > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			t = t[idx+2:]
+		}
+	}
+	// Strip checkbox: "[ ] ", "[x] ", "[X] ", "[✔] "
+	for _, prefix := range []string{"[ ] ", "[x] ", "[X] ", "[✔] "} {
+		if strings.HasPrefix(t, prefix) {
+			return t[len(prefix):]
+		}
+	}
+	return s
 }
 
 // lastNonEmptyLines returns the last n non-empty trimmed lines from a capture string.

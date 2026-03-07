@@ -30,6 +30,18 @@ timeline
             : Backlog triage (LLM)
             : Slot Pressure Guard
             : Memory Write Discipline
+    section v1.7–1.8
+        Workers & Terminal
+            : Claude Code CLI workers (tmux)
+            : Discord terminal bridge
+            : Heartbeat & stall detection
+            : Workflow × dispatch hardening
+    section v2.0
+        Dashboard CEO & Office
+            : 4-zone dashboard layout
+            : Interactive terminal viewer
+            : Pixel office customization
+            : Memory leak fixes
     section Next
         Distribution & Platform
             : Homebrew tap
@@ -50,7 +62,7 @@ timeline
             : E2E encryption
 ```
 
-> **Legend:** v1.0–v1.6 = shipped &nbsp;|&nbsp; Next / Planned / Future = not yet shipped &nbsp;|&nbsp; ✅ in text sections = completed items
+> **Legend:** v1.0–v2.0 = shipped &nbsp;|&nbsp; Next / Planned / Future = not yet shipped &nbsp;|&nbsp; ✅ in text sections = completed items
 >
 > *Can't see the diagram? View the [PNG version](assets/roadmap.png) or [PDF version](assets/roadmap.pdf).*
 
@@ -152,6 +164,69 @@ timeline
 - [x] roles→agents config migration + backward compatibility
 - [x] Sub-agent deadlock fix (separate child semaphore)
 - [x] Discord session reuse fix + live streaming progress
+
+## v1.7 — Workflow & Dispatch Hardening ✅
+
+### CLI Workers
+
+- [x] Claude Code CLI provider via tmux (`claude-tmux`)
+- [x] CLI provider abstraction (claude-tmux + codex-tmux profiles)
+- [x] Discord terminal bridge — monitor and interact with workers
+- [x] tmux supervisor for worker registration and tracking
+- [x] Heartbeat monitor + stall detection + auto-cancel
+- [x] Orphaned tmux worker recovery on daemon restart
+- [x] Persistent tmux sessions (`keepSessions` option)
+- [x] Resolve tmux/brew paths for launchd minimal PATH
+
+### Dispatch & Workflows
+
+- [x] Workflow × dispatch session lifecycle hardening
+- [x] Budget soft-limit only (no hard block)
+- [x] Sub-agent deadlock fix (separate child semaphore)
+- [x] Dispatch always routes to review
+- [x] Safe upgrade: skip auto-restart when jobs running
+
+## v1.8 — Dashboard Terminal & Workers ✅
+
+### Dashboard
+
+- [x] Workers tab with live worker grid
+- [x] Terminal viewer — interactive worker control (keystrokes, text input)
+- [x] Discord Gateway live interactions viewer
+- [x] Dashboard kanban enhancements + board_updated SSE
+- [x] Terminal mode toggle per agent
+
+### Operations
+
+- [x] Cron hot-reload + skill injection limits
+- [x] Triage fast-path + HTTP bind race fix
+- [x] SQL retry + fallback on final status update
+- [x] Auto-send Enter for stuck tmux prompts
+
+## v2.0 — Dashboard CEO Command Center ✅
+
+### Dashboard Layout Redesign
+
+- [x] 4-zone layout: Command Center → Operations → Insights → Engineering Details
+- [x] Executive summary with ROI cards (tasks done, hours saved, cost, ROI)
+- [x] Ops bar — compact 4-card grid (jobs, running, daily burn, agent status)
+- [x] Agent scorecard + activity feed side-by-side
+- [x] Engineering details collapsible zone with localStorage persistence
+- [x] Boardroom theme shows pixel office (light background instead of hidden)
+
+### Pixel Office
+
+- [x] Agent World with 8-bit pixel sprites
+- [x] Office background + sprite images
+- [x] Mini-map navigation
+- [x] Decoration editor with drag-and-drop palette
+- [x] Zoom controls + customizable layout
+
+### Performance
+
+- [x] Memory leak fixes: live stream DOM cap, session stream text cap, chat message pruning
+- [x] Pause sprite engine + terminal poll on browser tab hide
+- [x] Resource optimization across all dashboard components
 
 ## Next — Distribution & Platform
 
