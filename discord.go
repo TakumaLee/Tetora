@@ -37,6 +37,7 @@ type DiscordBotConfig struct {
 	Reactions      DiscordReactionsConfig      `json:"reactions,omitempty"`      // P14.3: lifecycle reactions
 	ForumBoard     DiscordForumBoardConfig     `json:"forumBoard,omitempty"`     // P14.4: forum task board
 	Voice            DiscordVoiceConfig          `json:"voice,omitempty"`            // P14.5: voice channel integration
+	Terminal         DiscordTerminalConfig       `json:"terminal,omitempty"`         // terminal bridge
 	NotifyChannelID  string                      `json:"notifyChannelID,omitempty"`  // task notification channel (thread-per-task)
 	ShowProgress     *bool                       `json:"showProgress,omitempty"`    // show live "Working..." streaming in Discord (default: true)
 	Routes           map[string]DiscordRouteConfig `json:"routes,omitempty"`           // per-channel agent routing
@@ -429,6 +430,7 @@ type DiscordBot struct {
 	voice        *discordVoiceManager     // P14.5: voice channel manager
 	gatewayConn  *wsConn                  // P14.5: active gateway connection for voice state updates
 	notifier     *discordTaskNotifier     // task notification (thread-per-task)
+	terminal     *terminalBridge         // terminal bridge (tmux sessions)
 	msgSem       chan struct{}            // limits concurrent message handlers
 }
 
@@ -463,6 +465,14 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 	db.voice = newDiscordVoiceManager(db)
 	if cfg.Discord.Voice.Enabled {
 		logInfo("discord voice enabled", "auto_join_count", len(cfg.Discord.Voice.AutoJoin))
+	}
+
+	// Terminal bridge: interactive tmux sessions via Discord.
+	if cfg.Discord.Terminal.Enabled {
+		db.terminal = newTerminalBridge(db, cfg.Discord.Terminal)
+		logInfo("discord terminal bridge enabled",
+			"maxSessions", cfg.Discord.Terminal.MaxSessions,
+			"defaultTool", cfg.Discord.Terminal.DefaultTool)
 	}
 
 	// P28.0: Initialize approval gate.
@@ -752,6 +762,9 @@ func (db *DiscordBot) handleGatewayComponent(ctx context.Context, interaction *d
 			if !pi.Reusable {
 				db.interactions.remove(data.CustomID)
 			}
+			if pi.Response != nil {
+				return *pi.Response
+			}
 			if pi.ModalResponse != nil {
 				return *pi.ModalResponse
 			}
@@ -901,6 +914,11 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
+	// Terminal bridge: route text to active terminal session (before command handling).
+	if db.terminal != nil && db.terminal.handleTerminalInput(msg.ChannelID, text) {
+		return
+	}
+
 	// Command handling.
 	if strings.HasPrefix(text, "!") {
 		db.handleCommand(msg, text[1:])
@@ -997,6 +1015,12 @@ func (db *DiscordBot) handleCommand(msg discordMessage, cmdText string) {
 		}
 	case "approve":
 		db.cmdApprove(msg, args)
+	case "term", "terminal":
+		if db.terminal != nil {
+			db.terminal.handleTermCommand(msg, args)
+		} else {
+			db.sendMessage(msg.ChannelID, "Terminal bridge is not enabled.")
+		}
 	case "version", "ver":
 		db.sendMessage(msg.ChannelID, fmt.Sprintf("Tetora v%s", tetoraVersion))
 	case "help":

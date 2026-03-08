@@ -134,7 +134,8 @@ func (r *providerRegistry) get(name string) (Provider, error) {
 // session state. For these providers, Tetora should NOT inject conversation
 // history as text — the provider already resumes the session natively.
 func providerHasNativeSession(providerName string) bool {
-	return providerName == "claude-code"
+	return providerName == "claude-code" ||
+		strings.HasPrefix(providerName, "terminal-")
 }
 
 // resolveProviderName determines which provider to use for a task.
@@ -189,14 +190,47 @@ func initProviders(cfg *Config) *providerRegistry {
 			}
 			reg.register(name, &ClaudeProvider{binaryPath: path, cfg: cfg})
 
-		case "claude-code":
+		case "claude-code", "claude-tmux":
 			// Same as claude-cli but signals prompt_tier.go to skip injection
 			// (Claude Code reads project files natively).
+			// "claude-tmux" is a deprecated alias from v2.
+			if pc.Type == "claude-tmux" {
+				logWarn("provider type 'claude-tmux' is deprecated in v3, use 'claude-code' instead", "name", name)
+			}
 			path := pc.Path
 			if path == "" {
 				path = "/usr/local/bin/claude"
 			}
 			reg.register(name, &ClaudeProvider{binaryPath: path, cfg: cfg})
+
+		case "terminal-claude":
+			// Terminal provider: runs Claude Code in persistent tmux sessions.
+			path := pc.Path
+			if path == "" {
+				path = cfg.ClaudePath
+			}
+			if path == "" {
+				path = "/usr/local/bin/claude"
+			}
+			reg.register(name, &TerminalProvider{
+				binaryPath: path,
+				profile:    &claudeTmuxProfile{},
+				supervisor: newTmuxSupervisor(),
+				cfg:        cfg,
+			})
+
+		case "terminal-codex":
+			// Terminal provider: runs Codex CLI in persistent tmux sessions.
+			path := pc.Path
+			if path == "" {
+				path = "codex"
+			}
+			reg.register(name, &TerminalProvider{
+				binaryPath: path,
+				profile:    &codexTmuxProfile{},
+				supervisor: newTmuxSupervisor(),
+				cfg:        cfg,
+			})
 
 		}
 	}

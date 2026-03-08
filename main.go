@@ -1151,6 +1151,11 @@ func main() {
 			proactiveEngine.Stop()
 		}
 
+		// Stop terminal bridge sessions.
+		if discordBot != nil && discordBot.terminal != nil {
+			discordBot.terminal.stopAllSessions()
+		}
+
 		// Shut down HTTP server.
 		shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutCancel()
