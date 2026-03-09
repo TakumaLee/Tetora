@@ -41,20 +41,27 @@ type TaskBoardDispatcher struct {
 	lastTriageAt  time.Time    // last backlog triage time (cooldown tracking)
 	ctx           context.Context
 	cancel        context.CancelFunc
+	worktreeMgr   *WorktreeManager // git worktree manager for task isolation
 }
 
 func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem chan struct{}, state *dispatchState) *TaskBoardDispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Initialize worktree manager under runtime/worktrees/.
+	wtBaseDir := filepath.Join(cfg.RuntimeDir, "worktrees")
+	wtMgr := NewWorktreeManager(wtBaseDir)
+
 	return &TaskBoardDispatcher{
-		engine:   engine,
-		cfg:      cfg,
-		sem:      sem,
-		childSem: childSem,
-		state:    state,
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}, 1), // buffered: at most one pending re-scan signal
-		ctx:    ctx,
-		cancel: cancel,
+		engine:      engine,
+		cfg:         cfg,
+		sem:         sem,
+		childSem:    childSem,
+		state:       state,
+		stopCh:      make(chan struct{}),
+		doneCh:      make(chan struct{}, 1), // buffered: at most one pending re-scan signal
+		ctx:         ctx,
+		cancel:      cancel,
+		worktreeMgr: wtMgr,
 	}
 }
 
@@ -338,6 +345,19 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		prompt = t.Title + "\n\n" + t.Description
 	}
 
+	// Inject spec/context comments (always, not just on retry).
+	allComments, _ := d.engine.GetThread(t.ID)
+	var specParts []string
+	for _, c := range allComments {
+		if c.Type == "spec" || c.Type == "context" {
+			specParts = append(specParts, c.Content)
+		}
+	}
+	if len(specParts) > 0 {
+		prompt += "\n\n## Task Specifications\n\n"
+		prompt += strings.Join(specParts, "\n\n")
+	}
+
 	// Inject dependency context from completed upstream tasks.
 	if len(t.DependsOn) > 0 {
 		depContext := d.buildDependencyContext(t.DependsOn)
@@ -364,12 +384,17 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		prompt += "\n\nContinue from where you left off. Update your todo.md as you complete items.\n"
 	}
 
-	// Inject previous execution comments for retry context.
+	// Inject previous execution log comments for retry context.
 	if t.RetryCount > 0 {
-		comments, _ := d.engine.GetThread(t.ID)
-		if len(comments) > 0 {
+		var logComments []TaskComment
+		for _, c := range allComments {
+			if c.Type == "log" || c.Type == "system" {
+				logComments = append(logComments, c)
+			}
+		}
+		if len(logComments) > 0 {
 			prompt += "\n\n## Previous Execution Log\n"
-			for _, c := range comments {
+			for _, c := range logComments {
 				prompt += fmt.Sprintf("[%s] %s: %s\n", c.CreatedAt, c.Author, c.Content)
 			}
 		}
@@ -414,10 +439,35 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	}
 
 	// Look up project workdir.
+	var projectWorkdir string // original repo dir (for worktree operations)
 	if t.Project != "" && t.Project != "default" {
 		p, err := getProject(d.cfg.HistoryDB, t.Project)
 		if err == nil && p != nil && p.Workdir != "" {
 			task.Workdir = p.Workdir
+			projectWorkdir = p.Workdir
+		}
+	}
+
+	// --- Worktree isolation ---
+	// When gitWorktree is enabled and the task has a project workdir that is a git repo,
+	// create an isolated worktree so the agent doesn't touch the main working tree.
+	var worktreeDir string
+	if d.engine.config.GitWorktree && projectWorkdir != "" {
+		if exec.Command("git", "-C", projectWorkdir, "rev-parse", "--git-dir").Run() == nil {
+			branch := buildBranchName(d.engine.config.GitWorkflow, t)
+			wtDir, err := d.worktreeMgr.Create(projectWorkdir, t.ID, branch)
+			if err != nil {
+				logWarn("worktree: creation failed, falling back to shared workdir",
+					"task", t.ID, "error", err)
+				d.engine.AddComment(t.ID, "system",
+					fmt.Sprintf("[worktree] Failed to create isolated worktree: %v. Using shared workdir.", err))
+			} else {
+				worktreeDir = wtDir
+				task.Workdir = wtDir
+				logInfo("worktree: task running in isolation", "task", t.ID, "path", wtDir)
+				d.engine.AddComment(t.ID, "system",
+					fmt.Sprintf("[worktree] Running in isolated worktree: %s", wtDir))
+			}
 		}
 	}
 
@@ -543,8 +593,16 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		go d.engine.fireWebhook("task.moved", updatedTask)
 	}
 
+	// Record to job_runs so cost/tokens appear in budget and telemetry queries.
+	recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, t.Assignee, task, result,
+		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+
 	// Post-task workspace git: commit workspace changes regardless of outcome.
 	d.postTaskWorkspaceGit(t)
+
+	// Post-task worktree: merge agent changes into main and clean up the isolated worktree.
+	// Must run before postTaskGit so the merge commit is in place first.
+	d.postTaskWorktree(t, projectWorkdir, worktreeDir, newStatus)
 
 	// Post-task problem scan: lightweight LLM analysis of output for latent issues.
 	d.postTaskProblemScan(t, result.Output, newStatus)
@@ -558,7 +616,8 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 
 		// Post-task git: commit & push changes if enabled.
 		// Skip when a workflow was used — workflows have their own commit step.
-		if !usedWorkflow {
+		// Skip when worktree isolation was used — the worktree merge already committed.
+		if !usedWorkflow && worktreeDir == "" {
 			d.postTaskGit(t)
 		}
 
@@ -1307,8 +1366,8 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 		return
 	}
 
-	// Branch: {assignee}/{project-name}
-	branch := fmt.Sprintf("%s/%s", t.Assignee, p.Name)
+	// Branch name from configured convention.
+	branch := buildBranchName(d.engine.config.GitWorkflow, t)
 
 	if out, err := exec.Command("git", "-C", workdir, "checkout", "-B", branch).CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[post-task-git] checkout -B %s failed: %s", branch, strings.TrimSpace(string(out)))
@@ -1335,6 +1394,16 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 	logInfo("postTaskGit: committed", "task", t.ID, "branch", branch)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] Committed to branch %s", branch))
 
+	// Capture full diff for review panel.
+	baseBranch := detectDefaultBranch(workdir)
+	diffOut, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
+	if diff := string(diffOut); diff != "" {
+		if len(diff) > 100000 {
+			diff = diff[:100000] + "\n... (truncated)"
+		}
+		d.engine.AddComment(t.ID, "system", diff, "diff")
+	}
+
 	// Push if enabled.
 	if d.engine.config.GitPush {
 		if out, err := exec.Command("git", "-C", workdir, "push", "-u", "origin", branch).CombinedOutput(); err != nil {
@@ -1345,7 +1414,252 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 		}
 		logInfo("postTaskGit: pushed", "task", t.ID, "branch", branch)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] Pushed to origin/%s", branch))
+
+		// Auto-create PR if enabled.
+		if d.engine.config.GitPR {
+			d.postTaskGitPR(t, workdir, branch)
+		}
 	}
+}
+
+// postTaskWorktree handles the worktree lifecycle after a task completes:
+//   - done/review: commits any uncommitted agent changes, merges into main, logs diff
+//   - failed/cancelled: discards the worktree without merging
+//   - always: removes the worktree directory
+//
+// This is always called even on failure so the worktree doesn't accumulate on disk.
+func (d *TaskBoardDispatcher) postTaskWorktree(t TaskBoard, projectWorkdir, worktreeDir, newStatus string) {
+	if worktreeDir == "" || projectWorkdir == "" {
+		return
+	}
+
+	// Always remove the worktree when we're done, regardless of outcome.
+	defer func() {
+		if err := d.worktreeMgr.Remove(projectWorkdir, worktreeDir); err != nil {
+			logWarn("worktree: cleanup failed", "task", t.ID, "path", worktreeDir, "error", err)
+			d.engine.AddComment(t.ID, "system",
+				fmt.Sprintf("[worktree] Cleanup failed: %v", err))
+		} else {
+			logInfo("worktree: cleaned up", "task", t.ID, "path", worktreeDir)
+		}
+	}()
+
+	switch newStatus {
+	case "done", "review":
+		commitCount := d.worktreeMgr.CommitCount(worktreeDir)
+		hasChanges := d.worktreeMgr.HasChanges(worktreeDir)
+
+		if commitCount == 0 && !hasChanges {
+			d.engine.AddComment(t.ID, "system",
+				"[worktree] No changes committed. Worktree discarded.")
+			return
+		}
+
+		// Get full diff for review panel (before merge destroys the branch diff).
+		d.captureTaskDiff(t, projectWorkdir, worktreeDir)
+
+		// Commit any uncommitted changes, then merge.
+		commitMsg := fmt.Sprintf("[%s] %s", t.ID, t.Title)
+		diffSummary, err := d.worktreeMgr.Merge(projectWorkdir, worktreeDir, commitMsg)
+		if err != nil {
+			logWarn("worktree: merge failed", "task", t.ID, "error", err)
+			d.engine.AddComment(t.ID, "system",
+				fmt.Sprintf("[worktree] Merge failed: %v. Changes preserved on branch task/%s.", err, t.ID))
+			return
+		}
+
+		comment := "[worktree] Changes merged into main."
+		if diffSummary != "" {
+			comment += "\n```\n" + diffSummary + "\n```"
+		}
+		d.engine.AddComment(t.ID, "system", comment)
+		logInfo("worktree: merge complete", "task", t.ID)
+
+	default: // failed, cancelled
+		d.engine.AddComment(t.ID, "system",
+			"[worktree] Task failed — worktree discarded without merge.")
+	}
+}
+
+// captureTaskDiff captures the full unified diff for the review panel.
+// Stored as a type="diff" comment so it survives worktree removal.
+func (d *TaskBoardDispatcher) captureTaskDiff(t TaskBoard, repoDir, wtDir string) string {
+	if wtDir == "" {
+		return ""
+	}
+	taskID := filepath.Base(wtDir)
+	branch := "task/" + taskID
+	baseBranch := detectDefaultBranch(repoDir)
+
+	// Get merge base.
+	mergeBase, err := exec.Command("git", "-C", wtDir, "merge-base", baseBranch, branch).Output()
+	if err != nil {
+		return ""
+	}
+	base := strings.TrimSpace(string(mergeBase))
+
+	// Get full unified diff.
+	diffOut, err := exec.Command("git", "-C", wtDir, "diff", base+"..."+branch).Output()
+	if err != nil {
+		return ""
+	}
+
+	diff := string(diffOut)
+	if len(diff) > 100000 { // 100KB cap
+		diff = diff[:100000] + "\n... (truncated, diff too large)"
+	}
+
+	if diff != "" {
+		d.engine.AddComment(t.ID, "system", diff, "diff")
+	}
+	return diff
+}
+
+// prDescSem limits concurrent PR description generation LLM calls.
+var prDescSem = make(chan struct{}, 2)
+
+// postTaskGitPR creates a GitHub PR with an AI-generated title and description.
+func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string) {
+	// Detect the default branch (main or master).
+	baseBranch := detectDefaultBranch(workdir)
+
+	// Check if a PR already exists for this branch.
+	prViewCmd := exec.Command("gh", "pr", "view", branch, "--json", "url", "-q", ".url")
+	prViewCmd.Dir = workdir
+	existingPR, _ := prViewCmd.Output()
+	if url := strings.TrimSpace(string(existingPR)); url != "" {
+		logInfo("postTaskGitPR: PR already exists", "task", t.ID, "url", url)
+		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR already exists: %s", url))
+		return
+	}
+
+	// Gather diff for LLM context.
+	diffOut, err := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch, "--stat").Output()
+	if err != nil {
+		logWarn("postTaskGitPR: diff stat failed", "task", t.ID, "error", err)
+	}
+	diffDetail, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
+
+	// Gather commit log.
+	logOut, _ := exec.Command("git", "-C", workdir, "log", baseBranch+".."+branch, "--oneline").Output()
+
+	// Generate PR title and body via LLM.
+	title, body := d.generatePRDescription(t, string(diffOut), string(diffDetail), string(logOut))
+
+	// Create PR via gh CLI.
+	args := []string{"pr", "create",
+		"--head", branch,
+		"--base", baseBranch,
+		"--title", title,
+		"--body", body,
+	}
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := fmt.Sprintf("[post-task-git] PR creation failed: %s", strings.TrimSpace(string(out)))
+		logWarn("postTaskGitPR: gh pr create failed", "task", t.ID, "error", msg)
+		d.engine.AddComment(t.ID, "system", msg)
+		return
+	}
+
+	prURL := strings.TrimSpace(string(out))
+	logInfo("postTaskGitPR: PR created", "task", t.ID, "url", prURL)
+	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR created: %s", prURL))
+}
+
+// generatePRDescription uses a lightweight LLM call to generate a PR title and body.
+func (d *TaskBoardDispatcher) generatePRDescription(t TaskBoard, diffStat, diffDetail, commitLog string) (title, body string) {
+	// Truncate diff detail to keep cost low.
+	if len(diffDetail) > 6000 {
+		diffDetail = diffDetail[:6000] + "\n... (truncated)"
+	}
+
+	prompt := fmt.Sprintf(`Generate a GitHub Pull Request title and description for the following changes.
+
+Task: %s
+Description: %s
+
+Commits:
+%s
+
+Diff summary:
+%s
+
+Diff detail:
+%s
+
+Respond with a JSON object:
+{"title": "short PR title (under 70 chars)", "body": "markdown PR description with ## Summary section (2-4 bullet points) and ## Changes section"}
+
+Rules:
+- Title should be concise and describe the change (not the task ID)
+- Body should explain what changed and why
+- Use markdown formatting in body
+- Keep it professional and clear`,
+		truncateStr(t.Title, 200),
+		truncateStr(t.Description, 500),
+		truncateStr(commitLog, 500),
+		truncateStr(diffStat, 1000),
+		diffDetail)
+
+	task := Task{
+		ID:             newUUID(),
+		Name:           "pr-desc-" + t.ID,
+		Prompt:         prompt,
+		Model:          "haiku",
+		Budget:         0.05,
+		Timeout:        "30s",
+		PermissionMode: "plan",
+		Source:         "pr-description",
+	}
+	fillDefaults(d.cfg, &task)
+	task.Model = "haiku"
+	task.Budget = 0.05
+
+	result := runSingleTask(d.ctx, d.cfg, task, prDescSem, nil, "")
+	if result.Status != "success" || strings.TrimSpace(result.Output) == "" {
+		// Fallback: use task title and simple description.
+		return fmt.Sprintf("[%s] %s", t.ID, t.Title), fmt.Sprintf("## Summary\n- %s\n\nAuto-generated by Tetora task %s", t.Title, t.ID)
+	}
+
+	// Parse JSON from output.
+	raw := result.Output
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start < 0 || end <= start {
+		return fmt.Sprintf("[%s] %s", t.ID, t.Title), fmt.Sprintf("## Summary\n- %s\n\nAuto-generated by Tetora task %s", t.Title, t.ID)
+	}
+
+	var pr struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &pr); err != nil || pr.Title == "" {
+		return fmt.Sprintf("[%s] %s", t.ID, t.Title), fmt.Sprintf("## Summary\n- %s\n\nAuto-generated by Tetora task %s", t.Title, t.ID)
+	}
+
+	// Append task reference to body.
+	pr.Body += fmt.Sprintf("\n\n---\nTask: `%s` — %s", t.ID, t.Title)
+
+	return pr.Title, pr.Body
+}
+
+// detectDefaultBranch returns the default branch name (main or master) for a repo.
+func detectDefaultBranch(workdir string) string {
+	// Try git symbolic-ref for the remote HEAD.
+	out, err := exec.Command("git", "-C", workdir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err == nil {
+		ref := strings.TrimSpace(string(out))
+		if parts := strings.Split(ref, "/"); len(parts) > 0 {
+			return parts[len(parts)-1]
+		}
+	}
+	// Fallback: check if main exists.
+	if exec.Command("git", "-C", workdir, "rev-parse", "--verify", "main").Run() == nil {
+		return "main"
+	}
+	return "master"
 }
 
 // idleAnalysisSem limits concurrent idle-analysis LLM calls.

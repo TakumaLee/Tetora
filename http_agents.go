@@ -269,12 +269,13 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 			var req struct {
 				Author  string `json:"author"`
 				Content string `json:"content"`
+				Type    string `json:"type"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
 				return
 			}
-			comment, err := taskBoardEngine.AddComment(taskID, req.Author, req.Content)
+			comment, err := taskBoardEngine.AddComment(taskID, req.Author, req.Content, req.Type)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
@@ -294,6 +295,126 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 				comments = []TaskComment{}
 			}
 			json.NewEncoder(w).Encode(map[string]any{"comments": comments})
+			return
+		}
+
+		// GET /api/tasks/{id}/diff → get diff for review.
+		if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "diff" {
+			comments, err := taskBoardEngine.GetThread(taskID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			// Find the most recent diff comment.
+			var diffContent string
+			for i := len(comments) - 1; i >= 0; i-- {
+				if comments[i].Type == "diff" {
+					diffContent = comments[i].Content
+					break
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"diff": diffContent, "taskId": taskID})
+			return
+		}
+
+		// POST /api/tasks/{id}/review-comment → add inline diff review comment.
+		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "review-comment" {
+			var req struct {
+				File    string `json:"file"`
+				Line    int    `json:"line"`
+				Comment string `json:"comment"`
+				Author  string `json:"author"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			if req.Comment == "" {
+				http.Error(w, `{"error":"comment is required"}`, http.StatusBadRequest)
+				return
+			}
+			if req.Author == "" {
+				req.Author = "user"
+			}
+			// Store as structured JSON in content field.
+			reviewData, _ := json.Marshal(map[string]any{
+				"file":    req.File,
+				"line":    req.Line,
+				"comment": req.Comment,
+			})
+			comment, err := taskBoardEngine.AddComment(taskID, req.Author, string(reviewData), "review")
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(comment)
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "review_comment", Data: map[string]any{"taskId": taskID, "comment": comment}})
+			}
+			return
+		}
+
+		// POST /api/tasks/{id}/review-feedback → approve or request changes.
+		if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "review-feedback" {
+			var req struct {
+				Action  string `json:"action"`  // "approve" or "request-changes"
+				Summary string `json:"summary"` // overall feedback
+				Author  string `json:"author"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid request: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			if req.Action != "approve" && req.Action != "request-changes" {
+				http.Error(w, `{"error":"action must be 'approve' or 'request-changes'"}`, http.StatusBadRequest)
+				return
+			}
+			if req.Author == "" {
+				req.Author = "user"
+			}
+
+			// Compile all review comments into feedback.
+			comments, _ := taskBoardEngine.GetThread(taskID)
+			var reviewComments []map[string]any
+			for _, c := range comments {
+				if c.Type == "review" {
+					var data map[string]any
+					if json.Unmarshal([]byte(c.Content), &data) == nil {
+						reviewComments = append(reviewComments, data)
+					}
+				}
+			}
+
+			feedbackData, _ := json.Marshal(map[string]any{
+				"action":         req.Action,
+				"summary":        req.Summary,
+				"reviewComments": reviewComments,
+			})
+
+			// Add the feedback as a system comment.
+			var feedbackMsg string
+			if req.Action == "approve" {
+				feedbackMsg = fmt.Sprintf("[REVIEW APPROVED] %s", req.Summary)
+			} else {
+				feedbackMsg = fmt.Sprintf("[REVIEW: CHANGES REQUESTED] %s\n\nInline comments: %d", req.Summary, len(reviewComments))
+			}
+			taskBoardEngine.AddComment(taskID, req.Author, feedbackMsg, "system")
+
+			// Move task based on action.
+			if req.Action == "approve" {
+				taskBoardEngine.MoveTask(taskID, "done")
+			}
+			// For request-changes, leave in review — the task can be manually moved back to todo for re-dispatch.
+
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":       "ok",
+				"action":       req.Action,
+				"feedback":     json.RawMessage(feedbackData),
+				"commentCount": len(reviewComments),
+			})
+			if state != nil && state.broker != nil {
+				state.broker.Publish(SSEDashboardKey, SSEEvent{Type: "review_feedback", Data: map[string]any{"taskId": taskID, "action": req.Action}})
+			}
 			return
 		}
 

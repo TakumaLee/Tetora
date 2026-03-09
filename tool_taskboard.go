@@ -61,7 +61,8 @@ func registerTaskboardTools(r *ToolRegistry, cfg *Config, enabled func(string) b
 					"project": {"type": "string", "description": "Project name"},
 					"parentId": {"type": "string", "description": "Parent task ID (for subtasks)"},
 					"model": {"type": "string", "description": "LLM model override (e.g. sonnet, haiku, opus)"},
-					"dependsOn": {"type": "array", "items": {"type": "string"}, "description": "Task IDs this task depends on"}
+					"dependsOn": {"type": "array", "items": {"type": "string"}, "description": "Task IDs this task depends on"},
+					"type": {"type": "string", "description": "Task type for branch naming: feat/fix/refactor/chore (default: feat)"}
 				},
 				"required": ["title"]
 			}`),
@@ -96,7 +97,8 @@ func registerTaskboardTools(r *ToolRegistry, cfg *Config, enabled func(string) b
 				"properties": {
 					"taskId": {"type": "string", "description": "Task ID to comment on"},
 					"content": {"type": "string", "description": "Comment content"},
-					"author": {"type": "string", "description": "Comment author (defaults to calling agent)"}
+					"author": {"type": "string", "description": "Comment author (defaults to calling agent)"},
+					"type": {"type": "string", "description": "Comment type: spec/context/log/system (default: log)"}
 				},
 				"required": ["taskId", "content"]
 			}`),
@@ -217,6 +219,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			Model       string   `json:"model"`
 			DependsOn   []string `json:"dependsOn"`
 			Workflow    string   `json:"workflow"`
+			Type        string   `json:"type"`
 		}
 		if err := json.Unmarshal(input, &args); err != nil {
 			return "", fmt.Errorf("invalid input: %w", err)
@@ -237,6 +240,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			Model:       args.Model,
 			DependsOn:   args.DependsOn,
 			Workflow:    args.Workflow,
+			Type:        args.Type,
 		})
 		if err != nil {
 			return "", err
@@ -278,6 +282,7 @@ func toolTaskboardComment(cfg *Config) ToolHandler {
 			TaskID  string `json:"taskId"`
 			Content string `json:"content"`
 			Author  string `json:"author"`
+			Type    string `json:"type"`
 		}
 		if err := json.Unmarshal(input, &args); err != nil {
 			return "", fmt.Errorf("invalid input: %w", err)
@@ -291,7 +296,7 @@ func toolTaskboardComment(cfg *Config) ToolHandler {
 
 		tb := newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
 
-		comment, err := tb.AddComment(args.TaskID, args.Author, args.Content)
+		comment, err := tb.AddComment(args.TaskID, args.Author, args.Content, args.Type)
 		if err != nil {
 			return "", err
 		}
@@ -311,6 +316,7 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 				Assignee    string   `json:"assignee"`
 				Priority    string   `json:"priority"`
 				Model       string   `json:"model"`
+				Type        string   `json:"type"`
 				DependsOn   []string `json:"dependsOn"`
 			} `json:"subtasks"`
 		}
@@ -361,6 +367,11 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 				priority = parent.Priority
 			}
 
+			subType := sub.Type
+			if subType == "" {
+				subType = parent.Type
+			}
+
 			task, err := tb.CreateTask(TaskBoard{
 				Title:       sub.Title,
 				Description: sub.Description,
@@ -369,6 +380,7 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 				Project:     parent.Project,
 				ParentID:    args.ParentID,
 				Model:       sub.Model,
+				Type:        subType,
 				DependsOn:   sub.DependsOn,
 			})
 			if err != nil {

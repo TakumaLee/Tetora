@@ -23,6 +23,7 @@ type TaskBoard struct {
 	Model        string   `json:"model"`         // per-task model override (e.g. "sonnet", "haiku", "opus")
 	ParentID     string   `json:"parentId"`      // parent task ID (for subtasks)
 	DependsOn    []string `json:"dependsOn"`     // task IDs this task depends on
+	Type         string   `json:"type"`          // feat/fix/refactor/chore (default: feat)
 	Workflow     string   `json:"workflow"`      // workflow name override ("" = use config default, "none" = skip)
 	DiscordThread string  `json:"discordThread"` // Discord thread ID
 	CreatedAt    string   `json:"createdAt"`
@@ -39,6 +40,7 @@ type TaskComment struct {
 	TaskID    string `json:"taskId"`
 	Author    string `json:"author"` // agent name or "user"
 	Content   string `json:"content"`
+	Type      string `json:"type"`   // spec/context/log/system (default: log)
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -56,6 +58,14 @@ type TaskBoardDispatchConfig struct {
 	ReviewLoop            bool    `json:"reviewLoop,omitempty"`            // enable automated Dev↔QA loop (review → feedback → retry, max maxRetries)
 }
 
+// GitWorkflowConfig controls branch naming and merge behavior for agent dispatch.
+type GitWorkflowConfig struct {
+	BranchConvention string   `json:"branchConvention,omitempty"` // template: "{type}/{agent}-{description}" (default)
+	Types            []string `json:"types,omitempty"`            // allowed types (default: feat,fix,refactor,chore)
+	DefaultType      string   `json:"defaultType,omitempty"`      // fallback type (default: "feat")
+	AutoMerge        bool     `json:"autoMerge,omitempty"`        // merge back to main on done (default: true for worktree)
+}
+
 type TaskBoardConfig struct {
 	Enabled       bool                    `json:"enabled"`
 	MaxRetries    int                     `json:"maxRetries,omitempty"`    // default 3
@@ -64,6 +74,9 @@ type TaskBoardConfig struct {
 	DefaultWorkflow string                 `json:"defaultWorkflow,omitempty"` // workflow name for all dispatched tasks (empty = no workflow)
 	GitCommit     bool                    `json:"gitCommit,omitempty"`    // auto-commit on task done
 	GitPush       bool                    `json:"gitPush,omitempty"`      // auto-push after commit (requires gitCommit)
+	GitPR         bool                    `json:"gitPR,omitempty"`        // auto-create GitHub PR after push (requires gitPush)
+	GitWorktree   bool                    `json:"gitWorktree,omitempty"` // use git worktrees for task isolation (zero file conflicts)
+	GitWorkflow   GitWorkflowConfig       `json:"gitWorkflow,omitempty"` // branch naming convention
 	IdleAnalyze   bool                    `json:"idleAnalyze,omitempty"`  // auto-analyze when idle
 	ProblemScan   bool                    `json:"problemScan,omitempty"` // scan output for latent issues after task completion
 }
@@ -138,7 +151,16 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 		"ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN parent_id TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN workflow TEXT DEFAULT '';",
+		"ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'feat';",
 	}
+	// task_comments migrations.
+	commentMigrations := []string{
+		"ALTER TABLE task_comments ADD COLUMN type TEXT DEFAULT 'log';",
+	}
+	for _, m := range commentMigrations {
+		execDB(tb.dbPath, m) // ignore duplicate column errors
+	}
+
 	// Index for parent-child lookups (ignore error if already exists).
 	postMigrations := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);",
@@ -173,7 +195,7 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
 		       cost_usd, duration_ms, session_id, model, parent_id
 		FROM tasks %s
 		ORDER BY
@@ -222,9 +244,13 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		dependsOnJSON = []byte("[]")
 	}
 
+	if task.Type == "" {
+		task.Type = "feat"
+	}
+
 	sql := fmt.Sprintf(`
-		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id)
-		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s')
+		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id)
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s')
 	`,
 		escapeSQLite(task.ID),
 		escapeSQLite(task.Project),
@@ -235,6 +261,7 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		escapeSQLite(task.Priority),
 		escapeSQLite(task.Model),
 		escapeSQLite(string(dependsOnJSON)),
+		escapeSQLite(task.Type),
 		escapeSQLite(task.Workflow),
 		escapeSQLite(task.DiscordThread),
 		task.CreatedAt,
@@ -258,7 +285,7 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 	var setClauses []string
 	for key, val := range updates {
 		switch key {
-		case "title", "description", "priority", "assignee", "project", "discordThread", "model", "parentId", "workflow":
+		case "title", "description", "priority", "assignee", "project", "discordThread", "model", "parentId", "workflow", "type":
 			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", toSnakeCase(key), escapeSQLite(fmt.Sprintf("%v", val))))
 		case "dependsOn":
 			dependsOnJSON, _ := json.Marshal(val)
@@ -301,7 +328,7 @@ func (tb *TaskBoardEngine) DeleteTask(id string) error {
 func (tb *TaskBoardEngine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
 		       cost_usd, duration_ms, session_id, model, parent_id
 		FROM tasks WHERE id = '%s'
 	`, escapeSQLite(id))
@@ -401,24 +428,31 @@ func (tb *TaskBoardEngine) AssignTask(id, assignee string) (TaskBoard, error) {
 	return task, nil
 }
 
-// AddComment adds a comment to a task.
-func (tb *TaskBoardEngine) AddComment(taskID, author, content string) (TaskComment, error) {
+// AddComment adds a comment to a task. commentType defaults to "log" if empty.
+func (tb *TaskBoardEngine) AddComment(taskID, author, content string, commentType ...string) (TaskComment, error) {
+	cType := "log"
+	if len(commentType) > 0 && commentType[0] != "" {
+		cType = commentType[0]
+	}
+
 	comment := TaskComment{
 		ID:        generateID("comment"),
 		TaskID:    taskID,
 		Author:    author,
 		Content:   content,
+		Type:      cType,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	sql := fmt.Sprintf(`
-		INSERT INTO task_comments (id, task_id, author, content, created_at)
-		VALUES ('%s', '%s', '%s', '%s', '%s')
+		INSERT INTO task_comments (id, task_id, author, content, type, created_at)
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
 	`,
 		escapeSQLite(comment.ID),
 		escapeSQLite(comment.TaskID),
 		escapeSQLite(comment.Author),
 		escapeSQLite(comment.Content),
+		escapeSQLite(comment.Type),
 		comment.CreatedAt,
 	)
 
@@ -438,7 +472,7 @@ func (tb *TaskBoardEngine) AddComment(taskID, author, content string) (TaskComme
 // GetThread returns all comments for a task.
 func (tb *TaskBoardEngine) GetThread(taskID string) ([]TaskComment, error) {
 	sql := fmt.Sprintf(`
-		SELECT id, task_id, author, content, created_at
+		SELECT id, task_id, author, content, type, created_at
 		FROM task_comments
 		WHERE task_id = '%s'
 		ORDER BY created_at ASC
@@ -452,11 +486,16 @@ func (tb *TaskBoardEngine) GetThread(taskID string) ([]TaskComment, error) {
 
 	var comments []TaskComment
 	for _, row := range rows {
+		cType := fmt.Sprintf("%v", row["type"])
+		if cType == "" || cType == "<nil>" {
+			cType = "log"
+		}
 		comments = append(comments, TaskComment{
 			ID:        fmt.Sprintf("%v", row["id"]),
 			TaskID:    fmt.Sprintf("%v", row["task_id"]),
 			Author:    fmt.Sprintf("%v", row["author"]),
 			Content:   fmt.Sprintf("%v", row["content"]),
+			Type:      cType,
 			CreatedAt: fmt.Sprintf("%v", row["created_at"]),
 		})
 	}
@@ -586,6 +625,11 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		parentID = ""
 	}
 
+	taskType := fmt.Sprintf("%v", row["type"])
+	if taskType == "<nil>" || taskType == "" {
+		taskType = "feat"
+	}
+
 	workflow := fmt.Sprintf("%v", row["workflow"])
 	if workflow == "<nil>" {
 		workflow = ""
@@ -602,6 +646,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		Model:         fmt.Sprintf("%v", row["model"]),
 		ParentID:      parentID,
 		DependsOn:     dependsOn,
+		Type:          taskType,
 		Workflow:      workflow,
 		DiscordThread: fmt.Sprintf("%v", row["discord_thread_id"]),
 		CreatedAt:     fmt.Sprintf("%v", row["created_at"]),
@@ -618,7 +663,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 func (tb *TaskBoardEngine) ListChildren(parentID string) ([]TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
 		       cost_usd, duration_ms, session_id, model, parent_id
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
@@ -651,6 +696,8 @@ func toSnakeCase(s string) string {
 		return "depends_on"
 	case "parentId":
 		return "parent_id"
+	case "type":
+		return "`type`" // SQLite reserved word — must be quoted
 	default:
 		return s
 	}
@@ -714,7 +761,7 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
-		       depends_on, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
+		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
 		       cost_usd, duration_ms, session_id, model, parent_id
 		FROM tasks %s
 		ORDER BY
@@ -824,13 +871,15 @@ func (tb *TaskBoardEngine) GetProjectStats(projectID string) (*ProjectStats, err
 
 func cmdTask(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora task <list|create|move|assign|comment|thread>")
+		fmt.Println("Usage: tetora task <list|create|show|update|move|assign|comment|thread>")
 		fmt.Println("\nCommands:")
 		fmt.Println("  list [--status=STATUS] [--assignee=AGENT] [--project=PROJECT]")
-		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT]")
+		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE]")
+		fmt.Println("  show TASK_ID [--full]")
+		fmt.Println("  update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY]")
 		fmt.Println("  move TASK_ID --status=STATUS")
 		fmt.Println("  assign TASK_ID --assignee=AGENT")
-		fmt.Println("  comment TASK_ID --author=AUTHOR --content=CONTENT")
+		fmt.Println("  comment TASK_ID --author=AUTHOR --content=CONTENT [--type=TYPE]")
 		fmt.Println("  thread TASK_ID")
 		os.Exit(0)
 	}
@@ -887,7 +936,7 @@ func cmdTask(args []string) {
 		}
 
 	case "create":
-		var title, description, priority, assignee string
+		var title, description, priority, assignee, taskType string
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "--title=") {
 				title = strings.TrimPrefix(arg, "--title=")
@@ -897,6 +946,8 @@ func cmdTask(args []string) {
 				priority = strings.TrimPrefix(arg, "--priority=")
 			} else if strings.HasPrefix(arg, "--assignee=") {
 				assignee = strings.TrimPrefix(arg, "--assignee=")
+			} else if strings.HasPrefix(arg, "--type=") {
+				taskType = strings.TrimPrefix(arg, "--type=")
 			}
 		}
 
@@ -910,6 +961,7 @@ func cmdTask(args []string) {
 			Description: description,
 			Priority:    priority,
 			Assignee:    assignee,
+			Type:        taskType,
 		})
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -919,6 +971,92 @@ func cmdTask(args []string) {
 		fmt.Printf("Created task: %s\n", task.ID)
 		fmt.Printf("Title: %s\n", task.Title)
 		fmt.Printf("Status: %s\n", task.Status)
+
+	case "show":
+		if len(args) < 1 {
+			fmt.Println("Usage: tetora task show TASK_ID [--full]")
+			os.Exit(1)
+		}
+
+		taskID := args[0]
+		full := false
+		for _, arg := range args[1:] {
+			if arg == "--full" {
+				full = true
+			}
+		}
+
+		task, err := tb.GetTask(taskID)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("# %s\n\n", task.Title)
+		fmt.Printf("- **ID**: %s\n", task.ID)
+		fmt.Printf("- **Status**: %s\n", task.Status)
+		fmt.Printf("- **Priority**: %s\n", task.Priority)
+		fmt.Printf("- **Assignee**: %s\n", task.Assignee)
+		fmt.Printf("- **Project**: %s\n", task.Project)
+		if task.ParentID != "" {
+			fmt.Printf("- **Parent**: %s\n", task.ParentID)
+		}
+		if len(task.DependsOn) > 0 {
+			fmt.Printf("- **Depends On**: %s\n", strings.Join(task.DependsOn, ", "))
+		}
+		fmt.Printf("- **Created**: %s\n", task.CreatedAt)
+		fmt.Printf("- **Updated**: %s\n", task.UpdatedAt)
+		if task.CompletedAt != "" {
+			fmt.Printf("- **Completed**: %s\n", task.CompletedAt)
+		}
+		if task.Description != "" {
+			fmt.Printf("\n## Description\n\n%s\n", task.Description)
+		}
+
+		if full {
+			comments, err := tb.GetThread(taskID)
+			if err != nil {
+				fmt.Printf("\nError loading comments: %v\n", err)
+			} else if len(comments) > 0 {
+				fmt.Printf("\n## Comments (%d)\n\n", len(comments))
+				for _, c := range comments {
+					fmt.Printf("### [%s] %s (type: %s)\n\n%s\n\n", c.CreatedAt, c.Author, c.Type, c.Content)
+				}
+			}
+		}
+
+	case "update":
+		if len(args) < 2 {
+			fmt.Println("Usage: tetora task update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY]")
+			os.Exit(1)
+		}
+
+		taskID := args[0]
+		updates := make(map[string]any)
+		for _, arg := range args[1:] {
+			if strings.HasPrefix(arg, "--title=") {
+				updates["title"] = strings.TrimPrefix(arg, "--title=")
+			} else if strings.HasPrefix(arg, "--description=") {
+				updates["description"] = strings.TrimPrefix(arg, "--description=")
+			} else if strings.HasPrefix(arg, "--priority=") {
+				updates["priority"] = strings.TrimPrefix(arg, "--priority=")
+			}
+		}
+
+		if len(updates) == 0 {
+			fmt.Println("Error: at least one update field is required")
+			os.Exit(1)
+		}
+
+		task, err := tb.UpdateTask(taskID, updates)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Updated task %s\n", task.ID)
+		fmt.Printf("Title: %s\n", task.Title)
+		fmt.Printf("Priority: %s\n", task.Priority)
 
 	case "move":
 		if len(args) < 2 {
@@ -976,17 +1114,19 @@ func cmdTask(args []string) {
 
 	case "comment":
 		if len(args) < 3 {
-			fmt.Println("Usage: tetora task comment TASK_ID --author=AUTHOR --content=CONTENT")
+			fmt.Println("Usage: tetora task comment TASK_ID --author=AUTHOR --content=CONTENT [--type=TYPE]")
 			os.Exit(1)
 		}
 
 		taskID := args[0]
-		var author, content string
+		var author, content, commentType string
 		for _, arg := range args[1:] {
 			if strings.HasPrefix(arg, "--author=") {
 				author = strings.TrimPrefix(arg, "--author=")
 			} else if strings.HasPrefix(arg, "--content=") {
 				content = strings.TrimPrefix(arg, "--content=")
+			} else if strings.HasPrefix(arg, "--type=") {
+				commentType = strings.TrimPrefix(arg, "--type=")
 			}
 		}
 
@@ -995,13 +1135,13 @@ func cmdTask(args []string) {
 			os.Exit(1)
 		}
 
-		comment, err := tb.AddComment(taskID, author, content)
+		comment, err := tb.AddComment(taskID, author, content, commentType)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Added comment %s to task %s\n", comment.ID, taskID)
+		fmt.Printf("Added comment %s (type: %s) to task %s\n", comment.ID, comment.Type, taskID)
 
 	case "thread":
 		if len(args) < 1 {
@@ -1023,7 +1163,7 @@ func cmdTask(args []string) {
 
 		fmt.Printf("Thread for task %s (%d comments):\n\n", taskID, len(comments))
 		for _, c := range comments {
-			fmt.Printf("[%s] %s:\n%s\n\n", c.CreatedAt, c.Author, c.Content)
+			fmt.Printf("[%s] %s (type: %s):\n%s\n\n", c.CreatedAt, c.Author, c.Type, c.Content)
 		}
 
 	default:
