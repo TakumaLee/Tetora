@@ -27,6 +27,9 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity Req
 	if providerType == "" && pName == "claude-code" {
 		providerType = "claude-code"
 	}
+	if providerType == "" && pName == "codex" {
+		providerType = "codex-cli"
+	}
 
 	// --- 1. Soul/Agent prompt (always loaded) ---
 	if agentName != "" {
@@ -80,8 +83,9 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity Req
 		task.AddDirs = append(task.AddDirs, d)
 	}
 
-	// If provider is claude-code, only the soul prompt is needed; skip everything else.
-	if providerType == "claude-code" {
+	// If provider is claude-code or codex-cli, only the soul prompt is needed; skip everything else.
+	// These providers read project files (CLAUDE.md, workspace) natively.
+	if providerType == "claude-code" || providerType == "codex-cli" {
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -134,7 +135,7 @@ func (r *providerRegistry) get(name string) (Provider, error) {
 // session state. For these providers, Tetora should NOT inject conversation
 // history as text — the provider already resumes the session natively.
 func providerHasNativeSession(providerName string) bool {
-	return providerName == "claude-code" ||
+	return providerName == "claude-code" || providerName == "codex" ||
 		strings.HasPrefix(providerName, "terminal-")
 }
 
@@ -232,6 +233,14 @@ func initProviders(cfg *Config) *providerRegistry {
 				cfg:        cfg,
 			})
 
+		case "codex-cli":
+			// Headless Codex provider: runs codex exec --json.
+			path := pc.Path
+			if path == "" {
+				path = "codex"
+			}
+			reg.register(name, &CodexProvider{binaryPath: path, cfg: cfg})
+
 		}
 	}
 
@@ -253,6 +262,13 @@ func initProviders(cfg *Config) *providerRegistry {
 			path = "/usr/local/bin/claude"
 		}
 		reg.register("claude-code", &ClaudeProvider{binaryPath: path, cfg: cfg})
+	}
+
+	// Auto-register "codex" if the binary is found on PATH.
+	if _, err := reg.get("codex"); err != nil {
+		if path, lookErr := exec.LookPath("codex"); lookErr == nil {
+			reg.register("codex", &CodexProvider{binaryPath: path, cfg: cfg})
+		}
 	}
 
 	return reg
