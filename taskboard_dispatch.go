@@ -271,6 +271,10 @@ func (d *TaskBoardDispatcher) scan() {
 	// Always reset stuck tasks first (handles crash/restart scenarios regardless of active count).
 	d.resetStuckDoing()
 
+	// Auto-review: pick up tasks in "review" assigned to an agent (not a human).
+	// Runs before dispatch so approved tasks can unblock dependents in this same cycle.
+	d.scanReviews()
+
 	// Skip dispatch if tasks from the previous cycle are still running.
 	if n := d.activeCount.Load(); n > 0 {
 		logInfo("taskboard dispatch: scan skipped, waiting for running tasks", "active", n)
@@ -1056,6 +1060,90 @@ func (d *TaskBoardDispatcher) promoteUnblockedTasks(completedID string) {
 
 	if promoted > 0 {
 		logInfo("promoteUnblockedTasks: total promoted", "count", promoted, "trigger", completedID)
+	}
+}
+
+// scanReviews picks up tasks in "review" status assigned to an agent and runs auto-review.
+// Only reviews tasks assigned to known agents (not to humans like "takuma").
+// Each task is reviewed at most once per scan — the verdict moves it to done or escalates.
+func (d *TaskBoardDispatcher) scanReviews() {
+	reviews, err := d.engine.ListTasks("review", "", "")
+	if err != nil || len(reviews) == 0 {
+		return
+	}
+
+	escalateUser := d.resolveEscalateAssignee()
+	reviewer := d.engine.config.AutoDispatch.ReviewAgent
+	if reviewer == "" {
+		reviewer = "ruri"
+	}
+
+	for _, t := range reviews {
+		// Skip tasks already assigned to a human (escalated).
+		if t.Assignee == escalateUser || t.Assignee == "" {
+			continue
+		}
+
+		// Skip if assignee is NOT a known agent — it's probably a human.
+		if _, isAgent := d.cfg.Agents[t.Assignee]; !isAgent && t.Assignee != reviewer {
+			continue
+		}
+
+		logInfo("scanReviews: auto-reviewing", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
+
+		// Extract original prompt (title + description) and output (last log comment).
+		originalPrompt := t.Title
+		if t.Description != "" {
+			originalPrompt += "\n\n" + t.Description
+		}
+		output := ""
+		if comments, err := d.engine.GetThread(t.ID); err == nil {
+			for i := len(comments) - 1; i >= 0; i-- {
+				c := comments[i]
+				if (c.Type == "log" || c.Type == "") && c.Author != "system" && c.Author != "triage" {
+					output = c.Content
+					break
+				}
+			}
+		}
+		if output == "" {
+			logDebug("scanReviews: no output found, skipping", "id", t.ID)
+			continue
+		}
+
+		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[auto-review] %s reviewing...", reviewer))
+
+		rv := d.thoroughReview(d.ctx, originalPrompt, output, t.Assignee, reviewer)
+
+		switch rv.Verdict {
+		case reviewApprove:
+			logInfo("scanReviews: approved", "id", t.ID, "comment", rv.Comment)
+			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Approved: %s", rv.Comment))
+			nowISO := time.Now().UTC().Format(time.RFC3339)
+			sql := fmt.Sprintf(
+				`UPDATE tasks SET status = 'done', completed_at = '%s', updated_at = '%s', cost_usd = cost_usd + %.6f WHERE id = '%s'`,
+				escapeSQLite(nowISO), escapeSQLite(nowISO), rv.CostUSD, escapeSQLite(t.ID),
+			)
+			execDB(d.engine.dbPath, sql)
+			d.checkParentRollup(t.ID)
+			d.promoteUnblockedTasks(t.ID)
+
+		case reviewFix:
+			logInfo("scanReviews: fix required, sending back", "id", t.ID, "comment", rv.Comment)
+			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
+			// Move back to todo with the original assignee — dispatcher will re-execute with feedback.
+			d.engine.AddComment(t.ID, "system",
+				fmt.Sprintf("[auto-review] Sending back to %s for fix.", t.Assignee))
+			d.engine.UpdateTask(t.ID, map[string]any{
+				"status":     "todo",
+				"retryCount": t.RetryCount + 1,
+			})
+
+		case reviewEscalate:
+			logInfo("scanReviews: escalating to user", "id", t.ID, "comment", rv.Comment)
+			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Needs human judgment: %s", rv.Comment))
+			d.engine.UpdateTask(t.ID, map[string]any{"assignee": escalateUser})
+		}
 	}
 }
 
