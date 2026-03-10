@@ -3459,22 +3459,28 @@ body:not([class*="theme-"])::after, body.theme-default::after {
             <span class="section-title">Reminders</span>
             <button class="btn" onclick="refreshReminders()">Refresh</button>
           </div>
-          <div id="integration-reminders"></div>
+          <div id="stg-integration-reminders"></div>
         </div>
         <!-- Workflow Triggers -->
         <div class="section">
-          <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
-          <div id="integration-triggers"></div>
+          <div class="section-header">
+            <span class="section-title">Workflow Triggers</span>
+            <div>
+              <button class="btn" onclick="refreshTriggers()">Refresh</button>
+              <button class="btn" style="background:var(--accent);color:#fff" onclick="openTriggerModal()">+ Create</button>
+            </div>
+          </div>
+          <div id="stg-integration-triggers"></div>
         </div>
         <!-- Knowledge Pipeline -->
         <div class="section">
           <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
-          <div id="integration-knowledge"></div>
+          <div id="stg-integration-knowledge"></div>
         </div>
         <!-- Smart Home -->
-        <div class="section" id="integration-ha-section" style="display:none">
+        <div class="section" id="stg-integration-ha-section" style="display:none">
           <div class="section-header"><span class="section-title">Smart Home</span></div>
-          <div id="integration-ha"></div>
+          <div id="stg-integration-ha"></div>
         </div>
       </div><!-- /settings-sub-integrations -->
 
@@ -13516,6 +13522,7 @@ function refreshReminders() {
       });
       html += '</tbody></table></div>';
       el.innerHTML = html;
+      mirrorToSettings('integration-reminders');
     })
     .catch(function() {
       document.getElementById('integration-reminders').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load reminders</div>';
@@ -13567,6 +13574,7 @@ function refreshTriggers() {
         html += '</div></div>';
       });
       el.innerHTML = html;
+      mirrorToSettings('integration-triggers');
     })
     .catch(function() {
       document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
@@ -13732,11 +13740,19 @@ function saveTrigger() {
   });
 }
 
+// Mirror content to settings-sub-integrations duplicate panels.
+function mirrorToSettings(primaryId) {
+  var src = document.getElementById(primaryId);
+  var dst = document.getElementById('stg-' + primaryId);
+  if (src && dst) dst.innerHTML = src.innerHTML;
+}
+
 function renderKnowledgeStatus(count) {
   var el = document.getElementById('integration-knowledge');
   el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
     '<div class="stat-label">INDEXED DOCUMENTS</div>' +
     '<div class="stat-value">' + (count || 0) + '</div></div>';
+  mirrorToSettings('integration-knowledge');
 }
 
 function renderBrowserRelayStatus(status) {
@@ -13751,6 +13767,9 @@ function renderHAStatus(status) {
     '<span class="stat-label">HOME ASSISTANT</span>' +
     '<span style="color:' + color + ';font-size:12px">&#9679; ' + status + '</span>' +
     '</div></div>';
+  mirrorToSettings('integration-ha');
+  var stgSec = document.getElementById('stg-integration-ha-section');
+  if (stgSec) stgSec.style.display = '';
 }
 
 // --- P22.5: Settings ---

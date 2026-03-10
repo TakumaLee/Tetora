@@ -3,6 +3,7 @@
   <header>
     <div class="logo">Tetora <span id="version"></span></div>
     <div class="header-right">
+      <button class="btn" id="mode-toggle-btn" onclick="toggleColorMode()" title="Toggle light/dark" style="padding:6px 10px;font-size:15px;line-height:1">&#x263E;</button>
       <div class="theme-switcher" id="theme-switcher">
         <button class="btn" onclick="toggleThemeDropdown()" id="theme-toggle-btn" title="Switch theme" style="padding:6px 10px;font-size:13px">&#127912;</button>
         <div class="theme-dropdown" id="theme-dropdown">
@@ -10,10 +11,15 @@
           <button onclick="setTheme('clean')">Clean</button>
           <button onclick="setTheme('material')">Material</button>
           <button onclick="setTheme('boardroom')">Boardroom</button>
-          <button onclick="setTheme('classic')">Retro</button>
-          <button onclick="setTheme('nes')">NES Dark</button>
-          <button onclick="setTheme('gameboy')">Game Boy</button>
-          <button onclick="setTheme('amber')">Amber</button>
+          <button onclick="setTheme('nord')">Nord</button>
+          <button onclick="setTheme('dracula')">Dracula</button>
+          <button onclick="setTheme('solarized')">Solarized</button>
+          <button onclick="setTheme('rosepine')">Rose Pine</button>
+          <div style="height:1px;background:var(--border);margin:4px 0"></div>
+          <button onclick="setTheme('classic')">&#x1F3AE; Retro</button>
+          <button onclick="setTheme('nes')">&#x1F3AE; NES Dark</button>
+          <button onclick="setTheme('gameboy')">&#x1F3AE; Game Boy</button>
+          <button onclick="setTheme('amber')">&#x1F3AE; Amber</button>
         </div>
       </div>
       <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
@@ -32,15 +38,51 @@
     <button class="alert-close" onclick="dismissUsageAlert()" aria-label="Dismiss">&#215;</button>
   </div>
 
-  <div class="tab-nav">
-    <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
-    <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
-    <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
-    <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
-    <button id="tab-agents" onclick="switchTab('agents')">Agents</button>
-    <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
-    <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
-  </div>
+  <div class="app-layout">
+
+  <!-- Sidebar Navigation -->
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <button class="nav-item active" id="tab-dashboard" onclick="switchTab('dashboard')">
+      <span class="nav-icon">&#x1F4CA;</span> Dashboard
+    </button>
+    <button class="nav-item" id="tab-chat" onclick="switchTab('chat')">
+      <span class="nav-icon">&#x1F4AC;</span> Chat
+    </button>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Operations</div>
+    <button class="nav-item" id="tab-operations-agents" onclick="switchTab('operations');switchSubTab('operations','agents')">
+      <span class="nav-icon">&#x1F916;</span> Agents
+    </button>
+    <button class="nav-item" id="tab-operations-workflows" onclick="switchTab('operations');switchSubTab('operations','workflows')">
+      <span class="nav-icon">&#x26A1;</span> Workflows
+    </button>
+    <button class="nav-item" id="tab-operations-tasks" onclick="switchTab('operations');switchSubTab('operations','tasks')">
+      <span class="nav-icon">&#x1F4CB;</span> Tasks
+    </button>
+    <button class="nav-item" id="tab-operations-files" onclick="switchTab('operations');switchSubTab('operations','files')">
+      <span class="nav-icon">&#x1F4C2;</span> Files
+    </button>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Settings</div>
+    <button class="nav-item" id="tab-settings-general" onclick="switchTab('settings');switchSubTab('settings','general')">
+      <span class="nav-icon">&#x2699;</span> General
+    </button>
+    <button class="nav-item" id="tab-settings-integrations" onclick="switchTab('settings');switchSubTab('settings','integrations')">
+      <span class="nav-icon">&#x1F517;</span> Integrations
+    </button>
+    <button class="nav-item" id="tab-settings-tools-security" onclick="switchTab('settings');switchSubTab('settings','tools-security')">
+      <span class="nav-icon">&#x1F6E1;</span> Tools & Security
+    </button>
+    <button class="nav-item" id="tab-settings-notifications" onclick="switchTab('settings');switchSubTab('settings','notifications')">
+      <span class="nav-icon">&#x1F514;</span> Notifications
+    </button>
+  </nav>
+
+  <!-- Sidebar overlay for mobile -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+  <!-- Main Content -->
+  <div class="app-main">
 
   <div id="dashboard-content">
   <!-- View Selector -->
@@ -718,7 +760,16 @@
     </div>
   </div><!-- /chat-content -->
 
-  <div id="workflows-content" style="display:none">
+  <div id="operations-content" style="display:none">
+    <div class="sub-tab-nav" id="operations-sub-nav">
+      <button class="active" data-sub="agents" onclick="switchSubTab('operations','agents')">Agents</button>
+      <button data-sub="workflows" onclick="switchSubTab('operations','workflows')">Workflows</button>
+      <button data-sub="tasks" onclick="switchSubTab('operations','tasks')">Tasks</button>
+      <button data-sub="files" onclick="switchSubTab('operations','files')">Memory</button>
+    </div>
+
+    <!-- === Sub: Workflows === -->
+    <div id="operations-sub-workflows" style="display:none">
 
     <!-- Workflow Definitions -->
     <div class="section">
@@ -764,6 +815,8 @@
               <div class="wfed-dd-item" onclick="addStepToWorkflow('tool_call');toggleAddStepMenu()">tool_call</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('delay');toggleAddStepMenu()">delay</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('notify');toggleAddStepMenu()">notify</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('external');toggleAddStepMenu()">external</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('handoff');toggleAddStepMenu()">handoff</div>
             </div>
           </div>
           <button class="btn" onclick="wedAutoLayout()" title="Auto-layout nodes">&#x2B21; Layout</button>
@@ -774,6 +827,7 @@
           <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
           <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
           <button class="btn" onclick="dryRunWorkflow()" title="測試執行 (不實際呼叫 API)">&#128269; Dry Run</button>
+          <button class="btn" onclick="wfEdShowVersionHistory()" title="版本歷史">&#x1F552; Versions</button>
           <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
           <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
           <button class="btn" onclick="closeWorkflowEditor()">Close</button>
@@ -797,6 +851,9 @@
           </div>
         </div>
       </div>
+
+      <!-- Version History Panel -->
+      <div id="wf-version-panel" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)"></div>
 
       <!-- JSON Editor (collapsible) -->
       <div id="wf-json-editor-panel" style="display:none;margin-top:12px">
@@ -847,29 +904,40 @@
       </div>
       <div id="wf-node-detail" class="wf-node-detail" style="display:none"></div>
     </div>
-  </div><!-- /workflows-content -->
+    </div><!-- /operations-sub-workflows -->
 
-  <div id="integrations-content" style="display:none">
-    <!-- Channel Status -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Channel Status</span>
-        <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+    <!-- === Sub: Agents === -->
+    <div id="operations-sub-agents">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Agents</span>
+          <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
+        </div>
+        <div id="agents-list">
+          <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
+        </div>
       </div>
-      <div id="integration-channels"></div>
-    </div>
+    </div><!-- /operations-sub-agents -->
 
-    <!-- OAuth Connections -->
-    <div class="section">
-      <div class="section-header"><span class="section-title">OAuth Connections</span></div>
-      <div id="integration-oauth"></div>
-    </div>
-
-    <!-- Reminders -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Reminders</span>
-        <button class="btn" onclick="refreshReminders()">Refresh</button>
+    <!-- === Sub: Tasks (from workspace) === -->
+    <div id="operations-sub-tasks" style="display:none">
+      <!-- Project Stats Bar -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Tasks</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+              <option value="">All</option>
+              <option value="active" selected>Active</option>
+              <option value="archived">Archived</option>
+            </select>
+            <button class="btn" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Project</button>
+            <button class="btn btn-add" onclick="openTaskCreateModal()" style="padding:4px 12px;font-size:12px">+ Task</button>
+          </div>
+        </div>
+        <div id="kanban-stats-bar" class="kanban-stats-bar">
+          <div style="color:var(--muted);font-size:12px;padding:10px">Loading projects...</div>
+        </div>
       </div>
       <div id="integration-reminders"></div>
     </div>
@@ -917,131 +985,232 @@
       <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
       <div id="integration-knowledge"></div>
     </div>
+      <!-- Filter Bar -->
+      <div class="kanban-filter-bar">
+        <select id="kb-filter-project" onchange="refreshBoard()">
+          <option value="">All Projects</option>
+        </select>
+        <select id="kb-filter-assignee" onchange="refreshBoard()">
+          <option value="">All Agents</option>
+        </select>
+        <select id="kb-filter-priority" onchange="refreshBoard()">
+          <option value="">All Priority</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+        <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
+        <span id="kb-total-cost" class="kanban-total-cost"></span>
+      </div>
+      <!-- Kanban Board -->
+      <div id="kanban-board" class="kanban-board">
+        <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;width:100%">Loading board...</div>
+      </div>
+      <!-- Hidden projects grid for project modal functions -->
+      <div id="projects-grid" style="display:none"></div>
+    </div><!-- /operations-sub-tasks -->
 
-    <!-- Smart Home -->
-    <div class="section" id="integration-ha-section" style="display:none">
-      <div class="section-header"><span class="section-title">Smart Home</span></div>
-      <div id="integration-ha"></div>
-    </div>
-  </div><!-- /integrations-content -->
+    <!-- === Sub: Files === -->
+    <div id="operations-sub-files" style="display:none">
+      <div class="section" id="memory-browser-section">
+        <div class="section-header"><span class="section-title">Workspace Files</span></div>
+        <div class="memory-browser">
+          <div class="memory-tree" id="memory-tree"><div class="search-empty">Loading...</div></div>
+          <div class="memory-editor" id="memory-editor"><div class="search-empty">Select a file to view</div></div>
+        </div>
+      </div>
+    </div><!-- /operations-sub-files -->
+
+  </div><!-- /operations-content -->
 
   <div id="settings-content" style="display:none">
     <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
     <div id="settings-container" style="display:none">
-      <!-- Theme -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Theme</span></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
-          <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
-          <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
-          <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
-          <button class="btn" onclick="setTheme('boardroom')" id="theme-btn-boardroom">Boardroom</button>
-          <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
-          <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
-          <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
-          <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:16px;cursor:pointer">
-            <input type="checkbox" id="sound-toggle" onchange="_soundEnabled=this.checked;localStorage.setItem('tetora-sound',this.checked)"> 8-bit sounds
-          </label>
+      <div class="sub-tab-nav" id="settings-sub-nav">
+        <button class="active" data-sub="general" onclick="switchSubTab('settings','general')">General</button>
+        <button data-sub="integrations" onclick="switchSubTab('settings','integrations')">Integrations</button>
+        <button data-sub="tools-security" onclick="switchSubTab('settings','tools-security')">Tools & Security</button>
+        <button data-sub="notifications" onclick="switchSubTab('settings','notifications')">Notifications</button>
+      </div>
+
+      <!-- === Sub: General === -->
+      <div id="settings-sub-general">
+        <!-- Theme -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Theme</span>
+            <button class="btn" onclick="toggleColorMode()" style="padding:4px 14px;font-size:12px">
+              <span id="settings-mode-icon">&#x263E;</span> Toggle Light/Dark
+            </button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
+            <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
+            <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
+            <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
+            <button class="btn" onclick="setTheme('boardroom')" id="theme-btn-boardroom">Boardroom</button>
+            <button class="btn" onclick="setTheme('nord')" id="theme-btn-nord">Nord</button>
+            <button class="btn" onclick="setTheme('dracula')" id="theme-btn-dracula">Dracula</button>
+            <button class="btn" onclick="setTheme('solarized')" id="theme-btn-solarized">Solarized</button>
+            <button class="btn" onclick="setTheme('rosepine')" id="theme-btn-rosepine">Rose Pine</button>
+          </div>
+          <!-- Retro Lab -->
+          <div style="margin-top:10px">
+            <button class="btn" onclick="var p=document.getElementById('retro-lab-panel');p.style.display=p.style.display==='none'?'':'none'" style="font-size:11px;padding:5px 12px;color:var(--muted);border:1px dashed var(--border)">&#x1F3AE; Retro Lab</button>
+            <div id="retro-lab-panel" style="display:none;margin-top:8px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px">8-bit themes for the nostalgic</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
+                <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
+                <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
+                <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:8px;cursor:pointer">
+                  <input type="checkbox" id="sound-toggle" onchange="_soundEnabled=this.checked;localStorage.setItem('tetora-sound',this.checked)"> 8-bit sounds
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <!-- General -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">General</span></div>
-        <div id="settings-general"></div>
-      </div>
-      <!-- Channels -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Channels</span></div>
-        <div id="settings-channels"></div>
-      </div>
-      <!-- Integrations -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Integrations</span></div>
-        <div id="settings-integrations"></div>
-      </div>
-      <!-- Discord -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Discord</span></div>
-        <div style="padding:8px 0">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-            <label class="toggle" style="margin:0">
-              <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
-              <span class="slider"></span>
+        <!-- General -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">General</span></div>
+          <div id="settings-general"></div>
+        </div>
+        <!-- Channels -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Channels</span></div>
+          <div id="settings-channels"></div>
+        </div>
+        <!-- Discord -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Discord</span></div>
+          <div style="padding:8px 0">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <label class="toggle" style="margin:0">
+                <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
+                <span class="slider"></span>
+              </label>
+              Show streaming progress
             </label>
-            Show streaming progress
-          </label>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
-            Display live "Working..." updates in Discord while tasks are running
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
+              Display live "Working..." updates in Discord while tasks are running
+            </div>
           </div>
         </div>
-      </div>
-      <!-- Tools -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Tools</span></div>
-        <div id="settings-tools"></div>
-      </div>
-      <!-- Budgets -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Budgets</span></div>
-        <div id="settings-budgets"></div>
-      </div>
-      <!-- Security -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Security</span></div>
-        <div id="settings-security"></div>
-      </div>
-      <!-- Heartbeat -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Heartbeat</span></div>
-        <div id="settings-heartbeat"></div>
-      </div>
-      <!-- Task Board -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Task Board</span></div>
-        <div id="settings-taskboard"></div>
-      </div>
-      <!-- Claude Code Hooks (v3) -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Claude Code Hooks</span></div>
-        <div id="settings-hooks">
-          <div style="padding:12px;font-size:13px;color:var(--muted)">
-            <p style="margin-bottom:12px">Hooks 讓 Tetora 即時接收 Claude Code 的工具呼叫、Plan Mode 和完成通知。</p>
-            <div id="hooks-status-display" style="margin-bottom:12px">
-              <span style="color:var(--muted)">Checking status...</span>
+      </div><!-- /settings-sub-general -->
+
+      <!-- === Sub: Integrations === -->
+      <div id="settings-sub-integrations" style="display:none">
+        <!-- Settings Integrations -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Integrations</span></div>
+          <div id="settings-integrations"></div>
+        </div>
+        <!-- Channel Status -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Channel Status</span>
+            <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+          </div>
+          <div id="integration-channels"></div>
+        </div>
+        <!-- OAuth Connections -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">OAuth Connections</span></div>
+          <div id="integration-oauth"></div>
+        </div>
+        <!-- Reminders -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Reminders</span>
+            <button class="btn" onclick="refreshReminders()">Refresh</button>
+          </div>
+          <div id="stg-integration-reminders"></div>
+        </div>
+        <!-- Workflow Triggers -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Workflow Triggers</span>
+            <div>
+              <button class="btn" onclick="refreshTriggers()">Refresh</button>
+              <button class="btn" style="background:var(--accent);color:#fff" onclick="openTriggerModal()">+ Create</button>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn" id="hooks-install-btn" onclick="installHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--green);color:#000;font-weight:600">Install Hooks</button>
-              <button class="btn" id="hooks-remove-btn" onclick="removeHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--red);color:#fff;display:none">Remove Hooks</button>
+          </div>
+          <div id="stg-integration-triggers"></div>
+        </div>
+        <!-- Knowledge Pipeline -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
+          <div id="stg-integration-knowledge"></div>
+        </div>
+        <!-- Smart Home -->
+        <div class="section" id="stg-integration-ha-section" style="display:none">
+          <div class="section-header"><span class="section-title">Smart Home</span></div>
+          <div id="stg-integration-ha"></div>
+        </div>
+      </div><!-- /settings-sub-integrations -->
+
+      <!-- === Sub: Tools & Security === -->
+      <div id="settings-sub-tools-security" style="display:none">
+        <!-- Tools -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Tools</span></div>
+          <div id="settings-tools"></div>
+        </div>
+        <!-- Budgets -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Budgets</span></div>
+          <div id="settings-budgets"></div>
+        </div>
+        <!-- Security -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Security</span></div>
+          <div id="settings-security"></div>
+        </div>
+        <!-- Claude Code Hooks (v3) -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Claude Code Hooks</span></div>
+          <div id="settings-hooks">
+            <div style="padding:12px;font-size:13px;color:var(--muted)">
+              <p style="margin-bottom:12px">Hooks 讓 Tetora 即時接收 Claude Code 的工具呼叫、Plan Mode 和完成通知。</p>
+              <div id="hooks-status-display" style="margin-bottom:12px">
+                <span style="color:var(--muted)">Checking status...</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn" id="hooks-install-btn" onclick="installHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--green);color:#000;font-weight:600">Install Hooks</button>
+                <button class="btn" id="hooks-remove-btn" onclick="removeHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--red);color:#fff;display:none">Remove Hooks</button>
+              </div>
+              <div id="hooks-result" style="margin-top:8px;font-size:12px;display:none"></div>
             </div>
-            <div id="hooks-result" style="margin-top:8px;font-size:12px;display:none"></div>
           </div>
         </div>
-      </div>
-      <!-- Notifications (Discord Webhooks) -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Notifications</span>
-          <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+      </div><!-- /settings-sub-tools-security -->
+
+      <!-- === Sub: Notifications === -->
+      <div id="settings-sub-notifications" style="display:none">
+        <!-- Heartbeat -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Heartbeat</span></div>
+          <div id="settings-heartbeat"></div>
         </div>
-        <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
-        <div id="settings-notifications-table" style="display:none"></div>
-      </div>
+        <!-- Task Board -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Task Board</span></div>
+          <div id="settings-taskboard"></div>
+        </div>
+        <!-- Notifications (Discord Webhooks) -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Notifications</span>
+            <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+          </div>
+          <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
+          <div id="settings-notifications-table" style="display:none"></div>
+        </div>
+      </div><!-- /settings-sub-notifications -->
+
     </div>
   </div><!-- /settings-content -->
-
-  <!-- Agents Tab -->
-  <div id="agents-content" style="display:none">
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Agents</span>
-        <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
-      </div>
-      <div id="agents-list">
-        <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
-      </div>
-    </div>
-  </div><!-- /agents-content -->
 
   <!-- Agent Create/Edit Modal -->
   <div class="modal-overlay" id="agent-modal" style="display:none" onclick="if(event.target===this)closeAgentModal()">
@@ -1095,59 +1264,13 @@
     </div>
   </div><!-- /agent-modal -->
 
-  <div id="workspace-content" style="display:none">
-    <!-- Project Stats Bar -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Workspace</span>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
-            <option value="">All</option>
-            <option value="active" selected>Active</option>
-            <option value="archived">Archived</option>
-          </select>
-          <button class="btn" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Project</button>
-          <button class="btn btn-add" onclick="openTaskCreateModal()" style="padding:4px 12px;font-size:12px">+ Task</button>
-        </div>
-      </div>
-      <div id="kanban-stats-bar" class="kanban-stats-bar">
-        <div style="color:var(--muted);font-size:12px;padding:10px">Loading projects...</div>
-      </div>
-    </div>
-    <!-- Filter Bar -->
-    <div class="kanban-filter-bar">
-      <select id="kb-filter-project" onchange="refreshBoard()">
-        <option value="">All Projects</option>
-      </select>
-      <select id="kb-filter-assignee" onchange="refreshBoard()">
-        <option value="">All Agents</option>
-      </select>
-      <select id="kb-filter-priority" onchange="refreshBoard()">
-        <option value="">All Priority</option>
-        <option value="urgent">Urgent</option>
-        <option value="high">High</option>
-        <option value="normal">Normal</option>
-        <option value="low">Low</option>
-      </select>
-      <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
-      <span id="kb-total-cost" class="kanban-total-cost"></span>
-    </div>
-    <!-- Kanban Board -->
-    <div id="kanban-board" class="kanban-board">
-      <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;width:100%">Loading board...</div>
-    </div>
-    <!-- Hidden projects grid for project modal functions -->
-    <div id="projects-grid" style="display:none"></div>
-    <!-- Memory Browser -->
-    <div class="section" id="memory-browser-section">
-      <div class="section-header"><span class="section-title">Workspace Files</span></div>
-      <div class="memory-browser">
-        <div class="memory-tree" id="memory-tree"><div class="search-empty">Loading...</div></div>
-        <div class="memory-editor" id="memory-editor"><div class="search-empty">Select a file to view</div></div>
-      </div>
-    </div>
-  </div><!-- /workspace-content -->
+  <!-- workspace-content removed: content moved to operations sub-tabs -->
 
+  </div><!-- /app-main -->
+  </div><!-- /app-layout -->
+
+  <!-- Mobile sidebar toggle -->
+  <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
 
 <!-- Project Modal -->
 <div class="modal-overlay" id="project-modal">

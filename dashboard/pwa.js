@@ -123,6 +123,7 @@ function refreshReminders() {
       });
       html += '</tbody></table></div>';
       el.innerHTML = html;
+      mirrorToSettings('integration-reminders');
     })
     .catch(function() {
       document.getElementById('integration-reminders').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load reminders</div>';
@@ -174,6 +175,7 @@ function refreshTriggers() {
         html += '</div></div>';
       });
       el.innerHTML = html;
+      mirrorToSettings('integration-triggers');
     })
     .catch(function() {
       document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
@@ -339,11 +341,19 @@ function saveTrigger() {
   });
 }
 
+// Mirror content to settings-sub-integrations duplicate panels.
+function mirrorToSettings(primaryId) {
+  var src = document.getElementById(primaryId);
+  var dst = document.getElementById('stg-' + primaryId);
+  if (src && dst) dst.innerHTML = src.innerHTML;
+}
+
 function renderKnowledgeStatus(count) {
   var el = document.getElementById('integration-knowledge');
   el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">' +
     '<div class="stat-label">INDEXED DOCUMENTS</div>' +
     '<div class="stat-value">' + (count || 0) + '</div></div>';
+  mirrorToSettings('integration-knowledge');
 }
 
 function renderBrowserRelayStatus(status) {
@@ -358,6 +368,9 @@ function renderHAStatus(status) {
     '<span class="stat-label">HOME ASSISTANT</span>' +
     '<span style="color:' + color + ';font-size:12px">&#9679; ' + status + '</span>' +
     '</div></div>';
+  mirrorToSettings('integration-ha');
+  var stgSec = document.getElementById('stg-integration-ha-section');
+  if (stgSec) stgSec.style.display = '';
 }
 
 // --- P22.5: Settings ---
@@ -805,7 +818,10 @@ function dcmSave() {
 }
 
 // --- Theme System ---
-var THEMES = ['default', 'clean', 'material', 'boardroom', 'classic', 'nes', 'gameboy', 'amber'];
+var THEMES = ['default', 'clean', 'material', 'boardroom', 'nord', 'dracula', 'solarized', 'rosepine', 'classic', 'nes', 'gameboy', 'amber'];
+// Themes that default to light mode (dark toggle available)
+var LIGHT_DEFAULT_THEMES = ['boardroom'];
+
 function setTheme(name) {
   THEMES.forEach(function(t) { document.body.classList.remove('theme-' + t); });
   if (name && name !== 'default') document.body.classList.add('theme-' + name);
@@ -814,10 +830,54 @@ function setTheme(name) {
     var b = document.getElementById('theme-btn-' + t);
     if (b) b.style.borderColor = (t === (name || 'default')) ? 'var(--accent)' : '';
   });
+  // Auto-expand Retro Lab if a retro theme is selected
+  var retroThemes = ['classic','nes','gameboy','amber'];
+  var lab = document.getElementById('retro-lab-panel');
+  if (lab && retroThemes.indexOf(name) >= 0) lab.style.display = '';
   // Close dropdown after selection
   var dd = document.getElementById('theme-dropdown');
   if (dd) dd.classList.remove('open');
+  // Update mode toggle icon
+  updateModeToggle();
 }
+
+function setColorMode(mode) {
+  document.body.classList.remove('mode-light', 'mode-dark');
+  if (mode) document.body.classList.add('mode-' + mode);
+  localStorage.setItem('tetora-color-mode', mode || '');
+  updateModeToggle();
+}
+
+function toggleColorMode() {
+  var isLight = document.body.classList.contains('mode-light');
+  var currentTheme = localStorage.getItem('tetora-theme') || 'default';
+  // Boardroom defaults to light, so toggle = dark
+  if (LIGHT_DEFAULT_THEMES.indexOf(currentTheme) >= 0) {
+    if (document.body.classList.contains('mode-dark')) {
+      setColorMode('');
+    } else {
+      setColorMode('dark');
+    }
+  } else {
+    setColorMode(isLight ? '' : 'light');
+  }
+}
+
+function updateModeToggle() {
+  var btn = document.getElementById('mode-toggle-btn');
+  if (!btn) return;
+  var isLight = document.body.classList.contains('mode-light');
+  var currentTheme = localStorage.getItem('tetora-theme') || 'default';
+  // Boardroom is light by default
+  if (LIGHT_DEFAULT_THEMES.indexOf(currentTheme) >= 0 && !document.body.classList.contains('mode-dark')) {
+    isLight = true;
+  }
+  btn.textContent = isLight ? '\u2600' : '\u263E';
+  btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  var si = document.getElementById('settings-mode-icon');
+  if (si) si.innerHTML = isLight ? '&#x2600;' : '&#x263E;';
+}
+
 function toggleThemeDropdown() {
   var dd = document.getElementById('theme-dropdown');
   if (dd) dd.classList.toggle('open');
@@ -829,6 +889,8 @@ document.addEventListener('click', function(e) {
 });
 (function() {
   var s = localStorage.getItem('tetora-theme'); if (s && s !== 'default') setTheme(s);
+  var m = localStorage.getItem('tetora-color-mode'); if (m) setColorMode(m);
+  updateModeToggle();
   var st = document.getElementById('sound-toggle');
   if (st) st.checked = _soundEnabled;
 })();
@@ -855,7 +917,7 @@ function onSearchInput(q) {
   if (typeof _kanbanTasks !== 'undefined' && _kanbanTasks) {
     _kanbanTasks.forEach(function(t) {
       if ((t.title||'').toLowerCase().indexOf(q) >= 0 || (t.project||'').toLowerCase().indexOf(q) >= 0)
-        items.push({type:'Task', title:t.title, snippet:t.status+' · '+(t.project||''), action:function(){switchTab('kanban');closeSearch();}});
+        items.push({type:'Task', title:t.title, snippet:t.status+' · '+(t.project||''), action:function(){switchTab('operations');switchSubTab('operations','tasks');closeSearch();}});
     });
   }
   if (typeof _latestAgents !== 'undefined' && _latestAgents) {
@@ -867,7 +929,7 @@ function onSearchInput(q) {
   if (typeof _latestSessions !== 'undefined' && _latestSessions) {
     _latestSessions.forEach(function(s) {
       if ((s.title||'').toLowerCase().indexOf(q) >= 0 || (s.agent||'').toLowerCase().indexOf(q) >= 0)
-        items.push({type:'Session', title:s.title||s.id, snippet:s.agent+' · '+s.status, action:function(){switchTab('sessions');closeSearch();}});
+        items.push({type:'Session', title:s.title||s.id, snippet:s.agent+' · '+s.status, action:function(){switchTab('chat');closeSearch();}});
     });
   }
   if (items.length === 0) { results.innerHTML = '<div class="search-empty">No results for "'+q.replace(/</g,'&lt;')+'"</div>'; return; }
@@ -892,6 +954,7 @@ function notifNavigate(idx) {
   if (!n || !n.link) return;
   document.getElementById('notif-dropdown').classList.remove('open');
   switchTab(n.link.tab);
+  if (n.link.sub) switchSubTab(n.link.tab, n.link.sub);
   if (n.link.highlight) {
     setTimeout(function() {
       var el = document.querySelector(n.link.highlight);

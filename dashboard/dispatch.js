@@ -36,37 +36,125 @@ function onJobProjectChange() {
   }
 }
 
+var TAB_LIST = ['dashboard','chat','operations','settings'];
+
+// Backward-compat mapping: old tab names → new tab + sub-tab
+var TAB_COMPAT = {
+  workflows:    {tab:'operations', sub:'workflows'},
+  integrations: {tab:'settings',   sub:'integrations'},
+  agents:       {tab:'operations', sub:'agents'},
+  workspace:    {tab:'operations', sub:'tasks'},
+  kanban:       {tab:'operations', sub:'tasks'},
+  sessions:     {tab:'chat',      sub:null}
+};
+
 function switchTab(tab) {
+  // Handle old tab names via compat map
+  if (TAB_COMPAT[tab]) {
+    var m = TAB_COMPAT[tab];
+    switchTab(m.tab);
+    if (m.sub) switchSubTab(m.tab, m.sub);
+    return;
+  }
   currentTab = tab;
-  ['dashboard','chat','workflows','integrations','agents','settings','workspace'].forEach(function(t) {
-    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
-    document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
+  TAB_LIST.forEach(function(t) {
+    var content = document.getElementById(t + '-content');
+    if (content) content.style.display = tab === t ? '' : 'none';
   });
+  // Sidebar highlight handled by updateSidebarHighlight
   if (tab === 'chat') {
     refreshChatSidebar();
     populateChatRoleFilter();
   }
-  if (tab === 'workflows') {
-    refreshWorkflowRuns();
-    loadWorkflowDefs();
-  }
-  if (tab === 'integrations') {
-    refreshIntegrations();
-  }
-  if (tab === 'agents') {
-    refreshAgents();
+  if (tab === 'operations') {
+    var activeSub = getActiveSubTab('operations');
+    refreshOperationsSubTab(activeSub);
   }
   if (tab === 'settings') {
     refreshSettings();
+    var activeSub = getActiveSubTab('settings');
+    refreshSettingsSubTab(activeSub);
   }
   if (tab === 'dashboard') {
     applyDashView();
     loadDashViewData();
   }
-  if (tab === 'workspace') {
-    refreshBoard();
-    loadMemoryBrowser();
+  updateSidebarHighlight();
+  closeSidebar();
+}
+
+function switchSubTab(parentTab, subTab) {
+  var container = document.getElementById(parentTab + '-content');
+  if (!container) return;
+  // Update sub-tab nav buttons (hidden but kept for state tracking)
+  var nav = container.querySelector('.sub-tab-nav');
+  if (nav) {
+    nav.querySelectorAll('button').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-sub') === subTab);
+    });
   }
+  // Hide all sub panels, show selected
+  container.querySelectorAll('[id^="' + parentTab + '-sub-"]').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  var target = document.getElementById(parentTab + '-sub-' + subTab);
+  if (target) target.style.display = '';
+  // Refresh data
+  if (parentTab === 'operations') refreshOperationsSubTab(subTab);
+  if (parentTab === 'settings') refreshSettingsSubTab(subTab);
+  updateSidebarHighlight();
+  closeSidebar();
+}
+
+function getActiveSubTab(parentTab) {
+  var container = document.getElementById(parentTab + '-content');
+  if (!container) return '';
+  var nav = container.querySelector('.sub-tab-nav');
+  if (!nav) return '';
+  var active = nav.querySelector('button.active');
+  return active ? active.getAttribute('data-sub') : '';
+}
+
+function refreshOperationsSubTab(sub) {
+  if (sub === 'agents') refreshAgents();
+  if (sub === 'workflows') { refreshWorkflowRuns(); loadWorkflowDefs(); }
+  if (sub === 'tasks') refreshBoard();
+  if (sub === 'files') loadMemoryBrowser();
+}
+
+function refreshSettingsSubTab(sub) {
+  if (sub === 'integrations') refreshIntegrations();
+}
+
+// --- Sidebar Navigation Helpers ---
+function updateSidebarHighlight() {
+  var sidebar = document.getElementById('sidebar-nav');
+  if (!sidebar) return;
+  sidebar.querySelectorAll('.nav-item').forEach(function(btn) { btn.classList.remove('active'); });
+
+  var activeId = '';
+  if (currentTab === 'dashboard') {
+    activeId = 'tab-dashboard';
+  } else if (currentTab === 'chat') {
+    activeId = 'tab-chat';
+  } else if (currentTab === 'operations') {
+    var sub = getActiveSubTab('operations');
+    activeId = 'tab-operations-' + (sub || 'agents');
+  } else if (currentTab === 'settings') {
+    var sub = getActiveSubTab('settings');
+    activeId = 'tab-settings-' + (sub || 'general');
+  }
+  var el = document.getElementById(activeId);
+  if (el) el.classList.add('active');
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar-nav').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar-nav').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
 }
 
 function populateChatRoleFilter() {

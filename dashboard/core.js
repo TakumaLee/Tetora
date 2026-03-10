@@ -119,7 +119,7 @@ function handleActivityEvent(type, ev) {
       if (data.durationMs) detail += ' in ' + formatDuration(data.durationMs);
       if (data.costUsd) detail += ' &middot; $' + Number(data.costUsd).toFixed(4);
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success', {tab:'workspace'});
+      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success', {tab:'operations',sub:'tasks'});
       play8BitSound('complete');
       break;
     case 'error':
@@ -127,7 +127,7 @@ function handleActivityEvent(type, ev) {
       detail = esc(data.error || data.status || 'error');
       if (data.durationMs) detail += ' <span class="muted">(' + formatDuration(data.durationMs) + ')</span>';
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Error: ' + (data.error || data.name || 'task'), 'error', {tab:'workspace'});
+      addNotification('Error: ' + (data.error || data.name || 'task'), 'error', {tab:'operations',sub:'tasks'});
       play8BitSound('error');
       break;
     case 'task_queued':
