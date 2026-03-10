@@ -103,6 +103,131 @@ body.theme-boardroom {
   --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
+/* --- Nord --- */
+body.theme-nord {
+  --bg: #2e3440; --surface: #3b4252; --border: #4c566a;
+  --text: #eceff4; --muted: #81a1c1;
+  --accent: #88c0d0; --accent2: #81a1c1; --green: #a3be8c; --red: #bf616a; --yellow: #ebcb8b;
+  --pixel-border: #4c566a;
+  --panel-radius: 10px;
+  --panel-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  --panel-blur: none;
+  --panel-border: 1px solid #4c566a;
+  --header-border: 1px solid #4c566a;
+}
+/* --- Dracula --- */
+body.theme-dracula {
+  --bg: #282a36; --surface: #343746; --border: #44475a;
+  --text: #f8f8f2; --muted: #6272a4;
+  --accent: #bd93f9; --accent2: #ff79c6; --green: #50fa7b; --red: #ff5555; --yellow: #f1fa8c;
+  --pixel-border: #44475a;
+  --panel-radius: 10px;
+  --panel-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  --panel-blur: none;
+  --panel-border: 1px solid #44475a;
+  --header-border: 1px solid #44475a;
+}
+/* --- Solarized Dark --- */
+body.theme-solarized {
+  --bg: #002b36; --surface: #073642; --border: #586e75;
+  --text: #eee8d5; --muted: #839496;
+  --accent: #268bd2; --accent2: #2aa198; --green: #859900; --red: #dc322f; --yellow: #b58900;
+  --pixel-border: #586e75;
+  --panel-radius: 8px;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  --panel-blur: none;
+  --panel-border: 1px solid #586e75;
+  --header-border: 1px solid #586e75;
+}
+/* --- Rose Pine --- */
+body.theme-rosepine {
+  --bg: #191724; --surface: #1f1d2e; --border: #403d52;
+  --text: #e0def4; --muted: #908caa;
+  --accent: #c4a7e7; --accent2: #ebbcba; --green: #9ccfd8; --red: #eb6f92; --yellow: #f6c177;
+  --pixel-border: #403d52;
+  --panel-radius: 12px;
+  --panel-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  --panel-blur: none;
+  --panel-border: 1px solid #403d52;
+  --header-border: 1px solid #403d52;
+}
+
+/* ========== Light Mode Variants ========== */
+body.mode-light {
+  --bg: #f5f5f7; --surface: #ffffff; --border: #e0e0e0;
+  --text: #1d1d1f; --muted: #86868b;
+  --accent: #06b6d4; --accent2: #8b5cf6; --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
+  --pixel-border: #e0e0e0;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --panel-blur: none;
+  --panel-border: 1px solid #e0e0e0;
+  --header-border: 1px solid #e5e5e5;
+}
+body.mode-light.theme-clean {
+  --bg: #f7f8fa; --surface: #ffffff; --border: #e5e7eb;
+  --text: #111827; --muted: #6b7280;
+  --accent: #3b82f6; --accent2: #6366f1; --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
+  --panel-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  --panel-border: 1px solid #e5e7eb; --header-border: 1px solid #e5e7eb;
+}
+body.mode-light.theme-material {
+  --bg: #fffbfe; --surface: #ffffff; --border: #e7e0ec;
+  --text: #1c1b1f; --muted: #79747e;
+  --accent: #6750a4; --accent2: #7d5260; --green: #4caf50; --red: #b3261e; --yellow: #f9a825;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --panel-border: none; --header-border: none;
+}
+body.mode-light.theme-boardroom {
+  /* Boardroom is already light by default, dark variant: */
+}
+body.theme-boardroom.mode-dark {
+  --bg: #1a202c; --surface: #2d3748; --border: #4a5568;
+  --text: #e2e8f0; --muted: #a0aec0;
+  --accent: #63b3ed; --accent2: #a0aec0; --green: #68d391; --red: #fc8181; --yellow: #f6e05e;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  --panel-border: 1px solid #4a5568; --header-border: 1px solid #4a5568;
+}
+body.mode-light.theme-nord {
+  --bg: #eceff4; --surface: #ffffff; --border: #d8dee9;
+  --text: #2e3440; --muted: #4c566a;
+  --accent: #5e81ac; --accent2: #81a1c1; --green: #a3be8c; --red: #bf616a; --yellow: #ebcb8b;
+  --panel-shadow: 0 1px 3px rgba(46,52,64,0.08);
+  --panel-border: 1px solid #d8dee9; --header-border: 1px solid #d8dee9;
+}
+body.mode-light.theme-dracula {
+  --bg: #f8f8f2; --surface: #ffffff; --border: #e0dfe4;
+  --text: #282a36; --muted: #6272a4;
+  --accent: #7c3aed; --accent2: #db2777; --green: #16a34a; --red: #dc2626; --yellow: #ca8a04;
+  --panel-shadow: 0 1px 3px rgba(40,42,54,0.08);
+  --panel-border: 1px solid #e0dfe4; --header-border: 1px solid #e0dfe4;
+}
+body.mode-light.theme-solarized {
+  --bg: #fdf6e3; --surface: #eee8d5; --border: #d3cbb7;
+  --text: #073642; --muted: #586e75;
+  --accent: #268bd2; --accent2: #2aa198; --green: #859900; --red: #dc322f; --yellow: #b58900;
+  --panel-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --panel-border: 1px solid #d3cbb7; --header-border: 1px solid #d3cbb7;
+}
+body.mode-light.theme-rosepine {
+  --bg: #faf4ed; --surface: #fffaf3; --border: #dfdad9;
+  --text: #575279; --muted: #9893a5;
+  --accent: #907aa9; --accent2: #d7827e; --green: #56949f; --red: #b4637a; --yellow: #ea9d34;
+  --panel-shadow: 0 1px 3px rgba(87,82,121,0.06);
+  --panel-border: 1px solid #dfdad9; --header-border: 1px solid #dfdad9;
+}
+/* Light mode general overrides */
+body.mode-light .logo { -webkit-text-fill-color: var(--text); }
+body.mode-light .logo span { -webkit-text-fill-color: var(--muted); }
+body.mode-light::before, body.mode-light::after { display: none; }
+body.mode-light .sidebar-nav { background: var(--surface); }
+body.mode-light .kanban-column { background: var(--surface); }
+body.mode-light .kanban-card { background: var(--bg); border-color: var(--border); }
+body.mode-light .kanban-card:hover { background: var(--surface); }
+body.mode-light .project-card:hover { background: var(--surface); }
+body.mode-light .stat { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+body.mode-light .section { border-color: var(--border); }
+body.mode-light .modal { background: var(--surface); }
+
 body.theme-boardroom .agent-world-canvas { background: #f0ebe3; }
 body.theme-boardroom .agent-world-canvas canvas { background: #f0ebe3; }
 body.theme-boardroom .aw-minimap { background: #f0ebe3; }
@@ -166,15 +291,17 @@ body {
   line-height: 1.5;
   min-height: 100vh;
 }
-.container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+.container { max-width: 100%; margin: 0; padding: 0; }
+.app-layout { display: flex; min-height: calc(100vh - 80px); }
+.app-main { flex: 1; min-width: 0; padding: 24px 32px; }
 
 /* Header */
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 28px;
-  padding-bottom: 16px;
+  margin-bottom: 0;
+  padding: 12px 24px;
   border-bottom: var(--header-border);
 }
 .logo {
@@ -979,6 +1106,8 @@ body.theme-gameboy .modal-overlay, body.theme-amber .modal-overlay {
 /* --- Clean Theme Extras --- */
 body.theme-clean .project-card:hover { background: #20252a; }
 body.theme-clean .kanban-card:hover { background: #1e2328; }
+body.mode-light.theme-clean .project-card:hover { background: #f0f1f3; }
+body.mode-light.theme-clean .kanban-card:hover { background: #eef0f2; }
 
 /* --- Material Theme Extras --- */
 body.theme-material::before, body.theme-material::after,
@@ -1021,6 +1150,29 @@ body.theme-material .logo {
   background: linear-gradient(135deg, #d0bcff, #efb8c8);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+/* Material light mode overrides */
+body.mode-light.theme-material .stat {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.06);
+}
+body.mode-light.theme-material .stat:hover,
+body.mode-light.theme-material .project-card:hover,
+body.mode-light.theme-material .kanban-card:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.08);
+}
+body.mode-light.theme-material .project-card:hover { background: #f3f0f6; }
+body.mode-light.theme-material .kanban-card:hover { background: #f3f0f6; }
+body.mode-light.theme-material .kanban-column {
+  border-radius: 16px; background: #f6f2f8;
+}
+body.mode-light.theme-material .pixel-window-title { background: #6750a4; }
+body.mode-light.theme-material .logo {
+  background: linear-gradient(135deg, #6750a4, #7d5260);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+body.mode-light.theme-material .btn:hover {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 
 /* Modal */
@@ -1509,6 +1661,8 @@ body.theme-material .logo {
 .wed-node-notify .wed-node-shape { fill: #1f1000; stroke: #fb923c; }
 .wed-node-external .wed-node-shape { fill: #1a1020; stroke: #f97316; stroke-width: 2; }
 .wed-node-external.selected .wed-node-shape { stroke: #fb923c; }
+.wed-node-handoff .wed-handoff-outer { fill: #1a0f1f; stroke: #e879f9; stroke-width: 1.5; }
+.wed-node-handoff .wed-handoff-inner { fill: #1a0a20; stroke: #e879f9; stroke-width: 1; opacity: 0.7; }
 .wed-node.selected.wed-node-dispatch .wed-node-shape { stroke: #a78bfa; }
 .wed-node-label { fill: var(--text); font-size: 11px; font-weight: 600; pointer-events: none; }
 .wed-node-sublabel { fill: #a1a1aa; font-size: 9px; pointer-events: none; }
@@ -1536,31 +1690,86 @@ body.theme-material .logo {
   .output-modal { min-width: auto; }
 }
 
-/* Tab Navigation */
-.tab-nav {
+/* Sidebar Navigation (Google-style) */
+.sidebar-nav {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
   display: flex;
-  gap: 0;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
 }
-.tab-nav button {
-  background: none;
-  border: none;
-  border-radius: 0;
+.sidebar-nav .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 20px;
   color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-heading);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.sidebar-nav .nav-item:hover {
+  color: var(--text);
+  background: rgba(128,128,255,0.06);
+}
+.sidebar-nav .nav-item.active {
+  color: var(--accent);
+  background: rgba(128,128,255,0.1);
+  font-weight: 600;
+}
+.sidebar-nav .nav-item .nav-icon {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.sidebar-nav .nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 12px;
+}
+.sidebar-nav .nav-label {
   font-size: 10px;
   font-weight: 600;
-  font-family: var(--font-heading);
-  padding: 10px 20px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 12px 14px 4px;
+  letter-spacing: 0.5px;
+}
+/* Mobile sidebar toggle */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-size: 20px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
 }
-.tab-nav button:hover { color: var(--text); }
-.tab-nav button.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
+
+/* Sub-tab nav hidden — sidebar handles all navigation, kept in DOM for state tracking */
+.sub-tab-nav { display: none; }
 
 /* Chat Container */
 .chat-container {
@@ -1832,15 +2041,41 @@ body.theme-material .logo {
   .container { padding-top: 12px; }
 }
 
+/* Tablet: collapse sidebar */
+@media (max-width: 768px) {
+  .sidebar-nav {
+    position: fixed;
+    left: -240px;
+    top: 0;
+    height: 100vh;
+    z-index: 999;
+    background: var(--bg);
+    transition: left 0.25s ease;
+    box-shadow: none;
+  }
+  .sidebar-nav.open {
+    left: 0;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  }
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 998;
+  }
+  .sidebar-overlay.open { display: block; }
+  .sidebar-toggle { display: block; }
+  .app-main { padding: 16px; }
+}
+
 /* Small phones */
 @media (max-width: 480px) {
-  .container { padding: 12px; }
-  header { flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding-bottom: 12px; }
+  .container { padding: 0; }
+  header { flex-wrap: wrap; gap: 8px; margin-bottom: 0; padding: 10px 12px; }
   .logo { font-size: 18px; }
   .header-right { width: 100%; justify-content: flex-end; }
   .stat-value { font-size: 20px; }
-  .tab-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .tab-nav button { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
   th, td { padding: 6px 8px; }
   .modal { min-width: auto; margin: 8px; padding: 16px; }
   .form-row-inline { grid-template-columns: 1fr; }
@@ -2102,6 +2337,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
   <header>
     <div class="logo">Tetora <span id="version"></span></div>
     <div class="header-right">
+      <button class="btn" id="mode-toggle-btn" onclick="toggleColorMode()" title="Toggle light/dark" style="padding:6px 10px;font-size:15px;line-height:1">&#x263E;</button>
       <div class="theme-switcher" id="theme-switcher">
         <button class="btn" onclick="toggleThemeDropdown()" id="theme-toggle-btn" title="Switch theme" style="padding:6px 10px;font-size:13px">&#127912;</button>
         <div class="theme-dropdown" id="theme-dropdown">
@@ -2109,10 +2345,15 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           <button onclick="setTheme('clean')">Clean</button>
           <button onclick="setTheme('material')">Material</button>
           <button onclick="setTheme('boardroom')">Boardroom</button>
-          <button onclick="setTheme('classic')">Retro</button>
-          <button onclick="setTheme('nes')">NES Dark</button>
-          <button onclick="setTheme('gameboy')">Game Boy</button>
-          <button onclick="setTheme('amber')">Amber</button>
+          <button onclick="setTheme('nord')">Nord</button>
+          <button onclick="setTheme('dracula')">Dracula</button>
+          <button onclick="setTheme('solarized')">Solarized</button>
+          <button onclick="setTheme('rosepine')">Rose Pine</button>
+          <div style="height:1px;background:var(--border);margin:4px 0"></div>
+          <button onclick="setTheme('classic')">&#x1F3AE; Retro</button>
+          <button onclick="setTheme('nes')">&#x1F3AE; NES Dark</button>
+          <button onclick="setTheme('gameboy')">&#x1F3AE; Game Boy</button>
+          <button onclick="setTheme('amber')">&#x1F3AE; Amber</button>
         </div>
       </div>
       <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
@@ -2131,15 +2372,51 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     <button class="alert-close" onclick="dismissUsageAlert()" aria-label="Dismiss">&#215;</button>
   </div>
 
-  <div class="tab-nav">
-    <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
-    <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
-    <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
-    <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
-    <button id="tab-agents" onclick="switchTab('agents')">Agents</button>
-    <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
-    <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
-  </div>
+  <div class="app-layout">
+
+  <!-- Sidebar Navigation -->
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <button class="nav-item active" id="tab-dashboard" onclick="switchTab('dashboard')">
+      <span class="nav-icon">&#x1F4CA;</span> Dashboard
+    </button>
+    <button class="nav-item" id="tab-chat" onclick="switchTab('chat')">
+      <span class="nav-icon">&#x1F4AC;</span> Chat
+    </button>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Operations</div>
+    <button class="nav-item" id="tab-operations-agents" onclick="switchTab('operations');switchSubTab('operations','agents')">
+      <span class="nav-icon">&#x1F916;</span> Agents
+    </button>
+    <button class="nav-item" id="tab-operations-workflows" onclick="switchTab('operations');switchSubTab('operations','workflows')">
+      <span class="nav-icon">&#x26A1;</span> Workflows
+    </button>
+    <button class="nav-item" id="tab-operations-tasks" onclick="switchTab('operations');switchSubTab('operations','tasks')">
+      <span class="nav-icon">&#x1F4CB;</span> Tasks
+    </button>
+    <button class="nav-item" id="tab-operations-files" onclick="switchTab('operations');switchSubTab('operations','files')">
+      <span class="nav-icon">&#x1F4C2;</span> Files
+    </button>
+    <div class="nav-divider"></div>
+    <div class="nav-label">Settings</div>
+    <button class="nav-item" id="tab-settings-general" onclick="switchTab('settings');switchSubTab('settings','general')">
+      <span class="nav-icon">&#x2699;</span> General
+    </button>
+    <button class="nav-item" id="tab-settings-integrations" onclick="switchTab('settings');switchSubTab('settings','integrations')">
+      <span class="nav-icon">&#x1F517;</span> Integrations
+    </button>
+    <button class="nav-item" id="tab-settings-tools-security" onclick="switchTab('settings');switchSubTab('settings','tools-security')">
+      <span class="nav-icon">&#x1F6E1;</span> Tools & Security
+    </button>
+    <button class="nav-item" id="tab-settings-notifications" onclick="switchTab('settings');switchSubTab('settings','notifications')">
+      <span class="nav-icon">&#x1F514;</span> Notifications
+    </button>
+  </nav>
+
+  <!-- Sidebar overlay for mobile -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+  <!-- Main Content -->
+  <div class="app-main">
 
   <div id="dashboard-content">
   <!-- View Selector -->
@@ -2817,7 +3094,16 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     </div>
   </div><!-- /chat-content -->
 
-  <div id="workflows-content" style="display:none">
+  <div id="operations-content" style="display:none">
+    <div class="sub-tab-nav" id="operations-sub-nav">
+      <button class="active" data-sub="agents" onclick="switchSubTab('operations','agents')">Agents</button>
+      <button data-sub="workflows" onclick="switchSubTab('operations','workflows')">Workflows</button>
+      <button data-sub="tasks" onclick="switchSubTab('operations','tasks')">Tasks</button>
+      <button data-sub="files" onclick="switchSubTab('operations','files')">Memory</button>
+    </div>
+
+    <!-- === Sub: Workflows === -->
+    <div id="operations-sub-workflows" style="display:none">
 
     <!-- Workflow Definitions -->
     <div class="section">
@@ -2863,6 +3149,8 @@ body:not([class*="theme-"])::after, body.theme-default::after {
               <div class="wfed-dd-item" onclick="addStepToWorkflow('tool_call');toggleAddStepMenu()">tool_call</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('delay');toggleAddStepMenu()">delay</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('notify');toggleAddStepMenu()">notify</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('external');toggleAddStepMenu()">external</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('handoff');toggleAddStepMenu()">handoff</div>
             </div>
           </div>
           <button class="btn" onclick="wedAutoLayout()" title="Auto-layout nodes">&#x2B21; Layout</button>
@@ -2873,6 +3161,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
           <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
           <button class="btn" onclick="dryRunWorkflow()" title="測試執行 (不實際呼叫 API)">&#128269; Dry Run</button>
+          <button class="btn" onclick="wfEdShowVersionHistory()" title="版本歷史">&#x1F552; Versions</button>
           <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
           <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
           <button class="btn" onclick="closeWorkflowEditor()">Close</button>
@@ -2896,6 +3185,9 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           </div>
         </div>
       </div>
+
+      <!-- Version History Panel -->
+      <div id="wf-version-panel" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)"></div>
 
       <!-- JSON Editor (collapsible) -->
       <div id="wf-json-editor-panel" style="display:none;margin-top:12px">
@@ -2946,29 +3238,40 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       </div>
       <div id="wf-node-detail" class="wf-node-detail" style="display:none"></div>
     </div>
-  </div><!-- /workflows-content -->
+    </div><!-- /operations-sub-workflows -->
 
-  <div id="integrations-content" style="display:none">
-    <!-- Channel Status -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Channel Status</span>
-        <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+    <!-- === Sub: Agents === -->
+    <div id="operations-sub-agents">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Agents</span>
+          <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
+        </div>
+        <div id="agents-list">
+          <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
+        </div>
       </div>
-      <div id="integration-channels"></div>
-    </div>
+    </div><!-- /operations-sub-agents -->
 
-    <!-- OAuth Connections -->
-    <div class="section">
-      <div class="section-header"><span class="section-title">OAuth Connections</span></div>
-      <div id="integration-oauth"></div>
-    </div>
-
-    <!-- Reminders -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Reminders</span>
-        <button class="btn" onclick="refreshReminders()">Refresh</button>
+    <!-- === Sub: Tasks (from workspace) === -->
+    <div id="operations-sub-tasks" style="display:none">
+      <!-- Project Stats Bar -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Tasks</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+              <option value="">All</option>
+              <option value="active" selected>Active</option>
+              <option value="archived">Archived</option>
+            </select>
+            <button class="btn" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Project</button>
+            <button class="btn btn-add" onclick="openTaskCreateModal()" style="padding:4px 12px;font-size:12px">+ Task</button>
+          </div>
+        </div>
+        <div id="kanban-stats-bar" class="kanban-stats-bar">
+          <div style="color:var(--muted);font-size:12px;padding:10px">Loading projects...</div>
+        </div>
       </div>
       <div id="integration-reminders"></div>
     </div>
@@ -3016,131 +3319,226 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
       <div id="integration-knowledge"></div>
     </div>
+      <!-- Filter Bar -->
+      <div class="kanban-filter-bar">
+        <select id="kb-filter-project" onchange="refreshBoard()">
+          <option value="">All Projects</option>
+        </select>
+        <select id="kb-filter-assignee" onchange="refreshBoard()">
+          <option value="">All Agents</option>
+        </select>
+        <select id="kb-filter-priority" onchange="refreshBoard()">
+          <option value="">All Priority</option>
+          <option value="urgent">Urgent</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+        <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
+        <span id="kb-total-cost" class="kanban-total-cost"></span>
+      </div>
+      <!-- Kanban Board -->
+      <div id="kanban-board" class="kanban-board">
+        <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;width:100%">Loading board...</div>
+      </div>
+      <!-- Hidden projects grid for project modal functions -->
+      <div id="projects-grid" style="display:none"></div>
+    </div><!-- /operations-sub-tasks -->
 
-    <!-- Smart Home -->
-    <div class="section" id="integration-ha-section" style="display:none">
-      <div class="section-header"><span class="section-title">Smart Home</span></div>
-      <div id="integration-ha"></div>
-    </div>
-  </div><!-- /integrations-content -->
+    <!-- === Sub: Files === -->
+    <div id="operations-sub-files" style="display:none">
+      <div class="section" id="memory-browser-section">
+        <div class="section-header"><span class="section-title">Workspace Files</span></div>
+        <div class="memory-browser">
+          <div class="memory-tree" id="memory-tree"><div class="search-empty">Loading...</div></div>
+          <div class="memory-editor" id="memory-editor"><div class="search-empty">Select a file to view</div></div>
+        </div>
+      </div>
+    </div><!-- /operations-sub-files -->
+
+  </div><!-- /operations-content -->
 
   <div id="settings-content" style="display:none">
     <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
     <div id="settings-container" style="display:none">
-      <!-- Theme -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Theme</span></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
-          <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
-          <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
-          <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
-          <button class="btn" onclick="setTheme('boardroom')" id="theme-btn-boardroom">Boardroom</button>
-          <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
-          <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
-          <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
-          <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:16px;cursor:pointer">
-            <input type="checkbox" id="sound-toggle" onchange="_soundEnabled=this.checked;localStorage.setItem('tetora-sound',this.checked)"> 8-bit sounds
-          </label>
+      <div class="sub-tab-nav" id="settings-sub-nav">
+        <button class="active" data-sub="general" onclick="switchSubTab('settings','general')">General</button>
+        <button data-sub="integrations" onclick="switchSubTab('settings','integrations')">Integrations</button>
+        <button data-sub="tools-security" onclick="switchSubTab('settings','tools-security')">Tools & Security</button>
+        <button data-sub="notifications" onclick="switchSubTab('settings','notifications')">Notifications</button>
+      </div>
+
+      <!-- === Sub: General === -->
+      <div id="settings-sub-general">
+        <!-- Theme -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Theme</span>
+            <button class="btn" onclick="toggleColorMode()" style="padding:4px 14px;font-size:12px">
+              <span id="settings-mode-icon">&#x263E;</span> Toggle Light/Dark
+            </button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
+            <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
+            <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
+            <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
+            <button class="btn" onclick="setTheme('boardroom')" id="theme-btn-boardroom">Boardroom</button>
+            <button class="btn" onclick="setTheme('nord')" id="theme-btn-nord">Nord</button>
+            <button class="btn" onclick="setTheme('dracula')" id="theme-btn-dracula">Dracula</button>
+            <button class="btn" onclick="setTheme('solarized')" id="theme-btn-solarized">Solarized</button>
+            <button class="btn" onclick="setTheme('rosepine')" id="theme-btn-rosepine">Rose Pine</button>
+          </div>
+          <!-- Retro Lab -->
+          <div style="margin-top:10px">
+            <button class="btn" onclick="var p=document.getElementById('retro-lab-panel');p.style.display=p.style.display==='none'?'':'none'" style="font-size:11px;padding:5px 12px;color:var(--muted);border:1px dashed var(--border)">&#x1F3AE; Retro Lab</button>
+            <div id="retro-lab-panel" style="display:none;margin-top:8px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:8px">8-bit themes for the nostalgic</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
+                <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
+                <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
+                <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:8px;cursor:pointer">
+                  <input type="checkbox" id="sound-toggle" onchange="_soundEnabled=this.checked;localStorage.setItem('tetora-sound',this.checked)"> 8-bit sounds
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-      <!-- General -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">General</span></div>
-        <div id="settings-general"></div>
-      </div>
-      <!-- Channels -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Channels</span></div>
-        <div id="settings-channels"></div>
-      </div>
-      <!-- Integrations -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Integrations</span></div>
-        <div id="settings-integrations"></div>
-      </div>
-      <!-- Discord -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Discord</span></div>
-        <div style="padding:8px 0">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-            <label class="toggle" style="margin:0">
-              <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
-              <span class="slider"></span>
+        <!-- General -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">General</span></div>
+          <div id="settings-general"></div>
+        </div>
+        <!-- Channels -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Channels</span></div>
+          <div id="settings-channels"></div>
+        </div>
+        <!-- Discord -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Discord</span></div>
+          <div style="padding:8px 0">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <label class="toggle" style="margin:0">
+                <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
+                <span class="slider"></span>
+              </label>
+              Show streaming progress
             </label>
-            Show streaming progress
-          </label>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
-            Display live "Working..." updates in Discord while tasks are running
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
+              Display live "Working..." updates in Discord while tasks are running
+            </div>
           </div>
         </div>
-      </div>
-      <!-- Tools -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Tools</span></div>
-        <div id="settings-tools"></div>
-      </div>
-      <!-- Budgets -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Budgets</span></div>
-        <div id="settings-budgets"></div>
-      </div>
-      <!-- Security -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Security</span></div>
-        <div id="settings-security"></div>
-      </div>
-      <!-- Heartbeat -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Heartbeat</span></div>
-        <div id="settings-heartbeat"></div>
-      </div>
-      <!-- Task Board -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Task Board</span></div>
-        <div id="settings-taskboard"></div>
-      </div>
-      <!-- Claude Code Hooks (v3) -->
-      <div class="section">
-        <div class="section-header"><span class="section-title">Claude Code Hooks</span></div>
-        <div id="settings-hooks">
-          <div style="padding:12px;font-size:13px;color:var(--muted)">
-            <p style="margin-bottom:12px">Hooks 讓 Tetora 即時接收 Claude Code 的工具呼叫、Plan Mode 和完成通知。</p>
-            <div id="hooks-status-display" style="margin-bottom:12px">
-              <span style="color:var(--muted)">Checking status...</span>
+      </div><!-- /settings-sub-general -->
+
+      <!-- === Sub: Integrations === -->
+      <div id="settings-sub-integrations" style="display:none">
+        <!-- Settings Integrations -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Integrations</span></div>
+          <div id="settings-integrations"></div>
+        </div>
+        <!-- Channel Status -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Channel Status</span>
+            <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+          </div>
+          <div id="integration-channels"></div>
+        </div>
+        <!-- OAuth Connections -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">OAuth Connections</span></div>
+          <div id="integration-oauth"></div>
+        </div>
+        <!-- Reminders -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Reminders</span>
+            <button class="btn" onclick="refreshReminders()">Refresh</button>
+          </div>
+          <div id="integration-reminders"></div>
+        </div>
+        <!-- Workflow Triggers -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+          <div id="integration-triggers"></div>
+        </div>
+        <!-- Knowledge Pipeline -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
+          <div id="integration-knowledge"></div>
+        </div>
+        <!-- Smart Home -->
+        <div class="section" id="integration-ha-section" style="display:none">
+          <div class="section-header"><span class="section-title">Smart Home</span></div>
+          <div id="integration-ha"></div>
+        </div>
+      </div><!-- /settings-sub-integrations -->
+
+      <!-- === Sub: Tools & Security === -->
+      <div id="settings-sub-tools-security" style="display:none">
+        <!-- Tools -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Tools</span></div>
+          <div id="settings-tools"></div>
+        </div>
+        <!-- Budgets -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Budgets</span></div>
+          <div id="settings-budgets"></div>
+        </div>
+        <!-- Security -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Security</span></div>
+          <div id="settings-security"></div>
+        </div>
+        <!-- Claude Code Hooks (v3) -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Claude Code Hooks</span></div>
+          <div id="settings-hooks">
+            <div style="padding:12px;font-size:13px;color:var(--muted)">
+              <p style="margin-bottom:12px">Hooks 讓 Tetora 即時接收 Claude Code 的工具呼叫、Plan Mode 和完成通知。</p>
+              <div id="hooks-status-display" style="margin-bottom:12px">
+                <span style="color:var(--muted)">Checking status...</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn" id="hooks-install-btn" onclick="installHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--green);color:#000;font-weight:600">Install Hooks</button>
+                <button class="btn" id="hooks-remove-btn" onclick="removeHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--red);color:#fff;display:none">Remove Hooks</button>
+              </div>
+              <div id="hooks-result" style="margin-top:8px;font-size:12px;display:none"></div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn" id="hooks-install-btn" onclick="installHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--green);color:#000;font-weight:600">Install Hooks</button>
-              <button class="btn" id="hooks-remove-btn" onclick="removeHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--red);color:#fff;display:none">Remove Hooks</button>
-            </div>
-            <div id="hooks-result" style="margin-top:8px;font-size:12px;display:none"></div>
           </div>
         </div>
-      </div>
-      <!-- Notifications (Discord Webhooks) -->
-      <div class="section">
-        <div class="section-header">
-          <span class="section-title">Notifications</span>
-          <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+      </div><!-- /settings-sub-tools-security -->
+
+      <!-- === Sub: Notifications === -->
+      <div id="settings-sub-notifications" style="display:none">
+        <!-- Heartbeat -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Heartbeat</span></div>
+          <div id="settings-heartbeat"></div>
         </div>
-        <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
-        <div id="settings-notifications-table" style="display:none"></div>
-      </div>
+        <!-- Task Board -->
+        <div class="section">
+          <div class="section-header"><span class="section-title">Task Board</span></div>
+          <div id="settings-taskboard"></div>
+        </div>
+        <!-- Notifications (Discord Webhooks) -->
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Notifications</span>
+            <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+          </div>
+          <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
+          <div id="settings-notifications-table" style="display:none"></div>
+        </div>
+      </div><!-- /settings-sub-notifications -->
+
     </div>
   </div><!-- /settings-content -->
-
-  <!-- Agents Tab -->
-  <div id="agents-content" style="display:none">
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Agents</span>
-        <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
-      </div>
-      <div id="agents-list">
-        <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
-      </div>
-    </div>
-  </div><!-- /agents-content -->
 
   <!-- Agent Create/Edit Modal -->
   <div class="modal-overlay" id="agent-modal" style="display:none" onclick="if(event.target===this)closeAgentModal()">
@@ -3194,59 +3592,13 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     </div>
   </div><!-- /agent-modal -->
 
-  <div id="workspace-content" style="display:none">
-    <!-- Project Stats Bar -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">Workspace</span>
-        <div style="display:flex;gap:8px;align-items:center">
-          <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
-            <option value="">All</option>
-            <option value="active" selected>Active</option>
-            <option value="archived">Archived</option>
-          </select>
-          <button class="btn" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Project</button>
-          <button class="btn btn-add" onclick="openTaskCreateModal()" style="padding:4px 12px;font-size:12px">+ Task</button>
-        </div>
-      </div>
-      <div id="kanban-stats-bar" class="kanban-stats-bar">
-        <div style="color:var(--muted);font-size:12px;padding:10px">Loading projects...</div>
-      </div>
-    </div>
-    <!-- Filter Bar -->
-    <div class="kanban-filter-bar">
-      <select id="kb-filter-project" onchange="refreshBoard()">
-        <option value="">All Projects</option>
-      </select>
-      <select id="kb-filter-assignee" onchange="refreshBoard()">
-        <option value="">All Agents</option>
-      </select>
-      <select id="kb-filter-priority" onchange="refreshBoard()">
-        <option value="">All Priority</option>
-        <option value="urgent">Urgent</option>
-        <option value="high">High</option>
-        <option value="normal">Normal</option>
-        <option value="low">Low</option>
-      </select>
-      <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
-      <span id="kb-total-cost" class="kanban-total-cost"></span>
-    </div>
-    <!-- Kanban Board -->
-    <div id="kanban-board" class="kanban-board">
-      <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;width:100%">Loading board...</div>
-    </div>
-    <!-- Hidden projects grid for project modal functions -->
-    <div id="projects-grid" style="display:none"></div>
-    <!-- Memory Browser -->
-    <div class="section" id="memory-browser-section">
-      <div class="section-header"><span class="section-title">Workspace Files</span></div>
-      <div class="memory-browser">
-        <div class="memory-tree" id="memory-tree"><div class="search-empty">Loading...</div></div>
-        <div class="memory-editor" id="memory-editor"><div class="search-empty">Select a file to view</div></div>
-      </div>
-    </div>
-  </div><!-- /workspace-content -->
+  <!-- workspace-content removed: content moved to operations sub-tabs -->
 
+  </div><!-- /app-main -->
+  </div><!-- /app-layout -->
+
+  <!-- Mobile sidebar toggle -->
+  <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
 
 <!-- Project Modal -->
 <div class="modal-overlay" id="project-modal">
@@ -4196,7 +4548,7 @@ function handleActivityEvent(type, ev) {
       if (data.durationMs) detail += ' in ' + formatDuration(data.durationMs);
       if (data.costUsd) detail += ' &middot; $' + Number(data.costUsd).toFixed(4);
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success', {tab:'workspace'});
+      addNotification('Completed: ' + (data.name || ev.taskId || 'task'), 'success', {tab:'operations',sub:'tasks'});
       play8BitSound('complete');
       break;
     case 'error':
@@ -4204,7 +4556,7 @@ function handleActivityEvent(type, ev) {
       detail = esc(data.error || data.status || 'error');
       if (data.durationMs) detail += ' <span class="muted">(' + formatDuration(data.durationMs) + ')</span>';
       if (ev.taskId) removeLiveTaskItem(ev.taskId);
-      addNotification('Error: ' + (data.error || data.name || 'task'), 'error', {tab:'workspace'});
+      addNotification('Error: ' + (data.error || data.name || 'task'), 'error', {tab:'operations',sub:'tasks'});
       play8BitSound('error');
       break;
     case 'task_queued':
@@ -8187,37 +8539,125 @@ function onJobProjectChange() {
   }
 }
 
+var TAB_LIST = ['dashboard','chat','operations','settings'];
+
+// Backward-compat mapping: old tab names → new tab + sub-tab
+var TAB_COMPAT = {
+  workflows:    {tab:'operations', sub:'workflows'},
+  integrations: {tab:'settings',   sub:'integrations'},
+  agents:       {tab:'operations', sub:'agents'},
+  workspace:    {tab:'operations', sub:'tasks'},
+  kanban:       {tab:'operations', sub:'tasks'},
+  sessions:     {tab:'chat',      sub:null}
+};
+
 function switchTab(tab) {
+  // Handle old tab names via compat map
+  if (TAB_COMPAT[tab]) {
+    var m = TAB_COMPAT[tab];
+    switchTab(m.tab);
+    if (m.sub) switchSubTab(m.tab, m.sub);
+    return;
+  }
   currentTab = tab;
-  ['dashboard','chat','workflows','integrations','agents','settings','workspace'].forEach(function(t) {
-    document.getElementById('tab-' + t).classList.toggle('active', tab === t);
-    document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
+  TAB_LIST.forEach(function(t) {
+    var content = document.getElementById(t + '-content');
+    if (content) content.style.display = tab === t ? '' : 'none';
   });
+  // Sidebar highlight handled by updateSidebarHighlight
   if (tab === 'chat') {
     refreshChatSidebar();
     populateChatRoleFilter();
   }
-  if (tab === 'workflows') {
-    refreshWorkflowRuns();
-    loadWorkflowDefs();
-  }
-  if (tab === 'integrations') {
-    refreshIntegrations();
-  }
-  if (tab === 'agents') {
-    refreshAgents();
+  if (tab === 'operations') {
+    var activeSub = getActiveSubTab('operations');
+    refreshOperationsSubTab(activeSub);
   }
   if (tab === 'settings') {
     refreshSettings();
+    var activeSub = getActiveSubTab('settings');
+    refreshSettingsSubTab(activeSub);
   }
   if (tab === 'dashboard') {
     applyDashView();
     loadDashViewData();
   }
-  if (tab === 'workspace') {
-    refreshBoard();
-    loadMemoryBrowser();
+  updateSidebarHighlight();
+  closeSidebar();
+}
+
+function switchSubTab(parentTab, subTab) {
+  var container = document.getElementById(parentTab + '-content');
+  if (!container) return;
+  // Update sub-tab nav buttons (hidden but kept for state tracking)
+  var nav = container.querySelector('.sub-tab-nav');
+  if (nav) {
+    nav.querySelectorAll('button').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-sub') === subTab);
+    });
   }
+  // Hide all sub panels, show selected
+  container.querySelectorAll('[id^="' + parentTab + '-sub-"]').forEach(function(el) {
+    el.style.display = 'none';
+  });
+  var target = document.getElementById(parentTab + '-sub-' + subTab);
+  if (target) target.style.display = '';
+  // Refresh data
+  if (parentTab === 'operations') refreshOperationsSubTab(subTab);
+  if (parentTab === 'settings') refreshSettingsSubTab(subTab);
+  updateSidebarHighlight();
+  closeSidebar();
+}
+
+function getActiveSubTab(parentTab) {
+  var container = document.getElementById(parentTab + '-content');
+  if (!container) return '';
+  var nav = container.querySelector('.sub-tab-nav');
+  if (!nav) return '';
+  var active = nav.querySelector('button.active');
+  return active ? active.getAttribute('data-sub') : '';
+}
+
+function refreshOperationsSubTab(sub) {
+  if (sub === 'agents') refreshAgents();
+  if (sub === 'workflows') { refreshWorkflowRuns(); loadWorkflowDefs(); }
+  if (sub === 'tasks') refreshBoard();
+  if (sub === 'files') loadMemoryBrowser();
+}
+
+function refreshSettingsSubTab(sub) {
+  if (sub === 'integrations') refreshIntegrations();
+}
+
+// --- Sidebar Navigation Helpers ---
+function updateSidebarHighlight() {
+  var sidebar = document.getElementById('sidebar-nav');
+  if (!sidebar) return;
+  sidebar.querySelectorAll('.nav-item').forEach(function(btn) { btn.classList.remove('active'); });
+
+  var activeId = '';
+  if (currentTab === 'dashboard') {
+    activeId = 'tab-dashboard';
+  } else if (currentTab === 'chat') {
+    activeId = 'tab-chat';
+  } else if (currentTab === 'operations') {
+    var sub = getActiveSubTab('operations');
+    activeId = 'tab-operations-' + (sub || 'agents');
+  } else if (currentTab === 'settings') {
+    var sub = getActiveSubTab('settings');
+    activeId = 'tab-settings-' + (sub || 'general');
+  }
+  var el = document.getElementById(activeId);
+  if (el) el.classList.add('active');
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar-nav').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar-nav').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
 }
 
 function populateChatRoleFilter() {
@@ -13758,7 +14198,10 @@ function dcmSave() {
 }
 
 // --- Theme System ---
-var THEMES = ['default', 'clean', 'material', 'boardroom', 'classic', 'nes', 'gameboy', 'amber'];
+var THEMES = ['default', 'clean', 'material', 'boardroom', 'nord', 'dracula', 'solarized', 'rosepine', 'classic', 'nes', 'gameboy', 'amber'];
+// Themes that default to light mode (dark toggle available)
+var LIGHT_DEFAULT_THEMES = ['boardroom'];
+
 function setTheme(name) {
   THEMES.forEach(function(t) { document.body.classList.remove('theme-' + t); });
   if (name && name !== 'default') document.body.classList.add('theme-' + name);
@@ -13767,10 +14210,54 @@ function setTheme(name) {
     var b = document.getElementById('theme-btn-' + t);
     if (b) b.style.borderColor = (t === (name || 'default')) ? 'var(--accent)' : '';
   });
+  // Auto-expand Retro Lab if a retro theme is selected
+  var retroThemes = ['classic','nes','gameboy','amber'];
+  var lab = document.getElementById('retro-lab-panel');
+  if (lab && retroThemes.indexOf(name) >= 0) lab.style.display = '';
   // Close dropdown after selection
   var dd = document.getElementById('theme-dropdown');
   if (dd) dd.classList.remove('open');
+  // Update mode toggle icon
+  updateModeToggle();
 }
+
+function setColorMode(mode) {
+  document.body.classList.remove('mode-light', 'mode-dark');
+  if (mode) document.body.classList.add('mode-' + mode);
+  localStorage.setItem('tetora-color-mode', mode || '');
+  updateModeToggle();
+}
+
+function toggleColorMode() {
+  var isLight = document.body.classList.contains('mode-light');
+  var currentTheme = localStorage.getItem('tetora-theme') || 'default';
+  // Boardroom defaults to light, so toggle = dark
+  if (LIGHT_DEFAULT_THEMES.indexOf(currentTheme) >= 0) {
+    if (document.body.classList.contains('mode-dark')) {
+      setColorMode('');
+    } else {
+      setColorMode('dark');
+    }
+  } else {
+    setColorMode(isLight ? '' : 'light');
+  }
+}
+
+function updateModeToggle() {
+  var btn = document.getElementById('mode-toggle-btn');
+  if (!btn) return;
+  var isLight = document.body.classList.contains('mode-light');
+  var currentTheme = localStorage.getItem('tetora-theme') || 'default';
+  // Boardroom is light by default
+  if (LIGHT_DEFAULT_THEMES.indexOf(currentTheme) >= 0 && !document.body.classList.contains('mode-dark')) {
+    isLight = true;
+  }
+  btn.textContent = isLight ? '\u2600' : '\u263E';
+  btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+  var si = document.getElementById('settings-mode-icon');
+  if (si) si.innerHTML = isLight ? '&#x2600;' : '&#x263E;';
+}
+
 function toggleThemeDropdown() {
   var dd = document.getElementById('theme-dropdown');
   if (dd) dd.classList.toggle('open');
@@ -13782,6 +14269,8 @@ document.addEventListener('click', function(e) {
 });
 (function() {
   var s = localStorage.getItem('tetora-theme'); if (s && s !== 'default') setTheme(s);
+  var m = localStorage.getItem('tetora-color-mode'); if (m) setColorMode(m);
+  updateModeToggle();
   var st = document.getElementById('sound-toggle');
   if (st) st.checked = _soundEnabled;
 })();
@@ -13808,7 +14297,7 @@ function onSearchInput(q) {
   if (typeof _kanbanTasks !== 'undefined' && _kanbanTasks) {
     _kanbanTasks.forEach(function(t) {
       if ((t.title||'').toLowerCase().indexOf(q) >= 0 || (t.project||'').toLowerCase().indexOf(q) >= 0)
-        items.push({type:'Task', title:t.title, snippet:t.status+' · '+(t.project||''), action:function(){switchTab('kanban');closeSearch();}});
+        items.push({type:'Task', title:t.title, snippet:t.status+' · '+(t.project||''), action:function(){switchTab('operations');switchSubTab('operations','tasks');closeSearch();}});
     });
   }
   if (typeof _latestAgents !== 'undefined' && _latestAgents) {
@@ -13820,7 +14309,7 @@ function onSearchInput(q) {
   if (typeof _latestSessions !== 'undefined' && _latestSessions) {
     _latestSessions.forEach(function(s) {
       if ((s.title||'').toLowerCase().indexOf(q) >= 0 || (s.agent||'').toLowerCase().indexOf(q) >= 0)
-        items.push({type:'Session', title:s.title||s.id, snippet:s.agent+' · '+s.status, action:function(){switchTab('sessions');closeSearch();}});
+        items.push({type:'Session', title:s.title||s.id, snippet:s.agent+' · '+s.status, action:function(){switchTab('chat');closeSearch();}});
     });
   }
   if (items.length === 0) { results.innerHTML = '<div class="search-empty">No results for "'+q.replace(/</g,'&lt;')+'"</div>'; return; }
@@ -13845,6 +14334,7 @@ function notifNavigate(idx) {
   if (!n || !n.link) return;
   document.getElementById('notif-dropdown').classList.remove('open');
   switchTab(n.link.tab);
+  if (n.link.sub) switchSubTab(n.link.tab, n.link.sub);
   if (n.link.highlight) {
     setTimeout(function() {
       var el = document.querySelector(n.link.highlight);
