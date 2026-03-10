@@ -634,8 +634,14 @@ type TemplateSummary struct {
 	Category    string   `json:"category"`
 }
 
-// listTemplates returns summaries of all embedded workflow templates.
+// cachedTemplates holds the pre-computed template summaries (static from embed.FS).
+var cachedTemplates []TemplateSummary
+
+// listTemplates returns summaries of all embedded workflow templates (cached after first call).
 func listTemplates() []TemplateSummary {
+	if cachedTemplates != nil {
+		return cachedTemplates
+	}
 	entries, err := templateFS.ReadDir("examples/templates")
 	if err != nil {
 		return nil
@@ -657,7 +663,6 @@ func listTemplates() []TemplateSummary {
 		for k := range wf.Variables {
 			varNames = append(varNames, k)
 		}
-		// Extract category from name prefix (e.g., "tpl-hr-onboarding" → "hr")
 		category := ""
 		name := strings.TrimPrefix(wf.Name, "tpl-")
 		if idx := strings.Index(name, "-"); idx > 0 {
@@ -671,6 +676,7 @@ func listTemplates() []TemplateSummary {
 			Category:    category,
 		})
 	}
+	cachedTemplates = templates
 	return templates
 }
 

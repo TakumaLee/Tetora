@@ -59,6 +59,7 @@ type WorkflowTriggerEngine struct {
 	cooldowns map[string]time.Time // trigger name -> cooldown expiry
 	lastFired map[string]time.Time // trigger name -> last fire time
 	mu        sync.RWMutex
+	parentCtx context.Context    // parent context from Start(), preserved for ReloadTriggers
 	ctx       context.Context    // engine-scoped context, cancelled on Stop
 	cancel    context.CancelFunc
 	stopCh    chan struct{}
@@ -83,6 +84,7 @@ func newWorkflowTriggerEngine(cfg *Config, state *dispatchState, sem, childSem c
 
 // Start launches the cron loop and event listener goroutines.
 func (e *WorkflowTriggerEngine) Start(ctx context.Context) {
+	e.parentCtx = ctx
 	e.ctx, e.cancel = context.WithCancel(ctx)
 
 	if len(e.triggers) == 0 {
@@ -153,9 +155,13 @@ func (e *WorkflowTriggerEngine) ReloadTriggers(triggers []WorkflowTriggerConfig)
 	e.stopCh = make(chan struct{})
 	e.mu.Unlock()
 
-	// Restart with parent context.
+	// Restart with stored parent context (preserves shutdown signal).
+	parentCtx := e.parentCtx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
 	if len(triggers) > 0 {
-		e.Start(context.Background())
+		e.Start(parentCtx)
 	}
 	logInfo("workflow triggers reloaded", "count", len(triggers))
 }

@@ -15,6 +15,19 @@ import (
 	"time"
 )
 
+// mutateTriggerConfig updates workflowTriggers in config.json and sends SIGHUP to reload.
+func mutateTriggerConfig(mutate func(raw map[string]any)) error {
+	configPath := findConfigPath()
+	if configPath == "" {
+		return fmt.Errorf("config path not found")
+	}
+	if err := updateConfigField(configPath, mutate); err != nil {
+		return err
+	}
+	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+	return nil
+}
+
 func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 	cfg := s.cfg
 	state := s.state
@@ -446,15 +459,9 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				json.NewEncoder(w).Encode(map[string]any{"errors": errs})
 				return
 			}
-			// Persist to config.json.
-			configPath := findConfigPath()
-			if configPath == "" {
-				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
-				return
-			}
-			if err := updateConfigField(configPath, func(raw map[string]any) {
+			// Persist to config.json + SIGHUP.
+			if err := mutateTriggerConfig(func(raw map[string]any) {
 				triggers, _ := raw["workflowTriggers"].([]any)
-				// Encode trigger to generic map.
 				b, _ := json.Marshal(t)
 				var m any
 				json.Unmarshal(b, &m)
@@ -463,8 +470,6 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"save failed: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
-			// Self-SIGHUP to reload.
-			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 			auditLog(cfg.HistoryDB, "trigger.create", "http",
 				fmt.Sprintf("name=%s type=%s workflow=%s", t.Name, t.Trigger.Type, t.WorkflowName), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
@@ -691,13 +696,8 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			})
 
 		case action == "toggle" && r.Method == http.MethodPost:
-			configPath := findConfigPath()
-			if configPath == "" {
-				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
-				return
-			}
 			var newEnabled bool
-			if err := updateConfigField(configPath, func(raw map[string]any) {
+			if err := mutateTriggerConfig(func(raw map[string]any) {
 				triggers, _ := raw["workflowTriggers"].([]any)
 				for _, t := range triggers {
 					tm, _ := t.(map[string]any)
@@ -715,7 +715,6 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"toggle failed: %v"}`, err), http.StatusInternalServerError)
 				return
 			}
-			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 			auditLog(cfg.HistoryDB, "trigger.toggle", "http",
 				fmt.Sprintf("trigger=%s enabled=%v", name, newEnabled), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]any{"status": "toggled", "name": name, "enabled": newEnabled})
@@ -733,13 +732,8 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				json.NewEncoder(w).Encode(map[string]any{"errors": errs})
 				return
 			}
-			configPath := findConfigPath()
-			if configPath == "" {
-				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
-				return
-			}
 			found := false
-			if err := updateConfigField(configPath, func(raw map[string]any) {
+			if err := mutateTriggerConfig(func(raw map[string]any) {
 				triggers, _ := raw["workflowTriggers"].([]any)
 				b, _ := json.Marshal(t)
 				var m any
@@ -761,19 +755,13 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				http.Error(w, `{"error":"trigger not found"}`, http.StatusNotFound)
 				return
 			}
-			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 			auditLog(cfg.HistoryDB, "trigger.update", "http",
 				fmt.Sprintf("trigger=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "updated", "name": name})
 
 		case action == "" && r.Method == http.MethodDelete:
-			configPath := findConfigPath()
-			if configPath == "" {
-				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
-				return
-			}
 			found := false
-			if err := updateConfigField(configPath, func(raw map[string]any) {
+			if err := mutateTriggerConfig(func(raw map[string]any) {
 				triggers, _ := raw["workflowTriggers"].([]any)
 				for i, tr := range triggers {
 					tm, _ := tr.(map[string]any)
@@ -791,7 +779,6 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				http.Error(w, `{"error":"trigger not found"}`, http.StatusNotFound)
 				return
 			}
-			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 			auditLog(cfg.HistoryDB, "trigger.delete", "http",
 				fmt.Sprintf("trigger=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "name": name})
