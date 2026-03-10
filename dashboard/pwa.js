@@ -142,23 +142,201 @@ function refreshTriggers() {
     .then(function(data) {
       var el = document.getElementById('integration-triggers');
       var triggers = Array.isArray(data) ? data : (data.triggers || []);
-      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured</div>'; return; }
-      var html = '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Condition</th><th>Target</th><th>Status</th></tr></thead><tbody>';
+      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured. Click "+ Create" to add one.</div>'; return; }
+      var html = '';
       triggers.forEach(function(t) {
-        var statusColor = t.enabled ? 'var(--green)' : 'var(--muted)';
-        html += '<tr>';
-        html += '<td>' + (t.event || t.type || '') + '</td>';
-        html += '<td style="font-size:12px">' + (t.condition || 'always') + '</td>';
-        html += '<td style="font-size:12px">' + (t.workflow || t.target || '') + '</td>';
-        html += '<td><span style="color:' + statusColor + '">' + (t.enabled ? 'Active' : 'Disabled') + '</span></td>';
-        html += '</tr>';
+        var typeBadge = t.type === 'cron' ? '&#9200; cron' : t.type === 'event' ? '&#9889; event' : '&#128279; webhook';
+        var typeColor = t.type === 'cron' ? '#60a5fa' : t.type === 'event' ? '#fbbf24' : '#a78bfa';
+        var detail = '';
+        if (t.type === 'cron' && t.nextCron) {
+          detail = 'Next: ' + t.nextCron.substring(0, 19).replace('T', ' ');
+        } else if (t.type === 'webhook') {
+          var webhookUrl = location.origin + '/api/triggers/webhook/' + encodeURIComponent(t.name);
+          detail = '<code style="font-size:10px;cursor:pointer" onclick="event.stopPropagation();copyText(\'' + webhookUrl.replace(/'/g, "\\'") + '\')" title="Click to copy">' + esc(webhookUrl) + '</code>';
+        } else if (t.type === 'event') {
+          detail = 'Pattern: ' + esc(t.name);
+        }
+        var cooldownInfo = t.cooldownLeft ? ' <span style="color:var(--muted);font-size:11px">&#9203; ' + esc(t.cooldownLeft) + '</span>' : '';
+        var lastFiredInfo = t.lastFired ? '<div style="font-size:11px;color:var(--muted)">Last: ' + t.lastFired.substring(0, 19).replace('T', ' ') + '</div>' : '';
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+        html += '<div><strong>' + esc(t.name) + '</strong> <span style="background:' + typeColor + '22;color:' + typeColor + ';padding:2px 6px;border-radius:4px;font-size:11px">' + typeBadge + '</span>' + cooldownInfo + '</div>';
+        html += '<label style="cursor:pointer;font-size:12px"><input type="checkbox" ' + (t.enabled ? 'checked' : '') + ' onchange="toggleTrigger(\'' + escAttr(t.name) + '\')" style="cursor:pointer"> Enabled</label>';
+        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">&#8594; <strong>' + esc(t.workflowName) + '</strong>' + (t.cooldown ? ' · cooldown: ' + esc(t.cooldown) : '') + '</div>';
+        if (detail) html += '<div style="font-size:12px;margin-bottom:4px">' + detail + '</div>';
+        html += lastFiredInfo;
+        html += '<div style="display:flex;gap:4px;margin-top:8px">';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="fireTrigger(\'' + escAttr(t.name) + '\')">&#9654; Fire Now</button>';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openTriggerModal(\'' + escAttr(t.name) + '\')">Edit</button>';
+        html += '<button class="btn btn-danger" style="font-size:11px;padding:2px 8px" onclick="deleteTrigger(\'' + escAttr(t.name) + '\')">Delete</button>';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="showTriggerRuns(\'' + escAttr(t.name) + '\')">History</button>';
+        html += '</div></div>';
       });
-      html += '</tbody></table></div>';
       el.innerHTML = html;
     })
     .catch(function() {
       document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
     });
+}
+
+function toggleTrigger(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/toggle', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) { toast('Trigger ' + name + ': ' + (data.enabled ? 'enabled' : 'disabled')); refreshTriggers(); })
+    .catch(function(e) { toast('Toggle failed: ' + e); });
+}
+
+function fireTrigger(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/fire', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function() { toast('Trigger fired: ' + name); })
+    .catch(function(e) { toast('Fire failed: ' + e); });
+}
+
+function deleteTrigger(name) {
+  if (!confirm('Delete trigger "' + name + '"?')) return;
+  fetch('/api/triggers/' + encodeURIComponent(name), {method:'DELETE'})
+    .then(function(r) { return r.json(); })
+    .then(function() { toast('Trigger deleted'); refreshTriggers(); })
+    .catch(function(e) { toast('Delete failed: ' + e); });
+}
+
+function showTriggerRuns(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/runs?limit=10')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var runs = data.runs || [];
+      if (!runs.length) { toast('No runs for ' + name); return; }
+      var html = '<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">';
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:6px">Recent Runs for ' + esc(name) + '</div>';
+      html += '<table style="width:100%;font-size:11px"><thead><tr><th>Status</th><th>Workflow</th><th>Started</th><th>Run ID</th></tr></thead><tbody>';
+      runs.forEach(function(r) {
+        var sc = r.status === 'success' ? 'var(--green)' : r.status === 'error' ? '#f87171' : 'var(--muted)';
+        html += '<tr><td><span style="color:' + sc + '">' + esc(r.status || '') + '</span></td>';
+        html += '<td>' + esc(r.workflow_name || '') + '</td>';
+        html += '<td>' + esc((r.started_at||'').substring(0,19).replace('T',' ')) + '</td>';
+        html += '<td><code style="font-size:10px">' + esc((r.workflow_run_id||'').substring(0,8)) + '</code></td></tr>';
+      });
+      html += '</tbody></table></div>';
+      var el = document.getElementById('integration-triggers');
+      el.innerHTML += html;
+    })
+    .catch(function(e) { toast('Load runs failed: ' + e); });
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { toast('Copied!'); });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('Copied!');
+  }
+}
+
+var _editingTriggerName = null;
+
+function openTriggerModal(editName) {
+  _editingTriggerName = editName || null;
+  document.getElementById('trigger-modal-title').textContent = editName ? 'Edit Trigger' : 'Create Trigger';
+  document.getElementById('trigger-modal').style.display = 'flex';
+  // Load workflows for dropdown
+  fetch('/workflows').then(function(r) { return r.json(); }).then(function(wfs) {
+    var sel = document.getElementById('trig-workflow');
+    sel.innerHTML = '';
+    (wfs || []).forEach(function(w) {
+      sel.innerHTML += '<option value="' + escAttr(w.name) + '">' + esc(w.name) + '</option>';
+    });
+  });
+  if (editName) {
+    fetch('/api/triggers').then(function(r) { return r.json(); }).then(function(data) {
+      var triggers = data.triggers || [];
+      var t = triggers.find(function(tr) { return tr.name === editName; });
+      if (!t) return;
+      document.getElementById('trig-name').value = t.name;
+      document.getElementById('trig-name').disabled = true;
+      document.getElementById('trig-type').value = t.type;
+      setTimeout(function() { document.getElementById('trig-workflow').value = t.workflowName; }, 100);
+      document.getElementById('trig-cooldown').value = t.cooldown || '';
+      document.getElementById('trig-enabled').checked = t.enabled;
+      updateTriggerTypeFields();
+    });
+  } else {
+    document.getElementById('trig-name').value = '';
+    document.getElementById('trig-name').disabled = false;
+    document.getElementById('trig-type').value = 'cron';
+    document.getElementById('trig-cron').value = '';
+    document.getElementById('trig-tz').value = '';
+    document.getElementById('trig-event').value = '';
+    document.getElementById('trig-webhook').value = '';
+    document.getElementById('trig-cooldown').value = '';
+    document.getElementById('trig-vars').value = '';
+    document.getElementById('trig-enabled').checked = true;
+    updateTriggerTypeFields();
+  }
+}
+
+function closeTriggerModal() {
+  document.getElementById('trigger-modal').style.display = 'none';
+  _editingTriggerName = null;
+}
+
+function updateTriggerTypeFields() {
+  var type = document.getElementById('trig-type').value;
+  document.getElementById('trig-cron-fields').style.display = type === 'cron' ? '' : 'none';
+  document.getElementById('trig-event-fields').style.display = type === 'event' ? '' : 'none';
+  document.getElementById('trig-webhook-fields').style.display = type === 'webhook' ? '' : 'none';
+}
+
+function saveTrigger() {
+  var name = document.getElementById('trig-name').value.trim();
+  var type = document.getElementById('trig-type').value;
+  var payload = {
+    name: name,
+    workflowName: document.getElementById('trig-workflow').value,
+    enabled: document.getElementById('trig-enabled').checked,
+    trigger: { type: type },
+    cooldown: document.getElementById('trig-cooldown').value.trim()
+  };
+  if (type === 'cron') {
+    payload.trigger.cron = document.getElementById('trig-cron').value.trim();
+    payload.trigger.tz = document.getElementById('trig-tz').value.trim();
+  } else if (type === 'event') {
+    payload.trigger.event = document.getElementById('trig-event').value.trim();
+  } else if (type === 'webhook') {
+    payload.trigger.webhook = document.getElementById('trig-webhook').value.trim();
+  }
+  var varsText = document.getElementById('trig-vars').value.trim();
+  if (varsText) {
+    try { payload.variables = JSON.parse(varsText); } catch(e) { toast('Invalid JSON in variables'); return; }
+  }
+  var url, method;
+  if (_editingTriggerName) {
+    url = '/api/triggers/' + encodeURIComponent(_editingTriggerName);
+    method = 'PUT';
+  } else {
+    url = '/api/triggers';
+    method = 'POST';
+  }
+  fetch(url, {
+    method: method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (!r.ok) return r.json().then(function(d) { throw new Error((d.errors || [d.error]).join(', ')); });
+    return r.json();
+  }).then(function() {
+    toast(_editingTriggerName ? 'Trigger updated' : 'Trigger created');
+    closeTriggerModal();
+    refreshTriggers();
+  }).catch(function(e) {
+    toast('Save failed: ' + e.message);
+  });
 }
 
 function renderKnowledgeStatus(count) {

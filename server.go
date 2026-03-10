@@ -32,6 +32,7 @@ type Server struct {
 	voiceRealtimeEngine *VoiceRealtimeEngine
 	heartbeatMonitor    *HeartbeatMonitor
 	hookReceiver        *hookReceiver
+	triggerEngine       *WorkflowTriggerEngine
 	startTime           time.Time
 	limiter             *loginLimiter
 	apiLimiter          *apiRateLimiter

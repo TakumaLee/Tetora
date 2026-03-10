@@ -1322,3 +1322,215 @@ async function wfEdRestoreVersion(versionId, date) {
     toast('Restore error: ' + e.message);
   }
 }
+
+// --- Template Gallery ---
+
+var _templateCache = null;
+
+function toggleTemplateGallery() {
+  var content = document.getElementById('wf-tpl-content');
+  var toggle = document.getElementById('wf-tpl-toggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    toggle.innerHTML = '&#9650; Hide';
+    loadTemplateGallery();
+  } else {
+    content.style.display = 'none';
+    toggle.innerHTML = '&#9660; Show';
+  }
+}
+
+async function loadTemplateGallery() {
+  var grid = document.getElementById('wf-tpl-grid');
+  if (!grid) return;
+  grid.innerHTML = '<span style="color:var(--muted);font-size:12px">Loading templates...</span>';
+
+  try {
+    var data = await fetchJSON('/api/templates');
+    var templates = data.templates || [];
+    _templateCache = templates;
+    renderTemplateGrid(templates);
+  } catch(e) {
+    grid.innerHTML = '<span style="color:#f87171;font-size:12px">Failed to load templates</span>';
+  }
+}
+
+function renderTemplateGrid(templates) {
+  var grid = document.getElementById('wf-tpl-grid');
+  if (!grid) return;
+
+  if (!templates.length) {
+    grid.innerHTML = '<span style="color:var(--muted);font-size:12px">No templates found</span>';
+    return;
+  }
+
+  var html = '';
+  templates.forEach(function(t) {
+    var desc = (t.description || '').substring(0, 100);
+    if (t.description && t.description.length > 100) desc += '...';
+    var cleanName = t.name.replace(/^tpl-/, '').replace(/-/g, ' ');
+    var catBadge = t.category ? '<span style="background:var(--accent);color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;text-transform:uppercase">' + esc(t.category) + '</span> ' : '';
+
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;justify-content:space-between">';
+    html += '<div>';
+    html += '<div style="font-size:13px;font-weight:600;margin-bottom:4px">' + catBadge + esc(cleanName) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.4">' + esc(desc) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted)">' + t.stepCount + ' steps · ' + (t.variables || []).length + ' vars</div>';
+    html += '</div>';
+    html += '<div style="margin-top:8px;display:flex;gap:4px">';
+    html += '<button class="btn" style="font-size:11px;padding:2px 8px;flex:1" onclick="previewTemplate(\'' + escAttr(t.name) + '\')">Preview</button>';
+    html += '<button class="btn" style="font-size:11px;padding:2px 8px;flex:1;background:var(--accent);color:#fff" onclick="installTemplate(\'' + escAttr(t.name) + '\')">Use</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+function filterTemplates() {
+  if (!_templateCache) return;
+  var q = (document.getElementById('wf-tpl-filter').value || '').toLowerCase().trim();
+  if (!q) {
+    renderTemplateGrid(_templateCache);
+    return;
+  }
+  var filtered = _templateCache.filter(function(t) {
+    return t.name.toLowerCase().indexOf(q) >= 0 ||
+           (t.description || '').toLowerCase().indexOf(q) >= 0 ||
+           (t.category || '').toLowerCase().indexOf(q) >= 0;
+  });
+  renderTemplateGrid(filtered);
+}
+
+async function previewTemplate(name) {
+  try {
+    var wf = await fetchJSON('/api/templates/' + encodeURIComponent(name));
+    openWorkflowEditorWithData(wf);
+    toast('Previewing template: ' + name);
+  } catch(e) {
+    toast('Preview failed: ' + e.message);
+  }
+}
+
+async function installTemplate(name) {
+  var newName = prompt('Workflow name (leave blank to use template name):', name.replace(/^tpl-/, ''));
+  if (newName === null) return; // cancelled
+
+  try {
+    await fetchJSON('/api/templates/' + encodeURIComponent(name) + '/install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({newName: newName || ''})
+    });
+    toast('Template installed!');
+    loadWorkflowDefs();
+    if (newName) {
+      openWorkflowEditor(newName);
+    }
+  } catch(e) {
+    toast('Install failed: ' + e.message);
+  }
+}
+
+// --- Dry Run ---
+
+async function dryRunWorkflow() {
+  if (!wfEd.workflow) { toast('No workflow open'); return; }
+  var wf = wfEd.workflow;
+
+  // Collect variables - use defaults from workflow
+  var vars = {};
+  if (wf.variables) {
+    for (var k in wf.variables) {
+      vars[k] = wf.variables[k];
+    }
+  }
+
+  // Check if workflow needs saving first
+  if (wfEd.dirty) {
+    if (confirm('Save workflow before dry run?')) {
+      await saveWorkflowEditorData();
+    }
+  }
+
+  toast('Running dry run...');
+  try {
+    var resp = await fetch('/workflows/' + encodeURIComponent(wf.name) + '/dry-run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({variables: vars})
+    });
+    if (!resp.ok) {
+      var err = await resp.json();
+      throw new Error((err.errors || [err.error]).join(', '));
+    }
+    var run = await resp.json();
+    showDryRunResults(run);
+  } catch(e) {
+    toast('Dry run failed: ' + e.message);
+  }
+}
+
+function showDryRunResults(run) {
+  // Remove old modal if exists
+  var old = document.getElementById('dry-run-modal');
+  if (old) old.remove();
+
+  var steps = run.stepResults || {};
+  var stepList = Object.values(steps);
+  stepList.sort(function(a, b) {
+    if (!a.startedAt) return 1;
+    if (!b.startedAt) return -1;
+    return a.startedAt < b.startedAt ? -1 : 1;
+  });
+
+  var html = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:560px;max-height:80vh;overflow-y:auto">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+  html += '<h3 style="margin:0">Dry Run Results</h3>';
+  html += '<span class="badge ' + (run.status === 'success' ? 'badge-ok' : 'badge-err') + '">' + esc(run.status) + '</span>';
+  html += '</div>';
+
+  // Summary
+  var totalCost = run.totalCostUsd || 0;
+  var dur = run.durationMs ? (run.durationMs / 1000).toFixed(1) + 's' : '-';
+  html += '<div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px">';
+  html += '<div><span style="color:var(--muted)">Est. Cost:</span> <strong>$' + totalCost.toFixed(4) + '</strong></div>';
+  html += '<div><span style="color:var(--muted)">Duration:</span> <strong>' + dur + '</strong></div>';
+  html += '<div><span style="color:var(--muted)">Steps:</span> <strong>' + stepList.length + '</strong></div>';
+  html += '</div>';
+
+  // Step results
+  html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Execution Order</div>';
+  stepList.forEach(function(sr, idx) {
+    var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'skipped' ? '' : 'badge-warn';
+    var cost = sr.costUsd != null && sr.costUsd > 0 ? '$' + sr.costUsd.toFixed(4) : '-';
+
+    html += '<div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:4px;font-size:12px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div><strong>' + (idx + 1) + '.</strong> ' + esc(sr.stepId) + ' <span class="badge ' + statusCls + '" style="font-size:10px">' + esc(sr.status) + '</span></div>';
+    html += '<span style="color:var(--muted)">' + cost + '</span>';
+    html += '</div>';
+    if (sr.output) {
+      var output = sr.output.length > 200 ? sr.output.substring(0, 200) + '...' : sr.output;
+      html += '<div style="margin-top:4px;color:var(--muted);font-size:11px;white-space:pre-wrap">' + esc(output) + '</div>';
+    }
+    if (sr.error) html += '<div style="margin-top:4px;color:#f87171;font-size:11px">' + esc(sr.error) + '</div>';
+    html += '</div>';
+  });
+
+  // Missing variables warning
+  if (run.error) {
+    html += '<div style="margin-top:12px;padding:8px;background:#f8717122;border-radius:6px;color:#f87171;font-size:12px">' + esc(run.error) + '</div>';
+  }
+
+  html += '<div style="display:flex;justify-content:flex-end;margin-top:16px">';
+  html += '<button class="btn" onclick="document.getElementById(\'dry-run-modal\').remove()">Close</button>';
+  html += '</div>';
+  html += '</div>';
+
+  var modal = document.createElement('div');
+  modal.id = 'dry-run-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;justify-content:center;align-items:center';
+  modal.innerHTML = html;
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+}

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -148,6 +149,32 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				"workflow": name,
 			})
 
+		case action == "dry-run" && r.Method == http.MethodPost:
+			wf, err := loadWorkflowByName(cfg, name)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			if errs := validateWorkflow(wf); len(errs) > 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"errors": errs})
+				return
+			}
+			var body struct {
+				Variables map[string]string `json:"variables"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			for k := range body.Variables {
+				if strings.HasPrefix(k, "__") {
+					delete(body.Variables, k)
+				}
+			}
+			auditLog(cfg.HistoryDB, "workflow.dry-run", "http",
+				fmt.Sprintf("name=%s", name), clientIP(r))
+			// Dry run is synchronous — no real provider calls.
+			run := executeWorkflow(r.Context(), cfg, wf, body.Variables, state, sem, childSem, WorkflowModeDryRun)
+			json.NewEncoder(w).Encode(run)
+
 		case action == "restore" && r.Method == http.MethodPost:
 			if cfg.HistoryDB == "" {
 				http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
@@ -249,7 +276,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
 			return
 		}
-		// Enrich with handoffs and messages.
+		// Enrich with handoffs, messages, and callbacks.
 		handoffs, _ := queryHandoffs(cfg.HistoryDB, run.ID)
 		messages, _ := queryAgentMessages(cfg.HistoryDB, run.ID, "", 100)
 		if handoffs == nil {
@@ -258,20 +285,87 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 		if messages == nil {
 			messages = []AgentMessage{}
 		}
+		// Query callbacks for this run.
+		var callbacks []map[string]any
+		cbSQL := fmt.Sprintf(`SELECT key, step_id, mode, auth_mode, status, timeout_at, created_at
+			FROM workflow_callbacks WHERE run_id='%s' ORDER BY created_at`, escapeSQLite(run.ID))
+		cbRows, _ := queryDB(cfg.HistoryDB, cbSQL)
+		if cbRows != nil {
+			callbacks = cbRows
+		} else {
+			callbacks = []map[string]any{}
+		}
 		result := map[string]any{
-			"run":      run,
-			"handoffs": handoffs,
-			"messages": messages,
+			"run":       run,
+			"handoffs":  handoffs,
+			"messages":  messages,
+			"callbacks": callbacks,
 		}
 		json.NewEncoder(w).Encode(result)
 	})
 
-	// --- P18.3: Workflow Triggers ---
-	// Build trigger engine reference for HTTP handlers.
-	var triggerEngine *WorkflowTriggerEngine
-	if len(cfg.WorkflowTriggers) > 0 {
-		triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, childSem, state.broker)
-	}
+	// --- Template Gallery ---
+	mux.HandleFunc("/api/templates", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		templates := listTemplates()
+		if templates == nil {
+			templates = []TemplateSummary{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"templates": templates, "count": len(templates)})
+	})
+
+	mux.HandleFunc("/api/templates/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.TrimPrefix(r.URL.Path, "/api/templates/")
+		parts := strings.SplitN(path, "/", 2)
+		name := parts[0]
+		action := ""
+		if len(parts) > 1 {
+			action = parts[1]
+		}
+		if name == "" {
+			http.Error(w, `{"error":"template name required"}`, http.StatusBadRequest)
+			return
+		}
+
+		switch {
+		case action == "" && r.Method == http.MethodGet:
+			wf, err := loadTemplate(name)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(wf)
+
+		case action == "install" && r.Method == http.MethodPost:
+			var body struct {
+				NewName string `json:"newName"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			if err := installTemplate(cfg, name, body.NewName); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			installedName := body.NewName
+			if installedName == "" {
+				installedName = name
+			}
+			auditLog(cfg.HistoryDB, "template.install", "http",
+				fmt.Sprintf("template=%s installed_as=%s", name, installedName), clientIP(r))
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]string{"status": "installed", "name": installedName})
+
+		default:
+			http.Error(w, `{"error":"GET or POST .../install"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Use server's trigger engine (shared with main.go, supports hot-reload).
+	triggerEngine := s.triggerEngine
 
 	// --- Skill list for editor dropdowns ---
 	mux.HandleFunc("/api/skills", func(w http.ResponseWriter, r *http.Request) {
@@ -319,22 +413,66 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/triggers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.Method != http.MethodGet {
-			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
-			return
+		switch r.Method {
+		case http.MethodGet:
+			if triggerEngine == nil {
+				json.NewEncoder(w).Encode(map[string]any{"triggers": []any{}, "count": 0})
+				return
+			}
+			infos := triggerEngine.ListTriggers()
+			if infos == nil {
+				infos = []TriggerInfo{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"triggers": infos,
+				"count":    len(infos),
+			})
+
+		case http.MethodPost:
+			// Create a new trigger.
+			var t WorkflowTriggerConfig
+			if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			// Build existing names set.
+			existing := make(map[string]bool)
+			currentCfg := s.Cfg()
+			for _, et := range currentCfg.WorkflowTriggers {
+				existing[et.Name] = true
+			}
+			if errs := validateTriggerConfig(t, existing); len(errs) > 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"errors": errs})
+				return
+			}
+			// Persist to config.json.
+			configPath := findConfigPath()
+			if configPath == "" {
+				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
+				return
+			}
+			if err := updateConfigField(configPath, func(raw map[string]any) {
+				triggers, _ := raw["workflowTriggers"].([]any)
+				// Encode trigger to generic map.
+				b, _ := json.Marshal(t)
+				var m any
+				json.Unmarshal(b, &m)
+				raw["workflowTriggers"] = append(triggers, m)
+			}); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"save failed: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			// Self-SIGHUP to reload.
+			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+			auditLog(cfg.HistoryDB, "trigger.create", "http",
+				fmt.Sprintf("name=%s type=%s workflow=%s", t.Name, t.Trigger.Type, t.WorkflowName), clientIP(r))
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]string{"status": "created", "name": t.Name})
+
+		default:
+			http.Error(w, `{"error":"GET or POST"}`, http.StatusMethodNotAllowed)
 		}
-		if triggerEngine == nil {
-			json.NewEncoder(w).Encode(map[string]any{"triggers": []any{}, "count": 0})
-			return
-		}
-		infos := triggerEngine.ListTriggers()
-		if infos == nil {
-			infos = []TriggerInfo{}
-		}
-		json.NewEncoder(w).Encode(map[string]any{
-			"triggers": infos,
-			"count":    len(infos),
-		})
 	})
 
 	// --- External Step: List pending callbacks ---
@@ -552,6 +690,112 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				"trigger": name,
 			})
 
+		case action == "toggle" && r.Method == http.MethodPost:
+			configPath := findConfigPath()
+			if configPath == "" {
+				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
+				return
+			}
+			var newEnabled bool
+			if err := updateConfigField(configPath, func(raw map[string]any) {
+				triggers, _ := raw["workflowTriggers"].([]any)
+				for _, t := range triggers {
+					tm, _ := t.(map[string]any)
+					if tm["name"] == name {
+						cur, _ := tm["enabled"].(bool)
+						if _, ok := tm["enabled"]; !ok {
+							cur = true // default is enabled
+						}
+						newEnabled = !cur
+						tm["enabled"] = newEnabled
+						break
+					}
+				}
+			}); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"toggle failed: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+			auditLog(cfg.HistoryDB, "trigger.toggle", "http",
+				fmt.Sprintf("trigger=%s enabled=%v", name, newEnabled), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]any{"status": "toggled", "name": name, "enabled": newEnabled})
+
+		case action == "" && r.Method == http.MethodPut:
+			// Update trigger.
+			var t WorkflowTriggerConfig
+			if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %v"}`, err), http.StatusBadRequest)
+				return
+			}
+			t.Name = name // enforce URL name
+			if errs := validateTriggerConfig(t, nil); len(errs) > 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{"errors": errs})
+				return
+			}
+			configPath := findConfigPath()
+			if configPath == "" {
+				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
+				return
+			}
+			found := false
+			if err := updateConfigField(configPath, func(raw map[string]any) {
+				triggers, _ := raw["workflowTriggers"].([]any)
+				b, _ := json.Marshal(t)
+				var m any
+				json.Unmarshal(b, &m)
+				for i, tr := range triggers {
+					tm, _ := tr.(map[string]any)
+					if tm["name"] == name {
+						triggers[i] = m
+						found = true
+						break
+					}
+				}
+				raw["workflowTriggers"] = triggers
+			}); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"update failed: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if !found {
+				http.Error(w, `{"error":"trigger not found"}`, http.StatusNotFound)
+				return
+			}
+			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+			auditLog(cfg.HistoryDB, "trigger.update", "http",
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]string{"status": "updated", "name": name})
+
+		case action == "" && r.Method == http.MethodDelete:
+			configPath := findConfigPath()
+			if configPath == "" {
+				http.Error(w, `{"error":"config path not found"}`, http.StatusInternalServerError)
+				return
+			}
+			found := false
+			if err := updateConfigField(configPath, func(raw map[string]any) {
+				triggers, _ := raw["workflowTriggers"].([]any)
+				for i, tr := range triggers {
+					tm, _ := tr.(map[string]any)
+					if tm["name"] == name {
+						raw["workflowTriggers"] = append(triggers[:i], triggers[i+1:]...)
+						found = true
+						break
+					}
+				}
+			}); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"delete failed: %v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if !found {
+				http.Error(w, `{"error":"trigger not found"}`, http.StatusNotFound)
+				return
+			}
+			syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+			auditLog(cfg.HistoryDB, "trigger.delete", "http",
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
+			json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "name": name})
+
 		case action == "runs" && r.Method == http.MethodGet:
 			limit := 20
 			if l := r.URL.Query().Get("limit"); l != "" {
@@ -573,7 +817,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			})
 
 		default:
-			http.Error(w, `{"error":"use POST .../fire or GET .../runs"}`, http.StatusMethodNotAllowed)
+			http.Error(w, `{"error":"use POST .../fire|toggle, PUT, DELETE, or GET .../runs"}`, http.StatusMethodNotAllowed)
 		}
 	})
 }

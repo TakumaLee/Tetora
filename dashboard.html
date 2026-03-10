@@ -1414,6 +1414,7 @@ body.theme-material .logo {
 .wf-node:hover { opacity: 0.85; }
 .wf-node.pending rect { fill: #1e1e2e; stroke: #6b6b80; stroke-width: 2; }
 .wf-node.running rect { fill: #172554; stroke: #60a5fa; stroke-width: 2; }
+.wf-node.waiting rect { fill: #2e1065; stroke: #a78bfa; stroke-width: 2; }
 .wf-node.success rect { fill: #064e3b; stroke: #34d399; stroke-width: 2; }
 .wf-node.error rect { fill: #450a0a; stroke: #f87171; stroke-width: 2; }
 .wf-node.skipped rect { fill: #422006; stroke: #fbbf24; stroke-width: 2; }
@@ -1506,8 +1507,8 @@ body.theme-material .logo {
 .wed-node-tool_call .wed-node-shape { fill: #150f1f; stroke: #c084fc; }
 .wed-node-delay .wed-node-shape { fill: #0a1f1a; stroke: #34d399; }
 .wed-node-notify .wed-node-shape { fill: #1f1000; stroke: #fb923c; }
-.wed-node-handoff .wed-handoff-outer { fill: #1a0f1f; stroke: #e879f9; stroke-width: 1.5; }
-.wed-node-handoff .wed-handoff-inner { fill: #1a0a20; stroke: #e879f9; stroke-width: 1; opacity: 0.7; }
+.wed-node-external .wed-node-shape { fill: #1a1020; stroke: #f97316; stroke-width: 2; }
+.wed-node-external.selected .wed-node-shape { stroke: #fb923c; }
 .wed-node.selected.wed-node-dispatch .wed-node-shape { stroke: #a78bfa; }
 .wed-node-label { fill: var(--text); font-size: 11px; font-weight: 600; pointer-events: none; }
 .wed-node-sublabel { fill: #a1a1aa; font-size: 9px; pointer-events: none; }
@@ -2827,6 +2828,19 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           <button class="btn" onclick="newWorkflowDef()">+ New</button>
         </div>
       </div>
+      <!-- Template Gallery -->
+      <div id="wf-template-gallery" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:8px 0" onclick="toggleTemplateGallery()">
+          <span style="font-size:14px;font-weight:600">&#128218; Template Gallery</span>
+          <span id="wf-tpl-toggle" style="font-size:12px;color:var(--muted)">&#9660; Show</span>
+        </div>
+        <div id="wf-tpl-content" style="display:none">
+          <div style="margin-bottom:8px">
+            <input id="wf-tpl-filter" class="wfed-prop-input" placeholder="Filter templates..." style="width:100%;box-sizing:border-box" oninput="filterTemplates()">
+          </div>
+          <div id="wf-tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px"></div>
+        </div>
+      </div>
       <div id="wf-defs-list"></div>
     </div>
 
@@ -2849,8 +2863,6 @@ body:not([class*="theme-"])::after, body.theme-default::after {
               <div class="wfed-dd-item" onclick="addStepToWorkflow('tool_call');toggleAddStepMenu()">tool_call</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('delay');toggleAddStepMenu()">delay</div>
               <div class="wfed-dd-item" onclick="addStepToWorkflow('notify');toggleAddStepMenu()">notify</div>
-              <div class="wfed-dd-item" onclick="addStepToWorkflow('external');toggleAddStepMenu()">external</div>
-              <div class="wfed-dd-item" onclick="addStepToWorkflow('handoff');toggleAddStepMenu()">handoff</div>
             </div>
           </div>
           <button class="btn" onclick="wedAutoLayout()" title="Auto-layout nodes">&#x2B21; Layout</button>
@@ -2860,7 +2872,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           <button class="btn" onclick="toggleWfJsonEditor()">{ }</button>
           <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
           <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
-          <button class="btn" onclick="wfEdShowVersionHistory()" title="版本歷史">&#x1F552; Versions</button>
+          <button class="btn" onclick="dryRunWorkflow()" title="測試執行 (不實際呼叫 API)">&#128269; Dry Run</button>
           <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
           <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
           <button class="btn" onclick="closeWorkflowEditor()">Close</button>
@@ -2874,7 +2886,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
             <svg id="wf-editor-svg" class="wfed-svg"></svg>
           </div>
           <div style="font-size:11px;color:var(--muted);margin-top:6px">
-            拖拉空白處 移動畫布 &bull; 滾輪 縮放 &bull; 拖拉節點 移動 &bull; 拖右點連線
+            Space+拖拉 移動畫布 &bull; 中鍵拖拉 &bull; 滾輪 縮放 &bull; 拖拉節點 移動 &bull; 拖右點連線
           </div>
         </div>
         <div class="wfed-prop-area">
@@ -2884,9 +2896,6 @@ body:not([class*="theme-"])::after, body.theme-default::after {
           </div>
         </div>
       </div>
-
-      <!-- Version History Panel -->
-      <div id="wf-version-panel" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)"></div>
 
       <!-- JSON Editor (collapsible) -->
       <div id="wf-json-editor-panel" style="display:none;margin-top:12px">
@@ -2966,8 +2975,40 @@ body:not([class*="theme-"])::after, body.theme-default::after {
 
     <!-- Workflow Triggers -->
     <div class="section">
-      <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+      <div class="section-header">
+        <span class="section-title">Workflow Triggers</span>
+        <div>
+          <button class="btn" onclick="refreshTriggers()">Refresh</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="openTriggerModal()">+ Create</button>
+        </div>
+      </div>
       <div id="integration-triggers"></div>
+    </div>
+
+    <!-- Trigger Modal -->
+    <div id="trigger-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-height:80vh;overflow-y:auto">
+        <h3 id="trigger-modal-title" style="margin:0 0 16px">Create Trigger</h3>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div><label style="font-size:12px;font-weight:600">Name</label><input id="trig-name" class="wfed-prop-input" placeholder="my-trigger" style="width:100%;box-sizing:border-box"></div>
+          <div><label style="font-size:12px;font-weight:600">Workflow</label><select id="trig-workflow" class="wfed-prop-input" style="width:100%;box-sizing:border-box"></select></div>
+          <div><label style="font-size:12px;font-weight:600">Type</label>
+            <select id="trig-type" class="wfed-prop-input" style="width:100%;box-sizing:border-box" onchange="updateTriggerTypeFields()">
+              <option value="cron">Cron</option><option value="event">Event</option><option value="webhook">Webhook</option>
+            </select>
+          </div>
+          <div id="trig-cron-fields"><label style="font-size:12px;font-weight:600">Cron Expression</label><input id="trig-cron" class="wfed-prop-input" placeholder="*/5 * * * *" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">5-field: min hour day month weekday</div><label style="font-size:12px;font-weight:600;margin-top:8px;display:block">Timezone</label><input id="trig-tz" class="wfed-prop-input" placeholder="UTC" style="width:100%;box-sizing:border-box"></div>
+          <div id="trig-event-fields" style="display:none"><label style="font-size:12px;font-weight:600">Event Pattern</label><input id="trig-event" class="wfed-prop-input" placeholder="dispatch.*" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">Wildcards: dispatch.* matches dispatch.start, etc.</div></div>
+          <div id="trig-webhook-fields" style="display:none"><label style="font-size:12px;font-weight:600">Webhook ID</label><input id="trig-webhook" class="wfed-prop-input" placeholder="my-hook" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">URL: {origin}/api/triggers/webhook/{id}</div></div>
+          <div><label style="font-size:12px;font-weight:600">Cooldown</label><input id="trig-cooldown" class="wfed-prop-input" placeholder="5m" style="width:100%;box-sizing:border-box"></div>
+          <div><label style="font-size:12px;font-weight:600">Variables (JSON)</label><textarea id="trig-vars" class="wfed-prop-input wfed-prop-textarea" rows="3" placeholder='{"key": "value"}' style="width:100%;box-sizing:border-box"></textarea></div>
+          <div><label style="font-size:12px"><input type="checkbox" id="trig-enabled" checked> Enabled</label></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn" onclick="closeTriggerModal()">Cancel</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="saveTrigger()">Save</button>
+        </div>
+      </div>
     </div>
 
     <!-- Knowledge Pipeline -->
@@ -4300,8 +4341,7 @@ function formatDuration(ms) {
 
 async function fetchJSON(url, opts) {
   const resp = await fetch(API + url, opts);
-  var data;
-  try { data = await resp.json(); } catch(e) { data = {}; }
+  const data = await resp.json();
   if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
   return data;
 }
@@ -8909,6 +8949,16 @@ async function deleteAgent(name) {
     toast('Error: ' + e.message);
   }
 }
+// Inject pulse animation for running/waiting indicators
+(function() {
+  if (!document.getElementById('wf-charts-style')) {
+    var style = document.createElement('style');
+    style.id = 'wf-charts-style';
+    style.textContent = '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}';
+    document.head.appendChild(style);
+  }
+})();
+
 // --- Agent Communication ---
 async function refreshAgentComm() {
   try {
@@ -8976,7 +9026,8 @@ async function refreshVersions() {
     var filter = document.getElementById('version-type-filter').value;
     var url = '/versions?limit=30';
     if (filter) url += '&type=' + filter;
-    const versions = await fetchAPI(url);
+    const res = await fetchAPI(url);
+    const versions = await res.json();
     const section = document.getElementById('version-section');
     const body = document.getElementById('version-body');
     const meta = document.getElementById('version-meta');
@@ -9023,7 +9074,8 @@ async function snapshotConfig() {
 
 async function showVersion(vid) {
   try {
-    const ver = await fetchAPI('/config/versions/' + vid);
+    const res = await fetchAPI('/config/versions/' + vid);
+    const ver = await res.json();
     var modal = document.getElementById('version-diff-modal');
     var title = document.getElementById('diff-title');
     var content = document.getElementById('diff-content');
@@ -9050,7 +9102,8 @@ async function restoreVersion(vid) {
 // --- Trust Gradient ---
 async function refreshTrust() {
   try {
-    const statuses = await fetchAPI('/trust');
+    const res = await fetchAPI('/trust');
+    const statuses = await res.json();
     const section = document.getElementById('trust-section');
     const cards = document.getElementById('trust-cards');
     const meta = document.getElementById('trust-meta');
@@ -9090,7 +9143,8 @@ async function refreshTrust() {
 // --- Agent SLA ---
 async function refreshSLA() {
   try {
-    const data = await fetchAPI('/stats/sla');
+    const res = await fetchAPI('/stats/sla');
+    const data = await res.json();
     const statuses = data.statuses || [];
     const section = document.getElementById('sla-section');
     const cards = document.getElementById('sla-cards');
@@ -9145,7 +9199,8 @@ async function refreshSLA() {
 // --- Provider Health (Circuit Breakers) ---
 async function refreshCircuits() {
   try {
-    const data = await fetchAPI('/circuits');
+    const res = await fetchAPI('/circuits');
+    const data = await res.json();
     const providers = Object.keys(data);
     const section = document.getElementById('circuits-section');
     const list = document.getElementById('circuits-list');
@@ -9510,20 +9565,24 @@ function openWfRun(runId) {
     return resp.json();
   }).then(function(data) {
     currentWfRunData = data;
-    return fetch('/workflows/' + encodeURIComponent(data.workflowName), {credentials:'same-origin'}).then(function(r) {
+    // Support both flat run object and new {run, handoffs, messages, callbacks} shape
+    var runObj = data.run || data;
+    return fetch('/workflows/' + encodeURIComponent(runObj.workflowName), {credentials:'same-origin'}).then(function(r) {
       return r.json();
     }).catch(function() { return null; }).then(function(wfDef) {
       document.getElementById('wf-dag-section').style.display = '';
-      document.getElementById('wf-dag-title').textContent = data.workflowName + ' / ' + runId.substring(0, 8);
-      var statusCls = data.status === 'success' ? 'badge-ok' : (data.status === 'error' || data.status === 'timeout') ? 'badge-err' : 'badge-warn';
-      document.getElementById('wf-dag-status').textContent = data.status;
+      document.getElementById('wf-dag-title').textContent = runObj.workflowName + ' / ' + runId.substring(0, 8);
+      var statusCls = runObj.status === 'success' ? 'badge-ok' : (runObj.status === 'error' || runObj.status === 'timeout') ? 'badge-err' : 'badge-warn';
+      document.getElementById('wf-dag-status').textContent = runObj.status;
       document.getElementById('wf-dag-status').className = 'badge ' + statusCls;
 
-      renderWfTimeline(data);
-      renderWfDAG(data, wfDef);
+      renderWfTimeline(runObj);
+      renderWfDAG(runObj, wfDef);
+      renderWfStepList(data);
+      renderWfCostBar(data);
 
       // Subscribe to SSE if running
-      if (data.status === 'running') {
+      if (runObj.status === 'running') {
         subscribeWfSSE(runId);
       } else if (wfSSE) {
         wfSSE.close();
@@ -9536,6 +9595,141 @@ function openWfRun(runId) {
   }).catch(function(e) {
     console.error('openWfRun error:', e);
   });
+}
+
+// Step results list below DAG
+function renderWfStepList(data) {
+  var container = document.getElementById('wf-step-list');
+  if (!container) {
+    // Create container after DAG
+    container = document.createElement('div');
+    container.id = 'wf-step-list';
+    container.style.cssText = 'margin-top:12px;border-top:1px solid var(--border);padding-top:12px';
+    var dagSection = document.getElementById('wf-dag-section');
+    if (dagSection) dagSection.appendChild(container);
+    else return;
+  }
+
+  var run = data.run || data;
+  var stepResults = run.stepResults || {};
+  var callbacks = data.callbacks || [];
+  var steps = Object.values(stepResults);
+
+  // Sort by startedAt
+  steps.sort(function(a, b) {
+    if (!a.startedAt) return 1;
+    if (!b.startedAt) return -1;
+    return a.startedAt < b.startedAt ? -1 : 1;
+  });
+
+  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Step Results</div>';
+  steps.forEach(function(sr) {
+    var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-warn' : sr.status === 'running' ? 'badge-warn' : '';
+    var dur = sr.durationMs ? (sr.durationMs / 1000).toFixed(1) + 's' : '-';
+    var cost = sr.costUsd != null && sr.costUsd > 0 ? '$' + sr.costUsd.toFixed(4) : '-';
+
+    html += '<div id="wf-step-row-' + escAttr(sr.stepId) + '" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px;cursor:pointer" onclick="toggleStepDetail(this)">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
+    if (sr.status === 'running') html += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fbbf24;animation:pulse 1s infinite"></span>';
+    else if (sr.status === 'waiting') html += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#a78bfa;animation:pulse 1.5s infinite"></span>';
+    html += '<strong style="font-size:12px">' + esc(sr.stepId) + '</strong>';
+    html += '<span class="badge ' + statusCls + '" style="font-size:10px">' + esc(sr.status) + '</span>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:12px;font-size:11px;color:var(--muted)">';
+    html += '<span>' + dur + '</span>';
+    html += '<span>' + cost + '</span>';
+    if (sr.retries) html += '<span>retries: ' + sr.retries + '</span>';
+    html += '</div>';
+    html += '</div>';
+
+    // Expandable detail (hidden by default)
+    html += '<div class="step-detail" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px">';
+    if (sr.error) html += '<div style="color:#f87171;margin-bottom:4px"><strong>Error:</strong> ' + esc(sr.error) + '</div>';
+    if (sr.output) {
+      var output = sr.output.length > 1000 ? sr.output.substring(0, 1000) + '...' : sr.output;
+      html += '<div style="white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px">' + esc(output) + '</div>';
+    }
+    if (sr.taskId) html += '<div style="margin-top:4px;color:var(--muted)">Task: <code>' + esc(sr.taskId.substring(0, 8)) + '</code></div>';
+
+    // Callback info for waiting steps
+    if (sr.status === 'waiting') {
+      var cb = callbacks.find(function(c) { return c.step_id === sr.stepId; });
+      if (cb) {
+        var cbUrl = location.origin + '/api/callbacks/' + encodeURIComponent(cb.key);
+        html += '<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px">';
+        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Waiting for external callback</div>';
+        html += '<div style="font-size:11px">Key: <code style="cursor:pointer" onclick="event.stopPropagation();copyText(\'' + cbUrl.replace(/'/g, "\\'") + '\')" title="Click to copy URL">' + esc(cb.key) + '</code></div>';
+        if (cb.timeout_at) {
+          var timeoutAt = new Date(cb.timeout_at);
+          var remaining = Math.max(0, Math.floor((timeoutAt - Date.now()) / 1000));
+          if (remaining > 0) {
+            var mins = Math.floor(remaining / 60);
+            var secs = remaining % 60;
+            html += '<div style="font-size:11px;color:#fbbf24;margin-top:4px">Timeout in: ' + mins + 'm ' + secs + 's</div>';
+          } else {
+            html += '<div style="font-size:11px;color:#f87171;margin-top:4px">Timeout expired</div>';
+          }
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function toggleStepDetail(el) {
+  var detail = el.querySelector('.step-detail');
+  if (detail) {
+    detail.style.display = detail.style.display === 'none' ? '' : 'none';
+  }
+}
+
+// Cost breakdown horizontal bar
+function renderWfCostBar(data) {
+  var container = document.getElementById('wf-cost-bar');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'wf-cost-bar';
+    container.style.cssText = 'margin-top:8px';
+    var dagSection = document.getElementById('wf-dag-section');
+    if (dagSection) dagSection.appendChild(container);
+    else return;
+  }
+
+  var run = data.run || data;
+  var total = run.totalCostUsd || 0;
+  if (total <= 0) { container.innerHTML = ''; return; }
+
+  var stepResults = run.stepResults || {};
+  var steps = Object.values(stepResults).filter(function(s) { return s.costUsd > 0; });
+  steps.sort(function(a, b) { return b.costUsd - a.costUsd; });
+
+  var colors = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c', '#2dd4bf', '#e879f9'];
+
+  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:4px">Cost: $' + total.toFixed(4) + '</div>';
+  html += '<div style="display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--bg)">';
+  steps.forEach(function(s, i) {
+    var pct = (s.costUsd / total * 100).toFixed(1);
+    var color = colors[i % colors.length];
+    html += '<div title="' + escAttr(s.stepId) + ': $' + s.costUsd.toFixed(4) + ' (' + pct + '%)" style="width:' + pct + '%;background:' + color + ';min-width:2px"></div>';
+  });
+  html += '</div>';
+
+  // Legend
+  if (steps.length > 1) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px">';
+    steps.forEach(function(s, i) {
+      var color = colors[i % colors.length];
+      html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + '"></span> ' + esc(s.stepId) + ' $' + s.costUsd.toFixed(4) + '</span>';
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
 }
 
 function closeWfDag() {
@@ -9704,11 +9898,13 @@ function renderWfTimeline(run) {
 // Show node detail panel
 function showWfNodeDetail(stepId) {
   var panel = document.getElementById('wf-node-detail');
-  if (!currentWfRunData || !currentWfRunData.stepResults) { panel.style.display = 'none'; return; }
-  var sr = currentWfRunData.stepResults[stepId];
+  if (!currentWfRunData) { panel.style.display = 'none'; return; }
+  var runObj = currentWfRunData.run || currentWfRunData;
+  if (!runObj.stepResults) { panel.style.display = 'none'; return; }
+  var sr = runObj.stepResults[stepId];
   if (!sr) { panel.style.display = 'none'; return; }
 
-  var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : 'badge-warn';
+  var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-info' : 'badge-warn';
   var html = '<h4>' + esc(stepId) + ' <span class="badge ' + statusCls + '">' + esc(sr.status || '') + '</span></h4>';
   html += '<div class="wf-detail-grid">';
   html += '<div class="wf-detail-item"><div class="label">Duration</div><div class="value">' + (sr.durationMs || 0) + 'ms</div></div>';
@@ -9725,9 +9921,104 @@ function showWfNodeDetail(stepId) {
     html += '<div class="wf-detail-output">' + esc(output) + '</div>';
   }
 
+  // Manual resolve button for waiting external steps.
+  if (sr.status === 'waiting') {
+    html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">This step is waiting for an external callback.</div>';
+    // Show callback info if available
+    var callbacks = (currentWfRunData && currentWfRunData.callbacks) || [];
+    var cb = callbacks.find(function(c) { return c.step_id === stepId; });
+    if (cb) {
+      var cbUrl = location.origin + '/api/callbacks/' + encodeURIComponent(cb.key);
+      html += '<div style="font-size:11px;margin-bottom:8px">';
+      html += '<div>Callback Key: <code style="cursor:pointer" onclick="copyText(\'' + cbUrl.replace(/'/g, "\\'") + '\')" title="Click to copy URL">' + esc(cb.key) + '</code></div>';
+      html += '<div style="margin-top:2px">Mode: ' + esc(cb.mode || 'single') + ' \u00b7 Auth: ' + esc(cb.auth_mode || 'bearer') + '</div>';
+      if (cb.timeout_at) {
+        var timeoutAt = new Date(cb.timeout_at);
+        var remaining = Math.max(0, Math.floor((timeoutAt - Date.now()) / 1000));
+        if (remaining > 0) {
+          var mins = Math.floor(remaining / 60);
+          var secs = remaining % 60;
+          html += '<div style="color:#fbbf24;margin-top:2px">Timeout: ' + mins + 'm ' + secs + 's remaining</div>';
+        } else {
+          html += '<div style="color:#f87171;margin-top:2px">Timeout expired</div>';
+        }
+      }
+      html += '</div>';
+    }
+    html += '<textarea id="wf-resolve-body" rows="3" class="wfed-prop-input wfed-prop-textarea" placeholder=\'{"status":"success","data":{}}\' style="width:100%;box-sizing:border-box;margin-bottom:8px"></textarea>';
+    html += '<button class="btn" style="font-size:12px" onclick="manualResolveCallback(\'' + escAttr(stepId) + '\')">Resolve Manually</button>';
+    html += '</div>';
+  }
+
+  // Cancel button for running/waiting workflows.
+  var _cancelRunObj = currentWfRunData && (currentWfRunData.run || currentWfRunData);
+  if (_cancelRunObj && (_cancelRunObj.status === 'running' || _cancelRunObj.status === 'waiting')) {
+    html += '<div style="margin-top:8px">';
+    html += '<button class="btn btn-danger" style="font-size:11px" onclick="cancelWorkflowRun()">Cancel Workflow</button>';
+    html += '</div>';
+  }
+
   panel.innerHTML = html;
   panel.style.display = '';
   panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+// Manual resolve: send callback for a waiting external step.
+async function manualResolveCallback(stepId) {
+  if (!currentWfRunData) return;
+  var _manualRunObj = currentWfRunData.run || currentWfRunData;
+  var runId = _manualRunObj.id;
+
+  // Find the callback key from pending callbacks API.
+  try {
+    var resp = await fetchJSON('/api/callbacks');
+    var callbacks = (resp && resp.callbacks) || [];
+    var cb = callbacks.find(function(c) {
+      return c.run_id === runId && c.step_id === stepId;
+    });
+    if (!cb) {
+      toast('No pending callback found for this step');
+      return;
+    }
+
+    var bodyEl = document.getElementById('wf-resolve-body');
+    var body = bodyEl ? bodyEl.value.trim() : '{}';
+    if (!body) body = '{}';
+
+    await fetchJSON('/api/callbacks/' + encodeURIComponent(cb.key), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+    });
+    toast('Callback resolved for ' + stepId);
+    // Refresh after a short delay.
+    setTimeout(function() {
+      if (currentWfRun) openWfRun(currentWfRun);
+    }, 800);
+  } catch(e) {
+    toast('Resolve failed: ' + (e.message || e));
+  }
+}
+
+// Cancel a running/waiting workflow.
+async function cancelWorkflowRun() {
+  if (!currentWfRunData) return;
+  var _cancelRun = currentWfRunData.run || currentWfRunData;
+  var runId = _cancelRun.id;
+  if (!confirm('Cancel workflow run ' + runId.substring(0, 8) + '...?')) return;
+  try {
+    await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/cancel', {
+      method: 'POST',
+    });
+    toast('Workflow cancelled');
+    setTimeout(function() {
+      refreshWorkflowRuns();
+      if (currentWfRun === runId) openWfRun(runId);
+    }, 800);
+  } catch(e) {
+    toast('Cancel failed: ' + (e.message || e));
+  }
 }
 
 // SSE subscription for live workflow updates
@@ -9740,9 +10031,20 @@ function subscribeWfSSE(runId) {
       var ev = JSON.parse(e.data);
       if (ev.type === 'step_started' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, 'running');
+        updateWfStepRow(ev.data.stepId, 'running');
+      }
+      if (ev.type === 'step_waiting' && ev.data) {
+        updateWfNodeStatus(ev.data.stepId, 'waiting');
+        updateWfStepRow(ev.data.stepId, 'waiting');
+      }
+      if (ev.type === 'step_callback_received' && ev.data) {
+        // Keep node in waiting state but could update a counter
+        updateWfNodeStatus(ev.data.stepId, 'waiting');
+        updateWfStepRow(ev.data.stepId, 'waiting');
       }
       if (ev.type === 'step_completed' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, ev.data.status);
+        updateWfStepRow(ev.data.stepId, ev.data.status);
       }
       if (ev.type === 'workflow_completed') {
         if (wfSSE) { wfSSE.close(); wfSSE = null; }
@@ -9757,6 +10059,31 @@ function subscribeWfSSE(runId) {
   wfSSE.onerror = function() {
     if (wfSSE) { wfSSE.close(); wfSSE = null; }
   };
+}
+
+function updateWfStepRow(stepId, status) {
+  var row = document.getElementById('wf-step-row-' + stepId);
+  if (!row) return;
+  // Update badge
+  var badge = row.querySelector('.badge');
+  if (badge) {
+    var cls = status === 'success' ? 'badge-ok' : (status === 'error' || status === 'timeout') ? 'badge-err' : 'badge-warn';
+    badge.className = 'badge ' + cls;
+    badge.textContent = status;
+  }
+  // Update pulse indicator
+  var indicator = row.querySelector('span[style*="border-radius:50%"]');
+  if (indicator) {
+    if (status === 'running') {
+      indicator.style.background = '#fbbf24';
+      indicator.style.display = 'inline-block';
+    } else if (status === 'waiting') {
+      indicator.style.background = '#a78bfa';
+      indicator.style.display = 'inline-block';
+    } else {
+      indicator.style.display = 'none';
+    }
+  }
 }
 
 function updateWfNodeStatus(stepId, status) {
@@ -9787,8 +10114,8 @@ var wfEd = {
   zoom: 1,
   panX: 0, panY: 0,
   panDrag: null,        // { startMX, startMY, origPanX, origPanY }
+  spaceDown: false,
   NODE_W: 180, NODE_H: 64,
-  agents: [],           // cached from /api/agents
   skills: [],           // cached from /api/skills
   tools: [],            // cached from /api/tools
 };
@@ -9902,8 +10229,7 @@ function openWorkflowEditorWithData(wf) {
     });
   }
 
-  // Pre-load agents, skills and tools for dropdowns
-  wfLoadAgents();
+  // Pre-load skills and tools for dropdowns
   wfLoadSkills();
   wfLoadTools();
 
@@ -9920,14 +10246,37 @@ function closeWorkflowEditor() {
   wedUnregisterKeyListeners();
 }
 
-// ---- Keyboard Listeners ----
+// ---- Keyboard Listeners (space = pan mode) ----
+
+var _wedKeyDown = null;
+var _wedKeyUp = null;
 
 function wedRegisterKeyListeners() {
-  // No keyboard shortcuts needed — pan is by dragging empty canvas
+  wedUnregisterKeyListeners();
+  _wedKeyDown = function(e) {
+    if (e.code === 'Space' && !e.target.matches('input,textarea,select')) {
+      e.preventDefault();
+      wfEd.spaceDown = true;
+      var wrap = document.getElementById('wf-editor-canvas-wrap');
+      if (wrap) wrap.style.cursor = 'grab';
+    }
+  };
+  _wedKeyUp = function(e) {
+    if (e.code === 'Space') {
+      wfEd.spaceDown = false;
+      wfEd.panDrag = null;
+      var wrap = document.getElementById('wf-editor-canvas-wrap');
+      if (wrap) wrap.style.cursor = '';
+    }
+  };
+  document.addEventListener('keydown', _wedKeyDown);
+  document.addEventListener('keyup', _wedKeyUp);
 }
 
 function wedUnregisterKeyListeners() {
-  // No-op
+  if (_wedKeyDown) { document.removeEventListener('keydown', _wedKeyDown); _wedKeyDown = null; }
+  if (_wedKeyUp) { document.removeEventListener('keyup', _wedKeyUp); _wedKeyUp = null; }
+  wfEd.spaceDown = false;
 }
 
 // ---- Auto-Layout ----
@@ -10075,6 +10424,13 @@ function renderEditorCanvas() {
       // Double border rect
       html += '<rect class="wed-node-shape wed-parallel-outer" x="' + (p.x + 3) + '" y="' + (p.y + 3) + '" width="' + (NW - 6) + '" height="' + (NH - 6) + '" rx="8"/>';
       html += '<rect class="wed-node-shape wed-parallel-inner" x="' + (p.x + 7) + '" y="' + (p.y + 7) + '" width="' + (NW - 14) + '" height="' + (NH - 14) + '" rx="6"/>';
+    } else if (s.type === 'external') {
+      // Dashed border rect for external steps
+      html += '<rect class="wed-node-shape wed-external" x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="8" stroke-dasharray="6 3"/>';
+    } else if (s.type === 'handoff') {
+      // Double-border rect for handoff steps
+      html += '<rect class="wed-node-shape wed-handoff-outer" x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="8"/>';
+      html += '<rect class="wed-node-shape wed-handoff-inner" x="' + (p.x + 4) + '" y="' + (p.y + 4) + '" width="' + (NW - 8) + '" height="' + (NH - 8) + '" rx="6" stroke-dasharray="4 2"/>';
     } else {
       html += '<rect class="wed-node-shape" x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="8"/>';
     }
@@ -10134,6 +10490,7 @@ function renderEditorCanvas() {
 function wedNodeMousedown(e) {
   if (e.target.classList.contains('wed-port')) return; // handled by port handler
   if (e.button === 1) return; // middle click → let SVG handle pan
+  if (wfEd.spaceDown) return; // pan mode takes priority
   e.preventDefault();
   e.stopPropagation();
   var g = e.currentTarget;
@@ -10170,8 +10527,8 @@ function wedPortMousedown(e) {
 // ---- SVG Mouse Events ----
 
 function wedSVGMousedown(e) {
-  // Middle button → pan
-  if (e.button === 1) {
+  // Pan mode: space+drag or middle button
+  if (wfEd.spaceDown || e.button === 1) {
     e.preventDefault();
     var wrap = document.getElementById('wf-editor-canvas-wrap');
     if (wrap) wrap.style.cursor = 'grabbing';
@@ -10184,25 +10541,14 @@ function wedSVGMousedown(e) {
     return;
   }
 
-  // Left-click on empty canvas → pan (drag) + deselect
   if (e.target === e.currentTarget || e.target.tagName === 'svg' || e.target.id === 'wed-bg') {
+    // Click on empty canvas → deselect
     if (!wfEd.drag && !wfEd.connStart) {
       wfEd.selected = null;
       renderPropertyPanel(null);
       var svg = document.getElementById('wf-editor-svg');
       svg.querySelectorAll('.wed-node').forEach(function(n) { n.classList.remove('selected'); });
     }
-    // Start pan drag on empty canvas
-    e.preventDefault();
-    var wrap = document.getElementById('wf-editor-canvas-wrap');
-    if (wrap) wrap.style.cursor = 'grabbing';
-    wfEd.panDrag = {
-      startMX: e.clientX,
-      startMY: e.clientY,
-      origPanX: wfEd.panX,
-      origPanY: wfEd.panY,
-    };
-    return;
   }
 }
 
@@ -10259,7 +10605,7 @@ function wedSVGMouseup(e) {
   if (wfEd.panDrag) {
     wfEd.panDrag = null;
     var wrap = document.getElementById('wf-editor-canvas-wrap');
-    if (wrap) wrap.style.cursor = '';
+    if (wrap) wrap.style.cursor = wfEd.spaceDown ? 'grab' : '';
     return;
   }
 
@@ -10362,8 +10708,8 @@ function renderPropertyPanel(stepId) {
 
   var fields = [
     { key: 'id', label: 'ID', type: 'text', required: true },
-    { key: 'type', label: 'Type', type: 'select', options: ['dispatch','skill','condition','parallel','tool_call','delay','notify'] },
-    { key: 'agent', label: 'Agent', type: 'agent-select' },
+    { key: 'type', label: 'Type', type: 'select', options: ['dispatch','skill','condition','parallel','tool_call','delay','notify','external','handoff'] },
+    { key: 'agent', label: 'Agent', type: 'text', placeholder: 'e.g. kokuyou' },
     { key: 'prompt', label: 'Prompt', type: 'textarea' },
     { key: 'skill', label: 'Skill', type: 'skill-select' },
     { key: 'model', label: 'Model', type: 'text', placeholder: 'claude-sonnet-4-6' },
@@ -10377,6 +10723,16 @@ function renderPropertyPanel(stepId) {
     { key: 'toolName', label: 'Tool Name', type: 'tool-select' },
     { key: 'delay', label: 'Delay', type: 'delay' },
     { key: 'notifyMsg', label: 'Notify Message', type: 'text' },
+    { key: 'externalUrl', label: 'External URL', type: 'text', placeholder: 'https://api.example.com/endpoint' },
+    { key: 'externalContentType', label: 'Content Type', type: 'select', options: ['application/json', 'application/xml', 'text/xml', 'application/x-www-form-urlencoded', 'text/plain'] },
+    { key: 'externalBody', label: 'Body (JSON KV)', type: 'json-map', placeholder: '{"key": "value"}' },
+    { key: 'externalRawBody', label: 'Raw Body', type: 'textarea', placeholder: 'XML or raw body (mutually exclusive with Body KV)' },
+    { key: 'callbackKey', label: 'Callback Key', type: 'text', placeholder: 'my-service-{{runId}}' },
+    { key: 'callbackTimeout', label: 'Callback Timeout', type: 'text', placeholder: '5m (max 30d)' },
+    { key: 'callbackMode', label: 'Callback Mode', type: 'select', options: ['', 'single', 'streaming'] },
+    { key: 'callbackAuth', label: 'Callback Auth', type: 'select', options: ['', 'bearer', 'open', 'signature'] },
+    { key: 'callbackAccumulate', label: 'Accumulate Results', type: 'checkbox' },
+    { key: 'onTimeout', label: 'On Timeout', type: 'select', options: ['', 'stop', 'skip'] },
     { key: 'retryMax', label: 'Max Retries', type: 'number' },
     { key: 'onError', label: 'On Error', type: 'select', options: ['', 'stop', 'skip', 'retry'] },
   ];
@@ -10407,6 +10763,16 @@ function renderPropertyPanel(stepId) {
     visibleFields = fields.filter(function(f) {
       return ['id','type','notifyMsg','dependsOn'].includes(f.key);
     });
+  } else if (stype === 'external') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','externalUrl','externalContentType','externalBody','externalRawBody',
+              'callbackKey','callbackTimeout','callbackMode','callbackAuth','callbackAccumulate',
+              'onTimeout','dependsOn','retryMax','onError'].includes(f.key);
+    });
+  } else if (stype === 'handoff') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','agent','prompt','handoffFrom','model','timeout','budget','dependsOn','retryMax','onError'].includes(f.key);
+    });
   }
 
   var html = '<div style="padding:12px">';
@@ -10431,6 +10797,18 @@ function renderPropertyPanel(stepId) {
       html += '<textarea class="wfed-prop-input wfed-prop-textarea" rows="3" onblur="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"' +
         (f.placeholder ? ' placeholder="' + escAttr(f.placeholder) + '"' : '') + '>' +
         esc(val || '') + '</textarea>';
+    } else if (f.type === 'checkbox') {
+      var checked = !!val;
+      html += '<input type="checkbox" class="wfed-prop-checkbox"' + (checked ? ' checked' : '') +
+        ' onchange="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.checked)">';
+    } else if (f.type === 'json-map') {
+      var mapStr = '';
+      if (val && typeof val === 'object') {
+        try { mapStr = JSON.stringify(val, null, 2); } catch(e) { mapStr = '{}'; }
+      }
+      html += '<textarea class="wfed-prop-input wfed-prop-textarea" rows="3" onblur="updateStepPropJSON(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"' +
+        (f.placeholder ? ' placeholder="' + escAttr(f.placeholder) + '"' : '') + '>' +
+        esc(mapStr) + '</textarea>';
     } else if (f.type === 'depends') {
       var otherSteps = (wfEd.workflow.steps || []).filter(function(s) { return s.id !== stepId; });
       var deps = Array.isArray(val) ? val : [];
@@ -10466,33 +10844,6 @@ function renderPropertyPanel(stepId) {
         var label = t.name + (t.description ? ' \u2014 ' + t.description.substring(0, 40) : '');
         html += '<option value="' + escAttr(t.name) + '"' + sel + '>' + esc(label) + '</option>';
       });
-      html += '</select>';
-    } else if (f.type === 'agent-select') {
-      // Build list: workflow variables like {{agent}}, known agents, current value if custom
-      var agentOptions = [];
-      var vars = wfEd.workflow.variables || {};
-      Object.keys(vars).forEach(function(k) {
-        var tv = '{{' + k + '}}';
-        if (k.toLowerCase().indexOf('agent') !== -1 || k.toLowerCase().indexOf('role') !== -1) {
-          agentOptions.push({ value: tv, label: tv + ' (' + (vars[k] || 'variable') + ')' });
-        }
-      });
-      wfEd.agents.forEach(function(a) {
-        var name = a.name || a;
-        agentOptions.push({ value: name, label: name });
-      });
-      // Check if current value is custom (not in options)
-      var isCustom = val && !agentOptions.some(function(o) { return o.value === val; });
-      html += '<select class="wfed-prop-input" onchange="wfAgentSelectChange(' + JSON.stringify(stepId) + ',this)">';
-      html += '<option value="">-- select agent --</option>';
-      agentOptions.forEach(function(o) {
-        var sel = val === o.value ? ' selected' : '';
-        html += '<option value="' + escAttr(o.value) + '"' + sel + '>' + esc(o.label) + '</option>';
-      });
-      if (isCustom) {
-        html += '<option value="' + escAttr(val) + '" selected>' + esc(val) + '</option>';
-      }
-      html += '<option value="__custom__">+ Custom...</option>';
       html += '</select>';
     } else if (f.type === 'delay') {
       html += '<input class="wfed-prop-input" type="text" value="' + escAttr(String(val || '')) + '"' +
@@ -10549,6 +10900,24 @@ function updateStepProp(stepId, key, value) {
   renderPropertyPanel(wfEd.selected);
 }
 
+function updateStepPropJSON(stepId, key, value) {
+  if (!wfEd.workflow) return;
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) return;
+  if (!value || value.trim() === '' || value.trim() === '{}') {
+    delete step[key];
+  } else {
+    try {
+      step[key] = JSON.parse(value);
+    } catch(e) {
+      toast('Invalid JSON: ' + e.message);
+      return;
+    }
+  }
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+}
+
 function updateStepPropTags(stepId, key, value) {
   var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
   if (!step) return;
@@ -10598,6 +10967,14 @@ function addStepToWorkflow(type) {
     newStep.else = '';
   } else if (type === 'parallel') {
     newStep.parallel = [];
+  } else if (type === 'external') {
+    newStep.externalUrl = '';
+    newStep.callbackKey = '';
+    newStep.callbackTimeout = '5m';
+  } else if (type === 'handoff') {
+    newStep.agent = '';
+    newStep.prompt = '';
+    newStep.handoffFrom = '';
   }
 
   // Position near last node or at center of current view
@@ -10841,27 +11218,6 @@ function wfDelayBlur(stepId, key, input) {
 
 // ---- Skills / Tools loader ----
 
-async function wfLoadAgents() {
-  try {
-    var agents = await fetchJSON('/api/agents');
-    wfEd.agents = Array.isArray(agents) ? agents : [];
-  } catch(e) {
-    wfEd.agents = [];
-  }
-}
-
-function wfAgentSelectChange(stepId, sel) {
-  if (sel.value === '__custom__') {
-    var custom = prompt('Enter agent name:');
-    if (custom && custom.trim()) {
-      updateStepProp(stepId, 'agent', custom.trim());
-    }
-    renderPropertyPanel(stepId);
-    return;
-  }
-  updateStepProp(stepId, 'agent', sel.value);
-}
-
 async function wfLoadSkills() {
   try {
     var skills = await fetchJSON('/api/skills');
@@ -10957,6 +11313,326 @@ async function confirmRunWorkflow() {
   } catch(e) {
     toast('Run failed: ' + e.message);
   }
+}
+
+// ---- Version History Panel ----
+
+async function wfEdShowVersionHistory() {
+  if (!wfEd.workflow || !wfEd.workflow.name) { toast('No workflow loaded'); return; }
+  var panel = document.getElementById('wf-version-panel');
+  if (!panel) return;
+
+  // Toggle off if visible
+  if (panel.style.display !== 'none' && panel.style.display !== '') {
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = '';
+  panel.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">Loading versions...</div>';
+
+  try {
+    var versions = await fetchJSON('/versions?type=workflow&name=' + encodeURIComponent(wfEd.workflow.name) + '&limit=20');
+    if (!versions || versions.length === 0) {
+      panel.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">No versions found. Save the workflow to create the first snapshot.</div>' +
+        '<div style="padding:0 16px 12px"><button class="btn" onclick="document.getElementById(\'wf-version-panel\').style.display=\'none\'">Close</button></div>';
+      return;
+    }
+
+    var html = '<div style="padding:12px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+    html += '<strong style="color:var(--accent);font-size:14px">Version History</strong>';
+    html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="document.getElementById(\'wf-version-panel\').style.display=\'none\'">Close</button>';
+    html += '</div>';
+
+    versions.forEach(function(v) {
+      var date = v.createdAt || '';
+      var shortId = v.versionId || ('v' + v.id);
+      var diff = v.diffSummary || '';
+      var by = v.changedBy || '';
+      var reason = v.reason || '';
+
+      html += '<div class="wfed-version-row" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;background:var(--card)">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">';
+      html += '<span style="font-size:12px;font-weight:600;color:var(--accent)">' + esc(shortId) + '</span>';
+      html += '<span style="font-size:10px;color:var(--muted)">' + esc(date) + '</span>';
+      html += '</div>';
+      if (by) html += '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">by ' + esc(by) + (reason ? ' — ' + esc(reason) : '') + '</div>';
+      if (diff) html += '<div style="font-size:11px;color:#9ca3af;white-space:pre-wrap;max-height:60px;overflow:auto;margin-bottom:6px">' + esc(diff) + '</div>';
+      html += '<div style="display:flex;gap:6px">';
+      html += '<button class="btn" style="font-size:10px;padding:2px 8px" onclick="wfEdViewVersion(\'' + escAttr(shortId) + '\')">View</button>';
+      html += '<button class="btn" style="font-size:10px;padding:2px 8px;background:#7c3aed;color:#fff" onclick="wfEdRestoreVersion(\'' + escAttr(shortId) + '\',\'' + escAttr(date) + '\')">Restore</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div>';
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<div style="padding:16px;color:#f87171;font-size:13px">Error loading versions: ' + esc(e.message) + '</div>' +
+      '<div style="padding:0 16px 12px"><button class="btn" onclick="document.getElementById(\'wf-version-panel\').style.display=\'none\'">Close</button></div>';
+  }
+}
+
+async function wfEdViewVersion(versionId) {
+  try {
+    var ver = await fetchJSON('/config/versions/' + encodeURIComponent(versionId));
+    var content = ver.contentJson || ver.contentJSON || '';
+    var formatted = '';
+    try { formatted = JSON.stringify(JSON.parse(content), null, 2); } catch(e) { formatted = content; }
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center';
+    modal.onclick = function(e) { if (e.target === modal) document.body.removeChild(modal); };
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:700px;width:90%;max-height:80vh;overflow:auto';
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+      '<strong style="color:var(--accent)">' + esc(versionId) + '</strong>' +
+      '<button class="btn" style="font-size:11px;padding:2px 8px" id="wf-ver-close-btn">Close</button></div>' +
+      (ver.diffSummary ? '<div style="font-size:11px;color:#9ca3af;margin-bottom:8px;white-space:pre-wrap;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--card)">' + esc(ver.diffSummary) + '</div>' : '') +
+      '<pre style="font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:50vh;overflow:auto;background:var(--card);padding:12px;border-radius:8px;border:1px solid var(--border)">' + esc(formatted) + '</pre>';
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+    box.querySelector('#wf-ver-close-btn').onclick = function() { document.body.removeChild(modal); };
+  } catch(e) {
+    toast('Error loading version: ' + e.message);
+  }
+}
+
+async function wfEdRestoreVersion(versionId, date) {
+  if (!confirm('Restore workflow to version ' + versionId + (date ? ' from ' + date : '') + '?')) return;
+  try {
+    var resp = await fetch(API + '/workflows/' + encodeURIComponent(wfEd.workflow.name) + '/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ versionId: versionId }),
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      toast('Restore failed: ' + (err.error || 'unknown error'));
+      return;
+    }
+    toast('Restored to version ' + versionId);
+    openWorkflowEditor(wfEd.workflow.name);
+    var panel = document.getElementById('wf-version-panel');
+    if (panel) panel.style.display = 'none';
+  } catch(e) {
+    toast('Restore error: ' + e.message);
+  }
+}
+
+// --- Template Gallery ---
+
+var _templateCache = null;
+
+function toggleTemplateGallery() {
+  var content = document.getElementById('wf-tpl-content');
+  var toggle = document.getElementById('wf-tpl-toggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    toggle.innerHTML = '&#9650; Hide';
+    loadTemplateGallery();
+  } else {
+    content.style.display = 'none';
+    toggle.innerHTML = '&#9660; Show';
+  }
+}
+
+async function loadTemplateGallery() {
+  var grid = document.getElementById('wf-tpl-grid');
+  if (!grid) return;
+  grid.innerHTML = '<span style="color:var(--muted);font-size:12px">Loading templates...</span>';
+
+  try {
+    var data = await fetchJSON('/api/templates');
+    var templates = data.templates || [];
+    _templateCache = templates;
+    renderTemplateGrid(templates);
+  } catch(e) {
+    grid.innerHTML = '<span style="color:#f87171;font-size:12px">Failed to load templates</span>';
+  }
+}
+
+function renderTemplateGrid(templates) {
+  var grid = document.getElementById('wf-tpl-grid');
+  if (!grid) return;
+
+  if (!templates.length) {
+    grid.innerHTML = '<span style="color:var(--muted);font-size:12px">No templates found</span>';
+    return;
+  }
+
+  var html = '';
+  templates.forEach(function(t) {
+    var desc = (t.description || '').substring(0, 100);
+    if (t.description && t.description.length > 100) desc += '...';
+    var cleanName = t.name.replace(/^tpl-/, '').replace(/-/g, ' ');
+    var catBadge = t.category ? '<span style="background:var(--accent);color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;text-transform:uppercase">' + esc(t.category) + '</span> ' : '';
+
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;justify-content:space-between">';
+    html += '<div>';
+    html += '<div style="font-size:13px;font-weight:600;margin-bottom:4px">' + catBadge + esc(cleanName) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.4">' + esc(desc) + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted)">' + t.stepCount + ' steps · ' + (t.variables || []).length + ' vars</div>';
+    html += '</div>';
+    html += '<div style="margin-top:8px;display:flex;gap:4px">';
+    html += '<button class="btn" style="font-size:11px;padding:2px 8px;flex:1" onclick="previewTemplate(\'' + escAttr(t.name) + '\')">Preview</button>';
+    html += '<button class="btn" style="font-size:11px;padding:2px 8px;flex:1;background:var(--accent);color:#fff" onclick="installTemplate(\'' + escAttr(t.name) + '\')">Use</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+function filterTemplates() {
+  if (!_templateCache) return;
+  var q = (document.getElementById('wf-tpl-filter').value || '').toLowerCase().trim();
+  if (!q) {
+    renderTemplateGrid(_templateCache);
+    return;
+  }
+  var filtered = _templateCache.filter(function(t) {
+    return t.name.toLowerCase().indexOf(q) >= 0 ||
+           (t.description || '').toLowerCase().indexOf(q) >= 0 ||
+           (t.category || '').toLowerCase().indexOf(q) >= 0;
+  });
+  renderTemplateGrid(filtered);
+}
+
+async function previewTemplate(name) {
+  try {
+    var wf = await fetchJSON('/api/templates/' + encodeURIComponent(name));
+    openWorkflowEditorWithData(wf);
+    toast('Previewing template: ' + name);
+  } catch(e) {
+    toast('Preview failed: ' + e.message);
+  }
+}
+
+async function installTemplate(name) {
+  var newName = prompt('Workflow name (leave blank to use template name):', name.replace(/^tpl-/, ''));
+  if (newName === null) return; // cancelled
+
+  try {
+    await fetchJSON('/api/templates/' + encodeURIComponent(name) + '/install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({newName: newName || ''})
+    });
+    toast('Template installed!');
+    loadWorkflowDefs();
+    if (newName) {
+      openWorkflowEditor(newName);
+    }
+  } catch(e) {
+    toast('Install failed: ' + e.message);
+  }
+}
+
+// --- Dry Run ---
+
+async function dryRunWorkflow() {
+  if (!wfEd.workflow) { toast('No workflow open'); return; }
+  var wf = wfEd.workflow;
+
+  // Collect variables - use defaults from workflow
+  var vars = {};
+  if (wf.variables) {
+    for (var k in wf.variables) {
+      vars[k] = wf.variables[k];
+    }
+  }
+
+  // Check if workflow needs saving first
+  if (wfEd.dirty) {
+    if (confirm('Save workflow before dry run?')) {
+      await saveWorkflowEditorData();
+    }
+  }
+
+  toast('Running dry run...');
+  try {
+    var resp = await fetch('/workflows/' + encodeURIComponent(wf.name) + '/dry-run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({variables: vars})
+    });
+    if (!resp.ok) {
+      var err = await resp.json();
+      throw new Error((err.errors || [err.error]).join(', '));
+    }
+    var run = await resp.json();
+    showDryRunResults(run);
+  } catch(e) {
+    toast('Dry run failed: ' + e.message);
+  }
+}
+
+function showDryRunResults(run) {
+  // Remove old modal if exists
+  var old = document.getElementById('dry-run-modal');
+  if (old) old.remove();
+
+  var steps = run.stepResults || {};
+  var stepList = Object.values(steps);
+  stepList.sort(function(a, b) {
+    if (!a.startedAt) return 1;
+    if (!b.startedAt) return -1;
+    return a.startedAt < b.startedAt ? -1 : 1;
+  });
+
+  var html = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:560px;max-height:80vh;overflow-y:auto">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+  html += '<h3 style="margin:0">Dry Run Results</h3>';
+  html += '<span class="badge ' + (run.status === 'success' ? 'badge-ok' : 'badge-err') + '">' + esc(run.status) + '</span>';
+  html += '</div>';
+
+  // Summary
+  var totalCost = run.totalCostUsd || 0;
+  var dur = run.durationMs ? (run.durationMs / 1000).toFixed(1) + 's' : '-';
+  html += '<div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px">';
+  html += '<div><span style="color:var(--muted)">Est. Cost:</span> <strong>$' + totalCost.toFixed(4) + '</strong></div>';
+  html += '<div><span style="color:var(--muted)">Duration:</span> <strong>' + dur + '</strong></div>';
+  html += '<div><span style="color:var(--muted)">Steps:</span> <strong>' + stepList.length + '</strong></div>';
+  html += '</div>';
+
+  // Step results
+  html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Execution Order</div>';
+  stepList.forEach(function(sr, idx) {
+    var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'skipped' ? '' : 'badge-warn';
+    var cost = sr.costUsd != null && sr.costUsd > 0 ? '$' + sr.costUsd.toFixed(4) : '-';
+
+    html += '<div style="background:var(--bg);border-radius:6px;padding:8px;margin-bottom:4px;font-size:12px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div><strong>' + (idx + 1) + '.</strong> ' + esc(sr.stepId) + ' <span class="badge ' + statusCls + '" style="font-size:10px">' + esc(sr.status) + '</span></div>';
+    html += '<span style="color:var(--muted)">' + cost + '</span>';
+    html += '</div>';
+    if (sr.output) {
+      var output = sr.output.length > 200 ? sr.output.substring(0, 200) + '...' : sr.output;
+      html += '<div style="margin-top:4px;color:var(--muted);font-size:11px;white-space:pre-wrap">' + esc(output) + '</div>';
+    }
+    if (sr.error) html += '<div style="margin-top:4px;color:#f87171;font-size:11px">' + esc(sr.error) + '</div>';
+    html += '</div>';
+  });
+
+  // Missing variables warning
+  if (run.error) {
+    html += '<div style="margin-top:12px;padding:8px;background:#f8717122;border-radius:6px;color:#f87171;font-size:12px">' + esc(run.error) + '</div>';
+  }
+
+  html += '<div style="display:flex;justify-content:flex-end;margin-top:16px">';
+  html += '<button class="btn" onclick="document.getElementById(\'dry-run-modal\').remove()">Close</button>';
+  html += '</div>';
+  html += '</div>';
+
+  var modal = document.createElement('div');
+  modal.id = 'dry-run-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;justify-content:center;align-items:center';
+  modal.innerHTML = html;
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 }
 
 // --- Agent World (SpriteEngine) ---
@@ -12419,23 +13095,201 @@ function refreshTriggers() {
     .then(function(data) {
       var el = document.getElementById('integration-triggers');
       var triggers = Array.isArray(data) ? data : (data.triggers || []);
-      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured</div>'; return; }
-      var html = '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Condition</th><th>Target</th><th>Status</th></tr></thead><tbody>';
+      if (!triggers.length) { el.innerHTML = '<div style="color:var(--muted);padding:12px">No workflow triggers configured. Click "+ Create" to add one.</div>'; return; }
+      var html = '';
       triggers.forEach(function(t) {
-        var statusColor = t.enabled ? 'var(--green)' : 'var(--muted)';
-        html += '<tr>';
-        html += '<td>' + (t.event || t.type || '') + '</td>';
-        html += '<td style="font-size:12px">' + (t.condition || 'always') + '</td>';
-        html += '<td style="font-size:12px">' + (t.workflow || t.target || '') + '</td>';
-        html += '<td><span style="color:' + statusColor + '">' + (t.enabled ? 'Active' : 'Disabled') + '</span></td>';
-        html += '</tr>';
+        var typeBadge = t.type === 'cron' ? '&#9200; cron' : t.type === 'event' ? '&#9889; event' : '&#128279; webhook';
+        var typeColor = t.type === 'cron' ? '#60a5fa' : t.type === 'event' ? '#fbbf24' : '#a78bfa';
+        var detail = '';
+        if (t.type === 'cron' && t.nextCron) {
+          detail = 'Next: ' + t.nextCron.substring(0, 19).replace('T', ' ');
+        } else if (t.type === 'webhook') {
+          var webhookUrl = location.origin + '/api/triggers/webhook/' + encodeURIComponent(t.name);
+          detail = '<code style="font-size:10px;cursor:pointer" onclick="event.stopPropagation();copyText(\'' + webhookUrl.replace(/'/g, "\\'") + '\')" title="Click to copy">' + esc(webhookUrl) + '</code>';
+        } else if (t.type === 'event') {
+          detail = 'Pattern: ' + esc(t.name);
+        }
+        var cooldownInfo = t.cooldownLeft ? ' <span style="color:var(--muted);font-size:11px">&#9203; ' + esc(t.cooldownLeft) + '</span>' : '';
+        var lastFiredInfo = t.lastFired ? '<div style="font-size:11px;color:var(--muted)">Last: ' + t.lastFired.substring(0, 19).replace('T', ' ') + '</div>' : '';
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+        html += '<div><strong>' + esc(t.name) + '</strong> <span style="background:' + typeColor + '22;color:' + typeColor + ';padding:2px 6px;border-radius:4px;font-size:11px">' + typeBadge + '</span>' + cooldownInfo + '</div>';
+        html += '<label style="cursor:pointer;font-size:12px"><input type="checkbox" ' + (t.enabled ? 'checked' : '') + ' onchange="toggleTrigger(\'' + escAttr(t.name) + '\')" style="cursor:pointer"> Enabled</label>';
+        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:4px">&#8594; <strong>' + esc(t.workflowName) + '</strong>' + (t.cooldown ? ' · cooldown: ' + esc(t.cooldown) : '') + '</div>';
+        if (detail) html += '<div style="font-size:12px;margin-bottom:4px">' + detail + '</div>';
+        html += lastFiredInfo;
+        html += '<div style="display:flex;gap:4px;margin-top:8px">';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="fireTrigger(\'' + escAttr(t.name) + '\')">&#9654; Fire Now</button>';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openTriggerModal(\'' + escAttr(t.name) + '\')">Edit</button>';
+        html += '<button class="btn btn-danger" style="font-size:11px;padding:2px 8px" onclick="deleteTrigger(\'' + escAttr(t.name) + '\')">Delete</button>';
+        html += '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="showTriggerRuns(\'' + escAttr(t.name) + '\')">History</button>';
+        html += '</div></div>';
       });
-      html += '</tbody></table></div>';
       el.innerHTML = html;
     })
     .catch(function() {
       document.getElementById('integration-triggers').innerHTML = '<div style="color:var(--muted);padding:12px">Could not load triggers</div>';
     });
+}
+
+function toggleTrigger(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/toggle', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(data) { toast('Trigger ' + name + ': ' + (data.enabled ? 'enabled' : 'disabled')); refreshTriggers(); })
+    .catch(function(e) { toast('Toggle failed: ' + e); });
+}
+
+function fireTrigger(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/fire', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function() { toast('Trigger fired: ' + name); })
+    .catch(function(e) { toast('Fire failed: ' + e); });
+}
+
+function deleteTrigger(name) {
+  if (!confirm('Delete trigger "' + name + '"?')) return;
+  fetch('/api/triggers/' + encodeURIComponent(name), {method:'DELETE'})
+    .then(function(r) { return r.json(); })
+    .then(function() { toast('Trigger deleted'); refreshTriggers(); })
+    .catch(function(e) { toast('Delete failed: ' + e); });
+}
+
+function showTriggerRuns(name) {
+  fetch('/api/triggers/' + encodeURIComponent(name) + '/runs?limit=10')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var runs = data.runs || [];
+      if (!runs.length) { toast('No runs for ' + name); return; }
+      var html = '<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">';
+      html += '<div style="font-size:12px;font-weight:600;margin-bottom:6px">Recent Runs for ' + esc(name) + '</div>';
+      html += '<table style="width:100%;font-size:11px"><thead><tr><th>Status</th><th>Workflow</th><th>Started</th><th>Run ID</th></tr></thead><tbody>';
+      runs.forEach(function(r) {
+        var sc = r.status === 'success' ? 'var(--green)' : r.status === 'error' ? '#f87171' : 'var(--muted)';
+        html += '<tr><td><span style="color:' + sc + '">' + esc(r.status || '') + '</span></td>';
+        html += '<td>' + esc(r.workflow_name || '') + '</td>';
+        html += '<td>' + esc((r.started_at||'').substring(0,19).replace('T',' ')) + '</td>';
+        html += '<td><code style="font-size:10px">' + esc((r.workflow_run_id||'').substring(0,8)) + '</code></td></tr>';
+      });
+      html += '</tbody></table></div>';
+      var el = document.getElementById('integration-triggers');
+      el.innerHTML += html;
+    })
+    .catch(function(e) { toast('Load runs failed: ' + e); });
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function() { toast('Copied!'); });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('Copied!');
+  }
+}
+
+var _editingTriggerName = null;
+
+function openTriggerModal(editName) {
+  _editingTriggerName = editName || null;
+  document.getElementById('trigger-modal-title').textContent = editName ? 'Edit Trigger' : 'Create Trigger';
+  document.getElementById('trigger-modal').style.display = 'flex';
+  // Load workflows for dropdown
+  fetch('/workflows').then(function(r) { return r.json(); }).then(function(wfs) {
+    var sel = document.getElementById('trig-workflow');
+    sel.innerHTML = '';
+    (wfs || []).forEach(function(w) {
+      sel.innerHTML += '<option value="' + escAttr(w.name) + '">' + esc(w.name) + '</option>';
+    });
+  });
+  if (editName) {
+    fetch('/api/triggers').then(function(r) { return r.json(); }).then(function(data) {
+      var triggers = data.triggers || [];
+      var t = triggers.find(function(tr) { return tr.name === editName; });
+      if (!t) return;
+      document.getElementById('trig-name').value = t.name;
+      document.getElementById('trig-name').disabled = true;
+      document.getElementById('trig-type').value = t.type;
+      setTimeout(function() { document.getElementById('trig-workflow').value = t.workflowName; }, 100);
+      document.getElementById('trig-cooldown').value = t.cooldown || '';
+      document.getElementById('trig-enabled').checked = t.enabled;
+      updateTriggerTypeFields();
+    });
+  } else {
+    document.getElementById('trig-name').value = '';
+    document.getElementById('trig-name').disabled = false;
+    document.getElementById('trig-type').value = 'cron';
+    document.getElementById('trig-cron').value = '';
+    document.getElementById('trig-tz').value = '';
+    document.getElementById('trig-event').value = '';
+    document.getElementById('trig-webhook').value = '';
+    document.getElementById('trig-cooldown').value = '';
+    document.getElementById('trig-vars').value = '';
+    document.getElementById('trig-enabled').checked = true;
+    updateTriggerTypeFields();
+  }
+}
+
+function closeTriggerModal() {
+  document.getElementById('trigger-modal').style.display = 'none';
+  _editingTriggerName = null;
+}
+
+function updateTriggerTypeFields() {
+  var type = document.getElementById('trig-type').value;
+  document.getElementById('trig-cron-fields').style.display = type === 'cron' ? '' : 'none';
+  document.getElementById('trig-event-fields').style.display = type === 'event' ? '' : 'none';
+  document.getElementById('trig-webhook-fields').style.display = type === 'webhook' ? '' : 'none';
+}
+
+function saveTrigger() {
+  var name = document.getElementById('trig-name').value.trim();
+  var type = document.getElementById('trig-type').value;
+  var payload = {
+    name: name,
+    workflowName: document.getElementById('trig-workflow').value,
+    enabled: document.getElementById('trig-enabled').checked,
+    trigger: { type: type },
+    cooldown: document.getElementById('trig-cooldown').value.trim()
+  };
+  if (type === 'cron') {
+    payload.trigger.cron = document.getElementById('trig-cron').value.trim();
+    payload.trigger.tz = document.getElementById('trig-tz').value.trim();
+  } else if (type === 'event') {
+    payload.trigger.event = document.getElementById('trig-event').value.trim();
+  } else if (type === 'webhook') {
+    payload.trigger.webhook = document.getElementById('trig-webhook').value.trim();
+  }
+  var varsText = document.getElementById('trig-vars').value.trim();
+  if (varsText) {
+    try { payload.variables = JSON.parse(varsText); } catch(e) { toast('Invalid JSON in variables'); return; }
+  }
+  var url, method;
+  if (_editingTriggerName) {
+    url = '/api/triggers/' + encodeURIComponent(_editingTriggerName);
+    method = 'PUT';
+  } else {
+    url = '/api/triggers';
+    method = 'POST';
+  }
+  fetch(url, {
+    method: method,
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (!r.ok) return r.json().then(function(d) { throw new Error((d.errors || [d.error]).join(', ')); });
+    return r.json();
+  }).then(function() {
+    toast(_editingTriggerName ? 'Trigger updated' : 'Trigger created');
+    closeTriggerModal();
+    refreshTriggers();
+  }).catch(function(e) {
+    toast('Save failed: ' + e.message);
+  });
 }
 
 function renderKnowledgeStatus(count) {

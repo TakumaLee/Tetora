@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed examples/templates/*.json
+var templateFS embed.FS
 
 // --- Workflow Types ---
 
@@ -617,6 +621,91 @@ func stepType(s *WorkflowStep) string {
 		return "dispatch"
 	}
 	return s.Type
+}
+
+// --- Template Gallery ---
+
+// TemplateSummary provides a brief summary of a workflow template.
+type TemplateSummary struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	StepCount   int      `json:"stepCount"`
+	Variables   []string `json:"variables"`
+	Category    string   `json:"category"`
+}
+
+// listTemplates returns summaries of all embedded workflow templates.
+func listTemplates() []TemplateSummary {
+	entries, err := templateFS.ReadDir("examples/templates")
+	if err != nil {
+		return nil
+	}
+	var templates []TemplateSummary
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := templateFS.ReadFile("examples/templates/" + e.Name())
+		if err != nil {
+			continue
+		}
+		var wf Workflow
+		if err := json.Unmarshal(data, &wf); err != nil {
+			continue
+		}
+		var varNames []string
+		for k := range wf.Variables {
+			varNames = append(varNames, k)
+		}
+		// Extract category from name prefix (e.g., "tpl-hr-onboarding" → "hr")
+		category := ""
+		name := strings.TrimPrefix(wf.Name, "tpl-")
+		if idx := strings.Index(name, "-"); idx > 0 {
+			category = name[:idx]
+		}
+		templates = append(templates, TemplateSummary{
+			Name:        wf.Name,
+			Description: wf.Description,
+			StepCount:   len(wf.Steps),
+			Variables:   varNames,
+			Category:    category,
+		})
+	}
+	return templates
+}
+
+// loadTemplate loads a full workflow template by name.
+func loadTemplate(name string) (*Workflow, error) {
+	// Sanitize to prevent path traversal.
+	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+		return nil, fmt.Errorf("invalid template name")
+	}
+	fileName := name + ".json"
+	if !strings.HasPrefix(name, "tpl-") {
+		fileName = "tpl-" + fileName
+	}
+	data, err := templateFS.ReadFile("examples/templates/" + fileName)
+	if err != nil {
+		return nil, fmt.Errorf("template %q not found", name)
+	}
+	var wf Workflow
+	if err := json.Unmarshal(data, &wf); err != nil {
+		return nil, fmt.Errorf("parse template: %w", err)
+	}
+	return &wf, nil
+}
+
+// installTemplate copies a template to the user's workflows directory with an optional new name.
+func installTemplate(cfg *Config, templateName, newName string) error {
+	wf, err := loadTemplate(templateName)
+	if err != nil {
+		return err
+	}
+	if newName != "" {
+		wf.Name = newName
+		// Also update step IDs prefix if it starts with old template name
+	}
+	return saveWorkflow(cfg, wf)
 }
 
 // buildStepTask converts a workflow dispatch step into a Task for execution.

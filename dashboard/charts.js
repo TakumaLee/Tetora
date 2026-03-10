@@ -1,3 +1,13 @@
+// Inject pulse animation for running/waiting indicators
+(function() {
+  if (!document.getElementById('wf-charts-style')) {
+    var style = document.createElement('style');
+    style.id = 'wf-charts-style';
+    style.textContent = '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}';
+    document.head.appendChild(style);
+  }
+})();
+
 // --- Agent Communication ---
 async function refreshAgentComm() {
   try {
@@ -604,20 +614,24 @@ function openWfRun(runId) {
     return resp.json();
   }).then(function(data) {
     currentWfRunData = data;
-    return fetch('/workflows/' + encodeURIComponent(data.workflowName), {credentials:'same-origin'}).then(function(r) {
+    // Support both flat run object and new {run, handoffs, messages, callbacks} shape
+    var runObj = data.run || data;
+    return fetch('/workflows/' + encodeURIComponent(runObj.workflowName), {credentials:'same-origin'}).then(function(r) {
       return r.json();
     }).catch(function() { return null; }).then(function(wfDef) {
       document.getElementById('wf-dag-section').style.display = '';
-      document.getElementById('wf-dag-title').textContent = data.workflowName + ' / ' + runId.substring(0, 8);
-      var statusCls = data.status === 'success' ? 'badge-ok' : (data.status === 'error' || data.status === 'timeout') ? 'badge-err' : 'badge-warn';
-      document.getElementById('wf-dag-status').textContent = data.status;
+      document.getElementById('wf-dag-title').textContent = runObj.workflowName + ' / ' + runId.substring(0, 8);
+      var statusCls = runObj.status === 'success' ? 'badge-ok' : (runObj.status === 'error' || runObj.status === 'timeout') ? 'badge-err' : 'badge-warn';
+      document.getElementById('wf-dag-status').textContent = runObj.status;
       document.getElementById('wf-dag-status').className = 'badge ' + statusCls;
 
-      renderWfTimeline(data);
-      renderWfDAG(data, wfDef);
+      renderWfTimeline(runObj);
+      renderWfDAG(runObj, wfDef);
+      renderWfStepList(data);
+      renderWfCostBar(data);
 
       // Subscribe to SSE if running
-      if (data.status === 'running') {
+      if (runObj.status === 'running') {
         subscribeWfSSE(runId);
       } else if (wfSSE) {
         wfSSE.close();
@@ -630,6 +644,141 @@ function openWfRun(runId) {
   }).catch(function(e) {
     console.error('openWfRun error:', e);
   });
+}
+
+// Step results list below DAG
+function renderWfStepList(data) {
+  var container = document.getElementById('wf-step-list');
+  if (!container) {
+    // Create container after DAG
+    container = document.createElement('div');
+    container.id = 'wf-step-list';
+    container.style.cssText = 'margin-top:12px;border-top:1px solid var(--border);padding-top:12px';
+    var dagSection = document.getElementById('wf-dag-section');
+    if (dagSection) dagSection.appendChild(container);
+    else return;
+  }
+
+  var run = data.run || data;
+  var stepResults = run.stepResults || {};
+  var callbacks = data.callbacks || [];
+  var steps = Object.values(stepResults);
+
+  // Sort by startedAt
+  steps.sort(function(a, b) {
+    if (!a.startedAt) return 1;
+    if (!b.startedAt) return -1;
+    return a.startedAt < b.startedAt ? -1 : 1;
+  });
+
+  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Step Results</div>';
+  steps.forEach(function(sr) {
+    var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-warn' : sr.status === 'running' ? 'badge-warn' : '';
+    var dur = sr.durationMs ? (sr.durationMs / 1000).toFixed(1) + 's' : '-';
+    var cost = sr.costUsd != null && sr.costUsd > 0 ? '$' + sr.costUsd.toFixed(4) : '-';
+
+    html += '<div id="wf-step-row-' + escAttr(sr.stepId) + '" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px;cursor:pointer" onclick="toggleStepDetail(this)">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
+    if (sr.status === 'running') html += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fbbf24;animation:pulse 1s infinite"></span>';
+    else if (sr.status === 'waiting') html += '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#a78bfa;animation:pulse 1.5s infinite"></span>';
+    html += '<strong style="font-size:12px">' + esc(sr.stepId) + '</strong>';
+    html += '<span class="badge ' + statusCls + '" style="font-size:10px">' + esc(sr.status) + '</span>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:12px;font-size:11px;color:var(--muted)">';
+    html += '<span>' + dur + '</span>';
+    html += '<span>' + cost + '</span>';
+    if (sr.retries) html += '<span>retries: ' + sr.retries + '</span>';
+    html += '</div>';
+    html += '</div>';
+
+    // Expandable detail (hidden by default)
+    html += '<div class="step-detail" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px">';
+    if (sr.error) html += '<div style="color:#f87171;margin-bottom:4px"><strong>Error:</strong> ' + esc(sr.error) + '</div>';
+    if (sr.output) {
+      var output = sr.output.length > 1000 ? sr.output.substring(0, 1000) + '...' : sr.output;
+      html += '<div style="white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px">' + esc(output) + '</div>';
+    }
+    if (sr.taskId) html += '<div style="margin-top:4px;color:var(--muted)">Task: <code>' + esc(sr.taskId.substring(0, 8)) + '</code></div>';
+
+    // Callback info for waiting steps
+    if (sr.status === 'waiting') {
+      var cb = callbacks.find(function(c) { return c.step_id === sr.stepId; });
+      if (cb) {
+        var cbUrl = location.origin + '/api/callbacks/' + encodeURIComponent(cb.key);
+        html += '<div style="margin-top:8px;padding:8px;background:var(--bg);border-radius:4px">';
+        html += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Waiting for external callback</div>';
+        html += '<div style="font-size:11px">Key: <code style="cursor:pointer" onclick="event.stopPropagation();copyText(\'' + cbUrl.replace(/'/g, "\\'") + '\')" title="Click to copy URL">' + esc(cb.key) + '</code></div>';
+        if (cb.timeout_at) {
+          var timeoutAt = new Date(cb.timeout_at);
+          var remaining = Math.max(0, Math.floor((timeoutAt - Date.now()) / 1000));
+          if (remaining > 0) {
+            var mins = Math.floor(remaining / 60);
+            var secs = remaining % 60;
+            html += '<div style="font-size:11px;color:#fbbf24;margin-top:4px">Timeout in: ' + mins + 'm ' + secs + 's</div>';
+          } else {
+            html += '<div style="font-size:11px;color:#f87171;margin-top:4px">Timeout expired</div>';
+          }
+        }
+        html += '</div>';
+      }
+    }
+    html += '</div>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+function toggleStepDetail(el) {
+  var detail = el.querySelector('.step-detail');
+  if (detail) {
+    detail.style.display = detail.style.display === 'none' ? '' : 'none';
+  }
+}
+
+// Cost breakdown horizontal bar
+function renderWfCostBar(data) {
+  var container = document.getElementById('wf-cost-bar');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'wf-cost-bar';
+    container.style.cssText = 'margin-top:8px';
+    var dagSection = document.getElementById('wf-dag-section');
+    if (dagSection) dagSection.appendChild(container);
+    else return;
+  }
+
+  var run = data.run || data;
+  var total = run.totalCostUsd || 0;
+  if (total <= 0) { container.innerHTML = ''; return; }
+
+  var stepResults = run.stepResults || {};
+  var steps = Object.values(stepResults).filter(function(s) { return s.costUsd > 0; });
+  steps.sort(function(a, b) { return b.costUsd - a.costUsd; });
+
+  var colors = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#fb923c', '#2dd4bf', '#e879f9'];
+
+  var html = '<div style="font-size:13px;font-weight:600;margin-bottom:4px">Cost: $' + total.toFixed(4) + '</div>';
+  html += '<div style="display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--bg)">';
+  steps.forEach(function(s, i) {
+    var pct = (s.costUsd / total * 100).toFixed(1);
+    var color = colors[i % colors.length];
+    html += '<div title="' + escAttr(s.stepId) + ': $' + s.costUsd.toFixed(4) + ' (' + pct + '%)" style="width:' + pct + '%;background:' + color + ';min-width:2px"></div>';
+  });
+  html += '</div>';
+
+  // Legend
+  if (steps.length > 1) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px">';
+    steps.forEach(function(s, i) {
+      var color = colors[i % colors.length];
+      html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + color + '"></span> ' + esc(s.stepId) + ' $' + s.costUsd.toFixed(4) + '</span>';
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
 }
 
 function closeWfDag() {
@@ -798,8 +947,10 @@ function renderWfTimeline(run) {
 // Show node detail panel
 function showWfNodeDetail(stepId) {
   var panel = document.getElementById('wf-node-detail');
-  if (!currentWfRunData || !currentWfRunData.stepResults) { panel.style.display = 'none'; return; }
-  var sr = currentWfRunData.stepResults[stepId];
+  if (!currentWfRunData) { panel.style.display = 'none'; return; }
+  var runObj = currentWfRunData.run || currentWfRunData;
+  if (!runObj.stepResults) { panel.style.display = 'none'; return; }
+  var sr = runObj.stepResults[stepId];
   if (!sr) { panel.style.display = 'none'; return; }
 
   var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-info' : 'badge-warn';
@@ -823,13 +974,35 @@ function showWfNodeDetail(stepId) {
   if (sr.status === 'waiting') {
     html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
     html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">This step is waiting for an external callback.</div>';
+    // Show callback info if available
+    var callbacks = (currentWfRunData && currentWfRunData.callbacks) || [];
+    var cb = callbacks.find(function(c) { return c.step_id === stepId; });
+    if (cb) {
+      var cbUrl = location.origin + '/api/callbacks/' + encodeURIComponent(cb.key);
+      html += '<div style="font-size:11px;margin-bottom:8px">';
+      html += '<div>Callback Key: <code style="cursor:pointer" onclick="copyText(\'' + cbUrl.replace(/'/g, "\\'") + '\')" title="Click to copy URL">' + esc(cb.key) + '</code></div>';
+      html += '<div style="margin-top:2px">Mode: ' + esc(cb.mode || 'single') + ' \u00b7 Auth: ' + esc(cb.auth_mode || 'bearer') + '</div>';
+      if (cb.timeout_at) {
+        var timeoutAt = new Date(cb.timeout_at);
+        var remaining = Math.max(0, Math.floor((timeoutAt - Date.now()) / 1000));
+        if (remaining > 0) {
+          var mins = Math.floor(remaining / 60);
+          var secs = remaining % 60;
+          html += '<div style="color:#fbbf24;margin-top:2px">Timeout: ' + mins + 'm ' + secs + 's remaining</div>';
+        } else {
+          html += '<div style="color:#f87171;margin-top:2px">Timeout expired</div>';
+        }
+      }
+      html += '</div>';
+    }
     html += '<textarea id="wf-resolve-body" rows="3" class="wfed-prop-input wfed-prop-textarea" placeholder=\'{"status":"success","data":{}}\' style="width:100%;box-sizing:border-box;margin-bottom:8px"></textarea>';
     html += '<button class="btn" style="font-size:12px" onclick="manualResolveCallback(\'' + escAttr(stepId) + '\')">Resolve Manually</button>';
     html += '</div>';
   }
 
   // Cancel button for running/waiting workflows.
-  if (currentWfRunData && (currentWfRunData.status === 'running' || currentWfRunData.status === 'waiting')) {
+  var _cancelRunObj = currentWfRunData && (currentWfRunData.run || currentWfRunData);
+  if (_cancelRunObj && (_cancelRunObj.status === 'running' || _cancelRunObj.status === 'waiting')) {
     html += '<div style="margin-top:8px">';
     html += '<button class="btn btn-danger" style="font-size:11px" onclick="cancelWorkflowRun()">Cancel Workflow</button>';
     html += '</div>';
@@ -843,7 +1016,8 @@ function showWfNodeDetail(stepId) {
 // Manual resolve: send callback for a waiting external step.
 async function manualResolveCallback(stepId) {
   if (!currentWfRunData) return;
-  var runId = currentWfRunData.id;
+  var _manualRunObj = currentWfRunData.run || currentWfRunData;
+  var runId = _manualRunObj.id;
 
   // Find the callback key from pending callbacks API.
   try {
@@ -879,7 +1053,8 @@ async function manualResolveCallback(stepId) {
 // Cancel a running/waiting workflow.
 async function cancelWorkflowRun() {
   if (!currentWfRunData) return;
-  var runId = currentWfRunData.id;
+  var _cancelRun = currentWfRunData.run || currentWfRunData;
+  var runId = _cancelRun.id;
   if (!confirm('Cancel workflow run ' + runId.substring(0, 8) + '...?')) return;
   try {
     await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/cancel', {
@@ -905,16 +1080,20 @@ function subscribeWfSSE(runId) {
       var ev = JSON.parse(e.data);
       if (ev.type === 'step_started' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, 'running');
+        updateWfStepRow(ev.data.stepId, 'running');
       }
       if (ev.type === 'step_waiting' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, 'waiting');
+        updateWfStepRow(ev.data.stepId, 'waiting');
       }
       if (ev.type === 'step_callback_received' && ev.data) {
         // Keep node in waiting state but could update a counter
         updateWfNodeStatus(ev.data.stepId, 'waiting');
+        updateWfStepRow(ev.data.stepId, 'waiting');
       }
       if (ev.type === 'step_completed' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, ev.data.status);
+        updateWfStepRow(ev.data.stepId, ev.data.status);
       }
       if (ev.type === 'workflow_completed') {
         if (wfSSE) { wfSSE.close(); wfSSE = null; }
@@ -929,6 +1108,31 @@ function subscribeWfSSE(runId) {
   wfSSE.onerror = function() {
     if (wfSSE) { wfSSE.close(); wfSSE = null; }
   };
+}
+
+function updateWfStepRow(stepId, status) {
+  var row = document.getElementById('wf-step-row-' + stepId);
+  if (!row) return;
+  // Update badge
+  var badge = row.querySelector('.badge');
+  if (badge) {
+    var cls = status === 'success' ? 'badge-ok' : (status === 'error' || status === 'timeout') ? 'badge-err' : 'badge-warn';
+    badge.className = 'badge ' + cls;
+    badge.textContent = status;
+  }
+  // Update pulse indicator
+  var indicator = row.querySelector('span[style*="border-radius:50%"]');
+  if (indicator) {
+    if (status === 'running') {
+      indicator.style.background = '#fbbf24';
+      indicator.style.display = 'inline-block';
+    } else if (status === 'waiting') {
+      indicator.style.background = '#a78bfa';
+      indicator.style.display = 'inline-block';
+    } else {
+      indicator.style.display = 'none';
+    }
+  }
 }
 
 function updateWfNodeStatus(stepId, status) {

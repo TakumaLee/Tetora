@@ -729,6 +729,19 @@
           <button class="btn" onclick="newWorkflowDef()">+ New</button>
         </div>
       </div>
+      <!-- Template Gallery -->
+      <div id="wf-template-gallery" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:8px 0" onclick="toggleTemplateGallery()">
+          <span style="font-size:14px;font-weight:600">&#128218; Template Gallery</span>
+          <span id="wf-tpl-toggle" style="font-size:12px;color:var(--muted)">&#9660; Show</span>
+        </div>
+        <div id="wf-tpl-content" style="display:none">
+          <div style="margin-bottom:8px">
+            <input id="wf-tpl-filter" class="wfed-prop-input" placeholder="Filter templates..." style="width:100%;box-sizing:border-box" oninput="filterTemplates()">
+          </div>
+          <div id="wf-tpl-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px"></div>
+        </div>
+      </div>
       <div id="wf-defs-list"></div>
     </div>
 
@@ -760,6 +773,7 @@
           <button class="btn" onclick="toggleWfJsonEditor()">{ }</button>
           <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
           <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
+          <button class="btn" onclick="dryRunWorkflow()" title="測試執行 (不實際呼叫 API)">&#128269; Dry Run</button>
           <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
           <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
           <button class="btn" onclick="closeWorkflowEditor()">Close</button>
@@ -862,8 +876,40 @@
 
     <!-- Workflow Triggers -->
     <div class="section">
-      <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+      <div class="section-header">
+        <span class="section-title">Workflow Triggers</span>
+        <div>
+          <button class="btn" onclick="refreshTriggers()">Refresh</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="openTriggerModal()">+ Create</button>
+        </div>
+      </div>
       <div id="integration-triggers"></div>
+    </div>
+
+    <!-- Trigger Modal -->
+    <div id="trigger-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:480px;max-height:80vh;overflow-y:auto">
+        <h3 id="trigger-modal-title" style="margin:0 0 16px">Create Trigger</h3>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div><label style="font-size:12px;font-weight:600">Name</label><input id="trig-name" class="wfed-prop-input" placeholder="my-trigger" style="width:100%;box-sizing:border-box"></div>
+          <div><label style="font-size:12px;font-weight:600">Workflow</label><select id="trig-workflow" class="wfed-prop-input" style="width:100%;box-sizing:border-box"></select></div>
+          <div><label style="font-size:12px;font-weight:600">Type</label>
+            <select id="trig-type" class="wfed-prop-input" style="width:100%;box-sizing:border-box" onchange="updateTriggerTypeFields()">
+              <option value="cron">Cron</option><option value="event">Event</option><option value="webhook">Webhook</option>
+            </select>
+          </div>
+          <div id="trig-cron-fields"><label style="font-size:12px;font-weight:600">Cron Expression</label><input id="trig-cron" class="wfed-prop-input" placeholder="*/5 * * * *" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">5-field: min hour day month weekday</div><label style="font-size:12px;font-weight:600;margin-top:8px;display:block">Timezone</label><input id="trig-tz" class="wfed-prop-input" placeholder="UTC" style="width:100%;box-sizing:border-box"></div>
+          <div id="trig-event-fields" style="display:none"><label style="font-size:12px;font-weight:600">Event Pattern</label><input id="trig-event" class="wfed-prop-input" placeholder="dispatch.*" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">Wildcards: dispatch.* matches dispatch.start, etc.</div></div>
+          <div id="trig-webhook-fields" style="display:none"><label style="font-size:12px;font-weight:600">Webhook ID</label><input id="trig-webhook" class="wfed-prop-input" placeholder="my-hook" style="width:100%;box-sizing:border-box"><div style="font-size:11px;color:var(--muted);margin-top:2px">URL: {origin}/api/triggers/webhook/{id}</div></div>
+          <div><label style="font-size:12px;font-weight:600">Cooldown</label><input id="trig-cooldown" class="wfed-prop-input" placeholder="5m" style="width:100%;box-sizing:border-box"></div>
+          <div><label style="font-size:12px;font-weight:600">Variables (JSON)</label><textarea id="trig-vars" class="wfed-prop-input wfed-prop-textarea" rows="3" placeholder='{"key": "value"}' style="width:100%;box-sizing:border-box"></textarea></div>
+          <div><label style="font-size:12px"><input type="checkbox" id="trig-enabled" checked> Enabled</label></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn" onclick="closeTriggerModal()">Cancel</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="saveTrigger()">Save</button>
+        </div>
+      </div>
     </div>
 
     <!-- Knowledge Pipeline -->

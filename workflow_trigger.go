@@ -139,6 +139,27 @@ func (e *WorkflowTriggerEngine) Stop() {
 	logInfo("workflow trigger engine stopped")
 }
 
+// ReloadTriggers hot-swaps triggers: stops the current engine loops and restarts with new triggers.
+func (e *WorkflowTriggerEngine) ReloadTriggers(triggers []WorkflowTriggerConfig) {
+	// Stop current loops.
+	if e.cancel != nil {
+		e.cancel()
+	}
+	e.wg.Wait()
+
+	// Swap triggers.
+	e.mu.Lock()
+	e.triggers = triggers
+	e.stopCh = make(chan struct{})
+	e.mu.Unlock()
+
+	// Restart with parent context.
+	if len(triggers) > 0 {
+		e.Start(context.Background())
+	}
+	logInfo("workflow triggers reloaded", "count", len(triggers))
+}
+
 // cronLoop checks cron triggers every 30 seconds.
 func (e *WorkflowTriggerEngine) cronLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
@@ -585,6 +606,41 @@ func queryTriggerRuns(dbPath, triggerName string, limit int) ([]map[string]any, 
 	}
 
 	return rows, nil
+}
+
+// validateTriggerConfig checks a trigger config for errors.
+func validateTriggerConfig(t WorkflowTriggerConfig, existingNames map[string]bool) []string {
+	var errs []string
+	if t.Name == "" {
+		errs = append(errs, "name is required")
+	}
+	if existingNames != nil && existingNames[t.Name] {
+		errs = append(errs, fmt.Sprintf("name %q already exists", t.Name))
+	}
+	if t.WorkflowName == "" {
+		errs = append(errs, "workflowName is required")
+	}
+	switch t.Trigger.Type {
+	case "cron":
+		if t.Trigger.Cron == "" {
+			errs = append(errs, "cron expression required for cron trigger")
+		} else if _, err := parseCronExpr(t.Trigger.Cron); err != nil {
+			errs = append(errs, fmt.Sprintf("invalid cron expression: %v", err))
+		}
+	case "event":
+		if t.Trigger.Event == "" {
+			errs = append(errs, "event pattern required for event trigger")
+		}
+	case "webhook":
+		if t.Trigger.Webhook == "" {
+			errs = append(errs, "webhook ID required for webhook trigger")
+		}
+	case "":
+		errs = append(errs, "trigger type is required (cron, event, webhook)")
+	default:
+		errs = append(errs, fmt.Sprintf("unknown trigger type: %s", t.Trigger.Type))
+	}
+	return errs
 }
 
 // --- Variable Expansion for Tool Inputs ---

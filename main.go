@@ -855,9 +855,9 @@ func main() {
 		}
 
 		// --- P18.3: Workflow Triggers --- Initialize trigger engine.
-		var triggerEngine *WorkflowTriggerEngine
+		// Always create engine (even if no triggers) so HTTP handlers can use it.
+		triggerEngine := newWorkflowTriggerEngine(cfg, state, sem, childSem, state.broker)
 		if len(cfg.WorkflowTriggers) > 0 {
-			triggerEngine = newWorkflowTriggerEngine(cfg, state, sem, childSem, state.broker)
 			triggerEngine.Start(ctx)
 		}
 
@@ -1007,6 +1007,7 @@ func main() {
 			lineBot: lineBot, teamsBot: teamsBot, signalBot: signalBot, gchatBot: gchatBot, imessageBot: imessageBot,
 			heartbeatMonitor: heartbeatMon,
 			hookReceiver:     hookRecv,
+			triggerEngine:    triggerEngine,
 			DegradedServices: degradedServices,
 			drainCh:          drainCh,
 		}
@@ -1054,6 +1055,12 @@ func main() {
 
 				// Atomic swap.
 				srvInstance.ReloadConfig(newCfg)
+
+				// Reload workflow triggers.
+				if srvInstance.triggerEngine != nil {
+					srvInstance.triggerEngine.ReloadTriggers(newCfg.WorkflowTriggers)
+				}
+
 				logInfo("config reloaded successfully")
 			}
 		}()
@@ -1151,8 +1158,8 @@ func main() {
 		cancel()
 
 		// --- P18.3: Workflow Triggers --- Stop trigger engine.
-		if triggerEngine != nil {
-			triggerEngine.Stop()
+		if srvInstance.triggerEngine != nil {
+			srvInstance.triggerEngine.Stop()
 		}
 
 		// --- P19.3: Smart Reminders --- Stop reminder engine.
