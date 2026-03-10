@@ -199,9 +199,41 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
+		if len(tasks) == 0 {
+			http.Error(w, `{"error":"empty task list"}`, http.StatusBadRequest)
+			return
+		}
+
+		// --- Dispatch guardrails: validate payload before execution ---
+		for i, t := range tasks {
+			// Prompt is required — empty prompt wastes agent time.
+			if strings.TrimSpace(t.Prompt) == "" && strings.TrimSpace(t.Name) == "" {
+				http.Error(w, fmt.Sprintf(`{"error":"task[%d]: prompt is required"}`, i), http.StatusBadRequest)
+				return
+			}
+			// If agent is specified, verify it exists in config.
+			if t.Agent != "" {
+				if _, ok := cfg.Agents[t.Agent]; !ok {
+					http.Error(w, fmt.Sprintf(`{"error":"task[%d]: agent %q not found in config"}`, i, t.Agent), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
 		for i := range tasks {
 			fillDefaults(cfg, &tasks[i])
 			tasks[i].Source = "http"
+		}
+
+		// Log dispatch payload for audit trail.
+		for _, t := range tasks {
+			logInfo("dispatch: received task", "name", t.Name, "agent", t.Agent,
+				"source", "http", "prompt_len", len(t.Prompt), "model", t.Model)
+		}
+
+		// Reset stale "doing" tasks before dispatch to prevent blocking.
+		if s.taskBoardDispatcher != nil {
+			s.taskBoardDispatcher.resetStuckDoing()
 		}
 
 		// Publish task_received to dashboard.

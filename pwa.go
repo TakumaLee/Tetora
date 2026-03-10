@@ -72,15 +72,14 @@ self.addEventListener('fetch', function(e) {
 
   if (isShell) {
     e.respondWith(
-      caches.match(e.request).then(function(cached) {
-        if (cached) return cached;
-        return fetch(e.request).then(function(resp) {
-          if (resp.ok) {
-            var clone = resp.clone();
-            caches.open(CACHE_VERSION).then(function(c) { c.put(e.request, clone); });
-          }
-          return resp;
-        });
+      fetch(e.request).then(function(resp) {
+        if (resp.ok) {
+          var clone = resp.clone();
+          caches.open(CACHE_VERSION).then(function(c) { c.put(e.request, clone); });
+        }
+        return resp;
+      }).catch(function() {
+        return caches.match(e.request);
       })
     );
     return;

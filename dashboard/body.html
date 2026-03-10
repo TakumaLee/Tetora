@@ -1,0 +1,1931 @@
+<div id="alert-banner"></div>
+<div class="container">
+  <header>
+    <div class="logo">Tetora <span id="version"></span></div>
+    <div class="header-right">
+      <div class="theme-switcher" id="theme-switcher">
+        <button class="btn" onclick="toggleThemeDropdown()" id="theme-toggle-btn" title="Switch theme" style="padding:6px 10px;font-size:13px">&#127912;</button>
+        <div class="theme-dropdown" id="theme-dropdown">
+          <button onclick="setTheme('default')">Glass</button>
+          <button onclick="setTheme('clean')">Clean</button>
+          <button onclick="setTheme('material')">Material</button>
+          <button onclick="setTheme('boardroom')">Boardroom</button>
+          <button onclick="setTheme('classic')">Retro</button>
+          <button onclick="setTheme('nes')">NES Dark</button>
+          <button onclick="setTheme('gameboy')">Game Boy</button>
+          <button onclick="setTheme('amber')">Amber</button>
+        </div>
+      </div>
+      <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
+      <button class="btn btn-run" onclick="openDispatchModal()" style="padding:6px 14px;font-size:12px">Quick Dispatch</button>
+      <div class="notif-bell" onclick="toggleNotifDropdown()" id="notif-bell-container">&#x1F514;<span class="notif-badge-count" id="notif-badge" style="display:none">0</span><div class="notif-dropdown" id="notif-dropdown"><div class="notif-empty">No notifications</div></div></div>
+      <span class="updated" id="updated"></span>
+      <span class="badge badge-ok" id="conn-badge">Connected</span>
+    </div>
+  </header>
+
+  <!-- Usage Alert Banner (Feature 1: idea-dashboard-003) -->
+  <div class="usage-alert-banner" id="usage-alert-banner" role="alert">
+    <span class="alert-icon">&#9888;</span>
+    <span class="alert-text" id="usage-alert-text"></span>
+    <div class="alert-bar"><div class="alert-bar-fill" id="usage-alert-bar-fill"></div></div>
+    <button class="alert-close" onclick="dismissUsageAlert()" aria-label="Dismiss">&#215;</button>
+  </div>
+
+  <div class="tab-nav">
+    <button id="tab-dashboard" class="active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
+    <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
+    <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
+    <button id="tab-agents" onclick="switchTab('agents')">Agents</button>
+    <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
+    <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
+  </div>
+
+  <div id="dashboard-content">
+  <!-- View Selector -->
+  <div id="dash-view-selector" class="dash-view active">
+    <div class="view-selector-grid">
+      <div class="view-card" onclick="selectDashView('default')">
+        <span class="view-card-icon">📊</span>
+        <div class="view-card-title">Dashboard</div>
+        <div class="view-card-desc">Default overview — stats, sessions, jobs, trends</div>
+      </div>
+      <div class="view-card" onclick="selectDashView('quest')">
+        <span class="view-card-icon">⚔️</span>
+        <div class="view-card-title">Quest Log</div>
+        <div class="view-card-desc">RPG-style task board — commissions, ranks, progress</div>
+      </div>
+      <div class="view-card" onclick="selectDashView('calendar')">
+        <span class="view-card-icon">📅</span>
+        <div class="view-card-title">Calendar</div>
+        <div class="view-card-desc">Monthly grid — daily sessions, tasks, costs</div>
+      </div>
+      <div class="view-card" onclick="selectDashView('stats')">
+        <span class="view-card-icon">📈</span>
+        <div class="view-card-title">Stats Report</div>
+        <div class="view-card-desc">Charts & breakdowns — by project, agent, time</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Default View (original dashboard) -->
+  <div id="dash-view-default" class="dash-view">
+    <div class="view-topbar">
+      <button class="btn-views" onclick="showViewSelector()">◀ Views</button>
+      <span class="view-title">Dashboard</span>
+    </div>
+  <!-- Onboarding Banner -->
+  <div class="onboarding-banner" id="onboarding-banner" style="display:none">
+    <h2>Welcome to Tetora</h2>
+    <p>Run <code style="color:var(--accent);background:rgba(6,182,212,0.1);padding:2px 8px;border-radius:4px">tetora init</code> in your terminal to get started.</p>
+    <button class="btn" onclick="document.getElementById('onboarding-banner').style.display='none';localStorage.setItem('tetora-onboarded','1')" style="padding:6px 16px">Dismiss</button>
+  </div>
+
+  <!-- ZONE 1: COMMAND CENTER -->
+  <div class="zone-command">
+  <!-- Executive Summary (CEO view) -->
+  <div id="exec-summary" class="exec-summary" style="display:none">
+    <div class="exec-summary-grid">
+      <div class="exec-card" id="exec-tasks-done"><div class="exec-label">Tasks Done (Week)</div><div class="exec-value" id="exec-tasks-val">-</div></div>
+      <div class="exec-card" id="exec-hours-saved"><div class="exec-label">Hours Saved</div><div class="exec-value" id="exec-hours-val">-</div></div>
+      <div class="exec-card" id="exec-cost"><div class="exec-label">AI Cost (Week)</div><div class="exec-value" id="exec-cost-val">-</div></div>
+      <div class="exec-card" id="exec-roi"><div class="exec-label">ROI</div><div class="exec-value" id="exec-roi-val">-</div></div>
+    </div>
+  </div>
+  <!-- Pixel Team -->
+  <div class="pixel-team" id="pixel-team">
+    <span class="pixel-team-title">Team</span>
+    <div class="pixel-agents-row" id="pixel-agents-row"></div>
+  </div>
+  <!-- Agent World -->
+  <div class="agent-world-toggle" id="agent-world-toggle" style="display:none" onclick="toggleAgentWorld()">
+    <canvas id="aw-minimap" class="aw-minimap" width="120" height="40"></canvas>
+    <span class="aw-title">Agent World</span>
+    <span class="aw-status" id="aw-status"></span>
+  </div>
+  <div class="agent-world-canvas" id="agent-world-container" style="display:none">
+    <canvas id="agent-world-cv"></canvas>
+    <button class="agent-world-close" onclick="toggleAgentWorld()">&times;</button>
+    <button class="agent-world-edit" id="aw-edit-btn" onclick="toggleDecorEditMode()">Edit</button>
+    <button class="agent-world-edit" onclick="openSpriteGuide()" style="left:52px" title="Sprite Guide">?</button>
+    <div class="aw-zoom-controls">
+      <button class="aw-zoom-btn" onclick="officeZoom(-1)" title="Zoom out">-</button>
+      <span id="aw-zoom-label" style="font-size:10px;color:var(--muted);padding:2px 4px;white-space:nowrap">1x</span>
+      <button class="aw-zoom-btn" onclick="officeZoom(1)" title="Zoom in">+</button>
+    </div>
+    <div class="decor-palette" id="decor-palette" style="display:none"></div>
+  </div>
+  </div><!-- /zone-command -->
+
+  <!-- ZONE 2: OPERATIONS -->
+  <div class="zone-operations">
+  <!-- Ops Bar (compact 4-card) -->
+  <div class="ops-bar" id="ops-bar"></div>
+
+  <!-- Scorecard + Activity side by side -->
+  <div class="ops-columns">
+    <!-- Agent Team Scorecard -->
+    <div class="section" id="agent-scorecard-section" style="display:none">
+      <div class="section-header">
+        <span class="section-title">Agent Team</span>
+        <span class="section-meta" id="scorecard-meta"></span>
+      </div>
+      <div class="stats" id="agent-scorecard-grid"></div>
+    </div>
+    <!-- Activity Feed -->
+    <div class="section" id="activity-section">
+      <div class="section-header">
+        <span class="section-title">Activity Feed</span>
+        <span id="sse-status"><span class="sse-badge disconnected">Connecting...</span></span>
+      </div>
+      <div class="table-wrap">
+        <div class="activity-list" id="activity-list">
+          <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent Activity (dispatch) -->
+  <div class="section" id="dispatch-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Activity</span>
+      <button class="btn" onclick="cancelDispatch()">Cancel</button>
+    </div>
+    <div class="dispatch-tasks" id="dispatch-tasks"></div>
+  </div>
+
+  <!-- Workers -->
+  <div class="section" id="workers-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Workers</span>
+      <span class="section-meta" id="workers-count-inline">0</span>
+    </div>
+    <div id="workers-grid-inline" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
+  </div>
+
+  <!-- Plan Reviews (v3) -->
+  <div class="section" id="plan-reviews-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Plan Reviews</span>
+      <span class="section-meta" id="plan-reviews-count">0</span>
+    </div>
+    <div id="plan-reviews-list" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+
+  <!-- Hook Events (v3) -->
+  <div class="section" id="hook-events-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Hook Events</span>
+      <span class="section-meta" id="hook-events-count">0</span>
+    </div>
+    <div id="hook-events-list" class="activity-list" style="max-height:200px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Worker Detail Modal -->
+  <div class="modal-overlay" id="worker-detail-modal" onclick="if(event.target===this)closeWorkerDetail()">
+    <div class="modal" style="max-width:550px">
+      <button class="modal-close" onclick="closeWorkerDetail()">&times;</button>
+      <h3 id="wd-title" style="margin:0 0 14px 0">Worker Detail</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:16px">
+        <div><div style="font-size:11px;color:var(--muted)">State</div><div id="wd-state" style="font-size:13px">-</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">Uptime</div><div id="wd-uptime" style="font-size:13px">-</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">Source</div><div id="wd-source" style="font-size:13px">-</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">Agent</div><div id="wd-agent" style="font-size:13px">-</div></div>
+        <div style="grid-column:1/-1"><div style="font-size:11px;color:var(--muted)">Task</div><div id="wd-taskname" style="font-size:13px;word-break:break-all">-</div></div>
+        <div style="grid-column:1/-1"><div style="font-size:11px;color:var(--muted)">Workdir</div><div id="wd-workdir" style="font-size:13px;word-break:break-all">-</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">Tool Count</div><div id="wd-toolcount" style="font-size:13px">-</div></div>
+        <div><div style="font-size:11px;color:var(--muted)">Last Tool</div><div id="wd-lasttool" style="font-size:13px">-</div></div>
+        <div style="grid-column:1/-1"><div style="font-size:11px;color:var(--muted)">Usage</div><div id="wd-usage" style="font-size:13px">-</div></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Event Log</div>
+      <div id="wd-events" class="activity-list" style="max-height:300px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <!-- Running Tasks -->
+  <div class="section" id="running-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Running Tasks</span>
+      <span class="section-meta" id="running-meta"></span>
+    </div>
+    <div id="running-tasks"></div>
+  </div>
+  </div><!-- /zone-operations -->
+
+  <!-- ZONE 3: INSIGHTS -->
+  <div class="zone-insights">
+  <!-- Trend Chart -->
+  <div class="section" id="trend-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">7-Day Trend</span>
+    </div>
+    <div id="trend-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px"></div>
+  </div>
+  <!-- History Trends -->
+  <div class="section" id="history-trends-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">History Trends</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn" id="ht-btn-7" onclick="setHistoryPeriod(7)">7D</button>
+        <button class="btn" id="ht-btn-14" onclick="setHistoryPeriod(14)">14D</button>
+        <button class="btn" id="ht-btn-30" onclick="setHistoryPeriod(30)">30D</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px">Task Throughput</div>
+        <div id="ht-task-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px"></div>
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span><span style="color:var(--accent2)">▬</span> Created</span>
+          <span><span style="color:var(--green)">▬</span> Done</span>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px">Claude Usage (USD/day)</div>
+        <div id="ht-usage-chart" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px"></div>
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:11px;color:var(--muted)">
+          <span><span style="color:var(--accent)">▬</span> Cost/day</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div><!-- /zone-insights -->
+
+  <!-- ZONE 4: ENGINEERING DETAILS (collapsible) -->
+  <div class="zone-engineering" id="zone-engineering">
+    <div class="zone-engineering-toggle" onclick="toggleEngineering()">
+      <span class="zone-eng-arrow">&#9660;</span>
+      <span class="zone-eng-title">Engineering Details</span>
+    </div>
+    <div class="zone-engineering-body">
+
+  <!-- Cost Dashboard -->
+  <div class="section" id="cost-dashboard-section">
+    <div class="section-header">
+      <span class="section-title">Cost Dashboard</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn" onclick="loadCostDashboard('today')" id="cost-btn-today">Today</button>
+        <button class="btn" onclick="loadCostDashboard('week')" id="cost-btn-week">Week</button>
+        <button class="btn" onclick="loadCostDashboard('month')" id="cost-btn-month">Month</button>
+      </div>
+    </div>
+    <div id="cost-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" id="cost-breakdown-grid">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Model</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Model</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-model-body"></tbody></table>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">By Role</div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Role</th><th>Tasks</th><th>Cost</th><th>%</th></tr></thead>
+          <tbody id="cost-role-body"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">Top Expensive Sessions</div>
+      <div class="table-wrap">
+        <table><thead><tr><th>Role</th><th>Title</th><th>Messages</th><th>Tokens</th><th>Cost</th><th>Created</th></tr></thead>
+        <tbody id="cost-sessions-body"></tbody></table>
+      </div>
+    </div>
+    <div id="cost-forecast" style="margin-top:16px;display:none">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">Cost Projection</div>
+      <div class="stats" id="cost-forecast-cards"></div>
+    </div>
+  </div>
+
+  <!-- Cron Jobs -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Cron Jobs</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="cron-meta"></span>
+        <button class="btn btn-add" onclick="openJobModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:50px"></th>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Role</th>
+            <th>Chain</th>
+            <th>Last Run</th>
+            <th>Last Cost</th>
+            <th>Avg Cost</th>
+            <th>Next Run</th>
+            <th>Status</th>
+            <th style="width:130px"></th>
+          </tr>
+        </thead>
+        <tbody id="jobs-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- History (Recent Runs) -->
+  <div class="section" id="history-section">
+    <div class="section-header">
+      <span class="section-title">Recent Runs</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="history-status-filter" onchange="historyPage=1;refreshHistory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All status</option>
+          <option value="success">success</option>
+          <option value="error">error</option>
+          <option value="timeout">timeout</option>
+          <option value="cancelled">cancelled</option>
+        </select>
+        <select id="history-job-filter" onchange="historyPage=1;refreshHistory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All jobs</option>
+        </select>
+        <span class="section-meta" id="history-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Cost</th>
+            <th>Model</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px" id="history-pagination">
+      <button class="btn" id="history-prev" onclick="historyPrev()" disabled>Prev</button>
+      <span style="font-size:12px;color:var(--muted)" id="history-page-info"></span>
+      <button class="btn" id="history-next" onclick="historyNext()" disabled>Next</button>
+    </div>
+  </div>
+
+  <!-- Agent Sessions -->
+  <div class="section" id="sessions-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Sessions</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="session-role-filter" onchange="refreshSessions()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All Agents</option>
+        </select>
+        <span class="section-meta" id="sessions-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Role</th><th>Title</th><th>Status</th><th>Msgs</th><th>Cost</th><th>Context</th><th>Updated</th><th style="width:60px"></th>
+        </tr></thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Session Detail Modal -->
+  <div class="modal-overlay" id="session-modal" style="display:none" onclick="if(event.target===this){this.style.display='none';disconnectSessionStream()}">
+    <div class="modal" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <h3 id="session-modal-title" style="color:var(--accent)"></h3>
+          <span id="session-live-badge" style="display:none;font-size:10px;background:var(--green);color:#000;padding:2px 6px;border-radius:4px;font-weight:600">Live</span>
+        </div>
+        <button onclick="document.getElementById('session-modal').style.display='none';disconnectSessionStream()" class="btn" style="font-size:12px">Close</button>
+      </div>
+      <div id="session-modal-meta" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>
+      <div id="session-modal-messages" style="display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1"></div>
+    </div>
+  </div>
+
+  <!-- Agent Communication -->
+  <div class="section" id="agent-comm-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Communication</span>
+      <span class="section-meta" id="agent-comm-meta"></span>
+    </div>
+    <div id="agent-comm-body" style="display:flex;flex-direction:column;gap:8px;padding:0 8px 8px 8px"></div>
+  </div>
+
+  <!-- Provider Health -->
+  <div class="section" id="circuits-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Provider Health</span>
+      <span class="section-meta" id="circuits-meta"></span>
+    </div>
+    <div id="circuits-list" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Trust Gradient -->
+  <div class="section" id="trust-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Trust Gradient</span>
+      <span class="section-meta" id="trust-meta"></span>
+    </div>
+    <div id="trust-cards" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Agent SLA -->
+  <div class="section" id="sla-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent SLA</span>
+      <span class="section-meta" id="sla-meta"></span>
+    </div>
+    <div id="sla-cards" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0"></div>
+  </div>
+
+  <!-- Version History -->
+  <div class="section" id="version-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Version History</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="version-type-filter" onchange="refreshVersions()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All Types</option>
+          <option value="config">Config</option>
+          <option value="workflow">Workflow</option>
+          <option value="prompt">Prompt</option>
+        </select>
+        <button class="btn btn-add" onclick="snapshotConfig()">Snapshot Config</button>
+        <span class="section-meta" id="version-meta"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Version</th><th>Type</th><th>Name</th><th>Changes</th><th>By</th><th>Date</th><th style="width:100px"></th>
+        </tr></thead>
+        <tbody id="version-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Version Diff Modal -->
+  <div id="version-diff-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;padding:40px;overflow:auto" onclick="if(event.target===this)this.style.display='none'">
+    <div style="max-width:800px;margin:0 auto;background:var(--card);border-radius:8px;padding:20px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0;font-size:16px" id="diff-title">Version Diff</h3>
+        <button class="btn" onclick="document.getElementById('version-diff-modal').style.display='none'">Close</button>
+      </div>
+      <div id="diff-content" style="font-family:monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:60vh;overflow:auto;padding:12px;background:var(--bg);border-radius:6px;border:1px solid var(--border)"></div>
+    </div>
+  </div>
+
+  <!-- Routing -->
+  <div class="section" id="routing-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Routing</span>
+      <span class="section-meta" id="routing-meta"></span>
+    </div>
+    <div class="stats" id="routing-stats" style="margin-bottom:16px"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Prompt</th>
+            <th>Role</th>
+            <th>Method</th>
+            <th>Confidence</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="routing-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Roles -->
+  <div class="section" id="roles-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agents</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="roles-meta"></span>
+        <button class="btn btn-add" onclick="openRoleModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Model</th>
+            <th>Permission</th>
+            <th>Soul File</th>
+            <th>Description</th>
+            <th style="width:60px"></th>
+          </tr>
+        </thead>
+        <tbody id="roles-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Prompts -->
+  <div class="section" id="prompts-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Prompts</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="prompts-meta"></span>
+        <button class="btn btn-add" onclick="openPromptModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Preview</th>
+            <th style="width:100px"></th>
+          </tr>
+        </thead>
+        <tbody id="prompts-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MCP Servers -->
+  <div class="section" id="mcp-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">MCP Servers</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="section-meta" id="mcp-meta"></span>
+        <button class="btn btn-add" onclick="openMCPModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Command</th>
+            <th>Args</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody id="mcp-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Agent Memory -->
+  <div class="section" id="memory-section" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Agent Memory</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="memory-role-filter" onchange="refreshMemory()" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px">
+          <option value="">All Agents</option>
+        </select>
+        <span class="section-meta" id="memory-meta"></span>
+        <button class="btn btn-add" onclick="openMemoryModal()">+ Add</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Key</th>
+            <th>Value</th>
+            <th>Updated</th>
+            <th style="width:100px"></th>
+          </tr>
+        </thead>
+        <tbody id="memory-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Dashboard Tasks -->
+  <div class="section" id="tasks-section">
+    <div class="section-header">
+      <span class="section-title">Dashboard Tasks</span>
+    </div>
+    <div class="task-stats" id="task-stats"></div>
+  </div>
+
+  <!-- System Health -->
+  <div class="section" id="health-section">
+    <div class="section-header"><span class="section-title">System Health</span></div>
+    <div class="stats" id="health-stats"></div>
+  </div>
+
+    </div><!-- /zone-engineering-body -->
+  </div><!-- /zone-engineering -->
+
+  </div><!-- /dash-view-default -->
+
+  <!-- Quest Log View -->
+  <div id="dash-view-quest" class="dash-view">
+    <div class="view-topbar">
+      <button class="btn-views" onclick="showViewSelector()">◀ Views</button>
+      <span class="view-title">Quest Log</span>
+    </div>
+    <div class="quest-board" id="quest-board"></div>
+  </div>
+
+  <!-- Calendar View -->
+  <div id="dash-view-calendar" class="dash-view">
+    <div class="view-topbar">
+      <button class="btn-views" onclick="showViewSelector()">◀ Views</button>
+      <span class="view-title">Calendar</span>
+    </div>
+    <div class="calendar-nav" id="calendar-nav">
+      <button onclick="calendarPrev()">◀</button>
+      <span class="cal-title" id="cal-title"></span>
+      <button onclick="calendarNext()">▶</button>
+      <button onclick="calendarToday()">Today</button>
+    </div>
+    <div class="calendar-weekdays">
+      <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+    </div>
+    <div class="calendar-grid" id="calendar-grid"></div>
+    <div id="calendar-day-detail" style="display:none"></div>
+  </div>
+
+  <!-- Stats Report View -->
+  <div id="dash-view-stats" class="dash-view">
+    <div class="view-topbar">
+      <button class="btn-views" onclick="showViewSelector()">◀ Views</button>
+      <span class="view-title">Stats Report</span>
+      <div style="display:flex;gap:6px;margin-left:auto">
+        <button class="btn" onclick="exportStatsJSON()" style="font-size:11px;padding:4px 10px">Export JSON</button>
+        <button class="btn" onclick="copyStatsSummary()" style="font-size:11px;padding:4px 10px">Copy Summary</button>
+      </div>
+    </div>
+    <div class="stats-report-filters" id="stats-filters">
+      <span style="font-size:12px;color:var(--muted)">Period:</span>
+      <button class="active" onclick="setStatsReportPeriod(7, this)">7d</button>
+      <button onclick="setStatsReportPeriod(14, this)">14d</button>
+      <button onclick="setStatsReportPeriod(30, this)">30d</button>
+      <button onclick="setStatsReportPeriod(90, this)">90d</button>
+    </div>
+    <div class="stats-report-grid" id="stats-report-grid">
+      <div class="stats-report-card"><h3>Task Completion Trend</h3><div id="sr-task-chart"></div></div>
+      <div class="stats-report-card"><h3>Cost Trend</h3><div id="sr-cost-chart"></div></div>
+      <div class="stats-report-card"><h3>By Project</h3><div id="sr-project-pie" class="pie-chart-wrap"></div></div>
+      <div class="stats-report-card"><h3>By Agent</h3><div id="sr-agent-pie" class="pie-chart-wrap"></div></div>
+    </div>
+  </div>
+
+  </div><!-- /dashboard-content -->
+
+  <div id="chat-content" style="display:none">
+    <div class="chat-container">
+      <div class="chat-sidebar">
+        <div class="chat-sidebar-header">
+          <button class="btn btn-add" onclick="openNewChatModal()" style="flex:1">+ New Chat</button>
+        </div>
+        <div style="padding:4px 12px">
+          <select id="chat-role-filter" onchange="refreshChatSidebar()" class="chat-role-select" style="width:100%">
+            <option value="">All Agents</option>
+          </select>
+        </div>
+        <div id="live-tasks-section" style="display:none;border-bottom:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--green);padding:8px 12px 4px;display:flex;align-items:center;gap:6px"><span class="dot dot-green"></span>Live Tasks</div>
+          <div id="live-tasks-list" style="padding:0 8px 8px"></div>
+        </div>
+        <div class="chat-sidebar-list" id="chat-sidebar-list"></div>
+      </div>
+      <div class="chat-main">
+        <div class="chat-header" id="chat-header" style="display:none">
+          <div>
+            <span id="chat-header-role" style="font-weight:600"></span>
+            <span id="chat-header-meta" style="font-size:12px;color:var(--muted);margin-left:8px"></span>
+          </div>
+          <button class="btn" id="chat-back-btn" onclick="closeTaskView()" style="font-size:11px;display:none">← Back</button>
+          <button class="btn btn-del" id="chat-archive-btn" onclick="archiveChat()" style="font-size:11px">Archive</button>
+        </div>
+        <div class="chat-empty" id="chat-empty">Select a session or start a new chat</div>
+        <div class="chat-messages" id="chat-messages" style="display:none"></div>
+        <div class="typing-indicator" id="chat-typing">Agent is thinking...</div>
+        <div class="chat-input-area" id="chat-input-area" style="display:none">
+          <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="Type a message... (Enter to send, Shift+Enter for newline)" rows="1" onkeydown="chatKeydown(event)" oninput="autoResizeInput(this)"></textarea>
+            <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /chat-content -->
+
+  <div id="workflows-content" style="display:none">
+
+    <!-- Workflow Definitions -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Workflow Definitions</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="loadWorkflowDefs()">Refresh</button>
+          <button class="btn" onclick="newWorkflowDef()">+ New</button>
+        </div>
+      </div>
+      <div id="wf-defs-list"></div>
+    </div>
+
+    <!-- Visual Editor -->
+    <div class="section wfed-editor-section" id="wf-editor-panel" style="display:none">
+      <!-- Toolbar -->
+      <div class="section-header wfed-toolbar">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="section-title" id="wf-editor-title">Editor</span>
+          <span id="wf-dirty-badge" style="font-size:11px;font-weight:600;color:#34d399">&#x2713; Saved</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div style="position:relative;display:inline-block" id="wf-add-step-wrap">
+            <button class="btn" onclick="toggleAddStepMenu()">+ Step &#9662;</button>
+            <div id="wf-add-step-menu" class="wfed-dropdown" style="display:none">
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('dispatch');toggleAddStepMenu()">dispatch</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('skill');toggleAddStepMenu()">skill</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('condition');toggleAddStepMenu()">condition</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('parallel');toggleAddStepMenu()">parallel</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('tool_call');toggleAddStepMenu()">tool_call</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('delay');toggleAddStepMenu()">delay</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('notify');toggleAddStepMenu()">notify</div>
+            </div>
+          </div>
+          <button class="btn" onclick="wedAutoLayout()" title="Auto-layout nodes">&#x2B21; Layout</button>
+          <button class="btn" onclick="wedZoomIn()">+</button>
+          <button class="btn" onclick="wedZoomOut()">-</button>
+          <button class="btn" onclick="wedZoomReset()">1:1</button>
+          <button class="btn" onclick="toggleWfJsonEditor()">{ }</button>
+          <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
+          <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
+          <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
+          <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
+          <button class="btn" onclick="closeWorkflowEditor()">Close</button>
+        </div>
+      </div>
+
+      <!-- Canvas + Property Panel -->
+      <div class="wfed-body">
+        <div class="wfed-canvas-area">
+          <div id="wf-editor-canvas-wrap" class="wfed-canvas-wrap">
+            <svg id="wf-editor-svg" class="wfed-svg"></svg>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            Space+拖拉 移動畫布 &bull; 中鍵拖拉 &bull; 滾輪 縮放 &bull; 拖拉節點 移動 &bull; 拖右點連線
+          </div>
+        </div>
+        <div class="wfed-prop-area">
+          <div class="wfed-prop-title">Properties</div>
+          <div id="wf-prop-panel">
+            <div style="color:var(--muted);font-size:13px;padding:12px">Click a node to edit its properties.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JSON Editor (collapsible) -->
+      <div id="wf-json-editor-panel" style="display:none;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px">Raw JSON</strong>
+          <div style="display:flex;gap:6px">
+            <button class="btn" onclick="applyWfJsonEdit()">Apply</button>
+            <button class="btn" onclick="document.getElementById('wf-json-editor-panel').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <textarea id="wf-json-textarea" class="wfed-json-textarea" rows="16" spellcheck="false"></textarea>
+      </div>
+    </div>
+
+    <!-- Workflow Runs List -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Workflow Runs</span>
+        <button class="btn" onclick="refreshWorkflowRuns()">Refresh</button>
+      </div>
+      <div id="wf-runs-list"></div>
+    </div>
+
+    <!-- Run Confirmation Modal -->
+    <div id="wf-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:300px;max-width:460px;width:90%;margin:auto">
+        <h3 style="margin:0 0 16px;color:var(--text);font-size:15px">&#9654; Run Workflow</h3>
+        <div id="wf-run-modal-body"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn" onclick="closeRunModal()">Cancel</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="confirmRunWorkflow()">&#9654; Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DAG Visualization (Run Detail) -->
+    <div class="section" id="wf-dag-section" style="display:none">
+      <div class="section-header">
+        <span class="section-title" id="wf-dag-title">Run Details</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="badge" id="wf-dag-status"></span>
+          <button class="btn" onclick="closeWfDag()">Close</button>
+        </div>
+      </div>
+      <div id="wf-timeline" class="wf-timeline"></div>
+      <div class="wf-dag-container">
+        <svg id="wf-dag-svg" width="100%" height="300"></svg>
+      </div>
+      <div id="wf-node-detail" class="wf-node-detail" style="display:none"></div>
+    </div>
+  </div><!-- /workflows-content -->
+
+  <div id="integrations-content" style="display:none">
+    <!-- Channel Status -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Channel Status</span>
+        <button class="btn" onclick="refreshIntegrations()">Refresh</button>
+      </div>
+      <div id="integration-channels"></div>
+    </div>
+
+    <!-- OAuth Connections -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">OAuth Connections</span></div>
+      <div id="integration-oauth"></div>
+    </div>
+
+    <!-- Reminders -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Reminders</span>
+        <button class="btn" onclick="refreshReminders()">Refresh</button>
+      </div>
+      <div id="integration-reminders"></div>
+    </div>
+
+    <!-- Workflow Triggers -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Workflow Triggers</span></div>
+      <div id="integration-triggers"></div>
+    </div>
+
+    <!-- Knowledge Pipeline -->
+    <div class="section">
+      <div class="section-header"><span class="section-title">Knowledge Pipeline</span></div>
+      <div id="integration-knowledge"></div>
+    </div>
+
+    <!-- Smart Home -->
+    <div class="section" id="integration-ha-section" style="display:none">
+      <div class="section-header"><span class="section-title">Smart Home</span></div>
+      <div id="integration-ha"></div>
+    </div>
+  </div><!-- /integrations-content -->
+
+  <div id="settings-content" style="display:none">
+    <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
+    <div id="settings-container" style="display:none">
+      <!-- Theme -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Theme</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0">
+          <button class="btn" onclick="setTheme('default')" id="theme-btn-default">Glass</button>
+          <button class="btn" onclick="setTheme('clean')" id="theme-btn-clean">Clean</button>
+          <button class="btn" onclick="setTheme('material')" id="theme-btn-material">Material</button>
+          <button class="btn" onclick="setTheme('boardroom')" id="theme-btn-boardroom">Boardroom</button>
+          <button class="btn" onclick="setTheme('classic')" id="theme-btn-classic">Retro</button>
+          <button class="btn" onclick="setTheme('nes')" id="theme-btn-nes">NES Dark</button>
+          <button class="btn" onclick="setTheme('gameboy')" id="theme-btn-gameboy">Game Boy</button>
+          <button class="btn" onclick="setTheme('amber')" id="theme-btn-amber">Amber</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin-left:16px;cursor:pointer">
+            <input type="checkbox" id="sound-toggle" onchange="_soundEnabled=this.checked;localStorage.setItem('tetora-sound',this.checked)"> 8-bit sounds
+          </label>
+        </div>
+      </div>
+      <!-- General -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">General</span></div>
+        <div id="settings-general"></div>
+      </div>
+      <!-- Channels -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Channels</span></div>
+        <div id="settings-channels"></div>
+      </div>
+      <!-- Integrations -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Integrations</span></div>
+        <div id="settings-integrations"></div>
+      </div>
+      <!-- Discord -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Discord</span></div>
+        <div style="padding:8px 0">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <label class="toggle" style="margin:0">
+              <input type="checkbox" id="discord-show-progress" onchange="toggleDiscordShowProgress(this.checked)">
+              <span class="slider"></span>
+            </label>
+            Show streaming progress
+          </label>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;margin-left:44px">
+            Display live "Working..." updates in Discord while tasks are running
+          </div>
+        </div>
+      </div>
+      <!-- Tools -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Tools</span></div>
+        <div id="settings-tools"></div>
+      </div>
+      <!-- Budgets -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Budgets</span></div>
+        <div id="settings-budgets"></div>
+      </div>
+      <!-- Security -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Security</span></div>
+        <div id="settings-security"></div>
+      </div>
+      <!-- Heartbeat -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Heartbeat</span></div>
+        <div id="settings-heartbeat"></div>
+      </div>
+      <!-- Task Board -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Task Board</span></div>
+        <div id="settings-taskboard"></div>
+      </div>
+      <!-- Claude Code Hooks (v3) -->
+      <div class="section">
+        <div class="section-header"><span class="section-title">Claude Code Hooks</span></div>
+        <div id="settings-hooks">
+          <div style="padding:12px;font-size:13px;color:var(--muted)">
+            <p style="margin-bottom:12px">Hooks 讓 Tetora 即時接收 Claude Code 的工具呼叫、Plan Mode 和完成通知。</p>
+            <div id="hooks-status-display" style="margin-bottom:12px">
+              <span style="color:var(--muted)">Checking status...</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn" id="hooks-install-btn" onclick="installHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--green);color:#000;font-weight:600">Install Hooks</button>
+              <button class="btn" id="hooks-remove-btn" onclick="removeHooksFromDashboard()" style="padding:6px 16px;font-size:13px;background:var(--red);color:#fff;display:none">Remove Hooks</button>
+            </div>
+            <div id="hooks-result" style="margin-top:8px;font-size:12px;display:none"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Notifications (Discord Webhooks) -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Notifications</span>
+          <button class="btn btn-add" onclick="openDiscordChannelModal()" style="padding:4px 12px;font-size:12px">+ Add Channel</button>
+        </div>
+        <div id="settings-notifications-loading" style="color:var(--muted);font-size:13px;padding:8px 0">Loading...</div>
+        <div id="settings-notifications-table" style="display:none"></div>
+      </div>
+    </div>
+  </div><!-- /settings-content -->
+
+  <!-- Agents Tab -->
+  <div id="agents-content" style="display:none">
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Agents</span>
+        <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
+      </div>
+      <div id="agents-list">
+        <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
+      </div>
+    </div>
+  </div><!-- /agents-content -->
+
+  <!-- Agent Create/Edit Modal -->
+  <div class="modal-overlay" id="agent-modal" style="display:none" onclick="if(event.target===this)closeAgentModal()">
+    <div class="modal" style="max-width:560px;width:100%">
+      <button class="modal-close" onclick="closeAgentModal()">&times;</button>
+      <h3 id="agent-modal-title" style="margin:0 0 16px 0">New Agent</h3>
+      <form id="agent-form" onsubmit="submitAgentForm(event)">
+        <input type="hidden" id="af-mode" value="create">
+        <!-- Name (create only) -->
+        <div id="af-name-row" style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
+          <input id="af-name" type="text" placeholder="e.g. kobayashi" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box" required>
+        </div>
+        <!-- Archetype (create only) -->
+        <div id="af-archetype-row" style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Template</label>
+          <select id="af-archetype" onchange="onArchetypeChange()" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">— custom —</option>
+          </select>
+        </div>
+        <!-- Model -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Model</label>
+          <input id="af-model" type="text" placeholder="claude-sonnet-4-6" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+        </div>
+        <!-- Permission Mode -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Permission Mode</label>
+          <select id="af-permission" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">default</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="auto">auto</option>
+          </select>
+        </div>
+        <!-- Description -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Description</label>
+          <input id="af-description" type="text" placeholder="Short description of this agent's role" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+        </div>
+        <!-- SOUL.md -->
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">SOUL.md</label>
+          <textarea id="af-soul" rows="12" placeholder="# Agent Name&#10;&#10;## Identity&#10;..." style="width:100%;padding:8px 10px;font-size:12px;font-family:var(--font-mono,monospace);background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn" onclick="closeAgentModal()" style="padding:7px 18px">Cancel</button>
+          <button type="submit" id="af-submit" class="btn btn-add" style="padding:7px 18px">Create Agent</button>
+        </div>
+      </form>
+    </div>
+  </div><!-- /agent-modal -->
+
+  <div id="workspace-content" style="display:none">
+    <!-- Project Stats Bar -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Workspace</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="proj-status-filter" onchange="refreshProjects()" style="padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">All</option>
+            <option value="active" selected>Active</option>
+            <option value="archived">Archived</option>
+          </select>
+          <button class="btn" onclick="openProjectModal()" style="padding:4px 12px;font-size:12px">+ Project</button>
+          <button class="btn btn-add" onclick="openTaskCreateModal()" style="padding:4px 12px;font-size:12px">+ Task</button>
+        </div>
+      </div>
+      <div id="kanban-stats-bar" class="kanban-stats-bar">
+        <div style="color:var(--muted);font-size:12px;padding:10px">Loading projects...</div>
+      </div>
+    </div>
+    <!-- Filter Bar -->
+    <div class="kanban-filter-bar">
+      <select id="kb-filter-project" onchange="refreshBoard()">
+        <option value="">All Projects</option>
+      </select>
+      <select id="kb-filter-assignee" onchange="refreshBoard()">
+        <option value="">All Agents</option>
+      </select>
+      <select id="kb-filter-priority" onchange="refreshBoard()">
+        <option value="">All Priority</option>
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="normal">Normal</option>
+        <option value="low">Low</option>
+      </select>
+      <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
+      <span id="kb-total-cost" class="kanban-total-cost"></span>
+    </div>
+    <!-- Kanban Board -->
+    <div id="kanban-board" class="kanban-board">
+      <div style="color:var(--muted);font-size:13px;padding:40px;text-align:center;width:100%">Loading board...</div>
+    </div>
+    <!-- Hidden projects grid for project modal functions -->
+    <div id="projects-grid" style="display:none"></div>
+    <!-- Memory Browser -->
+    <div class="section" id="memory-browser-section">
+      <div class="section-header"><span class="section-title">Workspace Files</span></div>
+      <div class="memory-browser">
+        <div class="memory-tree" id="memory-tree"><div class="search-empty">Loading...</div></div>
+        <div class="memory-editor" id="memory-editor"><div class="search-empty">Select a file to view</div></div>
+      </div>
+    </div>
+  </div><!-- /workspace-content -->
+
+
+<!-- Project Modal -->
+<div class="modal-overlay" id="project-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeProjectModal()">&times;</button>
+    <h3 id="project-modal-title">Add Project</h3>
+    <form id="project-form" onsubmit="return submitProject(event)">
+      <input type="hidden" id="pjf-mode" value="add">
+      <input type="hidden" id="pjf-id" value="">
+      <div class="form-row">
+        <label>Name *</label>
+        <input type="text" id="pjf-name" required placeholder="My Project">
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <textarea id="pjf-desc" placeholder="Project description..." style="min-height:60px"></textarea>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="pjf-workdir" placeholder="~/projects/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('pjf-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Repo URL</label>
+          <input type="text" id="pjf-repo" placeholder="https://github.com/user/repo">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Category</label>
+          <input type="text" id="pjf-category" placeholder="AI tools, SaaS, Mobile...">
+        </div>
+        <div class="form-row">
+          <label>Tags</label>
+          <input type="text" id="pjf-tags" placeholder="go, web, ai">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Status</label>
+          <select id="pjf-status">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Priority</label>
+          <input type="number" id="pjf-priority" value="0" min="0" max="100">
+        </div>
+      </div>
+      <div class="form-actions" style="justify-content:space-between">
+        <button type="button" class="btn" id="pjf-delete" style="color:var(--red);display:none" onclick="deleteFromProjectModal()">Delete</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn" onclick="closeProjectModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="pjf-submit">Add Project</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="task-detail-modal">
+  <div class="modal" style="max-width:900px">
+    <button class="modal-close" onclick="closeTaskDetail()">&times;</button>
+    <button onclick="deleteTask()" style="position:absolute;top:14px;right:48px;background:var(--danger,#e53e3e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
+    <h3 id="task-detail-title" style="margin-bottom:12px">Task Detail</h3>
+    <input type="hidden" id="td-id" value="">
+    <div class="task-detail-grid">
+      <div class="task-detail-field">
+        <label>Status</label>
+        <select id="td-status" onchange="updateTaskField('status')">
+          <option value="idea">Idea</option>
+          <option value="backlog">Backlog</option>
+          <option value="needs-thought">Needs Thought</option>
+          <option value="todo">Todo</option>
+          <option value="doing">Doing</option>
+          <option value="review">Review</option>
+          <option value="done">Done</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+      <div class="task-detail-field">
+        <label>Priority</label>
+        <select id="td-priority" onchange="updateTaskField('priority')">
+          <option value="low">Low</option>
+          <option value="normal">Normal</option>
+          <option value="high">High</option>
+          <option value="urgent">Urgent</option>
+        </select>
+      </div>
+      <div class="task-detail-field">
+        <label>Assignee</label>
+        <select id="td-assignee" onchange="updateTaskField('assignee')">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+      <div class="task-detail-field">
+        <label>Project</label>
+        <select id="td-project" onchange="updateTaskField('project')">
+          <option value="default">default</option>
+        </select>
+      </div>
+      <div class="task-detail-field">
+        <label>Type</label>
+        <select id="td-type" onchange="updateTaskField('type')">
+          <option value="feat">feat</option>
+          <option value="fix">fix</option>
+          <option value="refactor">refactor</option>
+          <option value="chore">chore</option>
+        </select>
+      </div>
+      <div class="task-detail-field">
+        <label>Model <span id="td-model-tier" class="model-tier"></span></label>
+        <select id="td-model" onchange="updateTaskField('model'); updateModelTier('td')">
+          <option value="">Default</option>
+          <option value="haiku">Haiku</option>
+          <option value="sonnet">Sonnet</option>
+          <option value="opus">Opus</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Title</label>
+      <input type="text" id="td-title-input" onblur="updateTaskField('title')" style="width:100%">
+    </div>
+    <div class="form-row" style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Description</label>
+      <textarea id="td-desc-input" onblur="updateTaskField('description')" style="min-height:60px;width:100%"></textarea>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+      <span id="td-cost-display"></span>
+      <span id="td-duration-display"></span>
+      <span id="td-dates-display"></span>
+    </div>
+    <!-- Comment Thread -->
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Comments</div>
+    <div id="td-comment-thread" class="task-comment-thread"></div>
+    <div style="display:flex;gap:6px">
+      <input type="text" id="td-comment-input" placeholder="Add a comment..." style="flex:1">
+      <button class="btn btn-primary" onclick="addTaskComment()" style="padding:5px 14px;font-size:12px">Send</button>
+    </div>
+    <!-- Diff Review Panel -->
+    <div id="td-diff-review" class="diff-review-panel" style="display:none">
+      <div class="diff-review-tabs">
+        <button class="diff-review-tab active" onclick="switchDiffTab('changes')">Changes</button>
+        <button class="diff-review-tab" onclick="switchDiffTab('comments')">Review Comments <span id="td-review-count" style="background:var(--accent2);color:#fff;border-radius:8px;padding:0 6px;font-size:10px;margin-left:4px"></span></button>
+      </div>
+      <div id="td-diff-changes-tab">
+        <div id="td-diff-file-tree" class="diff-file-tree"></div>
+        <div id="td-diff-viewer" class="diff-viewer"></div>
+      </div>
+      <div id="td-diff-comments-tab" style="display:none">
+        <div id="td-review-comments-list" style="max-height:300px;overflow-y:auto"></div>
+      </div>
+      <div class="diff-review-actions" id="td-review-actions">
+        <textarea id="td-review-summary" placeholder="Review summary (optional)..." style="flex:1;min-height:36px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px;font-size:12px"></textarea>
+        <button class="btn btn-approve" onclick="submitReviewFeedback('approve')">&#10003; Approve</button>
+        <button class="btn btn-request-changes" onclick="submitReviewFeedback('request-changes')">&#10007; Request Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Task Create Modal -->
+<div class="modal-overlay" id="task-create-modal">
+  <div class="modal" style="max-width:500px">
+    <button class="modal-close" onclick="closeTaskCreate()">&times;</button>
+    <h3>Create Task</h3>
+    <form id="task-create-form" onsubmit="return submitNewTask(event)">
+      <div class="form-row">
+        <label>Title *</label>
+        <input type="text" id="tcf-title" required placeholder="Task title">
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <textarea id="tcf-desc" placeholder="Task description..." style="min-height:60px"></textarea>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Project</label>
+          <select id="tcf-project"><option value="default">default</option></select>
+        </div>
+        <div class="form-row">
+          <label>Assignee</label>
+          <select id="tcf-assignee"><option value="">Unassigned</option></select>
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Priority</label>
+          <select id="tcf-priority">
+            <option value="normal">Normal</option>
+            <option value="low">Low</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Status</label>
+          <select id="tcf-status">
+            <option value="idea">Idea</option>
+            <option value="backlog">Backlog</option>
+            <option value="needs-thought">Needs Thought</option>
+            <option value="todo">Todo</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Type</label>
+          <select id="tcf-type">
+            <option value="feat">feat</option>
+            <option value="fix">fix</option>
+            <option value="refactor">refactor</option>
+            <option value="chore">chore</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Model <span id="tcf-model-tier" class="model-tier"></span></label>
+          <select id="tcf-model" onchange="updateModelTier('tcf')">
+            <option value="">Default</option>
+            <option value="haiku">Haiku</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="opus">Opus</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeTaskCreate()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Directory Browser Modal -->
+<div class="modal-overlay" id="dir-browser-modal">
+  <div class="modal" style="min-width:500px;max-width:640px">
+    <button class="modal-close" onclick="closeDirBrowser()">&times;</button>
+    <h3>Select Folder</h3>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+      <button class="btn" onclick="dirBrowserUp()" style="padding:4px 10px;font-size:12px" title="Parent directory">&#x2191;</button>
+      <div id="dir-browser-path" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:var(--accent);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <div id="dir-browser-list" style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" onclick="closeDirBrowser()">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="selectDirBrowser()">Select This Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Add Projects Modal -->
+<div class="modal-overlay" id="batch-add-modal">
+  <div class="modal" style="min-width:540px;max-width:680px">
+    <button class="modal-close" onclick="closeBatchAdd()">&times;</button>
+    <h3>Batch Add Projects</h3>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
+      <button class="btn" onclick="batchBrowseUp()" style="padding:4px 10px;font-size:12px" title="Parent directory">&#x2191;</button>
+      <div id="batch-browse-path" style="flex:1;font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:var(--accent);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    </div>
+    <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="batch-select-all" onchange="batchToggleAll()" style="width:14px;height:14px"> Select all
+      </label>
+      <span id="batch-count" style="font-size:12px;color:var(--muted)">0 selected</span>
+    </div>
+    <div id="batch-dir-list" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:var(--bg)">
+      <div style="color:var(--muted);padding:20px;text-align:center">Loading...</div>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button type="button" class="btn" onclick="closeBatchAdd()">Cancel</button>
+      <button type="button" class="btn btn-primary" id="batch-add-btn" onclick="submitBatchAdd()">Add Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Discord Channel Wizard Modal -->
+<div class="modal-overlay" id="discord-channel-modal" style="display:none" onclick="if(event.target===this)closeDiscordChannelModal()">
+  <div class="modal" style="max-width:520px;width:100%">
+    <button class="modal-close" onclick="closeDiscordChannelModal()">&times;</button>
+    <h3>Add Discord Webhook Channel</h3>
+
+    <!-- Step indicator -->
+    <div id="dcm-steps" style="display:flex;gap:6px;margin:16px 0 20px;align-items:center">
+      <span id="dcm-step-1" class="dcm-step dcm-step-active">1</span>
+      <span class="dcm-step-line"></span>
+      <span id="dcm-step-2" class="dcm-step">2</span>
+      <span class="dcm-step-line"></span>
+      <span id="dcm-step-3" class="dcm-step">3</span>
+    </div>
+
+    <!-- Step 1: Channel name -->
+    <div id="dcm-panel-1">
+      <div class="form-row">
+        <label>Step 1 / 3 &mdash; Channel Name</label>
+        <input type="text" id="dcm-name" placeholder="e.g. stock, alerts, dev-errors" autocomplete="off">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Lowercase letters, numbers, hyphens, underscores only.</div>
+      </div>
+      <div id="dcm-name-error" style="color:var(--red);font-size:12px;min-height:18px"></div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="dcmNext(1)">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Webhook URL + events -->
+    <div id="dcm-panel-2" style="display:none">
+      <div class="form-row">
+        <label>Step 2 / 3 &mdash; Webhook URL</label>
+        <input type="text" id="dcm-url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Discord &rarr; Channel Settings &rarr; Integrations &rarr; Webhooks &rarr; New Webhook &rarr; Copy URL
+        </div>
+      </div>
+      <div id="dcm-url-error" style="color:var(--red);font-size:12px;min-height:18px"></div>
+      <div class="form-row" style="margin-top:14px">
+        <label>Notify on</label>
+        <select id="dcm-events" style="width:100%;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+          <option value="all">All events</option>
+          <option value="error">Errors only</option>
+          <option value="success">Successes only</option>
+        </select>
+      </div>
+      <div class="form-actions" style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn" onclick="dcmBack(2)">Back</button>
+        <button class="btn btn-primary" onclick="dcmNext(2)">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Confirm + optional test -->
+    <div id="dcm-panel-3" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Step 3 / 3 &mdash; Confirm</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:13px;line-height:1.8">
+        <div><span style="color:var(--muted);width:100px;display:inline-block">Name</span><span id="dcm-confirm-name" style="font-family:monospace"></span></div>
+        <div><span style="color:var(--muted);width:100px;display:inline-block">Events</span><span id="dcm-confirm-events"></span></div>
+        <div style="margin-top:6px;word-break:break-all"><span style="color:var(--muted)">Webhook</span><br><span id="dcm-confirm-url" style="font-family:monospace;font-size:11px;color:var(--accent)"></span></div>
+      </div>
+      <div style="margin-top:14px;display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="dcm-send-test" style="width:14px;height:14px">
+        <label for="dcm-send-test" style="font-size:13px;cursor:pointer">Send a test message after saving</label>
+      </div>
+      <div id="dcm-save-error" style="color:var(--red);font-size:12px;min-height:18px;margin-top:8px"></div>
+      <div class="form-actions" style="margin-top:16px;display:flex;gap:8px">
+        <button class="btn" onclick="dcmBack(3)">Back</button>
+        <button class="btn btn-primary" id="dcm-save-btn" onclick="dcmSave()">Save Channel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Job Modal -->
+<div class="modal-overlay" id="job-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeJobModal()">&times;</button>
+    <h3 id="job-modal-title">Add Job</h3>
+    <form id="job-form" onsubmit="return submitJob(event)">
+      <input type="hidden" id="jf-mode" value="add">
+      <input type="hidden" id="jf-original-id" value="">
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>ID</label>
+          <input type="text" id="jf-id" required placeholder="daily-report">
+        </div>
+        <div class="form-row">
+          <label>Name</label>
+          <input type="text" id="jf-name" required placeholder="Daily Report">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Schedule (cron)</label>
+          <input type="text" id="jf-schedule" required placeholder="0 9 * * *">
+        </div>
+        <div class="form-row">
+          <label>Timezone</label>
+          <input type="text" id="jf-tz" value="Asia/Taipei" placeholder="Asia/Taipei">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Prompt</label>
+        <textarea id="jf-prompt" required placeholder="What should the agent do?"></textarea>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Variables: <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{date}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{datetime}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{weekday}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{last_output}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{last_status}}</code> <code style="font-size:10px;background:rgba(167,139,250,0.1);padding:1px 4px;border-radius:2px">{{env.KEY}}</code></div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="jf-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Agent (optional)</label>
+          <input type="text" id="jf-role" placeholder="">
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Timeout</label>
+          <input type="text" id="jf-timeout" value="5m" placeholder="5m">
+        </div>
+        <div class="form-row">
+          <label>Budget (USD)</label>
+          <input type="number" id="jf-budget" value="2.00" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Project (optional)</label>
+        <select id="jf-project" onchange="onJobProjectChange()">
+          <option value="">— none —</option>
+        </select>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir (optional)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="jf-workdir" placeholder="~/projects/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('jf-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="jf-permission">
+            <option value="">default</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="plan">plan</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>On Success (chain)</label>
+        <input type="text" id="jf-onsuccess" placeholder="job-id-1, job-id-2">
+      </div>
+      <div class="form-row">
+        <label>On Failure (chain)</label>
+        <input type="text" id="jf-onfailure" placeholder="job-id-1, job-id-2">
+      </div>
+      <div class="form-row" style="display:flex;align-items:center;gap:8px">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="jf-notify">
+          <span class="slider"></span>
+        </label>
+        <span style="font-size:13px">Notify on complete</span>
+      </div>
+      <!-- notify channel selector, shown when notify is checked -->
+      <div id="jf-notify-channel-row" style="display:none" class="form-row">
+        <label for="jf-notify-channel">Discord Channel</label>
+        <select id="jf-notify-channel">
+          <option value="">— default —</option>
+          <!-- populated dynamically -->
+        </select>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeJobModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="jf-submit">Add Job</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Output Modal -->
+<div class="modal-overlay" id="output-modal">
+  <div class="modal output-modal">
+    <button class="modal-close" onclick="closeOutputModal()">&times;</button>
+    <h3 id="output-title">Run Details</h3>
+    <div class="output-meta" id="output-meta"></div>
+    <div id="output-tabs" style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+      <button class="btn" onclick="showOutputTab('output')" id="tab-output" style="font-weight:600">Output</button>
+      <button class="btn" onclick="showOutputTab('error')" id="tab-error">Error</button>
+      <button class="btn btn-run" onclick="loadFullOutput()" id="tab-full" style="display:none">Full Output</button>
+      <div class="output-mode-toggle" id="output-mode-toggle" style="margin-left:8px">
+        <button onclick="setOutputMode('rendered')" id="mode-rendered" class="active">Rendered</button>
+        <button onclick="setOutputMode('raw')" id="mode-raw">Raw</button>
+      </div>
+      <button class="btn" onclick="copyOutput()" id="btn-copy" style="margin-left:auto">Copy</button>
+    </div>
+    <pre class="output-pre" id="output-content"></pre>
+    <div class="md-rendered" id="output-rendered" style="display:none"></div>
+  </div>
+</div>
+
+<!-- Soul Preview Modal -->
+<div class="modal-overlay" id="soul-modal">
+  <div class="modal output-modal">
+    <button class="modal-close" onclick="closeSoulModal()">&times;</button>
+    <h3 id="soul-title">Soul Preview</h3>
+    <div class="output-meta" id="soul-meta"></div>
+    <pre class="output-pre" id="soul-content"></pre>
+  </div>
+</div>
+
+<!-- Role Modal -->
+<div class="modal-overlay" id="role-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeRoleModal()">&times;</button>
+    <h3 id="role-modal-title">Add Agent</h3>
+    <form id="role-form" onsubmit="return submitRole(event)">
+      <input type="hidden" id="rf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="rf-name" required placeholder="my-researcher">
+      </div>
+      <div class="form-row">
+        <label>Template</label>
+        <select id="rf-archetype" onchange="applyArchetype()">
+          <option value="">— blank —</option>
+        </select>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="rf-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="rf-permission">
+            <option value="">default</option>
+            <option value="plan">plan</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="autoEdit">autoEdit</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Description</label>
+        <input type="text" id="rf-desc" placeholder="What does this role do?">
+      </div>
+      <div class="form-row">
+        <label>Soul File</label>
+        <input type="text" id="rf-soulfile" placeholder="SOUL-myagent.md">
+      </div>
+      <div class="form-row">
+        <label>Soul Content</label>
+        <textarea id="rf-soul" style="min-height:150px;font-family:'SF Mono','Fira Code',monospace;font-size:12px" placeholder="# Agent Name — Soul File&#10;&#10;## Identity&#10;..."></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeRoleModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="rf-submit">Add Agent</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Quick Dispatch Modal -->
+<div class="modal-overlay" id="dispatch-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeDispatchModal()">&times;</button>
+    <h3>Quick Dispatch</h3>
+    <form id="dispatch-form" onsubmit="return submitDispatch(event)">
+      <div class="form-row">
+        <label>Prompt</label>
+        <textarea id="df-prompt" required placeholder="What should the agent do?" style="min-height:80px"></textarea>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="df-model" value="sonnet" placeholder="sonnet">
+        </div>
+        <div class="form-row">
+          <label>Agent (optional)</label>
+          <select id="df-role">
+            <option value="">— none —</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Timeout</label>
+          <input type="text" id="df-timeout" value="5m" placeholder="5m">
+        </div>
+        <div class="form-row">
+          <label>Budget (USD)</label>
+          <input type="number" id="df-budget" value="2.00" step="0.01" min="0">
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Project (optional)</label>
+        <select id="df-project" onchange="onDispatchProjectChange()">
+          <option value="">— none —</option>
+        </select>
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Workdir (optional)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="df-workdir" placeholder="~/projects/myapp" style="flex:1">
+            <button type="button" class="btn" onclick="openDirBrowser('df-workdir')" style="padding:5px 10px;font-size:12px;white-space:nowrap">Browse</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Permission Mode</label>
+          <select id="df-permission">
+            <option value="">default</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="plan">plan</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions" id="df-actions">
+        <button type="button" class="btn" onclick="closeDispatchModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="df-submit">Dispatch</button>
+      </div>
+    </form>
+    <div class="dispatch-loading" id="df-loading" style="display:none">
+      <div class="spinner"></div>
+      <div>Running task...</div>
+      <div style="font-size:11px;margin-top:4px" id="df-elapsed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt Modal -->
+<div class="modal-overlay" id="prompt-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePromptModal()">&times;</button>
+    <h3 id="prompt-modal-title">Add Prompt</h3>
+    <form id="prompt-form" onsubmit="return submitPrompt(event)">
+      <input type="hidden" id="pf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="pf-name" required placeholder="code-review" pattern="[a-zA-Z0-9_-]+">
+      </div>
+      <div class="form-row">
+        <label>Content</label>
+        <textarea id="pf-content" required placeholder="Write your prompt template here..." style="min-height:200px;font-family:'SF Mono','Fira Code',monospace;font-size:12px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closePromptModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="pf-submit">Add Prompt</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="mcp-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMCPModal()">&times;</button>
+    <h3 id="mcp-modal-title">Add MCP Server</h3>
+    <form id="mcp-form" onsubmit="return submitMCP(event)">
+      <input type="hidden" id="mcpf-mode" value="add">
+      <div class="form-row">
+        <label>Name</label>
+        <input type="text" id="mcpf-name" required placeholder="playwright" pattern="[a-zA-Z0-9_-]+">
+      </div>
+      <div class="form-row">
+        <label>Config JSON</label>
+        <textarea id="mcpf-config" required placeholder='{"mcpServers":{"name":{"command":"npx","args":["..."]}}}' style="min-height:200px;font-family:'SF Mono','Fira Code',monospace;font-size:12px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeMCPModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="mcpf-submit">Add Server</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="memory-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeMemoryModal()">&times;</button>
+    <h3 id="memory-modal-title">Add Memory</h3>
+    <form id="memory-form" onsubmit="return submitMemory(event)">
+      <input type="hidden" id="mem-mode" value="add">
+      <div class="form-row">
+        <label>Role</label>
+        <input type="text" id="mem-role" required placeholder="role name">
+      </div>
+      <div class="form-row">
+        <label>Key</label>
+        <input type="text" id="mem-key" required placeholder="key name" pattern="[a-zA-Z_][a-zA-Z0-9_]*">
+      </div>
+      <div class="form-row">
+        <label>Value</label>
+        <textarea id="mem-value" required placeholder="Memory value..." style="min-height:100px"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn" onclick="closeMemoryModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="mem-submit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- New Chat Modal -->
+<div class="modal-overlay" id="new-chat-modal" onclick="if(event.target===this)closeNewChatModal()">
+  <div class="modal" style="min-width:340px;max-width:400px">
+    <button class="modal-close" onclick="closeNewChatModal()">&times;</button>
+    <h3>New Chat</h3>
+    <div class="form-row">
+      <label>Agent</label>
+      <select id="new-chat-role" class="chat-role-select" style="width:100%;padding:10px"></select>
+    </div>
+    <div class="form-actions">
+      <button class="btn" onclick="closeNewChatModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="createNewChat()">Start Chat</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sprite Customization Guide Modal -->
+<div class="modal-overlay" id="sprite-guide-modal" onclick="if(event.target===this)closeSpriteGuide()">
+  <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeSpriteGuide()">&times;</button>
+    <h3>Sprite Customization Guide</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Sprite files: <code style="color:var(--accent)">~/.tetora/media/sprites/</code>
+    </div>
+    <div style="font-size:13px;line-height:1.6;color:var(--text)">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Image Format</div>
+        <table style="font-size:12px;border-collapse:collapse;width:100%">
+          <tr><td style="padding:2px 8px;color:var(--muted)">Size</td><td><b>128 x 64 px</b></td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Cell</td><td><b>16 x 32 px</b> (8 cols x 2 rows = 16 frames)</td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Format</td><td>PNG, transparent background, no anti-aliasing</td></tr>
+          <tr><td style="padding:2px 8px;color:var(--muted)">Style</td><td>16-bit chibi pixel art (2.5 head proportion)</td></tr>
+        </table>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Grid Layout</div>
+<pre style="font-size:11px;color:var(--text);margin:0;line-height:1.4;font-family:var(--font-mono,'SF Mono',monospace)">128px
+&#9500;&#9472;16&#9472;&#9508;
+&#9484;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9516;&#9472;&#9472;&#9488;
+&#9474;00&#9474;01&#9474;02&#9474;03&#9474;04&#9474;05&#9474;06&#9474;07&#9474; Row 0: front-facing (walk + idle/action)
+&#9500;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9532;&#9472;&#9472;&#9508;
+&#9474;08&#9474;09&#9474;10&#9474;11&#9474;12&#9474;13&#9474;14&#9474;15&#9474; Row 1: back/side-facing (walk + alt actions)
+&#9492;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9524;&#9472;&#9472;&#9496;</pre>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Cell Rules</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px">
+          <li>Character <b>centered horizontally</b> in each 16px cell</li>
+          <li>Feet <b>aligned to bottom</b> of each 32px cell</li>
+          <li>Consistent position across all frames (no jittering)</li>
+          <li>No part extends beyond cell boundary</li>
+        </ul>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">config.json</div>
+<pre style="font-size:11px;color:var(--text);margin:0;line-height:1.4;font-family:var(--font-mono,'SF Mono',monospace)">{
+  "cellWidth": 16, "cellHeight": 32,
+  "states": [
+    { "name": "idle",  "row": 0, "frames": 4 },
+    { "name": "work",  "row": 0, "frames": 4 },
+    { "name": "think", "row": 1, "frames": 4 },
+    ...
+  ],
+  "agents": {
+    "ruri": { "sheet": "ruri.png" }
+  }
+}</pre>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px">
+          <b>row</b> = which row (0=top, 1=bottom) &nbsp;|&nbsp; <b>frames</b> = how many cols to cycle
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Animation</div>
+        <ul style="margin:0;padding-left:18px;font-size:12px">
+          <li><b>200ms per frame</b> (5 FPS), auto-looping</li>
+          <li>Walk cycle: left-step &#x2192; stand &#x2192; right-step &#x2192; stand</li>
+          <li>Agents walk between rooms based on task status</li>
+          <li>idle &#x2192; lounge, work/think &#x2192; desk, talk/review &#x2192; meeting room</li>
+        </ul>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--green)">AI Prompt — Gemini</div>
+        <div style="position:relative">
+<pre id="sg-prompt-gemini" style="font-size:11px;color:var(--text);margin:0;line-height:1.4;white-space:pre-wrap;font-family:var(--font-mono,'SF Mono',monospace)">Generate a pixel art character sprite sheet for a retro RPG game.
+
+Character: [DESCRIBE CHARACTER HERE]
+
+Requirements:
+- Image size: exactly 128 x 64 pixels
+- Grid layout: 8 columns x 2 rows, each cell is 16x32 pixels
+- Style: 16-bit SNES/RPG Maker chibi, 2-3 head tall
+- Background: fully transparent (PNG)
+- No anti-aliasing, hard pixel edges only
+- Each cell contains exactly ONE pose, centered, feet at bottom
+
+Row 0 (top): front-facing — 4 walk cycle + 4 idle/action
+Row 1 (bottom): back-facing — 4 walk cycle + 4 side-view
+
+Consistent palette across all 16 frames. No borders or grid lines.</pre>
+          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('sg-prompt-gemini').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)" style="position:absolute;top:4px;right:4px;padding:2px 8px;font-size:10px">Copy</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px;margin-bottom:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--green)">AI Prompt — ChatGPT</div>
+        <div style="position:relative">
+<pre id="sg-prompt-chatgpt" style="font-size:11px;color:var(--text);margin:0;line-height:1.4;white-space:pre-wrap;font-family:var(--font-mono,'SF Mono',monospace)">Create a single pixel art sprite sheet PNG, exactly 128x64 pixels.
+Grid: 8 columns x 2 rows. Each cell: 16px wide x 32px tall.
+
+Character: [DESCRIBE CHARACTER HERE]
+
+Style: 16-bit retro RPG chibi (RPG Maker / FF6), 2.5-head proportion, hard pixel edges, no smoothing, transparent background, limited palette (12-16 colors).
+
+Row 1 (top 32px): front-facing walk cycle (4 frames) + idle/action (4 frames)
+Row 2 (bottom 32px): back-facing walk cycle (4 frames) + alt actions (4 frames)
+
+CRITICAL: Each character centered in 16x32 cell. Feet at bottom. No grid lines. Exactly 128x64 pixels.</pre>
+          <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('sg-prompt-chatgpt').textContent);this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)" style="position:absolute;top:4px;right:4px;padding:2px 8px;font-size:10px">Copy</button>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:12px">
+        <div style="font-weight:bold;margin-bottom:8px;color:var(--accent)">Checklist</div>
+        <ol style="margin:0;padding-left:18px;font-size:12px">
+          <li>Image is exactly 128x64 px</li>
+          <li>Each 16x32 cell has one pose only</li>
+          <li>Feet aligned, character centered, no jitter</li>
+          <li>Transparent background, no white edges</li>
+          <li>Recognizable at actual 16px size</li>
+          <li>Same palette across all frames</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+

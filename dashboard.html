@@ -1450,6 +1450,82 @@ body.theme-material .logo {
 .wf-runs-table tr { cursor: pointer; }
 .wf-runs-table tr:hover { background: rgba(167,139,250,0.05) !important; }
 
+/* Workflow Definitions list */
+.wfed-def-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; transition: background 0.15s; }
+.wfed-def-row:hover { background: rgba(167,139,250,0.06); }
+.wfed-def-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.wfed-def-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.wfed-def-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* Editor section */
+.wfed-editor-section { border: 1px solid var(--accent); border-radius: 12px; }
+.wfed-toolbar { flex-wrap: wrap; gap: 8px; }
+.wfed-body { display: flex; gap: 16px; align-items: flex-start; margin-top: 12px; min-height: 300px; }
+.wfed-canvas-area { flex: 1; min-width: 0; }
+.wfed-canvas-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-height: 600px; height: calc(100vh - 200px); position: relative; cursor: default; }
+.wfed-svg { display: block; user-select: none; width: 100%; height: 100%; }
+.wfed-prop-area { width: 320px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; max-height: calc(100vh - 200px); min-height: 600px; overflow-y: auto; }
+.wfed-prop-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 10px 14px 6px; border-bottom: 1px solid var(--border); }
+
+/* Property panel fields */
+.wfed-prop-row { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.wfed-prop-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px; }
+.wfed-prop-input { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 12px; padding: 4px 7px; font-family: inherit; }
+.wfed-prop-input:focus { outline: none; border-color: var(--accent); }
+.wfed-prop-textarea { resize: vertical; min-height: 52px; }
+
+/* JSON editor textarea */
+.wfed-json-textarea { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 12px; font-family: 'JetBrains Mono', monospace; padding: 10px; resize: vertical; }
+.wfed-json-textarea:focus { outline: none; border-color: var(--accent); }
+
+/* Add step dropdown */
+.wfed-dropdown { position: absolute; top: 100%; left: 0; z-index: 100; background: var(--card); border: 1px solid var(--border); border-radius: 8px; min-width: 130px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 4px 0; }
+.wfed-dd-item { padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text); }
+.wfed-dd-item:hover { background: rgba(167,139,250,0.12); }
+
+/* DependsOn checkbox list */
+.wfed-depends-list { display: flex; flex-direction: column; gap: 3px; max-height: 120px; overflow-y: auto; }
+.wfed-dep-item { display: flex; align-items: flex-start; gap: 5px; font-size: 12px; cursor: pointer; color: var(--text); line-height: 1.4; }
+.wfed-dep-item input[type=checkbox] { margin-top: 2px; flex-shrink: 0; cursor: pointer; }
+/* Delay validation hint */
+.wfed-delay-hint { font-size: 10px; color: #f87171; margin-top: 2px; display: none; }
+/* Fullscreen mode */
+.wfed-fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 999 !important; background: var(--bg) !important; border-radius: 0 !important; border: none !important; overflow-y: auto; padding: 16px; box-sizing: border-box; }
+.wfed-fullscreen .wfed-canvas-wrap { height: calc(100vh - 140px) !important; }
+
+/* Editor SVG: nodes */
+.wed-node { cursor: grab; }
+.wed-node:active { cursor: grabbing; }
+.wed-node-shape { fill: #1a1a2e; stroke: #4b5563; stroke-width: 1.5; rx: 8; ry: 8; }
+.wed-node.selected .wed-node-shape { stroke: #a78bfa; stroke-width: 2.5; }
+.wed-node-dispatch .wed-node-shape { fill: #1a1a2e; stroke: #4b5563; }
+.wed-node-skill .wed-node-shape { fill: #0f2027; stroke: #22c55e; }
+.wed-node-condition .wed-node-shape { fill: #1c1100; stroke: #fbbf24; }
+.wed-node-parallel .wed-parallel-outer { fill: none; stroke: #60a5fa; stroke-width: 1.5; }
+.wed-node-parallel .wed-parallel-inner { fill: #0c1a2e; stroke: #60a5fa; stroke-width: 1; }
+.wed-node-tool_call .wed-node-shape { fill: #150f1f; stroke: #c084fc; }
+.wed-node-delay .wed-node-shape { fill: #0a1f1a; stroke: #34d399; }
+.wed-node-notify .wed-node-shape { fill: #1f1000; stroke: #fb923c; }
+.wed-node.selected.wed-node-dispatch .wed-node-shape { stroke: #a78bfa; }
+.wed-node-label { fill: var(--text); font-size: 11px; font-weight: 600; pointer-events: none; }
+.wed-node-sublabel { fill: #a1a1aa; font-size: 9px; pointer-events: none; }
+.wed-node-type { fill: #6b7280; font-size: 8px; pointer-events: none; text-transform: uppercase; letter-spacing: 0.3px; }
+
+/* Ports */
+.wed-port { cursor: crosshair; transition: r 0.1s; }
+.wed-port-out { fill: #6b7280; stroke: #1a1a2e; stroke-width: 1.5; }
+.wed-port-in { fill: transparent; stroke: transparent; }
+.wed-port-out:hover { fill: #a78bfa; r: 7; }
+
+/* Edges */
+.wed-edge { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+.wed-edge.handoff { stroke: #a78bfa; stroke-dasharray: 6,3; }
+.wed-conn-temp { stroke: #a78bfa; stroke-width: 1.5; fill: none; stroke-dasharray: 5,3; pointer-events: none; }
+
+/* btn-danger */
+.btn-danger { background: rgba(239,68,68,0.15) !important; color: #f87171 !important; border-color: rgba(239,68,68,0.3) !important; }
+.btn-danger:hover { background: rgba(239,68,68,0.25) !important; }
+
 /* Responsive */
 @media (max-width: 640px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
@@ -2057,6 +2133,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     <button id="tab-chat" onclick="switchTab('chat')">Chat</button>
     <button id="tab-workflows" onclick="switchTab('workflows')">Workflows</button>
     <button id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
+    <button id="tab-agents" onclick="switchTab('agents')">Agents</button>
     <button id="tab-settings" onclick="switchTab('settings')">Settings</button>
     <button id="tab-workspace" onclick="switchTab('workspace')">Workspace</button>
   </div>
@@ -2738,6 +2815,84 @@ body:not([class*="theme-"])::after, body.theme-default::after {
   </div><!-- /chat-content -->
 
   <div id="workflows-content" style="display:none">
+
+    <!-- Workflow Definitions -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Workflow Definitions</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="loadWorkflowDefs()">Refresh</button>
+          <button class="btn" onclick="newWorkflowDef()">+ New</button>
+        </div>
+      </div>
+      <div id="wf-defs-list"></div>
+    </div>
+
+    <!-- Visual Editor -->
+    <div class="section wfed-editor-section" id="wf-editor-panel" style="display:none">
+      <!-- Toolbar -->
+      <div class="section-header wfed-toolbar">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="section-title" id="wf-editor-title">Editor</span>
+          <span id="wf-dirty-badge" style="font-size:11px;font-weight:600;color:#34d399">&#x2713; Saved</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div style="position:relative;display:inline-block" id="wf-add-step-wrap">
+            <button class="btn" onclick="toggleAddStepMenu()">+ Step &#9662;</button>
+            <div id="wf-add-step-menu" class="wfed-dropdown" style="display:none">
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('dispatch');toggleAddStepMenu()">dispatch</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('skill');toggleAddStepMenu()">skill</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('condition');toggleAddStepMenu()">condition</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('parallel');toggleAddStepMenu()">parallel</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('tool_call');toggleAddStepMenu()">tool_call</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('delay');toggleAddStepMenu()">delay</div>
+              <div class="wfed-dd-item" onclick="addStepToWorkflow('notify');toggleAddStepMenu()">notify</div>
+            </div>
+          </div>
+          <button class="btn" onclick="wedAutoLayout()" title="Auto-layout nodes">&#x2B21; Layout</button>
+          <button class="btn" onclick="wedZoomIn()">+</button>
+          <button class="btn" onclick="wedZoomOut()">-</button>
+          <button class="btn" onclick="wedZoomReset()">1:1</button>
+          <button class="btn" onclick="toggleWfJsonEditor()">{ }</button>
+          <button class="btn" onclick="editWorkflowMeta()">&#x270E; Meta</button>
+          <button class="btn" id="wf-fullscreen-btn" onclick="wfEdToggleFullscreen()" title="全螢幕">&#x26F6;</button>
+          <button class="btn" onclick="showRunModal(wfEd.workflow)" title="執行此 workflow">&#9654; Run</button>
+          <button class="btn" id="wf-save-btn" onclick="saveWorkflowEditorData()" style="background:var(--accent);color:#fff;opacity:0.5">Save</button>
+          <button class="btn" onclick="closeWorkflowEditor()">Close</button>
+        </div>
+      </div>
+
+      <!-- Canvas + Property Panel -->
+      <div class="wfed-body">
+        <div class="wfed-canvas-area">
+          <div id="wf-editor-canvas-wrap" class="wfed-canvas-wrap">
+            <svg id="wf-editor-svg" class="wfed-svg"></svg>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">
+            拖拉空白處 移動畫布 &bull; 滾輪 縮放 &bull; 拖拉節點 移動 &bull; 拖右點連線
+          </div>
+        </div>
+        <div class="wfed-prop-area">
+          <div class="wfed-prop-title">Properties</div>
+          <div id="wf-prop-panel">
+            <div style="color:var(--muted);font-size:13px;padding:12px">Click a node to edit its properties.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- JSON Editor (collapsible) -->
+      <div id="wf-json-editor-panel" style="display:none;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <strong style="font-size:13px">Raw JSON</strong>
+          <div style="display:flex;gap:6px">
+            <button class="btn" onclick="applyWfJsonEdit()">Apply</button>
+            <button class="btn" onclick="document.getElementById('wf-json-editor-panel').style.display='none'">Cancel</button>
+          </div>
+        </div>
+        <textarea id="wf-json-textarea" class="wfed-json-textarea" rows="16" spellcheck="false"></textarea>
+      </div>
+    </div>
+
     <!-- Workflow Runs List -->
     <div class="section">
       <div class="section-header">
@@ -2747,7 +2902,19 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <div id="wf-runs-list"></div>
     </div>
 
-    <!-- DAG Visualization -->
+    <!-- Run Confirmation Modal -->
+    <div id="wf-run-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:300px;max-width:460px;width:90%;margin:auto">
+        <h3 style="margin:0 0 16px;color:var(--text);font-size:15px">&#9654; Run Workflow</h3>
+        <div id="wf-run-modal-body"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button class="btn" onclick="closeRunModal()">Cancel</button>
+          <button class="btn" style="background:var(--accent);color:#fff" onclick="confirmRunWorkflow()">&#9654; Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DAG Visualization (Run Detail) -->
     <div class="section" id="wf-dag-section" style="display:none">
       <div class="section-header">
         <span class="section-title" id="wf-dag-title">Run Details</span>
@@ -2912,6 +3079,71 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       </div>
     </div>
   </div><!-- /settings-content -->
+
+  <!-- Agents Tab -->
+  <div id="agents-content" style="display:none">
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Agents</span>
+        <button class="btn btn-add" onclick="openAgentModal()" style="padding:4px 12px;font-size:12px">+ New Agent</button>
+      </div>
+      <div id="agents-list">
+        <div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>
+      </div>
+    </div>
+  </div><!-- /agents-content -->
+
+  <!-- Agent Create/Edit Modal -->
+  <div class="modal-overlay" id="agent-modal" style="display:none" onclick="if(event.target===this)closeAgentModal()">
+    <div class="modal" style="max-width:560px;width:100%">
+      <button class="modal-close" onclick="closeAgentModal()">&times;</button>
+      <h3 id="agent-modal-title" style="margin:0 0 16px 0">New Agent</h3>
+      <form id="agent-form" onsubmit="submitAgentForm(event)">
+        <input type="hidden" id="af-mode" value="create">
+        <!-- Name (create only) -->
+        <div id="af-name-row" style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Name <span style="color:var(--red)">*</span></label>
+          <input id="af-name" type="text" placeholder="e.g. kobayashi" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box" required>
+        </div>
+        <!-- Archetype (create only) -->
+        <div id="af-archetype-row" style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Template</label>
+          <select id="af-archetype" onchange="onArchetypeChange()" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">— custom —</option>
+          </select>
+        </div>
+        <!-- Model -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Model</label>
+          <input id="af-model" type="text" placeholder="claude-sonnet-4-6" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+        </div>
+        <!-- Permission Mode -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Permission Mode</label>
+          <select id="af-permission" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)">
+            <option value="">default</option>
+            <option value="bypassPermissions">bypassPermissions</option>
+            <option value="acceptEdits">acceptEdits</option>
+            <option value="auto">auto</option>
+          </select>
+        </div>
+        <!-- Description -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Description</label>
+          <input id="af-description" type="text" placeholder="Short description of this agent's role" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
+        </div>
+        <!-- SOUL.md -->
+        <div style="margin-bottom:16px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">SOUL.md</label>
+          <textarea id="af-soul" rows="12" placeholder="# Agent Name&#10;&#10;## Identity&#10;..." style="width:100%;padding:8px 10px;font-size:12px;font-family:var(--font-mono,monospace);background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);resize:vertical;box-sizing:border-box;line-height:1.5"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn" onclick="closeAgentModal()" style="padding:7px 18px">Cancel</button>
+          <button type="submit" id="af-submit" class="btn btn-add" style="padding:7px 18px">Create Agent</button>
+        </div>
+      </form>
+    </div>
+  </div><!-- /agent-modal -->
 
   <div id="workspace-content" style="display:none">
     <!-- Project Stats Bar -->
@@ -4060,9 +4292,15 @@ function formatDuration(ms) {
 
 async function fetchJSON(url, opts) {
   const resp = await fetch(API + url, opts);
-  const data = await resp.json();
+  var data;
+  try { data = await resp.json(); } catch(e) { data = {}; }
   if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
   return data;
+}
+
+// fetchAPI is an alias for fetchJSON (returns parsed JSON, throws on error).
+async function fetchAPI(url, opts) {
+  return fetchJSON(url, opts);
 }
 
 function toast(msg) {
@@ -7903,7 +8141,7 @@ function onJobProjectChange() {
 
 function switchTab(tab) {
   currentTab = tab;
-  ['dashboard','chat','workflows','integrations','settings','workspace'].forEach(function(t) {
+  ['dashboard','chat','workflows','integrations','agents','settings','workspace'].forEach(function(t) {
     document.getElementById('tab-' + t).classList.toggle('active', tab === t);
     document.getElementById(t + '-content').style.display = tab === t ? '' : 'none';
   });
@@ -7913,9 +8151,13 @@ function switchTab(tab) {
   }
   if (tab === 'workflows') {
     refreshWorkflowRuns();
+    loadWorkflowDefs();
   }
   if (tab === 'integrations') {
     refreshIntegrations();
+  }
+  if (tab === 'agents') {
+    refreshAgents();
   }
   if (tab === 'settings') {
     refreshSettings();
@@ -8460,6 +8702,205 @@ function archiveChat() {
     .catch(function(e) { toast('Archive failed: ' + e.message); });
 }
 
+// === Agent Management ===
+
+var _agentArchetypes = [];
+var _agentRunning = {};  // name -> bool (is running)
+
+async function refreshAgents() {
+  var list = document.getElementById('agents-list');
+  if (!list) return;
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:20px;text-align:center">Loading agents...</div>';
+
+  try {
+    var [roles, running] = await Promise.all([
+      fetchJSON('/roles').catch(function() { return []; }),
+      fetchJSON('/api/agents/running').catch(function() { return {}; }),
+    ]);
+
+    // Build running map: agent name -> array of tasks
+    _agentRunning = {};
+    if (running && typeof running === 'object') {
+      Object.keys(running).forEach(function(k) {
+        _agentRunning[k] = (running[k] || []).length > 0;
+      });
+    }
+
+    if (!Array.isArray(roles) || roles.length === 0) {
+      list.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center">No agents configured.<br><br><button class="btn btn-add" onclick="openAgentModal()" style="padding:6px 16px">+ New Agent</button></div>';
+      return;
+    }
+
+    // Sort alphabetically
+    roles.sort(function(a, b) { return a.name.localeCompare(b.name); });
+
+    var html = '<div class="agents-grid">';
+    roles.forEach(function(r) {
+      var isRunning = !!_agentRunning[r.name];
+      var statusDot = isRunning
+        ? '<span class="dot dot-green" title="Working" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;vertical-align:middle"></span>'
+        : '<span class="dot dot-gray" title="Idle" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:middle"></span>';
+      var statusLabel = isRunning ? '<span style="color:var(--green);font-size:11px">Working</span>' : '<span style="color:var(--muted);font-size:11px">Idle</span>';
+      var model = r.model || '—';
+      var desc = esc(r.description || '');
+      var preview = r.soulPreview ? esc(r.soulPreview.slice(0, 120)) + (r.soulPreview.length > 120 ? '…' : '') : '<span style="color:var(--muted)">No SOUL.md</span>';
+
+      html += '<div class="agent-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:16px;display:flex;flex-direction:column;gap:10px">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
+      html += '<div style="display:flex;align-items:center;gap:8px">' + statusDot + '<span style="font-weight:bold;font-size:14px">' + esc(r.name) + '</span></div>';
+      html += '<div style="display:flex;align-items:center;gap:6px">' + statusLabel;
+      html += '<button class="btn" onclick="openAgentModal(\'' + esc(r.name) + '\')" style="padding:3px 10px;font-size:11px">Edit</button>';
+      html += '<button class="btn" onclick="deleteAgent(\'' + esc(r.name) + '\')" style="padding:3px 10px;font-size:11px;color:var(--red);border-color:var(--red)">Delete</button>';
+      html += '</div></div>';
+
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px">';
+      html += '<div><span style="color:var(--muted)">Model: </span>' + esc(model) + '</div>';
+      html += '<div><span style="color:var(--muted)">Mode: </span>' + esc(r.permissionMode || 'default') + '</div>';
+      if (desc) html += '<div style="grid-column:1/-1"><span style="color:var(--muted)">Description: </span>' + desc + '</div>';
+      html += '</div>';
+
+      html += '<div style="font-size:11px;color:var(--muted);background:var(--bg);border-radius:4px;padding:8px;font-family:var(--font-mono,monospace);white-space:pre-wrap;line-height:1.4;max-height:60px;overflow:hidden">' + preview + '</div>';
+      html += '</div>'; // /agent-card
+    });
+    html += '</div>';
+    list.innerHTML = html;
+  } catch (e) {
+    list.innerHTML = '<div style="color:var(--red);font-size:13px;padding:20px">Error: ' + esc(e.message) + '</div>';
+  }
+}
+
+async function openAgentModal(editName) {
+  // Load archetypes if not cached
+  if (_agentArchetypes.length === 0) {
+    try {
+      _agentArchetypes = await fetchJSON('/roles/archetypes');
+    } catch(e) { _agentArchetypes = []; }
+  }
+
+  var modal = document.getElementById('agent-modal');
+  var form = document.getElementById('agent-form');
+  form.reset();
+
+  document.getElementById('agent-modal-title').textContent = editName ? 'Edit Agent' : 'New Agent';
+  document.getElementById('af-mode').value = editName ? 'edit' : 'create';
+  document.getElementById('af-name').disabled = !!editName;
+  document.getElementById('af-name-row').style.display = editName ? 'none' : '';
+  document.getElementById('af-archetype-row').style.display = editName ? 'none' : '';
+  document.getElementById('af-submit').textContent = editName ? 'Save Changes' : 'Create Agent';
+
+  // Populate archetype dropdown
+  var archSel = document.getElementById('af-archetype');
+  archSel.innerHTML = '<option value="">— custom —</option>';
+  _agentArchetypes.forEach(function(a) {
+    var opt = document.createElement('option');
+    opt.value = a.name;
+    opt.textContent = a.name + ' — ' + (a.description || '');
+    archSel.appendChild(opt);
+  });
+
+  if (editName) {
+    // Load existing agent data
+    try {
+      var data = await fetchJSON('/roles/' + encodeURIComponent(editName));
+      document.getElementById('af-name').value = editName;
+      document.getElementById('af-model').value = data.model || '';
+      document.getElementById('af-permission').value = data.permissionMode || '';
+      document.getElementById('af-description').value = data.description || '';
+      document.getElementById('af-soul').value = data.soulContent || '';
+    } catch(e) {
+      toast('Error loading agent: ' + e.message);
+      return;
+    }
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeAgentModal() {
+  document.getElementById('agent-modal').style.display = 'none';
+}
+
+function onArchetypeChange() {
+  var sel = document.getElementById('af-archetype');
+  var name = sel.value;
+  if (!name) return;
+  var arch = _agentArchetypes.find(function(a) { return a.name === name; });
+  if (!arch) return;
+  if (arch.model) document.getElementById('af-model').value = arch.model;
+  if (arch.permissionMode) document.getElementById('af-permission').value = arch.permissionMode;
+  if (arch.soulTemplate) document.getElementById('af-soul').value = arch.soulTemplate;
+  // Pre-fill name field
+  var nameField = document.getElementById('af-name');
+  if (!nameField.value) nameField.value = name.toLowerCase().replace(/\s+/g, '-');
+}
+
+async function submitAgentForm(e) {
+  e.preventDefault();
+  var mode = document.getElementById('af-mode').value;
+  var name = document.getElementById('af-name').value.trim();
+  var model = document.getElementById('af-model').value.trim();
+  var permission = document.getElementById('af-permission').value.trim();
+  var description = document.getElementById('af-description').value.trim();
+  var soul = document.getElementById('af-soul').value;
+
+  if (mode === 'create' && !name) {
+    toast('Name is required');
+    return;
+  }
+
+  var btn = document.getElementById('af-submit');
+  btn.disabled = true;
+  btn.textContent = mode === 'create' ? 'Creating...' : 'Saving...';
+
+  try {
+    var payload = { model: model, permissionMode: permission, description: description, soulContent: soul };
+    var resp;
+    if (mode === 'create') {
+      payload.name = name;
+      resp = await fetch('/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      resp = await fetch('/roles/' + encodeURIComponent(name), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    if (resp.ok) {
+      closeAgentModal();
+      toast(mode === 'create' ? 'Agent created' : 'Agent updated');
+      refreshAgents();
+    } else {
+      var data = await resp.json().catch(function() { return {}; });
+      toast('Error: ' + (data.error || resp.statusText));
+    }
+  } catch(err) {
+    toast('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = mode === 'create' ? 'Create Agent' : 'Save Changes';
+  }
+}
+
+async function deleteAgent(name) {
+  if (!confirm('Delete agent "' + name + '"?\n\nThis will remove the agent from config. The SOUL.md file will remain on disk.')) return;
+  try {
+    var resp = await fetch('/roles/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (resp.ok) {
+      toast('Agent "' + name + '" deleted');
+      refreshAgents();
+    } else {
+      var data = await resp.json().catch(function() { return {}; });
+      toast('Error: ' + (data.error || resp.statusText));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
+  }
+}
 // --- Agent Communication ---
 async function refreshAgentComm() {
   try {
@@ -8527,8 +8968,7 @@ async function refreshVersions() {
     var filter = document.getElementById('version-type-filter').value;
     var url = '/versions?limit=30';
     if (filter) url += '&type=' + filter;
-    const res = await fetchAPI(url);
-    const versions = await res.json();
+    const versions = await fetchAPI(url);
     const section = document.getElementById('version-section');
     const body = document.getElementById('version-body');
     const meta = document.getElementById('version-meta');
@@ -8575,8 +9015,7 @@ async function snapshotConfig() {
 
 async function showVersion(vid) {
   try {
-    const res = await fetchAPI('/config/versions/' + vid);
-    const ver = await res.json();
+    const ver = await fetchAPI('/config/versions/' + vid);
     var modal = document.getElementById('version-diff-modal');
     var title = document.getElementById('diff-title');
     var content = document.getElementById('diff-content');
@@ -8603,8 +9042,7 @@ async function restoreVersion(vid) {
 // --- Trust Gradient ---
 async function refreshTrust() {
   try {
-    const res = await fetchAPI('/trust');
-    const statuses = await res.json();
+    const statuses = await fetchAPI('/trust');
     const section = document.getElementById('trust-section');
     const cards = document.getElementById('trust-cards');
     const meta = document.getElementById('trust-meta');
@@ -8644,8 +9082,7 @@ async function refreshTrust() {
 // --- Agent SLA ---
 async function refreshSLA() {
   try {
-    const res = await fetchAPI('/stats/sla');
-    const data = await res.json();
+    const data = await fetchAPI('/stats/sla');
     const statuses = data.statuses || [];
     const section = document.getElementById('sla-section');
     const cards = document.getElementById('sla-cards');
@@ -8700,8 +9137,7 @@ async function refreshSLA() {
 // --- Provider Health (Circuit Breakers) ---
 async function refreshCircuits() {
   try {
-    const res = await fetchAPI('/circuits');
-    const data = await res.json();
+    const data = await fetchAPI('/circuits');
     const providers = Object.keys(data);
     const section = document.getElementById('circuits-section');
     const list = document.getElementById('circuits-list');
@@ -9327,6 +9763,1193 @@ function escAttr(s) {
 }
 
 // --- End Workflow Visualization ---
+// --- Workflow Visual Editor ---
+// Phase 1: Read-only DAG from workflow JSON definition
+// Phase 2: Edit nodes (add/delete/properties), connect, save
+// Phase 3: Drag position, auto-layout, zoom/pan (space+drag)
+
+var wfEd = {
+  workflow: null,       // { name, description, steps, variables }
+  positions: {},        // { stepId: {x, y} }
+  selected: null,       // selected step ID
+  dirty: false,
+  drag: null,           // { nodeId, startMX, startMY, origX, origY }
+  connStart: null,      // { nodeId } port drag start
+  connMX: 0, connMY: 0, // current mouse position for temp connector
+  zoom: 1,
+  panX: 0, panY: 0,
+  panDrag: null,        // { startMX, startMY, origPanX, origPanY }
+  NODE_W: 180, NODE_H: 64,
+  agents: [],           // cached from /api/agents
+  skills: [],           // cached from /api/skills
+  tools: [],            // cached from /api/tools
+};
+
+// ---- Workflow Definitions List ----
+
+async function loadWorkflowDefs() {
+  var el = document.getElementById('wf-defs-list');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px">Loading...</span>';
+  try {
+    var workflows = await fetchJSON('/workflows').catch(() => []);
+    if (!workflows || workflows.length === 0) {
+      el.innerHTML = '<span style="color:var(--muted);font-size:13px">No workflows found. Create one below.</span>';
+      return;
+    }
+    var html = '';
+    workflows.forEach(function(wf) {
+      var steps = (wf.steps || []).length;
+      var safeName = escAttr(wf.name);
+      html += '<div class="wfed-def-row" onclick="openWorkflowEditor(\'' + safeName + '\')">' +
+        '<div class="wfed-def-name">' + esc(wf.name) + '</div>' +
+        '<div class="wfed-def-meta">' + steps + ' step' + (steps !== 1 ? 's' : '') +
+          (wf.description ? ' &middot; ' + esc(wf.description.substring(0, 60)) : '') + '</div>' +
+        '<div class="wfed-def-actions" onclick="event.stopPropagation()">' +
+          '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="openWorkflowEditor(\'' + safeName + '\')">Edit</button>' +
+          '<button class="btn" style="font-size:11px;padding:2px 8px" onclick="runWorkflowByName(\'' + safeName + '\')">Run</button>' +
+          '<button class="btn btn-danger" style="font-size:11px;padding:2px 8px" onclick="deleteWorkflowDef(\'' + safeName + '\')">Del</button>' +
+        '</div>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<span style="color:#f87171;font-size:13px">Failed to load workflows</span>';
+  }
+}
+
+async function deleteWorkflowDef(name) {
+  if (!confirm('Delete workflow "' + name + '"?')) return;
+  try {
+    await fetchAPI('/workflows/' + encodeURIComponent(name), { method: 'DELETE' });
+    toast('Workflow deleted');
+    loadWorkflowDefs();
+    if (wfEd.workflow && wfEd.workflow.name === name) closeWorkflowEditor();
+  } catch(e) {
+    toast('Delete failed: ' + e.message);
+  }
+}
+
+async function runWorkflowByName(name) {
+  showRunModal({ name: name, variables: {} });
+}
+
+function newWorkflowDef() {
+  var name = prompt('Workflow name (no spaces, e.g. my-workflow):');
+  if (!name || !name.trim()) return;
+  name = name.trim().replace(/\s+/g, '-');
+  openWorkflowEditorWithData({
+    name: name,
+    description: '',
+    steps: [],
+    variables: {},
+  });
+}
+
+// ---- Open Editor ----
+
+async function openWorkflowEditor(name) {
+  try {
+    var wf = await fetchJSON('/workflows/' + encodeURIComponent(name));
+    openWorkflowEditorWithData(wf);
+  } catch(e) {
+    toast('Failed to open "' + name + '": ' + e.message);
+    console.error('openWorkflowEditor error', name, e);
+  }
+}
+
+function openWorkflowEditorWithData(wf) {
+  if (!wf || typeof wf !== 'object') { toast('Invalid workflow data'); return; }
+  wfEd.workflow = JSON.parse(JSON.stringify(wf)); // deep clone
+  wfEd.workflow.steps = wfEd.workflow.steps || [];
+  wfEd.selected = null;
+  wfEd.dirty = false;
+  wfEd.zoom = 1;
+  wfEd.panX = 0;
+  wfEd.panY = 0;
+  wfEd.drag = null;
+  wfEd.connStart = null;
+  wfEd.panDrag = null;
+
+  // Auto-layout positions
+  wfEd.positions = autoLayoutPositions(wfEd.workflow.steps);
+
+  var panel = document.getElementById('wf-editor-panel');
+  if (panel) panel.style.display = '';
+
+  document.getElementById('wf-editor-title').textContent = wf.name;
+  renderEditorCanvas();
+  renderPropertyPanel(null);
+  updateDirtyIndicator();
+
+  // Register keyboard listeners for pan
+  wedRegisterKeyListeners();
+
+  // Prevent default middle-click scroll on canvas wrap (once)
+  var canvasWrap = document.getElementById('wf-editor-canvas-wrap');
+  if (canvasWrap && !canvasWrap._wedMidClick) {
+    canvasWrap._wedMidClick = true;
+    canvasWrap.addEventListener('mousedown', function(e) {
+      if (e.button === 1) e.preventDefault();
+    });
+  }
+
+  // Pre-load agents, skills and tools for dropdowns
+  wfLoadAgents();
+  wfLoadSkills();
+  wfLoadTools();
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeWorkflowEditor() {
+  if (wfEd.dirty && !confirm('Unsaved changes. Close anyway?')) return;
+  var panel = document.getElementById('wf-editor-panel');
+  if (panel) panel.style.display = 'none';
+  wfEd.workflow = null;
+  wfEd.selected = null;
+  wfEd.dirty = false;
+  wedUnregisterKeyListeners();
+}
+
+// ---- Keyboard Listeners ----
+
+function wedRegisterKeyListeners() {
+  // No keyboard shortcuts needed — pan is by dragging empty canvas
+}
+
+function wedUnregisterKeyListeners() {
+  // No-op
+}
+
+// ---- Auto-Layout ----
+
+function autoLayoutPositions(steps) {
+  if (!steps || steps.length === 0) return {};
+  var NW = wfEd.NODE_W, NH = wfEd.NODE_H;
+  var GAP_X = 80, GAP_Y = 36, PAD = 40;
+
+  // Build dep map
+  var depMap = {};
+  steps.forEach(function(s) { depMap[s.id] = s.dependsOn || []; });
+
+  // Compute layers via longest path
+  var layers = {}, visited = {};
+  function getLayer(id) {
+    if (id in layers) return layers[id];
+    if (visited[id]) { layers[id] = 0; return 0; }
+    visited[id] = true;
+    var deps = depMap[id] || [];
+    var max = -1;
+    deps.forEach(function(d) { if (d in depMap) max = Math.max(max, getLayer(d)); });
+    layers[id] = max + 1;
+    return layers[id];
+  }
+  steps.forEach(function(s) { getLayer(s.id); });
+
+  // Group by layer
+  var byLayer = {};
+  steps.forEach(function(s) {
+    var l = layers[s.id] || 0;
+    if (!byLayer[l]) byLayer[l] = [];
+    byLayer[l].push(s.id);
+  });
+
+  var positions = {};
+  Object.keys(byLayer).forEach(function(l) {
+    var col = parseInt(l, 10);
+    byLayer[l].forEach(function(id, row) {
+      positions[id] = {
+        x: PAD + col * (NW + GAP_X),
+        y: PAD + row * (NH + GAP_Y)
+      };
+    });
+  });
+
+  return positions;
+}
+
+// ---- Compute Canvas Bounds ----
+
+function computeCanvasBounds(steps) {
+  var NW = wfEd.NODE_W, NH = wfEd.NODE_H;
+  var maxX = 500, maxY = 260;
+  steps.forEach(function(s) {
+    var p = wfEd.positions[s.id];
+    if (p) {
+      maxX = Math.max(maxX, p.x + NW + 80);
+      maxY = Math.max(maxY, p.y + NH + 80);
+    }
+  });
+  return { w: maxX, h: maxY };
+}
+
+// ---- Apply Viewport Transform ----
+
+function applyViewTransform() {
+  var g = document.getElementById('wed-viewport');
+  if (g) {
+    g.setAttribute('transform', 'translate(' + wfEd.panX + ',' + wfEd.panY + ') scale(' + wfEd.zoom + ')');
+  }
+}
+
+// ---- Render Canvas ----
+
+function renderEditorCanvas() {
+  var svg = document.getElementById('wf-editor-svg');
+  if (!svg || !wfEd.workflow) return;
+
+  var steps = wfEd.workflow.steps || [];
+  var NW = wfEd.NODE_W, NH = wfEd.NODE_H;
+  var bounds = computeCanvasBounds(steps);
+
+  // SVG fills the wrap, content is inside #wed-viewport (pan+zoom transform)
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.style.minWidth = bounds.w + 'px';
+  svg.style.minHeight = bounds.h + 'px';
+
+  var html = '<defs>';
+  html += '<marker id="wed-arrow" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="7" markerHeight="5" orient="auto-start-reverse"><polygon points="0 0,10 3.5,0 7" fill="#6b7280"/></marker>';
+  html += '<marker id="wed-arrow-sel" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="7" markerHeight="5" orient="auto-start-reverse"><polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/></marker>';
+  html += '</defs>';
+  html += '<rect id="wed-bg" x="0" y="0" width="100%" height="100%" fill="transparent"/>';
+  html += '<g id="wed-viewport" transform="translate(' + wfEd.panX + ',' + wfEd.panY + ') scale(' + wfEd.zoom + ')">';
+
+  // Draw edges (dependsOn)
+  steps.forEach(function(s) {
+    var to = wfEd.positions[s.id];
+    if (!to) return;
+    (s.dependsOn || []).forEach(function(depId) {
+      var from = wfEd.positions[depId];
+      if (!from) return;
+      var x1 = from.x + NW, y1 = from.y + NH / 2;
+      var x2 = to.x, y2 = to.y + NH / 2;
+      var cx = (x1 + x2) / 2;
+      var isHandoff = s.handoffFrom === depId;
+      var cls = isHandoff ? 'wed-edge handoff' : 'wed-edge';
+      var marker = isHandoff ? 'url(#wed-arrow-sel)' : 'url(#wed-arrow)';
+      html += '<path class="' + cls + '" d="M' + x1 + ' ' + y1 +
+        ' C' + cx + ' ' + y1 + ' ' + cx + ' ' + y2 + ' ' + x2 + ' ' + y2 +
+        '" marker-end="' + marker + '"/>';
+    });
+  });
+
+  // Temp connector line (while dragging from port)
+  if (wfEd.connStart) {
+    var fp = wfEd.positions[wfEd.connStart];
+    if (fp) {
+      html += '<line id="wed-conn-temp" class="wed-conn-temp" x1="' + (fp.x + NW) + '" y1="' + (fp.y + NH/2) + '" x2="' + wfEd.connMX + '" y2="' + wfEd.connMY + '"/>';
+    }
+  }
+
+  // Draw nodes
+  steps.forEach(function(s) {
+    var p = wfEd.positions[s.id];
+    if (!p) return;
+    var isSel = wfEd.selected === s.id;
+    var typeClass = 'wed-node-' + (s.type || 'dispatch');
+    var selClass = isSel ? ' selected' : '';
+
+    html += '<g class="wed-node ' + typeClass + selClass + '" id="wed-n-' + escAttr(s.id) + '"' +
+      ' data-id="' + escAttr(s.id) + '">';
+
+    if (s.type === 'condition') {
+      // Diamond shape
+      var cx = p.x + NW/2, cy = p.y + NH/2;
+      var hw = NW/2 - 4, hh = NH/2 - 4;
+      html += '<polygon class="wed-node-shape" points="' +
+        cx + ',' + (cy - hh) + ' ' +
+        (cx + hw) + ',' + cy + ' ' +
+        cx + ',' + (cy + hh) + ' ' +
+        (cx - hw) + ',' + cy + '"/>';
+    } else if (s.type === 'parallel') {
+      // Double border rect
+      html += '<rect class="wed-node-shape wed-parallel-outer" x="' + (p.x + 3) + '" y="' + (p.y + 3) + '" width="' + (NW - 6) + '" height="' + (NH - 6) + '" rx="8"/>';
+      html += '<rect class="wed-node-shape wed-parallel-inner" x="' + (p.x + 7) + '" y="' + (p.y + 7) + '" width="' + (NW - 14) + '" height="' + (NH - 14) + '" rx="6"/>';
+    } else {
+      html += '<rect class="wed-node-shape" x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH + '" rx="8"/>';
+    }
+
+    // Type badge
+    var typeLabel = s.type && s.type !== 'dispatch' ? s.type : '';
+    var nodeLabel = s.id.length > 18 ? s.id.substring(0, 16) + '..' : s.id;
+    var roleLabel = s.agent || s.skill || '';
+    if (roleLabel.length > 16) roleLabel = roleLabel.substring(0, 14) + '..';
+
+    var textY = p.y + (roleLabel || typeLabel ? 20 : 30);
+    html += '<text class="wed-node-label" x="' + (p.x + NW/2) + '" y="' + textY + '" text-anchor="middle">' + esc(nodeLabel) + '</text>';
+    if (roleLabel) {
+      html += '<text class="wed-node-sublabel" x="' + (p.x + NW/2) + '" y="' + (p.y + 36) + '" text-anchor="middle">' + esc(roleLabel) + '</text>';
+    }
+    if (typeLabel) {
+      html += '<text class="wed-node-type" x="' + (p.x + 10) + '" y="' + (p.y + 13) + '">' + esc(typeLabel) + '</text>';
+    }
+
+    // Output port (right side)
+    html += '<circle class="wed-port wed-port-out" cx="' + (p.x + NW) + '" cy="' + (p.y + NH/2) + '" r="5" data-id="' + escAttr(s.id) + '"/>';
+    // Input port (left side, visual only)
+    html += '<circle class="wed-port wed-port-in" cx="' + p.x + '" cy="' + (p.y + NH/2) + '" r="5" data-id="' + escAttr(s.id) + '"/>';
+
+    html += '</g>';
+  });
+
+  html += '</g>'; // end #wed-viewport
+
+  svg.innerHTML = html;
+
+  // Attach drag events to nodes
+  steps.forEach(function(s) {
+    var g = document.getElementById('wed-n-' + s.id);
+    if (g) {
+      g.addEventListener('mousedown', wedNodeMousedown);
+    }
+  });
+
+  // Attach port drag events
+  svg.querySelectorAll('.wed-port-out').forEach(function(port) {
+    port.addEventListener('mousedown', wedPortMousedown);
+  });
+
+  // Canvas-level mouse events for pan/deselect
+  svg.addEventListener('mousedown', wedSVGMousedown);
+  svg.addEventListener('mousemove', wedSVGMousemove);
+  svg.addEventListener('mouseup', wedSVGMouseup);
+  svg.addEventListener('wheel', wedSVGWheel, { passive: false });
+
+  // Keep JSON panel in sync if visible
+  syncJsonPanelIfVisible();
+}
+
+// ---- Drag: Nodes ----
+
+function wedNodeMousedown(e) {
+  if (e.target.classList.contains('wed-port')) return; // handled by port handler
+  if (e.button === 1) return; // middle click → let SVG handle pan
+  e.preventDefault();
+  e.stopPropagation();
+  var g = e.currentTarget;
+  var id = g.getAttribute('data-id');
+
+  // Select node
+  wfEd.selected = id;
+  renderPropertyPanel(id);
+
+  // Start drag
+  var svg = document.getElementById('wf-editor-svg');
+  var pt = svgViewportPoint(svg, e.clientX, e.clientY);
+  var pos = wfEd.positions[id] || { x: 0, y: 0 };
+  wfEd.drag = { nodeId: id, startMX: pt.x, startMY: pt.y, origX: pos.x, origY: pos.y };
+
+  // Highlight selected
+  svg.querySelectorAll('.wed-node').forEach(function(n) { n.classList.remove('selected'); });
+  g.classList.add('selected');
+}
+
+// ---- Drag: Ports (connections) ----
+
+function wedPortMousedown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var id = e.target.getAttribute('data-id');
+  wfEd.connStart = id;
+  var svg = document.getElementById('wf-editor-svg');
+  var pt = svgViewportPoint(svg, e.clientX, e.clientY);
+  wfEd.connMX = pt.x;
+  wfEd.connMY = pt.y;
+}
+
+// ---- SVG Mouse Events ----
+
+function wedSVGMousedown(e) {
+  // Middle button → pan
+  if (e.button === 1) {
+    e.preventDefault();
+    var wrap = document.getElementById('wf-editor-canvas-wrap');
+    if (wrap) wrap.style.cursor = 'grabbing';
+    wfEd.panDrag = {
+      startMX: e.clientX,
+      startMY: e.clientY,
+      origPanX: wfEd.panX,
+      origPanY: wfEd.panY,
+    };
+    return;
+  }
+
+  // Left-click on empty canvas → pan (drag) + deselect
+  if (e.target === e.currentTarget || e.target.tagName === 'svg' || e.target.id === 'wed-bg') {
+    if (!wfEd.drag && !wfEd.connStart) {
+      wfEd.selected = null;
+      renderPropertyPanel(null);
+      var svg = document.getElementById('wf-editor-svg');
+      svg.querySelectorAll('.wed-node').forEach(function(n) { n.classList.remove('selected'); });
+    }
+    // Start pan drag on empty canvas
+    e.preventDefault();
+    var wrap = document.getElementById('wf-editor-canvas-wrap');
+    if (wrap) wrap.style.cursor = 'grabbing';
+    wfEd.panDrag = {
+      startMX: e.clientX,
+      startMY: e.clientY,
+      origPanX: wfEd.panX,
+      origPanY: wfEd.panY,
+    };
+    return;
+  }
+}
+
+function wedSVGMousemove(e) {
+  var svg = document.getElementById('wf-editor-svg');
+  if (!svg) return;
+
+  // Pan drag
+  if (wfEd.panDrag) {
+    e.preventDefault();
+    var dx = e.clientX - wfEd.panDrag.startMX;
+    var dy = e.clientY - wfEd.panDrag.startMY;
+    wfEd.panX = wfEd.panDrag.origPanX + dx;
+    wfEd.panY = wfEd.panDrag.origPanY + dy;
+    applyViewTransform();
+    return;
+  }
+
+  if (wfEd.drag) {
+    e.preventDefault();
+    var pt = svgViewportPoint(svg, e.clientX, e.clientY);
+    var dx = pt.x - wfEd.drag.startMX;
+    var dy = pt.y - wfEd.drag.startMY;
+    var nx = Math.max(0, wfEd.drag.origX + dx);
+    var ny = Math.max(0, wfEd.drag.origY + dy);
+    wfEd.positions[wfEd.drag.nodeId] = { x: nx, y: ny };
+    renderEditorCanvas();
+    // Re-select after re-render
+    var g = document.getElementById('wed-n-' + wfEd.drag.nodeId);
+    if (g) g.classList.add('selected');
+    return;
+  }
+
+  if (wfEd.connStart) {
+    e.preventDefault();
+    var pt = svgViewportPoint(svg, e.clientX, e.clientY);
+    wfEd.connMX = pt.x;
+    wfEd.connMY = pt.y;
+
+    // Update temp line
+    var line = document.getElementById('wed-conn-temp');
+    if (line) {
+      line.setAttribute('x2', pt.x);
+      line.setAttribute('y2', pt.y);
+    } else {
+      renderEditorCanvas();
+    }
+    return;
+  }
+}
+
+function wedSVGMouseup(e) {
+  // End pan drag
+  if (wfEd.panDrag) {
+    wfEd.panDrag = null;
+    var wrap = document.getElementById('wf-editor-canvas-wrap');
+    if (wrap) wrap.style.cursor = '';
+    return;
+  }
+
+  if (wfEd.drag) {
+    wfEd.drag = null;
+    wfEd.dirty = true;
+    updateDirtyIndicator();
+    return;
+  }
+
+  if (wfEd.connStart) {
+    var svg = document.getElementById('wf-editor-svg');
+    // Find if mouse is over a node (in viewport space)
+    var pt = svgViewportPoint(svg, e.clientX, e.clientY);
+    var targetId = findNodeAtPoint(pt.x, pt.y);
+    if (targetId && targetId !== wfEd.connStart) {
+      // Add edge: targetId.dependsOn += connStart
+      var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === targetId; });
+      if (step) {
+        if (!step.dependsOn) step.dependsOn = [];
+        if (!step.dependsOn.includes(wfEd.connStart)) {
+          step.dependsOn.push(wfEd.connStart);
+          wfEd.dirty = true;
+          updateDirtyIndicator();
+          toast('Connected: ' + wfEd.connStart + ' → ' + targetId);
+        }
+      }
+    }
+    wfEd.connStart = null;
+    renderEditorCanvas();
+    return;
+  }
+}
+
+function wedSVGWheel(e) {
+  e.preventDefault();
+  var delta = e.deltaY > 0 ? 0.9 : 1.1;
+  var newZoom = Math.max(0.2, Math.min(4, wfEd.zoom * delta));
+
+  // Zoom toward mouse cursor: adjust pan so the point under cursor stays fixed
+  var svg = document.getElementById('wf-editor-svg');
+  if (svg) {
+    var rect = svg.getBoundingClientRect();
+    var mx = e.clientX - rect.left;
+    var my = e.clientY - rect.top;
+    // Point in viewport space before zoom
+    var vx = (mx - wfEd.panX) / wfEd.zoom;
+    var vy = (my - wfEd.panY) / wfEd.zoom;
+    // After zoom, adjust pan so vx/vy stays under mouse
+    wfEd.panX = mx - vx * newZoom;
+    wfEd.panY = my - vy * newZoom;
+  }
+
+  wfEd.zoom = newZoom;
+  applyViewTransform();
+}
+
+// ---- Coordinate helpers ----
+
+// Returns point in viewport (content) space, accounting for pan+zoom
+function svgViewportPoint(svg, clientX, clientY) {
+  var rect = svg.getBoundingClientRect();
+  var mx = clientX - rect.left;
+  var my = clientY - rect.top;
+  return {
+    x: (mx - wfEd.panX) / wfEd.zoom,
+    y: (my - wfEd.panY) / wfEd.zoom,
+  };
+}
+
+function findNodeAtPoint(x, y) {
+  var NW = wfEd.NODE_W, NH = wfEd.NODE_H;
+  var steps = wfEd.workflow.steps || [];
+  for (var i = 0; i < steps.length; i++) {
+    var p = wfEd.positions[steps[i].id];
+    if (!p) continue;
+    if (x >= p.x && x <= p.x + NW && y >= p.y && y <= p.y + NH) {
+      return steps[i].id;
+    }
+  }
+  return null;
+}
+
+// ---- Property Panel ----
+
+function renderPropertyPanel(stepId) {
+  var panel = document.getElementById('wf-prop-panel');
+  if (!panel) return;
+
+  if (!stepId || !wfEd.workflow) {
+    panel.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:16px">Click a node to edit its properties.</div>';
+    return;
+  }
+
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) {
+    panel.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:16px">Step not found.</div>';
+    return;
+  }
+
+  var fields = [
+    { key: 'id', label: 'ID', type: 'text', required: true },
+    { key: 'type', label: 'Type', type: 'select', options: ['dispatch','skill','condition','parallel','tool_call','delay','notify'] },
+    { key: 'agent', label: 'Agent', type: 'agent-select' },
+    { key: 'prompt', label: 'Prompt', type: 'textarea' },
+    { key: 'skill', label: 'Skill', type: 'skill-select' },
+    { key: 'model', label: 'Model', type: 'text', placeholder: 'claude-sonnet-4-6' },
+    { key: 'timeout', label: 'Timeout', type: 'text', placeholder: '30m' },
+    { key: 'budget', label: 'Budget ($)', type: 'number' },
+    { key: 'dependsOn', label: 'Depends On', type: 'depends' },
+    { key: 'if', label: 'Condition (if)', type: 'text' },
+    { key: 'then', label: 'Then (step ID)', type: 'text' },
+    { key: 'else', label: 'Else (step ID)', type: 'text' },
+    { key: 'handoffFrom', label: 'Handoff From', type: 'text' },
+    { key: 'toolName', label: 'Tool Name', type: 'tool-select' },
+    { key: 'delay', label: 'Delay', type: 'delay' },
+    { key: 'notifyMsg', label: 'Notify Message', type: 'text' },
+    { key: 'retryMax', label: 'Max Retries', type: 'number' },
+    { key: 'onError', label: 'On Error', type: 'select', options: ['', 'stop', 'skip', 'retry'] },
+  ];
+
+  var visibleFields = fields;
+  var stype = step.type || 'dispatch';
+  if (stype === 'dispatch') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','agent','prompt','model','timeout','budget','dependsOn','handoffFrom','retryMax','onError'].includes(f.key);
+    });
+  } else if (stype === 'skill') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','skill','dependsOn','timeout','retryMax','onError'].includes(f.key);
+    });
+  } else if (stype === 'condition') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','if','then','else','dependsOn'].includes(f.key);
+    });
+  } else if (stype === 'tool_call') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','toolName','dependsOn','retryMax','onError'].includes(f.key);
+    });
+  } else if (stype === 'delay') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','delay','dependsOn'].includes(f.key);
+    });
+  } else if (stype === 'notify') {
+    visibleFields = fields.filter(function(f) {
+      return ['id','type','notifyMsg','dependsOn'].includes(f.key);
+    });
+  }
+
+  var html = '<div style="padding:12px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+  html += '<strong style="color:var(--accent);font-size:14px">' + esc(step.id) + '</strong>';
+  html += '<button class="btn btn-danger" style="font-size:11px;padding:2px 8px" onclick="deleteStepById(' + JSON.stringify(stepId) + ')">Delete</button>';
+  html += '</div>';
+
+  visibleFields.forEach(function(f) {
+    html += '<div class="wfed-prop-row">';
+    html += '<label class="wfed-prop-label">' + esc(f.label) + '</label>';
+    var val = step[f.key];
+
+    if (f.type === 'select') {
+      html += '<select class="wfed-prop-input" onchange="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)">';
+      f.options.forEach(function(opt) {
+        var sel = (val === opt || (!val && opt === '')) ? ' selected' : '';
+        html += '<option value="' + escAttr(opt) + '"' + sel + '>' + esc(opt || '(default)') + '</option>';
+      });
+      html += '</select>';
+    } else if (f.type === 'textarea') {
+      html += '<textarea class="wfed-prop-input wfed-prop-textarea" rows="3" onblur="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"' +
+        (f.placeholder ? ' placeholder="' + escAttr(f.placeholder) + '"' : '') + '>' +
+        esc(val || '') + '</textarea>';
+    } else if (f.type === 'depends') {
+      var otherSteps = (wfEd.workflow.steps || []).filter(function(s) { return s.id !== stepId; });
+      var deps = Array.isArray(val) ? val : [];
+      if (otherSteps.length === 0) {
+        html += '<span style="color:var(--muted);font-size:11px">No other steps yet.</span>';
+      } else {
+        html += '<div class="wfed-depends-list">';
+        otherSteps.forEach(function(s) {
+          var isChk = deps.includes(s.id);
+          html += '<label class="wfed-dep-item">' +
+            '<input type="checkbox"' + (isChk ? ' checked' : '') +
+            ' onchange="toggleDependsOn(' + JSON.stringify(stepId) + ',' + JSON.stringify(s.id) + ',this.checked)"> ' +
+            esc(s.id) + ' <span style="color:var(--muted);font-size:10px">(' +
+            esc(s.type || 'dispatch') + (s.agent ? ', ' + esc(s.agent) : '') + ')</span>' +
+            '</label>';
+        });
+        html += '</div>';
+      }
+    } else if (f.type === 'skill-select') {
+      html += '<select class="wfed-prop-input" onchange="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)">';
+      html += '<option value="">-- select skill --</option>';
+      wfEd.skills.forEach(function(sk) {
+        var sel = val === sk.name ? ' selected' : '';
+        var label = sk.name + (sk.description ? ' \u2014 ' + sk.description.substring(0, 40) : '');
+        html += '<option value="' + escAttr(sk.name) + '"' + sel + '>' + esc(label) + '</option>';
+      });
+      html += '</select>';
+    } else if (f.type === 'tool-select') {
+      html += '<select class="wfed-prop-input" onchange="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)">';
+      html += '<option value="">-- select tool --</option>';
+      wfEd.tools.forEach(function(t) {
+        var sel = val === t.name ? ' selected' : '';
+        var label = t.name + (t.description ? ' \u2014 ' + t.description.substring(0, 40) : '');
+        html += '<option value="' + escAttr(t.name) + '"' + sel + '>' + esc(label) + '</option>';
+      });
+      html += '</select>';
+    } else if (f.type === 'agent-select') {
+      // Build list: workflow variables like {{agent}}, known agents, current value if custom
+      var agentOptions = [];
+      var vars = wfEd.workflow.variables || {};
+      Object.keys(vars).forEach(function(k) {
+        var tv = '{{' + k + '}}';
+        if (k.toLowerCase().indexOf('agent') !== -1 || k.toLowerCase().indexOf('role') !== -1) {
+          agentOptions.push({ value: tv, label: tv + ' (' + (vars[k] || 'variable') + ')' });
+        }
+      });
+      wfEd.agents.forEach(function(a) {
+        var name = a.name || a;
+        agentOptions.push({ value: name, label: name });
+      });
+      // Check if current value is custom (not in options)
+      var isCustom = val && !agentOptions.some(function(o) { return o.value === val; });
+      html += '<select class="wfed-prop-input" onchange="wfAgentSelectChange(' + JSON.stringify(stepId) + ',this)">';
+      html += '<option value="">-- select agent --</option>';
+      agentOptions.forEach(function(o) {
+        var sel = val === o.value ? ' selected' : '';
+        html += '<option value="' + escAttr(o.value) + '"' + sel + '>' + esc(o.label) + '</option>';
+      });
+      if (isCustom) {
+        html += '<option value="' + escAttr(val) + '" selected>' + esc(val) + '</option>';
+      }
+      html += '<option value="__custom__">+ Custom...</option>';
+      html += '</select>';
+    } else if (f.type === 'delay') {
+      html += '<input class="wfed-prop-input" type="text" value="' + escAttr(String(val || '')) + '"' +
+        ' placeholder="30s / 5m / 1h"' +
+        ' oninput="wfDelayValidate(this)"' +
+        ' onblur="wfDelayBlur(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this)"/>';
+      html += '<div class="wfed-delay-hint">Format: 30s / 5m / 1h</div>';
+    } else if (f.type === 'tags') {
+      var tagsVal = Array.isArray(val) ? val.join(', ') : (val || '');
+      html += '<input class="wfed-prop-input" type="text" value="' + escAttr(tagsVal) + '"' +
+        ' placeholder="comma-separated IDs"' +
+        ' onblur="updateStepPropTags(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"/>';
+    } else if (f.type === 'number') {
+      html += '<input class="wfed-prop-input" type="number" value="' + escAttr(String(val || '')) + '"' +
+        (f.placeholder ? ' placeholder="' + escAttr(f.placeholder) + '"' : '') +
+        ' onblur="updateStepPropNum(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"/>';
+    } else {
+      html += '<input class="wfed-prop-input" type="text" value="' + escAttr(String(val || '')) + '"' +
+        (f.placeholder ? ' placeholder="' + escAttr(f.placeholder) + '"' : '') +
+        ' onblur="updateStepProp(' + JSON.stringify(stepId) + ',' + JSON.stringify(f.key) + ',this.value)"/>';
+    }
+    html += '</div>';
+  });
+
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+function updateStepProp(stepId, key, value) {
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) return;
+  if (value === '') {
+    delete step[key];
+  } else {
+    step[key] = value;
+  }
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+
+  // If ID changed, update positions map and re-render
+  if (key === 'id' && value && value !== stepId) {
+    wfEd.positions[value] = wfEd.positions[stepId];
+    delete wfEd.positions[stepId];
+    if (wfEd.selected === stepId) wfEd.selected = value;
+    // Update dependsOn references
+    (wfEd.workflow.steps || []).forEach(function(s) {
+      if (s.dependsOn) {
+        s.dependsOn = s.dependsOn.map(function(d) { return d === stepId ? value : d; });
+      }
+    });
+  }
+
+  renderEditorCanvas();
+  renderPropertyPanel(wfEd.selected);
+}
+
+function updateStepPropTags(stepId, key, value) {
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) return;
+  var tags = value.split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+  if (tags.length === 0) {
+    delete step[key];
+  } else {
+    step[key] = tags;
+  }
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+}
+
+function updateStepPropNum(stepId, key, value) {
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) return;
+  var num = parseFloat(value);
+  if (isNaN(num) || value === '') {
+    delete step[key];
+  } else {
+    step[key] = num;
+  }
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+}
+
+// ---- Add / Delete Steps ----
+
+function addStepToWorkflow(type) {
+  if (!wfEd.workflow) return;
+  if (!wfEd.workflow.steps) wfEd.workflow.steps = [];
+
+  var baseId = type + '-' + (wfEd.workflow.steps.length + 1);
+  var newStep = { id: baseId, type: type };
+
+  // Default fields by type
+  if (type === 'dispatch') {
+    newStep.agent = '';
+    newStep.prompt = '';
+    delete newStep.type; // dispatch is default, type field is optional
+  } else if (type === 'skill') {
+    newStep.skill = '';
+  } else if (type === 'condition') {
+    newStep.if = '';
+    newStep.then = '';
+    newStep.else = '';
+  } else if (type === 'parallel') {
+    newStep.parallel = [];
+  }
+
+  // Position near last node or at center of current view
+  var steps = wfEd.workflow.steps;
+  var NW = wfEd.NODE_W, NH = wfEd.NODE_H;
+  var lastPos = { x: 40, y: 40 };
+  if (steps.length > 0) {
+    var lastId = steps[steps.length - 1].id;
+    var lp = wfEd.positions[lastId];
+    if (lp) lastPos = { x: lp.x + NW + 80, y: lp.y };
+  }
+  wfEd.positions[newStep.id] = lastPos;
+
+  wfEd.workflow.steps.push(newStep);
+  wfEd.dirty = true;
+  wfEd.selected = newStep.id;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+  renderPropertyPanel(newStep.id);
+
+  // Highlight new node
+  setTimeout(function() {
+    var g = document.getElementById('wed-n-' + newStep.id);
+    if (g) g.classList.add('selected');
+  }, 50);
+}
+
+function deleteStepById(stepId) {
+  if (!wfEd.workflow) return;
+  if (!confirm('Delete step "' + stepId + '"?')) return;
+
+  wfEd.workflow.steps = (wfEd.workflow.steps || []).filter(function(s) { return s.id !== stepId; });
+
+  // Remove from dependsOn in all other steps
+  (wfEd.workflow.steps || []).forEach(function(s) {
+    if (s.dependsOn) {
+      s.dependsOn = s.dependsOn.filter(function(d) { return d !== stepId; });
+      if (s.dependsOn.length === 0) delete s.dependsOn;
+    }
+  });
+
+  delete wfEd.positions[stepId];
+  if (wfEd.selected === stepId) {
+    wfEd.selected = null;
+    renderPropertyPanel(null);
+  }
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+}
+
+function disconnectEdge(fromId, toId) {
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === toId; });
+  if (!step || !step.dependsOn) return;
+  step.dependsOn = step.dependsOn.filter(function(d) { return d !== fromId; });
+  if (step.dependsOn.length === 0) delete step.dependsOn;
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+}
+
+// ---- Auto-Layout Button ----
+
+function wedAutoLayout() {
+  if (!wfEd.workflow) return;
+  wfEd.positions = autoLayoutPositions(wfEd.workflow.steps || []);
+  wfEd.panX = 0;
+  wfEd.panY = 0;
+  wfEd.zoom = 1;
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+}
+
+// ---- Save ----
+
+async function saveWorkflowEditorData() {
+  if (!wfEd.workflow) return;
+
+  // Clean up empty fields
+  var wf = JSON.parse(JSON.stringify(wfEd.workflow));
+  wf.steps = (wf.steps || []).map(function(s) {
+    var clean = {};
+    Object.keys(s).forEach(function(k) {
+      var v = s[k];
+      if (v === null || v === undefined || v === '') return;
+      if (Array.isArray(v) && v.length === 0) return;
+      clean[k] = v;
+    });
+    return clean;
+  });
+
+  try {
+    var resp = await fetch(API + '/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(wf),
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return {}; });
+      var msg = err.errors ? err.errors.join(', ') : (err.error || 'Save failed');
+      toast('Save failed: ' + msg);
+      return;
+    }
+    wfEd.dirty = false;
+    updateDirtyIndicator();
+    toast('Workflow saved: ' + wf.name);
+    loadWorkflowDefs();
+  } catch(e) {
+    toast('Save error: ' + e.message);
+  }
+}
+
+// ---- Workflow Metadata ----
+
+function editWorkflowMeta() {
+  if (!wfEd.workflow) return;
+  var name = prompt('Workflow name:', wfEd.workflow.name);
+  if (!name || !name.trim()) return;
+  var desc = prompt('Description (optional):', wfEd.workflow.description || '');
+  wfEd.workflow.name = name.trim();
+  wfEd.workflow.description = desc || '';
+  document.getElementById('wf-editor-title').textContent = name.trim();
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+}
+
+// ---- Dirty Indicator ----
+
+function updateDirtyIndicator() {
+  var el = document.getElementById('wf-dirty-badge');
+  if (el) {
+    el.textContent = wfEd.dirty ? '● Unsaved' : '✓ Saved';
+    el.style.color = wfEd.dirty ? '#fbbf24' : '#34d399';
+  }
+  var saveBtn = document.getElementById('wf-save-btn');
+  if (saveBtn) saveBtn.style.opacity = wfEd.dirty ? '1' : '0.5';
+}
+
+// ---- Zoom Buttons ----
+
+function wedZoomIn()  { wfEd.zoom = Math.min(4, wfEd.zoom * 1.2); applyViewTransform(); }
+function wedZoomOut() { wfEd.zoom = Math.max(0.2, wfEd.zoom / 1.2); applyViewTransform(); }
+function wedZoomReset() { wfEd.zoom = 1; wfEd.panX = 0; wfEd.panY = 0; applyViewTransform(); }
+
+// ---- JSON Editor (toggle) ----
+
+function toggleWfJsonEditor() {
+  var panel = document.getElementById('wf-json-editor-panel');
+  if (!panel) return;
+  if (panel.style.display === 'none' || !panel.style.display) {
+    if (!wfEd.workflow) return;
+    var ta = document.getElementById('wf-json-textarea');
+    if (ta) ta.value = JSON.stringify(wfEd.workflow, null, 2);
+    panel.style.display = '';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function applyWfJsonEdit() {
+  var ta = document.getElementById('wf-json-textarea');
+  if (!ta) return;
+  try {
+    var wf = JSON.parse(ta.value);
+    wfEd.workflow = wf;
+    wfEd.positions = autoLayoutPositions(wf.steps || []);
+    wfEd.selected = null;
+    wfEd.panX = 0;
+    wfEd.panY = 0;
+    wfEd.zoom = 1;
+    wfEd.dirty = true;
+    updateDirtyIndicator();
+    renderEditorCanvas();
+    renderPropertyPanel(null);
+    document.getElementById('wf-json-editor-panel').style.display = 'none';
+    toast('JSON applied');
+  } catch(e) {
+    toast('Invalid JSON: ' + e.message);
+  }
+}
+
+// ---- Dropdown Helper ----
+
+function toggleAddStepMenu() {
+  var menu = document.getElementById('wf-add-step-menu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'none' || !menu.style.display ? '' : 'none';
+  if (menu.style.display !== 'none') {
+    // Close when clicking outside
+    setTimeout(function() {
+      document.addEventListener('click', function handler(e) {
+        var wrap = document.getElementById('wf-add-step-wrap');
+        if (wrap && !wrap.contains(e.target)) {
+          menu.style.display = 'none';
+          document.removeEventListener('click', handler);
+        }
+      });
+    }, 10);
+  }
+}
+
+// ---- DependsOn checkbox toggle ----
+
+function toggleDependsOn(stepId, depId, isChecked) {
+  var step = (wfEd.workflow.steps || []).find(function(s) { return s.id === stepId; });
+  if (!step) return;
+  if (!step.dependsOn) step.dependsOn = [];
+  if (isChecked) {
+    if (!step.dependsOn.includes(depId)) step.dependsOn.push(depId);
+  } else {
+    step.dependsOn = step.dependsOn.filter(function(d) { return d !== depId; });
+  }
+  if (step.dependsOn.length === 0) delete step.dependsOn;
+  wfEd.dirty = true;
+  updateDirtyIndicator();
+  renderEditorCanvas();
+}
+
+// ---- Delay field validation ----
+
+function wfDelayValidate(input) {
+  var v = input.value.trim();
+  var valid = v === '' || /^\d+[smh]$/.test(v);
+  input.style.borderColor = valid ? '' : '#f87171';
+  var hint = input.nextElementSibling;
+  if (hint && hint.classList.contains('wfed-delay-hint')) {
+    hint.style.display = valid ? 'none' : '';
+  }
+}
+
+function wfDelayBlur(stepId, key, input) {
+  var v = input.value.trim();
+  if (v && !/^\d+[smh]$/.test(v)) {
+    input.style.borderColor = '#f87171';
+    return; // don't save invalid value
+  }
+  input.style.borderColor = '';
+  updateStepProp(stepId, key, v);
+}
+
+// ---- Skills / Tools loader ----
+
+async function wfLoadAgents() {
+  try {
+    var agents = await fetchJSON('/api/agents');
+    wfEd.agents = Array.isArray(agents) ? agents : [];
+  } catch(e) {
+    wfEd.agents = [];
+  }
+}
+
+function wfAgentSelectChange(stepId, sel) {
+  if (sel.value === '__custom__') {
+    var custom = prompt('Enter agent name:');
+    if (custom && custom.trim()) {
+      updateStepProp(stepId, 'agent', custom.trim());
+    }
+    renderPropertyPanel(stepId);
+    return;
+  }
+  updateStepProp(stepId, 'agent', sel.value);
+}
+
+async function wfLoadSkills() {
+  try {
+    var skills = await fetchJSON('/api/skills');
+    wfEd.skills = Array.isArray(skills) ? skills : [];
+  } catch(e) {
+    wfEd.skills = [];
+  }
+}
+
+async function wfLoadTools() {
+  try {
+    var tools = await fetchJSON('/api/tools');
+    wfEd.tools = Array.isArray(tools) ? tools : [];
+  } catch(e) {
+    wfEd.tools = [];
+  }
+}
+
+// ---- JSON panel sync ----
+
+function syncJsonPanelIfVisible() {
+  var panel = document.getElementById('wf-json-editor-panel');
+  if (!panel || panel.style.display === 'none') return;
+  var ta = document.getElementById('wf-json-textarea');
+  if (ta && wfEd.workflow) ta.value = JSON.stringify(wfEd.workflow, null, 2);
+}
+
+// ---- Fullscreen toggle ----
+
+function wfEdToggleFullscreen() {
+  var panel = document.getElementById('wf-editor-panel');
+  if (!panel) return;
+  panel.classList.toggle('wfed-fullscreen');
+  var btn = document.getElementById('wf-fullscreen-btn');
+  if (btn) btn.title = panel.classList.contains('wfed-fullscreen') ? '⛶ 退出全螢幕' : '⛶ 全螢幕';
+}
+
+// ---- Run confirmation modal ----
+
+function showRunModal(wf) {
+  if (!wf) return;
+  if (typeof wf === 'string') wf = { name: wf, variables: {} };
+  if (!wf.name) return;
+  var vars = wf.variables || {};
+  var modal = document.getElementById('wf-run-modal');
+  var body = document.getElementById('wf-run-modal-body');
+  if (!modal || !body) return;
+  var varKeys = Object.keys(vars);
+  var html = '<p style="color:var(--muted);margin:0 0 12px;font-size:13px">Workflow: <strong style="color:var(--text)">' + esc(wf.name) + '</strong></p>';
+  if (varKeys.length > 0) {
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Variable overrides (leave blank to use defaults):</div>';
+    varKeys.forEach(function(k) {
+      html += '<div style="margin-bottom:6px">' +
+        '<label style="font-size:11px;color:var(--muted);display:block">' + esc(k) +
+        ' <span style="opacity:0.6">(default: ' + esc(String(vars[k] || '')) + ')</span></label>' +
+        '<input id="wf-run-var-' + escAttr(k) + '" class="wfed-prop-input" type="text" placeholder="' +
+        escAttr(String(vars[k] || '')) + '" style="width:100%;box-sizing:border-box"/>' +
+        '</div>';
+    });
+  } else {
+    html += '<p style="color:var(--muted);font-size:12px;margin:0">No variables defined for this workflow.</p>';
+  }
+  body.innerHTML = html;
+  modal._wfName = wf.name;
+  modal._varKeys = varKeys;
+  modal.style.display = 'flex';
+}
+
+function closeRunModal() {
+  var modal = document.getElementById('wf-run-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function confirmRunWorkflow() {
+  var modal = document.getElementById('wf-run-modal');
+  if (!modal) return;
+  var name = modal._wfName;
+  var varKeys = modal._varKeys || [];
+  var variables = {};
+  varKeys.forEach(function(k) {
+    var input = document.getElementById('wf-run-var-' + k);
+    if (input && input.value.trim()) variables[k] = input.value.trim();
+  });
+  closeRunModal();
+  try {
+    await fetchJSON('/workflows/' + encodeURIComponent(name) + '/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ variables: variables }),
+    });
+    toast('Workflow started: ' + name);
+    setTimeout(refreshWorkflowRuns, 800);
+  } catch(e) {
+    toast('Run failed: ' + e.message);
+  }
+}
 
 // --- Agent World (SpriteEngine) ---
 var spriteEngine = null;
@@ -10646,16 +12269,28 @@ document.addEventListener('visibilitychange', function() {
 
 // --- PWA ---
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/dashboard/sw.js', { scope: '/' })
-    .then(function(reg) {
-      reg.addEventListener('updatefound', function() {
-        var nw = reg.installing;
-        nw.addEventListener('statechange', function() {
-          if (nw.state === 'activated') toast('App updated — refresh for latest version');
+  // Nuclear: unregister ALL existing service workers and clear ALL caches first
+  navigator.serviceWorker.getRegistrations().then(function(regs) {
+    regs.forEach(function(reg) { reg.unregister(); });
+  });
+  if ('caches' in window) {
+    caches.keys().then(function(keys) {
+      keys.forEach(function(k) { caches.delete(k); });
+    });
+  }
+  // Re-register after a brief delay to ensure clean state
+  setTimeout(function() {
+    navigator.serviceWorker.register('/dashboard/sw.js', { scope: '/' })
+      .then(function(reg) {
+        reg.addEventListener('updatefound', function() {
+          var nw = reg.installing;
+          nw.addEventListener('statechange', function() {
+            if (nw.state === 'activated') window.location.reload();
+          });
         });
-      });
-    })
-    .catch(function() {});
+      })
+      .catch(function() {});
+  }, 500);
 }
 
 var deferredInstallPrompt = null;

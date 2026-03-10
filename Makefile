@@ -1,17 +1,41 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.0.0.24
+VERSION  := 2.0.0.40
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
-.PHONY: build dev reload install clean release test bump
+.PHONY: build dev reload install clean release test bump dashboard
 
-build:
+DASH_PARTS := dashboard/head.html dashboard/style.css dashboard/body.html \
+	dashboard/core.js dashboard/views.js dashboard/workers.js \
+	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
+	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/office.js dashboard/pwa.js \
+	dashboard/foot.html
+
+dashboard: $(DASH_PARTS)
+	@{ \
+		cat dashboard/head.html; \
+		echo '<style>'; \
+		cat dashboard/style.css; \
+		echo '</style>'; \
+		echo '</head>'; \
+		echo '<body>'; \
+		cat dashboard/body.html; \
+		echo '<script>'; \
+		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
+		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
+		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/office.js dashboard/pwa.js; \
+		echo '</script>'; \
+		cat dashboard/foot.html; \
+	} > dashboard.html
+	@echo "dashboard.html built ($$(wc -l < dashboard.html | tr -d ' ') lines)"
+
+build: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
 
-dev:
+dev: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(INSTALL)/$(BINARY) .
 	@codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true
 
