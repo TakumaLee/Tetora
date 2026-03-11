@@ -956,7 +956,13 @@ func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoa
 	logInfo("runTaskWithWorkflow: starting workflow pipeline",
 		"task", t.ID, "workflow", workflowName, "steps", len(w.Steps))
 
+	// Inject taskId into vars so workflow runs can be traced back to tasks.
+	vars["_taskId"] = t.ID
+
 	run := executeWorkflow(ctx, d.cfg, w, vars, d.state, d.sem, d.childSem)
+
+	// Persist the workflow run ID on the task for progress tracking.
+	d.engine.UpdateTask(t.ID, map[string]any{"workflowRunId": run.ID})
 
 	// Merge workflow run results into a single TaskResult.
 	result := TaskResult{

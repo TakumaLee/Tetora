@@ -119,6 +119,7 @@ function refreshOperationsSubTab(sub) {
   if (sub === 'agents') refreshAgents();
   if (sub === 'workflows') { refreshWorkflowRuns(); loadWorkflowDefs(); }
   if (sub === 'tasks') refreshBoard();
+  if (sub === 'capabilities') refreshCapabilities();
   if (sub === 'files') loadMemoryBrowser();
 }
 

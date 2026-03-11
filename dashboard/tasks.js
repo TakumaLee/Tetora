@@ -3,6 +3,17 @@
 var cachedProjects = [];
 var cachedBoardData = null;
 var cachedBoardSearch = '';
+var cachedWorkflowNames = null; // fetched once, reused by task detail + settings
+var taskWfSSE = null; // SSE connection for task workflow progress
+
+async function getWorkflowNames() {
+  if (cachedWorkflowNames) return cachedWorkflowNames;
+  try {
+    var list = await fetchJSON('/workflows');
+    cachedWorkflowNames = Array.isArray(list) ? list.map(function(wf) { return wf.name || wf; }) : [];
+  } catch(e) { cachedWorkflowNames = []; }
+  return cachedWorkflowNames;
+}
 
 async function refreshProjects() {
   var status = document.getElementById('proj-status-filter').value;
@@ -177,10 +188,12 @@ async function refreshBoard() {
   var project = document.getElementById('kb-filter-project').value;
   var assignee = document.getElementById('kb-filter-assignee').value;
   var priority = document.getElementById('kb-filter-priority').value;
+  var workflow = document.getElementById('kb-filter-workflow').value;
   var url = '/api/tasks/board?';
   if (project) url += 'project=' + encodeURIComponent(project) + '&';
   if (assignee) url += 'assignee=' + encodeURIComponent(assignee) + '&';
   if (priority) url += 'priority=' + encodeURIComponent(priority) + '&';
+  if (workflow) url += 'workflow=' + encodeURIComponent(workflow) + '&';
 
   try {
     cachedBoardData = await fetchJSON(url);
@@ -289,6 +302,20 @@ function populateBoardFilters() {
     agentSel.appendChild(opt);
   });
   agentSel.value = currentAgent;
+
+  // Populate workflow filter.
+  var wfSel = document.getElementById('kb-filter-workflow');
+  var currentWf = wfSel.value;
+  wfSel.innerHTML = '<option value="">All Workflows</option>';
+  var workflows = (cachedBoardData && cachedBoardData.workflows) || [];
+  workflows.sort();
+  workflows.forEach(function(wf) {
+    var opt = document.createElement('option');
+    opt.value = wf;
+    opt.textContent = wf;
+    wfSel.appendChild(opt);
+  });
+  wfSel.value = currentWf;
 }
 
 function renderBoard() {
@@ -312,6 +339,7 @@ function renderBoard() {
         return (t.title||'').toLowerCase().includes(search) ||
                (t.project||'').toLowerCase().includes(search) ||
                (t.assignee||'').toLowerCase().includes(search) ||
+               (t.workflow||'').toLowerCase().includes(search) ||
                (t.description||'').toLowerCase().includes(search);
       });
     }
@@ -324,6 +352,7 @@ function renderBoard() {
       else if (t.priority === 'high') badges += '<span class="kanban-badge kanban-badge-priority-high">high</span>';
       if (t.costUsd > 0) badges += '<span class="kanban-badge kanban-badge-cost">$' + t.costUsd.toFixed(2) + '</span>';
       if (t.model) badges += '<span class="kanban-badge kanban-badge-model">' + esc(t.model) + '</span>';
+      if (t.workflow && t.workflow !== 'none') badges += '<span class="kanban-badge kanban-badge-workflow">' + esc(t.workflow) + '</span>';
       return '<div class="kanban-card" draggable="true" data-task-id="' + esc(t.id) + '" onclick="openTaskDetail(\'' + esc(t.id) + '\')" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">' +
         '<div class="kanban-card-title">' + esc(t.title) + '</div>' +
         (badges ? '<div class="kanban-card-badges">' + badges + '</div>' : '') +
@@ -449,6 +478,19 @@ async function openTaskDetail(taskId) {
     document.getElementById('td-model').value = task.model || '';
     updateModelTier('td');
 
+    // Workflow override.
+    var wfSel = document.getElementById('td-workflow');
+    if (wfSel) {
+      var names = await getWorkflowNames();
+      wfSel.innerHTML = '<option value="">Default</option><option value="none">None (direct dispatch)</option>';
+      names.forEach(function(name) {
+        var opt = document.createElement('option');
+        opt.value = name; opt.textContent = name;
+        wfSel.appendChild(opt);
+      });
+      wfSel.value = task.workflow || '';
+    }
+
     // Cost & duration display.
     var costEl = document.getElementById('td-cost-display');
     var durEl = document.getElementById('td-duration-display');
@@ -457,6 +499,9 @@ async function openTaskDetail(taskId) {
     durEl.textContent = task.durationMs > 0 ? 'Duration: ' + (task.durationMs / 1000).toFixed(1) + 's' : '';
     datesEl.textContent = 'Created: ' + (task.createdAt || '').substring(0, 10);
     if (task.completedAt) datesEl.textContent += ' | Done: ' + task.completedAt.substring(0, 10);
+
+    // Load workflow step progress.
+    loadTaskWfProgress(task);
 
     // Load comments.
     loadTaskComments(taskId);
@@ -475,6 +520,7 @@ async function openTaskDetail(taskId) {
 }
 
 function closeTaskDetail() {
+  if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
   document.getElementById('task-detail-modal').classList.remove('open');
 }
 
@@ -539,6 +585,7 @@ async function updateTaskField(field) {
   else if (field === 'assignee') updates.assignee = document.getElementById('td-assignee').value;
   else if (field === 'project') updates.project = document.getElementById('td-project').value;
   else if (field === 'model') updates.model = document.getElementById('td-model').value;
+  else if (field === 'workflow') updates.workflow = document.getElementById('td-workflow').value;
   else if (field === 'type') updates.type = document.getElementById('td-type').value;
 
   try {
@@ -1202,5 +1249,148 @@ async function submitBatchAdd() {
   closeBatchAdd();
   cachedProjects = [];
   refreshProjects();
+}
+
+// --- Workflow Step Progress in Task Detail ---
+
+async function loadTaskWfProgress(task) {
+  var container = document.getElementById('td-wf-progress');
+  if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
+
+  var runId = task.workflowRunId;
+
+  // If no runId yet but task is doing with a workflow, try to find running run by taskId variable.
+  if (!runId && task.status === 'doing' && task.workflow && task.workflow !== 'none') {
+    runId = await findRunningWfRunForTask(task.id);
+  }
+
+  if (!runId) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = '';
+  container.dataset.runId = runId;
+
+  try {
+    var data = await fetchJSON('/workflow-runs/' + runId);
+    var run = data.run || data;
+    renderTaskWfProgress(run);
+
+    if (run.status === 'running') {
+      subscribeTaskWfSSE(runId);
+    }
+  } catch(e) {
+    container.style.display = 'none';
+  }
+}
+
+async function findRunningWfRunForTask(taskId) {
+  try {
+    var runs = await fetchJSON('/workflow-runs');
+    if (!Array.isArray(runs)) return null;
+    for (var i = 0; i < runs.length; i++) {
+      var r = runs[i];
+      if (r.variables && r.variables._taskId === taskId) return r.id;
+      if (r.variables && r.variables.taskId === taskId) return r.id;
+    }
+  } catch(e) {}
+  return null;
+}
+
+function renderTaskWfProgress(run) {
+  var statusEl = document.getElementById('td-wf-run-status');
+  var stepsEl = document.getElementById('td-wf-steps');
+
+  var statusCls = run.status === 'success' ? 'badge-ok' : (run.status === 'error' || run.status === 'timeout') ? 'badge-err' : 'badge-warn';
+  statusEl.textContent = run.status;
+  statusEl.className = 'badge ' + statusCls;
+
+  var stepResults = run.stepResults || {};
+  var steps = Object.values(stepResults);
+  steps.sort(function(a, b) { return (a.startedAt || '').localeCompare(b.startedAt || ''); });
+
+  stepsEl.innerHTML = steps.map(function(s) {
+    var icon = '&#9679;';
+    var cls = 'td-wf-step';
+    if (s.status === 'success') { icon = '&#10003;'; cls += ' step-success'; }
+    else if (s.status === 'error') { icon = '&#10007;'; cls += ' step-error'; }
+    else if (s.status === 'running') { icon = '&#9654;'; cls += ' step-running'; }
+    else if (s.status === 'skipped') { icon = '&#8212;'; cls += ' step-skipped'; }
+    else { cls += ' step-pending'; }
+
+    var dur = '';
+    if (s.durationMs > 0) dur = ' <span class="td-wf-step-dur">' + (s.durationMs / 1000).toFixed(1) + 's</span>';
+
+    return '<div class="' + cls + '" data-step-id="' + esc(s.stepId) + '">' +
+      '<span class="td-wf-step-icon">' + icon + '</span>' +
+      '<span class="td-wf-step-name">' + esc(s.stepId) + '</span>' +
+      dur +
+    '</div>';
+  }).join('');
+}
+
+function subscribeTaskWfSSE(runId) {
+  if (taskWfSSE) { taskWfSSE.close(); }
+  var url = '/dispatch/workflow:' + runId + '/stream';
+  taskWfSSE = new EventSource(url);
+  taskWfSSE.onmessage = function(e) {
+    try {
+      var ev = JSON.parse(e.data);
+      if (ev.type === 'step_started' && ev.data) {
+        updateTaskWfStep(ev.data.stepId, 'running');
+      }
+      if (ev.type === 'step_completed' && ev.data) {
+        updateTaskWfStep(ev.data.stepId, ev.data.status, ev.data.durationMs);
+      }
+      if (ev.type === 'workflow_completed') {
+        if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
+        // Refresh to get final state.
+        var taskId = document.getElementById('td-id').value;
+        if (taskId) {
+          setTimeout(function() { openTaskDetail(taskId); }, 500);
+        }
+      }
+    } catch(err) {}
+  };
+  taskWfSSE.onerror = function() {
+    if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
+  };
+}
+
+function updateTaskWfStep(stepId, status, durationMs) {
+  var el = document.querySelector('.td-wf-step[data-step-id="' + stepId + '"]');
+  if (!el) return;
+
+  el.className = 'td-wf-step';
+  var iconEl = el.querySelector('.td-wf-step-icon');
+  if (status === 'success') { el.classList.add('step-success'); if (iconEl) iconEl.innerHTML = '&#10003;'; }
+  else if (status === 'error') { el.classList.add('step-error'); if (iconEl) iconEl.innerHTML = '&#10007;'; }
+  else if (status === 'running') { el.classList.add('step-running'); if (iconEl) iconEl.innerHTML = '&#9654;'; }
+  else if (status === 'skipped') { el.classList.add('step-skipped'); if (iconEl) iconEl.innerHTML = '&#8212;'; }
+  else { el.classList.add('step-pending'); }
+
+  if (durationMs > 0) {
+    var durEl = el.querySelector('.td-wf-step-dur');
+    if (!durEl) {
+      durEl = document.createElement('span');
+      durEl.className = 'td-wf-step-dur';
+      el.appendChild(durEl);
+    }
+    durEl.textContent = (durationMs / 1000).toFixed(1) + 's';
+  }
+}
+
+function openWfRunFromTask() {
+  var container = document.getElementById('td-wf-progress');
+  var runId = container ? container.dataset.runId : '';
+  if (runId && typeof openWfRun === 'function') {
+    closeTaskDetail();
+    // Switch to workflows tab and open the run.
+    var wfTab = document.querySelector('[data-tab="workflows"]');
+    if (wfTab) wfTab.click();
+    setTimeout(function() { openWfRun(runId); }, 200);
+  }
+  return false;
 }
 

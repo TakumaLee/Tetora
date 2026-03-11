@@ -32,7 +32,8 @@ type TaskBoard struct {
 	RetryCount   int      `json:"retryCount"`    // number of auto-retries
 	CostUSD      float64  `json:"costUsd"`       // cost in USD
 	DurationMs   int64    `json:"durationMs"`    // execution duration in ms
-	SessionID    string   `json:"sessionId"`     // claude session ID
+	SessionID     string   `json:"sessionId"`     // claude session ID
+	WorkflowRunID string   `json:"workflowRunId"` // workflow run ID (links task to workflow execution)
 }
 
 type TaskComment struct {
@@ -153,6 +154,7 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 		"ALTER TABLE tasks ADD COLUMN parent_id TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN workflow TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'feat';",
+		"ALTER TABLE tasks ADD COLUMN workflow_run_id TEXT DEFAULT '';",
 	}
 	// task_comments migrations.
 	commentMigrations := []string{
@@ -197,7 +199,7 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -286,7 +288,7 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 	var setClauses []string
 	for key, val := range updates {
 		switch key {
-		case "title", "description", "priority", "assignee", "project", "discordThread", "model", "parentId", "workflow", "type":
+		case "title", "description", "priority", "assignee", "project", "discordThread", "model", "parentId", "workflow", "type", "workflowRunId":
 			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", toSnakeCase(key), escapeSQLite(fmt.Sprintf("%v", val))))
 		case "dependsOn":
 			dependsOnJSON, _ := json.Marshal(val)
@@ -330,7 +332,7 @@ func (tb *TaskBoardEngine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks WHERE id = '%s'
 	`, escapeSQLite(id))
 
@@ -636,6 +638,11 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		workflow = ""
 	}
 
+	workflowRunID := fmt.Sprintf("%v", row["workflow_run_id"])
+	if workflowRunID == "<nil>" {
+		workflowRunID = ""
+	}
+
 	return TaskBoard{
 		ID:            fmt.Sprintf("%v", row["id"]),
 		Project:       fmt.Sprintf("%v", row["project"]),
@@ -657,6 +664,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		CostUSD:       getFloat64(row, "cost_usd"),
 		DurationMs:    int64(getFloat64(row, "duration_ms")),
 		SessionID:     fmt.Sprintf("%v", row["session_id"]),
+		WorkflowRunID: workflowRunID,
 	}
 }
 
@@ -665,7 +673,7 @@ func (tb *TaskBoardEngine) ListChildren(parentID string) ([]TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
 	`, escapeSQLite(parentID))
@@ -699,6 +707,8 @@ func toSnakeCase(s string) string {
 		return "parent_id"
 	case "type":
 		return "`type`" // SQLite reserved word — must be quoted
+	case "workflowRunId":
+		return "workflow_run_id"
 	default:
 		return s
 	}
@@ -730,10 +740,11 @@ func hasBlockingDeps(tb *TaskBoardEngine, t TaskBoard) bool {
 // --- Board View & Project Stats ---
 
 type BoardView struct {
-	Columns  map[string][]TaskBoard `json:"columns"`
-	Stats    BoardStats             `json:"stats"`
-	Projects []string               `json:"projects"`
-	Agents   []string               `json:"agents"`
+	Columns   map[string][]TaskBoard `json:"columns"`
+	Stats     BoardStats             `json:"stats"`
+	Projects  []string               `json:"projects"`
+	Agents    []string               `json:"agents"`
+	Workflows []string               `json:"workflows"`
 }
 
 type BoardStats struct {
@@ -742,17 +753,26 @@ type BoardStats struct {
 	TotalCost float64        `json:"totalCost"`
 }
 
+// BoardFilter holds optional filters for GetBoardView.
+type BoardFilter struct {
+	Project  string
+	Assignee string
+	Priority string
+	Workflow string
+}
+
 // GetBoardView returns all tasks grouped by status column with aggregate stats.
-func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*BoardView, error) {
+func (tb *TaskBoardEngine) GetBoardView(f BoardFilter) (*BoardView, error) {
 	var whereClauses []string
-	if project != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("project = '%s'", escapeSQLite(project)))
-	}
-	if assignee != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("assignee = '%s'", escapeSQLite(assignee)))
-	}
-	if priority != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("priority = '%s'", escapeSQLite(priority)))
+	for _, pair := range []struct{ col, val string }{
+		{"project", f.Project},
+		{"assignee", f.Assignee},
+		{"priority", f.Priority},
+		{"workflow", f.Workflow},
+	} {
+		if pair.val != "" {
+			whereClauses = append(whereClauses, fmt.Sprintf("%s = '%s'", pair.col, escapeSQLite(pair.val)))
+		}
 	}
 
 	whereClause := ""
@@ -763,7 +783,7 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -791,6 +811,7 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 	byStatus := make(map[string]int)
 	projectSet := make(map[string]bool)
 	agentSet := make(map[string]bool)
+	workflowSet := make(map[string]bool)
 	var totalCost float64
 
 	for _, row := range rows {
@@ -806,6 +827,9 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 		if t.Assignee != "" {
 			agentSet[t.Assignee] = true
 		}
+		if t.Workflow != "" && t.Workflow != "none" {
+			workflowSet[t.Workflow] = true
+		}
 	}
 
 	var projects []string
@@ -816,12 +840,17 @@ func (tb *TaskBoardEngine) GetBoardView(project, assignee, priority string) (*Bo
 	for a := range agentSet {
 		agents = append(agents, a)
 	}
+	var workflows []string
+	for wf := range workflowSet {
+		workflows = append(workflows, wf)
+	}
 
 	return &BoardView{
-		Columns:  columns,
-		Stats:    BoardStats{Total: len(rows), ByStatus: byStatus, TotalCost: totalCost},
-		Projects: projects,
-		Agents:   agents,
+		Columns:   columns,
+		Stats:     BoardStats{Total: len(rows), ByStatus: byStatus, TotalCost: totalCost},
+		Projects:  projects,
+		Agents:    agents,
+		Workflows: workflows,
 	}, nil
 }
 

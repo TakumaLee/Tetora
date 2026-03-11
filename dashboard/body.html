@@ -59,6 +59,9 @@
     <button class="nav-item" id="tab-operations-tasks" onclick="switchTab('operations');switchSubTab('operations','tasks')">
       <span class="nav-icon">&#x1F4CB;</span> Tasks
     </button>
+    <button class="nav-item" id="tab-operations-capabilities" onclick="switchTab('operations');switchSubTab('operations','capabilities')">
+      <span class="nav-icon">&#x1F9E9;</span> Capabilities
+    </button>
     <button class="nav-item" id="tab-operations-files" onclick="switchTab('operations');switchSubTab('operations','files')">
       <span class="nav-icon">&#x1F4C2;</span> Files
     </button>
@@ -765,6 +768,7 @@
       <button class="active" data-sub="agents" onclick="switchSubTab('operations','agents')">Agents</button>
       <button data-sub="workflows" onclick="switchSubTab('operations','workflows')">Workflows</button>
       <button data-sub="tasks" onclick="switchSubTab('operations','tasks')">Tasks</button>
+      <button data-sub="capabilities" onclick="switchSubTab('operations','capabilities')">Capabilities</button>
       <button data-sub="files" onclick="switchSubTab('operations','files')">Memory</button>
     </div>
 
@@ -940,7 +944,6 @@
         </div>
       </div>
       <div id="integration-reminders"></div>
-    </div>
 
     <!-- Workflow Triggers -->
     <div class="section">
@@ -1000,6 +1003,9 @@
           <option value="normal">Normal</option>
           <option value="low">Low</option>
         </select>
+        <select id="kb-filter-workflow" onchange="refreshBoard()">
+          <option value="">All Workflows</option>
+        </select>
         <input type="text" id="kb-search" placeholder="Search tasks..." oninput="filterBoard()">
         <span id="kb-total-cost" class="kanban-total-cost"></span>
       </div>
@@ -1010,6 +1016,52 @@
       <!-- Hidden projects grid for project modal functions -->
       <div id="projects-grid" style="display:none"></div>
     </div><!-- /operations-sub-tasks -->
+
+    <!-- === Sub: Capabilities === -->
+    <div id="operations-sub-capabilities" style="display:none">
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">Capabilities</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="cap-search" placeholder="Search..." oninput="filterCapabilities()" style="width:180px;font-size:12px">
+            <button class="btn" onclick="refreshCapabilities()">Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tools Section -->
+      <div class="cap-section" id="cap-tools-section">
+        <div class="cap-section-header" onclick="toggleCapSection('tools')">
+          <span>Tools <span id="cap-tools-count" class="cap-count"></span></span>
+          <span class="cap-toggle" id="cap-tools-toggle">&#9660;</span>
+        </div>
+        <div class="cap-section-body" id="cap-tools-body">
+          <div id="cap-tools-grid" class="cap-grid"></div>
+        </div>
+      </div>
+
+      <!-- Skills Section -->
+      <div class="cap-section" id="cap-skills-section">
+        <div class="cap-section-header" onclick="toggleCapSection('skills')">
+          <span>Skills <span id="cap-skills-count" class="cap-count"></span></span>
+          <span class="cap-toggle" id="cap-skills-toggle">&#9660;</span>
+        </div>
+        <div class="cap-section-body" id="cap-skills-body">
+          <div id="cap-skills-grid" class="cap-grid"></div>
+        </div>
+      </div>
+
+      <!-- Templates Section -->
+      <div class="cap-section" id="cap-templates-section">
+        <div class="cap-section-header" onclick="toggleCapSection('templates')">
+          <span>Templates <span id="cap-templates-count" class="cap-count"></span></span>
+          <span class="cap-toggle" id="cap-templates-toggle">&#9660;</span>
+        </div>
+        <div class="cap-section-body" id="cap-templates-body">
+          <div id="cap-templates-grid" class="cap-grid"></div>
+        </div>
+      </div>
+    </div><!-- /operations-sub-capabilities -->
 
     <!-- === Sub: Files === -->
     <div id="operations-sub-files" style="display:none">
@@ -1395,6 +1447,13 @@
           <option value="opus">Opus</option>
         </select>
       </div>
+      <div class="task-detail-field">
+        <label>Workflow</label>
+        <select id="td-workflow" onchange="updateTaskField('workflow')">
+          <option value="">Default</option>
+          <option value="none">None (direct dispatch)</option>
+        </select>
+      </div>
     </div>
     <div class="form-row" style="margin-bottom:10px">
       <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Title</label>
@@ -1408,6 +1467,15 @@
       <span id="td-cost-display"></span>
       <span id="td-duration-display"></span>
       <span id="td-dates-display"></span>
+    </div>
+    <!-- Workflow Step Progress -->
+    <div id="td-wf-progress" style="display:none;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Workflow Progress</span>
+        <span id="td-wf-run-status" class="badge" style="font-size:10px"></span>
+        <a id="td-wf-run-link" href="#" onclick="return openWfRunFromTask()" style="font-size:11px;color:var(--accent);margin-left:auto">View Full Run</a>
+      </div>
+      <div id="td-wf-steps" class="td-wf-steps"></div>
     </div>
     <!-- Comment Thread -->
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Comments</div>
@@ -1625,8 +1693,6 @@
       </div>
     </div>
   </div>
-</div>
-
 </div>
 
 <!-- Toast -->
@@ -2097,4 +2163,5 @@ CRITICAL: Each character centered in 16x32 cell. Feet at bottom. No grid lines. 
     </div>
   </div>
 </div>
+</div><!-- /container -->
 
