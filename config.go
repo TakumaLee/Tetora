@@ -139,6 +139,7 @@ type Config struct {
 	Hooks                 HooksConfig                      `json:"hooks,omitempty"`                  // --- v3: Claude Code Hooks ---
 	PlanGate              PlanGateConfig                   `json:"planGate,omitempty"`                // --- v3: Plan Gate Mode ---
 	MCPBridge             MCPBridgeConfig                  `json:"mcpBridge,omitempty"`               // --- v3: MCP Server Bridge ---
+	Store                 StoreConfig                      `json:"store,omitempty"`                   // --- Template Marketplace ---
 
 	// Resolved at runtime (not serialized).
 	baseDir           string

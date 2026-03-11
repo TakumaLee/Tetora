@@ -66,6 +66,11 @@
       <span class="nav-icon">&#x1F4C2;</span> Files
     </button>
     <div class="nav-divider"></div>
+    <div class="nav-label">Marketplace</div>
+    <button class="nav-item" id="tab-store" onclick="switchTab('store')">
+      <span class="nav-icon">&#x1F3EA;</span> Store
+    </button>
+    <div class="nav-divider"></div>
     <div class="nav-label">Settings</div>
     <button class="nav-item" id="tab-settings-general" onclick="switchTab('settings');switchSubTab('settings','general')">
       <span class="nav-icon">&#x2699;</span> General
@@ -1090,6 +1095,28 @@
     </div><!-- /operations-sub-files -->
 
   </div><!-- /operations-content -->
+
+  <!-- Store -->
+  <div id="store-content" style="display:none">
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Tetora Store</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="store-search" placeholder="Search templates..." oninput="filterStore()" style="width:200px;font-size:12px">
+          <button class="btn" onclick="refreshStore()">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Category Filter -->
+    <div id="store-categories" class="store-categories"></div>
+
+    <!-- Featured Section -->
+    <div id="store-featured" class="store-featured" style="margin-bottom:16px"></div>
+
+    <!-- All Items Grid -->
+    <div id="store-grid" class="store-grid"></div>
+  </div><!-- /store-content -->
 
   <div id="settings-content" style="display:none">
     <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>

@@ -2369,3 +2369,23 @@ body:not([class*="theme-"])::after, body.theme-default::after {
 .btn-approve:hover { background: rgba(52,211,153,0.25); }
 .btn-reject { background: rgba(248,113,113,0.1); color: var(--red); border-color: var(--red); }
 .btn-reject:hover { background: rgba(248,113,113,0.2); }
+
+/* Store Tab */
+.store-categories { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; padding: 0 4px; }
+.store-cat-btn {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 4px 12px; font-size: 12px; color: var(--muted); cursor: pointer;
+  transition: all 0.15s;
+}
+.store-cat-btn:hover { border-color: var(--accent); color: var(--text); }
+.store-cat-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.store-featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.store-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius);
+  padding: 14px 16px; transition: border-color 0.15s, box-shadow 0.15s; cursor: default;
+}
+.store-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(6,182,212,0.08); }
+.store-card-featured { border-color: rgba(139,92,246,0.3); background: linear-gradient(135deg, var(--surface), rgba(139,92,246,0.04)); }
+.store-card-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.store-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.03); color: var(--muted); }

@@ -380,6 +380,22 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 		json.NewEncoder(w).Encode(result)
 	})
 
+	// --- Store Browse ---
+	mux.HandleFunc("/api/store/browse", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		items, cats := storeBrowse(cfg)
+		data, err := storeItemsToJSON(items, cats)
+		if err != nil {
+			http.Error(w, `{"error":"marshal failed"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Write(data)
+	})
+
 	// --- Template Gallery ---
 	mux.HandleFunc("/api/templates", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
