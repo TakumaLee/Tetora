@@ -75,6 +75,55 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 		}
 	})
 
+	// Import workflow from export package.
+	mux.HandleFunc("/api/workflows/import", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var pkg struct {
+			TetoraExport string   `json:"tetoraExport"`
+			Workflow     Workflow `json:"workflow"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&pkg); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %v"}`, err), http.StatusBadRequest)
+			return
+		}
+
+		// Validate package format.
+		if pkg.TetoraExport == "" {
+			http.Error(w, `{"error":"not a valid Tetora export package (missing tetoraExport field)"}`, http.StatusBadRequest)
+			return
+		}
+
+		wf := &pkg.Workflow
+		if wf.Name == "" {
+			http.Error(w, `{"error":"workflow name is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Validate workflow.
+		errs := validateWorkflow(wf)
+		if len(errs) > 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{"errors": errs, "valid": false})
+			return
+		}
+
+		// Save.
+		if err := saveWorkflow(cfg, wf); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"save failed: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		auditLog(cfg.HistoryDB, "workflow.import", "http",
+			fmt.Sprintf("name=%s steps=%d", wf.Name, len(wf.Steps)), clientIP(r))
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "imported", "name": wf.Name})
+	})
+
 	mux.HandleFunc("/workflows/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		name := strings.TrimPrefix(r.URL.Path, "/workflows/")
@@ -115,6 +164,20 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				return
 			}
 			json.NewEncoder(w).Encode(wf)
+
+		case action == "export" && r.Method == http.MethodGet:
+			wf, err := loadWorkflowByName(cfg, name)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			pkg := map[string]any{
+				"tetoraExport": "workflow/v1",
+				"exportedAt":   time.Now().UTC().Format(time.RFC3339),
+				"workflow":     wf,
+			}
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.json"`, name))
+			json.NewEncoder(w).Encode(pkg)
 
 		case action == "" && r.Method == http.MethodDelete:
 			if err := deleteWorkflow(cfg, name); err != nil {
@@ -404,6 +467,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			}
 			name := e.Name()
 			desc := ""
+			// Try metadata.json first.
 			metaPath := filepath.Join(dir, name, "metadata.json")
 			if data, rerr := os.ReadFile(metaPath); rerr == nil {
 				var meta struct {
@@ -411,6 +475,26 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				}
 				if json.Unmarshal(data, &meta) == nil {
 					desc = meta.Description
+				}
+			}
+			// Fall back to SKILL.md frontmatter.
+			if desc == "" {
+				skillPath := filepath.Join(dir, name, "SKILL.md")
+				if data, rerr := os.ReadFile(skillPath); rerr == nil {
+					content := string(data)
+					if strings.HasPrefix(content, "---\n") {
+						if end := strings.Index(content[4:], "\n---"); end >= 0 {
+							fm := content[4 : 4+end]
+							for _, line := range strings.Split(fm, "\n") {
+								line = strings.TrimSpace(line)
+								if strings.HasPrefix(line, "description:") {
+									desc = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+									desc = strings.Trim(desc, "\"'")
+									break
+								}
+							}
+						}
+					}
 				}
 			}
 			skills = append(skills, SkillInfo{Name: name, Description: desc})

@@ -1,9 +1,9 @@
 // --- Capabilities Tab: Tools, Skills, Templates ---
 
-var capData = { tools: [], skills: [], templates: [] };
+var capData = { tools: [], skills: [], templates: [], workflows: [] };
 
 async function refreshCapabilities() {
-  await Promise.all([loadToolsList(), loadSkillsList(), loadTemplatesList()]);
+  await Promise.all([loadToolsList(), loadSkillsList(), loadWorkflowsList(), loadTemplatesList()]);
 }
 
 // --- Tools ---
@@ -201,6 +201,111 @@ async function installCapTemplate(name) {
   }
 }
 
+// --- Installed Workflows (with export) ---
+
+async function loadWorkflowsList() {
+  var grid = document.getElementById('cap-workflows-grid');
+  try {
+    var wfs = await fetchJSON('/workflows');
+    capData.workflows = Array.isArray(wfs) ? wfs : [];
+    renderWorkflowsGrid(capData.workflows);
+  } catch(e) {
+    grid.innerHTML = '<div class="cap-empty">Error loading workflows</div>';
+  }
+}
+
+function renderWorkflowsGrid(workflows) {
+  var grid = document.getElementById('cap-workflows-grid');
+  document.getElementById('cap-workflows-count').textContent = '(' + workflows.length + ')';
+  if (workflows.length === 0) {
+    grid.innerHTML = '<div class="cap-empty">No workflows installed</div>';
+    return;
+  }
+  grid.innerHTML = workflows.map(function(wf) {
+    var badges = '<span class="cap-badge">' + (wf.steps ? wf.steps.length : 0) + ' steps</span>';
+    if (wf.timeout) badges += '<span class="cap-badge">' + esc(wf.timeout) + '</span>';
+    return '<div class="cap-card">' +
+      '<div class="cap-card-name">' + esc(wf.name) + '</div>' +
+      '<div class="cap-card-desc">' + esc(wf.description || '') + '</div>' +
+      '<div class="cap-card-badges">' + badges + '</div>' +
+      '<div class="cap-card-actions">' +
+        '<button class="btn btn-sm" onclick="event.stopPropagation();editCapWorkflow(\'' + escAttr(wf.name) + '\')">Edit</button>' +
+        '<button class="btn btn-sm" onclick="event.stopPropagation();exportWorkflow(\'' + escAttr(wf.name) + '\')">Export</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function editCapWorkflow(name) {
+  switchTab('operations');
+  switchSubTab('operations', 'workflows');
+  setTimeout(function() {
+    if (typeof openWorkflowEditor === 'function') openWorkflowEditor(name);
+  }, 100);
+}
+
+async function exportWorkflow(name) {
+  try {
+    var data = await fetchJSON('/workflows/' + encodeURIComponent(name) + '/export');
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Exported: ' + name);
+  } catch(e) {
+    toast('Export failed: ' + (e.message || e));
+  }
+}
+
+function importWorkflowPackage() {
+  document.getElementById('cap-import-file').click();
+}
+
+async function handleImportFile(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  event.target.value = ''; // reset for re-import
+
+  try {
+    var text = await file.text();
+    var pkg = JSON.parse(text);
+
+    if (!pkg.tetoraExport) {
+      // Try as raw workflow (backwards compat).
+      if (pkg.name && pkg.steps) {
+        pkg = { tetoraExport: 'workflow/v1', workflow: pkg };
+      } else {
+        toast('Not a valid Tetora export package');
+        return;
+      }
+    }
+
+    var resp = await fetch('/api/workflows/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pkg),
+    });
+    var result = await resp.json();
+
+    if (!resp.ok) {
+      if (result.errors) {
+        toast('Validation errors: ' + result.errors.join(', '));
+      } else {
+        toast('Import failed: ' + (result.error || 'unknown error'));
+      }
+      return;
+    }
+
+    toast('Imported workflow: ' + (result.name || ''));
+    loadWorkflowsList();
+  } catch(e) {
+    toast('Import failed: ' + (e.message || e));
+  }
+}
+
 // --- Shared ---
 
 function toggleCapSection(section) {
@@ -214,19 +319,20 @@ function toggleCapSection(section) {
 
 function filterCapabilities() {
   var q = (document.getElementById('cap-search').value || '').toLowerCase();
+  var matchName = function(item) {
+    return (item.name || '').toLowerCase().includes(q) || (item.description || '').toLowerCase().includes(q);
+  };
   if (!q) {
     renderToolsGrid(capData.tools);
     renderSkillsGrid(capData.skills);
+    renderWorkflowsGrid(capData.workflows);
     renderCapTemplatesGrid(capData.templates);
     return;
   }
-  renderToolsGrid(capData.tools.filter(function(t) {
-    return (t.name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
-  }));
-  renderSkillsGrid(capData.skills.filter(function(s) {
-    return (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q);
-  }));
+  renderToolsGrid(capData.tools.filter(matchName));
+  renderSkillsGrid(capData.skills.filter(matchName));
+  renderWorkflowsGrid(capData.workflows.filter(matchName));
   renderCapTemplatesGrid(capData.templates.filter(function(t) {
-    return (t.name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q);
+    return matchName(t) || (t.category || '').toLowerCase().includes(q);
   }));
 }

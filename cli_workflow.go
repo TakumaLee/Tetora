@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 func cmdWorkflow(args []string) {
@@ -18,6 +19,7 @@ func cmdWorkflow(args []string) {
 		fmt.Println("  show   <name>                              Show workflow definition")
 		fmt.Println("  validate <name|file>                       Validate a workflow")
 		fmt.Println("  create <file>                              Import workflow from JSON file")
+		fmt.Println("  export <name> [-o file]                    Export workflow as shareable JSON package")
 		fmt.Println("  delete <name>                              Delete a workflow")
 		fmt.Println("  run  <name> [--var key=value ...] [--dry-run|--shadow]  Execute a workflow")
 		fmt.Println("  runs [name]                                List workflow run history")
@@ -53,6 +55,19 @@ func cmdWorkflow(args []string) {
 			os.Exit(1)
 		}
 		workflowCreateCmd(args[1])
+	case "export":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora workflow export <name> [-o file]")
+			os.Exit(1)
+		}
+		outFile := ""
+		for i := 2; i < len(args); i++ {
+			if args[i] == "-o" && i+1 < len(args) {
+				outFile = args[i+1]
+				i++
+			}
+		}
+		workflowExportCmd(args[1], outFile)
 	case "delete", "rm":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "Usage: tetora workflow delete <name>")
@@ -496,6 +511,46 @@ func resolveWorkflowRunID(cfg *Config, runID string) string {
 		}
 	}
 	return runID
+}
+
+func workflowExportCmd(name, outFile string) {
+	cfg := loadConfig(findConfigPath())
+	wf, err := loadWorkflowByName(cfg, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Validate before export.
+	if errs := validateWorkflow(wf); len(errs) > 0 {
+		fmt.Fprintln(os.Stderr, "Warning: workflow has validation issues:")
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+	}
+
+	// Build export package.
+	pkg := map[string]any{
+		"tetoraExport": "workflow/v1",
+		"exportedAt":   time.Now().UTC().Format(time.RFC3339),
+		"workflow":     wf,
+	}
+
+	data, err := json.MarshalIndent(pkg, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error marshalling: %v\n", err)
+		os.Exit(1)
+	}
+
+	if outFile != "" {
+		if err := os.WriteFile(outFile, data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Exported '%s' to %s\n", name, outFile)
+	} else {
+		fmt.Println(string(data))
+	}
 }
 
 // stepSummary returns a short summary of what a step does.

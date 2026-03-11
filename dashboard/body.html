@@ -1051,7 +1051,22 @@
         </div>
       </div>
 
-      <!-- Templates Section -->
+      <!-- Workflows Section (installed, with export) -->
+      <div class="cap-section" id="cap-workflows-section">
+        <div class="cap-section-header" onclick="toggleCapSection('workflows')">
+          <span>Workflows <span id="cap-workflows-count" class="cap-count"></span></span>
+          <span class="cap-toggle" id="cap-workflows-toggle">&#9660;</span>
+        </div>
+        <div class="cap-section-body" id="cap-workflows-body">
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <button class="btn btn-sm btn-primary" onclick="importWorkflowPackage()">Import Package</button>
+            <input type="file" id="cap-import-file" accept=".json" style="display:none" onchange="handleImportFile(event)">
+          </div>
+          <div id="cap-workflows-grid" class="cap-grid"></div>
+        </div>
+      </div>
+
+      <!-- Templates Section (built-in gallery) -->
       <div class="cap-section" id="cap-templates-section">
         <div class="cap-section-header" onclick="toggleCapSection('templates')">
           <span>Templates <span id="cap-templates-count" class="cap-count"></span></span>
