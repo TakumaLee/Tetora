@@ -191,9 +191,19 @@ func toolTaskboardGet(cfg *Config) ToolHandler {
 
 		task, err := tb.GetTask(args.ID)
 		if err != nil {
+			// Suggest similar tasks on not-found.
+			normalizedID := normalizeTaskID(args.ID)
+			if candidates := tb.suggestTasks(normalizedID); len(candidates) > 0 {
+				lines := []string{err.Error(), "Did you mean:"}
+				for _, c := range candidates {
+					lines = append(lines, fmt.Sprintf("  %s  %s  (%s)", c.ID, c.Title, c.Status))
+				}
+				return "", fmt.Errorf("%s", strings.Join(lines, "\n"))
+			}
 			return "", err
 		}
-		comments, err := tb.GetThread(args.ID)
+		// Use normalized ID (from task) for thread lookup.
+		comments, err := tb.GetThread(task.ID)
 		if err != nil {
 			return "", err
 		}

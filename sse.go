@@ -13,11 +13,12 @@ import (
 
 // SSEEvent represents a Server-Sent Event for task/session streaming.
 type SSEEvent struct {
-	Type      string `json:"type"`                // "started", "progress", "output_chunk", "completed", "error", "heartbeat"
-	TaskID    string `json:"taskId,omitempty"`     // which task produced this event
-	SessionID string `json:"sessionId,omitempty"`  // which session this belongs to
-	Data      any    `json:"data,omitempty"`       // event-specific payload
-	Timestamp string `json:"timestamp"`            // RFC3339
+	Type           string `json:"type"`                      // "started", "progress", "output_chunk", "completed", "error", "heartbeat"
+	TaskID         string `json:"taskId,omitempty"`           // which task produced this event
+	SessionID      string `json:"sessionId,omitempty"`        // which session this belongs to
+	WorkflowRunID  string `json:"workflowRunId,omitempty"`    // workflow run ID for routing
+	Data           any    `json:"data,omitempty"`             // event-specific payload
+	Timestamp      string `json:"timestamp"`                  // RFC3339
 }
 
 // SSE event type constants.
@@ -66,7 +67,7 @@ func newSSEBroker() *sseBroker {
 // Returns the event channel and an unsubscribe function.
 // The channel is buffered to avoid blocking publishers.
 func (b *sseBroker) Subscribe(key string) (chan SSEEvent, func()) {
-	ch := make(chan SSEEvent, 256)
+	ch := make(chan SSEEvent, 64)
 	b.mu.Lock()
 	if b.subscribers[key] == nil {
 		b.subscribers[key] = make(map[chan SSEEvent]struct{})

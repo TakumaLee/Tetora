@@ -675,6 +675,11 @@ function renderWfStepList(data) {
   steps.forEach(function(sr) {
     var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-warn' : sr.status === 'running' ? 'badge-warn' : '';
     var dur = sr.durationMs ? (sr.durationMs / 1000).toFixed(1) + 's' : '-';
+    // Show live elapsed time for running steps.
+    if (sr.status === 'running' && sr.startedAt && !sr.durationMs) {
+      var elapsed = Math.round((Date.now() - new Date(sr.startedAt).getTime()) / 1000);
+      dur = elapsed + 's...';
+    }
     var cost = sr.costUsd != null && sr.costUsd > 0 ? '$' + sr.costUsd.toFixed(4) : '-';
 
     html += '<div id="wf-step-row-' + escAttr(sr.stepId) + '" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px;cursor:pointer" onclick="toggleStepDetail(this)">';
@@ -700,6 +705,11 @@ function renderWfStepList(data) {
       html += '<div style="white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:4px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:11px">' + esc(output) + '</div>';
     }
     if (sr.taskId) html += '<div style="margin-top:4px;color:var(--muted)">Task: <code>' + esc(sr.taskId.substring(0, 8)) + '</code></div>';
+
+    // Streaming output container for running steps.
+    if (sr.status === 'running') {
+      html += '<div id="wf-stream-' + escAttr(sr.stepId) + '" style="white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:4px;max-height:300px;overflow-y:auto;font-family:monospace;font-size:11px;margin-top:6px;color:var(--text)"><span style="color:var(--muted)">Streaming...</span></div>';
+    }
 
     // Callback info for waiting steps
     if (sr.status === 'waiting') {
@@ -956,7 +966,11 @@ function showWfNodeDetail(stepId) {
   var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-info' : 'badge-warn';
   var html = '<h4>' + esc(stepId) + ' <span class="badge ' + statusCls + '">' + esc(sr.status || '') + '</span></h4>';
   html += '<div class="wf-detail-grid">';
-  html += '<div class="wf-detail-item"><div class="label">Duration</div><div class="value">' + (sr.durationMs || 0) + 'ms</div></div>';
+  var detailDur = sr.durationMs ? sr.durationMs + 'ms' : '0ms';
+  if (sr.status === 'running' && sr.startedAt && !sr.durationMs) {
+    detailDur = Math.round((Date.now() - new Date(sr.startedAt).getTime()) / 1000) + 's (running)';
+  }
+  html += '<div class="wf-detail-item"><div class="label">Duration</div><div class="value">' + detailDur + '</div></div>';
   html += '<div class="wf-detail-item"><div class="label">Cost</div><div class="value">$' + (sr.costUsd != null ? sr.costUsd.toFixed(4) : '0.0000') + '</div></div>';
   if (sr.startedAt) html += '<div class="wf-detail-item"><div class="label">Started</div><div class="value" style="font-size:11px">' + esc(sr.startedAt.substring(0, 19).replace('T', ' ')) + '</div></div>';
   if (sr.finishedAt) html += '<div class="wf-detail-item"><div class="label">Finished</div><div class="value" style="font-size:11px">' + esc(sr.finishedAt.substring(0, 19).replace('T', ' ')) + '</div></div>';
@@ -1091,6 +1105,9 @@ function subscribeWfSSE(runId) {
         updateWfNodeStatus(ev.data.stepId, 'waiting');
         updateWfStepRow(ev.data.stepId, 'waiting');
       }
+      if (ev.type === 'output_chunk' && ev.data && ev.data.chunk) {
+        appendWfStepOutput(ev);
+      }
       if (ev.type === 'step_completed' && ev.data) {
         updateWfNodeStatus(ev.data.stepId, ev.data.status);
         updateWfStepRow(ev.data.stepId, ev.data.status);
@@ -1140,6 +1157,52 @@ function updateWfNodeStatus(stepId, status) {
   if (node) {
     node.setAttribute('class', 'wf-node ' + status);
   }
+}
+
+// Append streaming output_chunk to the running step's stream container.
+function appendWfStepOutput(ev) {
+  // Find which step is running by matching taskId from the run data.
+  var runObj = currentWfRunData && (currentWfRunData.run || currentWfRunData);
+  if (!runObj || !runObj.stepResults) return;
+
+  var targetStepId = null;
+  for (var sid in runObj.stepResults) {
+    var sr = runObj.stepResults[sid];
+    if (sr.status === 'running' && sr.taskId === ev.taskId) {
+      targetStepId = sid;
+      break;
+    }
+  }
+  // Fallback: just find any running step.
+  if (!targetStepId) {
+    for (var sid in runObj.stepResults) {
+      if (runObj.stepResults[sid].status === 'running') {
+        targetStepId = sid;
+        break;
+      }
+    }
+  }
+  if (!targetStepId) return;
+
+  var container = document.getElementById('wf-stream-' + targetStepId);
+  if (!container) return;
+
+  // Clear the initial "Streaming..." placeholder on first chunk.
+  if (container.dataset.started !== '1') {
+    container.textContent = '';
+    container.dataset.started = '1';
+    // Auto-expand the step detail.
+    var row = document.getElementById('wf-step-row-' + targetStepId);
+    if (row) {
+      var detail = row.querySelector('.step-detail');
+      if (detail) detail.style.display = '';
+    }
+  }
+
+  var chunk = ev.data && ev.data.chunk ? ev.data.chunk : '';
+  container.textContent += chunk;
+  // Auto-scroll to bottom.
+  container.scrollTop = container.scrollHeight;
 }
 
 function escAttr(s) {
