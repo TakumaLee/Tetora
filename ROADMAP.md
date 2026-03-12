@@ -42,6 +42,13 @@ timeline
             : Interactive terminal viewer
             : Pixel office customization
             : Memory leak fixes
+    section v2.1
+        Workflow Engine & Marketplace
+            : DAG pipeline execution
+            : Dynamic model routing
+            : Template Marketplace
+            : GitLab MR support
+            : Session compaction
     section Next
         Distribution & Platform
             : Homebrew tap
@@ -62,7 +69,7 @@ timeline
             : E2E encryption
 ```
 
-> **Legend:** v1.0–v2.0 = shipped &nbsp;|&nbsp; Next / Planned / Future = not yet shipped &nbsp;|&nbsp; ✅ in text sections = completed items
+> **Legend:** v1.0–v2.1 = shipped &nbsp;|&nbsp; Next / Planned / Future = not yet shipped &nbsp;|&nbsp; ✅ in text sections = completed items
 >
 > *Can't see the diagram? View the [PNG version](assets/roadmap.png) or [PDF version](assets/roadmap.pdf).*
 
@@ -227,6 +234,35 @@ timeline
 - [x] Memory leak fixes: live stream DOM cap, session stream text cap, chat message pruning
 - [x] Pause sprite engine + terminal poll on browser tab hide
 - [x] Resource optimization across all dashboard components
+
+## v2.1 — Workflow Engine & Marketplace ✅
+
+### Workflow Engine
+
+- [x] DAG-based pipeline execution (condition branches, parallel steps, retry logic)
+- [x] Dynamic model routing: auto-detect task complexity (low → Sonnet, high → Opus)
+- [x] Workflow step progress tracking in dashboard
+- [x] Dashboard DAG visualization with theme-adaptive colors
+
+### Template Marketplace
+
+- [x] Store tab: browse workflow templates by category with search
+- [x] Capabilities tab: grid view of tools, skills, workflows, templates
+- [x] `tetora workflow export` / `tetora workflow create` CLI commands for import/export
+
+### Taskboard & Dispatch
+
+- [x] Taskboard auto-dispatch improvements: configurable concurrent slots, slot pressure system
+- [x] Partial-done task status: recoverable intermediate state for post-processing failures
+- [x] Worktree data-loss prevention: conditional cleanup + stale `index.lock` detection
+- [x] Lessons.md auto-injection into dispatch prompts
+
+### Platform
+
+- [x] GitLab MR support: `standard-dev` workflow auto-detects GitHub vs GitLab remote
+- [x] `direct-dev` workflow for private projects (merge to main)
+- [x] Token-based session compaction (200K threshold)
+- [x] `make bump` safety check: warns before restarting if workflows are running
 
 ## Next — Distribution & Platform
 

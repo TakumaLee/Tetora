@@ -30,6 +30,13 @@ Tetora is an AI agent orchestrator that lets you define multiple agent roles -- 
 - **Persistent memory** -- agents remember context across sessions; unified memory layer with consolidation
 - **MCP support** -- connect Model Context Protocol servers as tool providers
 - **Skills and workflows** -- composable skill packs and multi-step workflow pipelines
+- **Workflow Engine** -- DAG-based pipeline execution with condition branches, parallel steps, retry logic, and dynamic model routing (Sonnet for routine tasks, Opus for complex ones)
+- **Template Marketplace** -- Store tab for browsing, importing, and exporting workflow templates
+- **Taskboard Auto-Dispatch** -- Kanban board with automatic task assignment, configurable concurrent slots, and slot pressure system that reserves capacity for interactive sessions
+- **GitLab MR + GitHub PR** -- automatic PR/MR creation after workflow completion; auto-detects the remote host
+- **Session Compaction** -- token-based and message-count-based automatic context compression to keep sessions within model limits
+- **Service Worker PWA** -- offline-capable dashboard with smart caching
+- **Partial-done Status** -- tasks that complete but fail post-processing (git merge, review) enter a recoverable intermediate state instead of being lost
 - **Webhooks** -- trigger agent actions from external systems
 - **Cost governance** -- per-role and global budgets with automatic model downgrade
 - **Data retention** -- configurable cleanup policies per table, with full export and purge
@@ -198,12 +205,19 @@ All runtime data lives under `~/.tetora/`:
   config.json        Main configuration (providers, roles, integrations)
   jobs.json          Cron job definitions
   history.db         SQLite database (history, memory, sessions, embeddings, ...)
-  sessions/          Per-agent session files
-  knowledge/         Knowledge base documents
-  logs/              Structured log files
-  outputs/           Generated output files
-  uploads/           Temporary upload storage
   bin/               Installed binary
+  agents/            Per-agent soul files (agents/{name}/SOUL.md)
+  workspace/
+    rules/           Governance rules, auto-injected into all agent prompts
+    memory/          Shared observations readable/writable by any agent
+    knowledge/       Reference documents (auto-injected up to 50 KB)
+    skills/          Reusable procedures, loaded by prompt matching
+    tasks/           Task files and todo lists
+  runtime/
+    sessions/        Per-agent session files
+    outputs/         Generated output files
+    logs/            Structured log files
+    cache/           Temporary cache
 ```
 
 Configuration uses plain JSON with support for `$ENV_VAR` references, so secrets never need to be hardcoded. The setup wizard (`tetora init`) generates a working `config.json` interactively.
@@ -257,6 +271,10 @@ See [`examples/`](examples/) for ready-to-use workflow JSON files.
 | `tetora knowledge list` | List knowledge base documents |
 | `tetora skill list` | List available skills |
 | `tetora workflow list` | List configured workflows |
+| `tetora workflow run <name>` | Run a workflow (pass `--var key=value` for variables) |
+| `tetora workflow status <run-id>` | Show the status of a workflow run |
+| `tetora workflow export <name>` | Export a workflow to a shareable JSON file |
+| `tetora workflow create <file>` | Validate and import a workflow from a JSON file |
 | `tetora mcp list` | List MCP server connections |
 | `tetora budget show` | Show budget status |
 | `tetora config show` | Show current configuration |

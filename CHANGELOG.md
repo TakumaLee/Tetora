@@ -11,6 +11,37 @@
 
 ---
 
+## [v2.1.0] - 2026-03-12
+
+### Added
+- **Workflow Engine**: DAG-based pipeline execution with condition branches, parallel steps, and retry logic
+- **Dynamic Model Routing**: auto-detect task complexity and route accordingly (low complexity → Sonnet, high complexity → Opus)
+- **Template Marketplace**: Store tab in the dashboard for browsing and importing workflow templates by category
+- **Capabilities tab**: grid view of all installed tools, skills, workflows, and templates
+- **Import/Export**: `tetora workflow export <name>` and `tetora workflow create <file>` CLI commands for sharing workflow definitions
+- **GitLab MR support**: `standard-dev` workflow auto-detects GitHub vs GitLab remote and creates a PR or MR accordingly
+- **Slot Pressure System**: reserved slots for interactive sessions; non-interactive batch tasks queue automatically when slots are scarce
+- **Token-based session compaction**: sessions auto-compress when token count exceeds the 200K threshold, preventing unbounded context growth
+- **Partial-done task status**: recoverable intermediate state for tasks that complete core work but fail post-processing steps (git merge, review)
+- **Bump safety check**: `make bump` warns and aborts if workflows are currently running before restarting the daemon
+- **Worktree data-loss prevention**: conditional worktree cleanup with stale `index.lock` detection to avoid destroying uncommitted work
+- **Lessons.md injection**: agent lessons from `workspace/memory/lessons.md` are automatically injected into dispatch prompts
+- **Workflow step progress tracking**: dashboard shows per-step status and progress for running workflows
+- **Dashboard DAG visualization**: workflow DAG rendered with theme-adaptive colors in the workflow editor
+
+### Fixed
+- **Service Worker intercepting API requests**: stripped `Referer` header was causing 401 errors on dashboard API calls; Service Worker now excludes API routes
+- **Dashboard refresh buttons not working**: re-fetch logic repaired across all dashboard tabs
+- **Review execution error**: review step was returning `"approve"` on execution errors instead of the correct `"escalate"` fallback
+- **Session context growing unbounded**: sessions could reach 1.1M+ tokens without triggering compaction; threshold and trigger logic corrected
+
+### Changed
+- **`standard-dev` workflow**: now creates a PR or MR instead of merging directly to main, enabling code review before merge
+- **`direct-dev` workflow**: new workflow for private projects where merging directly to main is acceptable
+- **`make bump`**: now checks for running workflows before restarting the daemon, preventing mid-run interruptions
+
+---
+
 ## [v2.0.0] - 2026-03-08
 
 ### Added
