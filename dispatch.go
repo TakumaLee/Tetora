@@ -47,6 +47,7 @@ type Task struct {
 	approvalGate    ApprovalGate                        // P28.0: unexported, not serialized
 	sseBroker       *sseBroker                          // streaming: unexported, not serialized
 	onStart         func()                              // called after semaphore acquired, before execution
+	workflowRunID   string                              // workflow run ID for SSE forwarding
 }
 
 type TaskResult struct {
@@ -217,6 +218,10 @@ func publishToSSEBroker(broker *sseBroker, event SSEEvent) {
 	}
 	if event.SessionID != "" {
 		keys = append(keys, event.SessionID)
+	}
+	// Forward to workflow SSE channel when set (so dashboard workflow view sees streaming output).
+	if event.WorkflowRunID != "" {
+		keys = append(keys, "workflow:"+event.WorkflowRunID)
 	}
 	broker.PublishMulti(keys, event)
 }
@@ -544,9 +549,10 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	var eventCh chan SSEEvent
 	if task.sseBroker != nil {
 		publishToSSEBroker(task.sseBroker, SSEEvent{
-			Type:      SSEStarted,
-			TaskID:    task.ID,
-			SessionID: task.SessionID,
+			Type:           SSEStarted,
+			TaskID:         task.ID,
+			SessionID:      task.SessionID,
+			WorkflowRunID:  task.workflowRunID,
 			Data: map[string]any{
 				"name":  task.Name,
 				"role":  agentName,
@@ -556,6 +562,10 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		eventCh = make(chan SSEEvent, 128)
 		go func() {
 			for ev := range eventCh {
+				// Stamp workflow run ID so events route to the workflow SSE channel.
+				if task.workflowRunID != "" {
+					ev.WorkflowRunID = task.workflowRunID
+				}
 				logDebug("sse forward", "type", ev.Type, "taskID", ev.TaskID, "sessionID", ev.SessionID)
 				publishToSSEBroker(task.sseBroker, ev)
 			}

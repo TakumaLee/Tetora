@@ -268,7 +268,7 @@ type PromptBudgetConfig struct {
 func (c PromptBudgetConfig) soulMaxOrDefault() int      { if c.SoulMax > 0 { return c.SoulMax }; return 8000 }
 func (c PromptBudgetConfig) rulesMaxOrDefault() int     { if c.RulesMax > 0 { return c.RulesMax }; return 4000 }
 func (c PromptBudgetConfig) knowledgeMaxOrDefault() int { if c.KnowledgeMax > 0 { return c.KnowledgeMax }; return 8000 }
-func (c PromptBudgetConfig) skillsMaxOrDefault() int    { if c.SkillsMax > 0 { return c.SkillsMax }; return 2000 }
+func (c PromptBudgetConfig) skillsMaxOrDefault() int    { if c.SkillsMax > 0 { return c.SkillsMax }; return 4000 }
 func (c PromptBudgetConfig) maxSkillsPerTaskOrDefault() int { if c.MaxSkillsPerTask > 0 { return c.MaxSkillsPerTask }; return 3 }
 func (c PromptBudgetConfig) contextMaxOrDefault() int   { if c.ContextMax > 0 { return c.ContextMax }; return 16000 }
 func (c PromptBudgetConfig) totalMaxOrDefault() int     { if c.TotalMax > 0 { return c.TotalMax }; return 40000 }
