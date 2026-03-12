@@ -1495,6 +1495,23 @@ body.mode-light.theme-material .btn:hover {
 .md-rendered strong { font-weight: 600; }
 .md-rendered em { font-style: italic; }
 .md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.md-rendered table { border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%; }
+.md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md-rendered th { background: var(--surface); font-weight: 600; }
+
+/* Docs Viewer */
+.docs-layout { display: flex; gap: 0; height: calc(100vh - 80px); }
+.docs-sidebar { width: 220px; min-width: 180px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.docs-sidebar-header { padding: 10px; border-bottom: 1px solid var(--border); }
+.docs-sidebar-list { flex: 1; overflow-y: auto; padding: 4px; }
+.docs-nav-item { display: flex; flex-direction: column; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; color: var(--text); font-size: 12px; }
+.docs-nav-item:hover { background: var(--surface); }
+.docs-nav-active { background: var(--surface); border: 1px solid var(--border); }
+.docs-nav-name { font-weight: 600; }
+.docs-nav-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.docs-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.docs-main-header { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.docs-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
 
 /* Output mode toggle */
 .output-mode-toggle {
@@ -1550,17 +1567,17 @@ body.mode-light.theme-material .btn:hover {
 .wf-dag-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; overflow-x: auto; min-height: 200px; position: relative; }
 .wf-node { cursor: pointer; transition: opacity 0.2s; }
 .wf-node:hover { opacity: 0.85; }
-.wf-node.pending rect { fill: #1e1e2e; stroke: #6b6b80; stroke-width: 2; }
-.wf-node.running rect { fill: #172554; stroke: #60a5fa; stroke-width: 2; }
-.wf-node.waiting rect { fill: #2e1065; stroke: #a78bfa; stroke-width: 2; }
-.wf-node.success rect { fill: #064e3b; stroke: #34d399; stroke-width: 2; }
-.wf-node.error rect { fill: #450a0a; stroke: #f87171; stroke-width: 2; }
-.wf-node.skipped rect { fill: #422006; stroke: #fbbf24; stroke-width: 2; }
-.wf-node.timeout rect { fill: #450a0a; stroke: #fb923c; stroke-width: 2; }
-.wf-node.cancelled rect { fill: #1e1e2e; stroke: #a1a1aa; stroke-width: 2; }
+.wf-node.pending rect { fill: color-mix(in srgb, #6b6b80 15%, var(--bg)); stroke: #6b6b80; stroke-width: 2; }
+.wf-node.running rect { fill: color-mix(in srgb, #60a5fa 15%, var(--bg)); stroke: #60a5fa; stroke-width: 2; }
+.wf-node.waiting rect { fill: color-mix(in srgb, #a78bfa 15%, var(--bg)); stroke: #a78bfa; stroke-width: 2; }
+.wf-node.success rect { fill: color-mix(in srgb, #34d399 15%, var(--bg)); stroke: #34d399; stroke-width: 2; }
+.wf-node.error rect { fill: color-mix(in srgb, #f87171 15%, var(--bg)); stroke: #f87171; stroke-width: 2; }
+.wf-node.skipped rect { fill: color-mix(in srgb, #fbbf24 15%, var(--bg)); stroke: #fbbf24; stroke-width: 2; }
+.wf-node.timeout rect { fill: color-mix(in srgb, #fb923c 15%, var(--bg)); stroke: #fb923c; stroke-width: 2; }
+.wf-node.cancelled rect { fill: color-mix(in srgb, #a1a1aa 15%, var(--bg)); stroke: #a1a1aa; stroke-width: 2; }
 .wf-node rect { rx: 8; ry: 8; }
 .wf-node text { fill: var(--text); font-size: 11px; font-family: inherit; }
-.wf-edge { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+.wf-edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
 .wf-edge.handoff { stroke: var(--accent); stroke-dasharray: 6,3; }
 
 /* Workflow Timeline */

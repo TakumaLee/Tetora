@@ -390,7 +390,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
-		maybeCompactSession(sb.cfg, dbPath, sess.ID, sess.MessageCount+2, sb.sem, sb.childSem)
+		maybeCompactSession(sb.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, sb.sem, sb.childSem)
 	}
 
 	// Store in agent memory.

@@ -892,8 +892,8 @@ function renderWfDAG(run, wfDef) {
   svg.setAttribute('viewBox', '0 0 ' + layout.width + ' ' + layout.height);
 
   var html = '<defs>';
-  html += '<marker id="wf-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#4b5563"/></marker>';
-  html += '<marker id="wf-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/></marker>';
+  html += '<marker id="wf-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="var(--muted)"/></marker>';
+  html += '<marker id="wf-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="var(--accent2)"/></marker>';
   html += '</defs>';
 
   // Draw edges first (behind nodes)
@@ -925,7 +925,7 @@ function renderWfDAG(run, wfDef) {
     html += '<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '"/>';
     html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + (roleLabel ? 20 : 28)) + '" text-anchor="middle" font-weight="600">' + esc(label) + '</text>';
     if (roleLabel) {
-      html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + 35) + '" text-anchor="middle" font-size="9" fill="#a1a1aa">' + esc(roleLabel) + '</text>';
+      html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + 35) + '" text-anchor="middle" font-size="9" fill="var(--muted)">' + esc(roleLabel) + '</text>';
     }
     html += '</g>';
   });

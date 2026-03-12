@@ -829,7 +829,7 @@ func (b *Bot) execAsk(ctx context.Context, msg *tgMessage, prompt string) {
 			updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
 			// Trigger compaction if needed.
-			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem, b.childSem)
+			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, b.sem, b.childSem)
 		}
 
 		if result.Status == "success" {
@@ -1031,7 +1031,7 @@ func (b *Bot) execRoute(ctx context.Context, msg *tgMessage, prompt string) {
 			updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
 
 			// Trigger compaction if needed.
-			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, b.sem, b.childSem)
+			maybeCompactSession(b.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, b.sem, b.childSem)
 		}
 
 		// Store output summary in agent memory.

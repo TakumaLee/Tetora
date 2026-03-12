@@ -36,7 +36,7 @@ function onJobProjectChange() {
   }
 }
 
-var TAB_LIST = ['dashboard','chat','operations','store','settings'];
+var TAB_LIST = ['dashboard','chat','operations','store','docs','settings'];
 
 // Backward-compat mapping: old tab names → new tab + sub-tab
 var TAB_COMPAT = {
@@ -77,6 +77,9 @@ function switchTab(tab) {
   }
   if (tab === 'store') {
     refreshStore();
+  }
+  if (tab === 'docs') {
+    refreshDocs();
   }
   if (tab === 'dashboard') {
     applyDashView();

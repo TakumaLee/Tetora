@@ -518,6 +518,7 @@ func startHTTPServer(s *Server) *http.Server {
 	s.registerWorkersRoutes(mux)
 	s.registerHookRoutes(mux)
 	s.registerPlanReviewRoutes(mux)
+	s.registerDocsRoutes(mux)
 
 	// PWA assets.
 	mux.HandleFunc("/dashboard/manifest.json", handlePWAManifest)

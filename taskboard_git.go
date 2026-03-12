@@ -262,11 +262,43 @@ func (d *TaskBoardDispatcher) captureTaskDiff(t TaskBoard, repoDir, wtDir string
 	return diff
 }
 
-// prDescSem limits concurrent PR description generation LLM calls.
+// prDescSem limits concurrent PR/MR description generation LLM calls.
 var prDescSem = make(chan struct{}, 2)
 
-// postTaskGitPR creates a GitHub PR with an AI-generated title and description.
+// detectRemoteHost inspects the origin remote URL and returns "github", "gitlab", or "unknown".
+func detectRemoteHost(workdir string) string {
+	out, err := exec.Command("git", "-C", workdir, "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "unknown"
+	}
+	url := strings.ToLower(strings.TrimSpace(string(out)))
+	switch {
+	case strings.Contains(url, "github.com"):
+		return "github"
+	case strings.Contains(url, "gitlab"):
+		return "gitlab"
+	default:
+		return "unknown"
+	}
+}
+
+// postTaskGitPR is the entry point for auto-creating a PR or MR after a task push.
+// It detects whether the remote is GitHub or GitLab and delegates accordingly.
 func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string) {
+	host := detectRemoteHost(workdir)
+	switch host {
+	case "github":
+		d.postTaskGitHubPR(t, workdir, branch)
+	case "gitlab":
+		d.postTaskGitLabMR(t, workdir, branch)
+	default:
+		logWarn("postTaskGitPR: remote host not recognized, skipping PR/MR creation", "task", t.ID)
+		d.engine.AddComment(t.ID, "system", "[post-task-git] Remote host not recognized (not GitHub or GitLab). Skipping PR/MR creation.")
+	}
+}
+
+// postTaskGitHubPR creates a GitHub PR with an AI-generated title and description.
+func (d *TaskBoardDispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch string) {
 	// Detect the default branch (main or master).
 	baseBranch := detectDefaultBranch(workdir)
 
@@ -275,7 +307,7 @@ func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string)
 	prViewCmd.Dir = workdir
 	existingPR, _ := prViewCmd.Output()
 	if url := strings.TrimSpace(string(existingPR)); url != "" {
-		logInfo("postTaskGitPR: PR already exists", "task", t.ID, "url", url)
+		logInfo("postTaskGitHubPR: PR already exists", "task", t.ID, "url", url)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR already exists: %s", url))
 		return
 	}
@@ -283,7 +315,7 @@ func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string)
 	// Gather diff for LLM context.
 	diffOut, err := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch, "--stat").Output()
 	if err != nil {
-		logWarn("postTaskGitPR: diff stat failed", "task", t.ID, "error", err)
+		logWarn("postTaskGitHubPR: diff stat failed", "task", t.ID, "error", err)
 	}
 	diffDetail, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
 
@@ -305,24 +337,88 @@ func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := fmt.Sprintf("[post-task-git] PR creation failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskGitPR: gh pr create failed", "task", t.ID, "error", msg)
+		logWarn("postTaskGitHubPR: gh pr create failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
 
 	prURL := strings.TrimSpace(string(out))
-	logInfo("postTaskGitPR: PR created", "task", t.ID, "url", prURL)
+	logInfo("postTaskGitHubPR: PR created", "task", t.ID, "url", prURL)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR created: %s", prURL))
 }
 
-// generatePRDescription uses a lightweight LLM call to generate a PR title and body.
+// postTaskGitLabMR creates a GitLab MR with an AI-generated title and description.
+func (d *TaskBoardDispatcher) postTaskGitLabMR(t TaskBoard, workdir, branch string) {
+	// Detect the default branch (main or master).
+	baseBranch := detectDefaultBranch(workdir)
+
+	// Check if an MR already exists for this branch.
+	mrViewCmd := exec.Command("glab", "mr", "view", branch)
+	mrViewCmd.Dir = workdir
+	mrViewOut, mrViewErr := mrViewCmd.Output()
+	if mrViewErr == nil && len(strings.TrimSpace(string(mrViewOut))) > 0 {
+		// glab mr view exits 0 and prints details when the MR exists.
+		// Extract the web URL from the output if present, otherwise just note it exists.
+		url := ""
+		for _, line := range strings.Split(string(mrViewOut), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "https://") {
+				url = strings.TrimSpace(line)
+				break
+			}
+		}
+		msg := "[post-task-git] MR already exists"
+		if url != "" {
+			msg += ": " + url
+		}
+		logInfo("postTaskGitLabMR: MR already exists", "task", t.ID, "url", url)
+		d.engine.AddComment(t.ID, "system", msg)
+		return
+	}
+
+	// Gather diff for LLM context.
+	diffOut, err := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch, "--stat").Output()
+	if err != nil {
+		logWarn("postTaskGitLabMR: diff stat failed", "task", t.ID, "error", err)
+	}
+	diffDetail, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
+
+	// Gather commit log.
+	logOut, _ := exec.Command("git", "-C", workdir, "log", baseBranch+".."+branch, "--oneline").Output()
+
+	// Generate MR title and body via LLM (reuses the same generator as GitHub).
+	title, body := d.generatePRDescription(t, string(diffOut), string(diffDetail), string(logOut))
+
+	// Create MR via glab CLI.
+	args := []string{"mr", "create",
+		"--head", branch,
+		"--base", baseBranch,
+		"--title", title,
+		"--description", body,
+		"--yes",
+	}
+	cmd := exec.Command("glab", args...)
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := fmt.Sprintf("[post-task-git] MR creation failed: %s", strings.TrimSpace(string(out)))
+		logWarn("postTaskGitLabMR: glab mr create failed", "task", t.ID, "error", msg)
+		d.engine.AddComment(t.ID, "system", msg)
+		return
+	}
+
+	mrURL := strings.TrimSpace(string(out))
+	logInfo("postTaskGitLabMR: MR created", "task", t.ID, "url", mrURL)
+	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] MR created: %s", mrURL))
+}
+
+// generatePRDescription uses a lightweight LLM call to generate a PR/MR title and body.
 func (d *TaskBoardDispatcher) generatePRDescription(t TaskBoard, diffStat, diffDetail, commitLog string) (title, body string) {
 	// Truncate diff detail to keep cost low.
 	if len(diffDetail) > 6000 {
 		diffDetail = diffDetail[:6000] + "\n... (truncated)"
 	}
 
-	prompt := fmt.Sprintf(`Generate a GitHub Pull Request title and description for the following changes.
+	prompt := fmt.Sprintf(`Generate a Pull Request / Merge Request title and description for the following changes.
 
 Task: %s
 Description: %s

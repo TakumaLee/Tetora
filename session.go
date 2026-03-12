@@ -817,7 +817,10 @@ func wrapWithContext(sessionContext, prompt string) string {
 // compactSession summarizes old messages when the session grows too large.
 // Keeps the last `keep` messages and replaces older ones with a summary.
 // Uses the coordinator role to generate the summary via LLM.
-func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, sem, childSem chan struct{}) error {
+// When tokenTriggered is true (token threshold exceeded rather than message count),
+// keep is doubled (minimum 15) to preserve more recent context since the session
+// may have few but very large messages.
+func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, tokenTriggered bool, sem, childSem chan struct{}) error {
 	if dbPath == "" {
 		return nil
 	}
@@ -828,6 +831,12 @@ func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, 
 	}
 
 	keep := cfg.Session.compactKeepOrDefault()
+	if tokenTriggered {
+		keep = keep * 2
+		if keep < 15 {
+			keep = 15
+		}
+	}
 	if sess.MessageCount <= keep {
 		return nil // not enough messages to compact
 	}
@@ -914,17 +923,20 @@ Conversation (%d messages):
 	return nil
 }
 
-// maybeCompactSession triggers compaction if the session exceeds the threshold.
-// Non-blocking: runs in a goroutine.
-func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount int, sem, childSem chan struct{}) {
-	threshold := cfg.Session.compactAfterOrDefault()
-	if msgCount <= threshold {
+// maybeCompactSession triggers compaction if the session exceeds the message count
+// or token threshold. tokensIn should be the running total (total_tokens_in after
+// the latest message is counted). Non-blocking: runs in a goroutine.
+func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount, tokensIn int, sem, childSem chan struct{}) {
+	msgThreshold := cfg.Session.compactAfterOrDefault()
+	tokenThreshold := cfg.Session.compactTokensOrDefault()
+	tokenTriggered := tokensIn > tokenThreshold
+	if msgCount <= msgThreshold && !tokenTriggered {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := compactSession(ctx, cfg, dbPath, sessionID, sem, childSem); err != nil {
+		if err := compactSession(ctx, cfg, dbPath, sessionID, tokenTriggered, sem, childSem); err != nil {
 			logWarn("session compaction failed", "session", sessionID, "error", err)
 		}
 	}()

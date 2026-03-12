@@ -524,7 +524,7 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {

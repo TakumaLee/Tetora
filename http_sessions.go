@@ -409,7 +409,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			go func() {
 				compactCtx, compactCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer compactCancel()
-				if err := compactSession(compactCtx, cfg, cfg.HistoryDB, sessionID, sem, childSem); err != nil {
+				if err := compactSession(compactCtx, cfg, cfg.HistoryDB, sessionID, false, sem, childSem); err != nil {
 					logError("compact session error", "session", sessionID, "error", err)
 				}
 			}()

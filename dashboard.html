@@ -1510,6 +1510,23 @@ body.mode-light.theme-material .btn:hover {
 .md-rendered strong { font-weight: 600; }
 .md-rendered em { font-style: italic; }
 .md-rendered hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.md-rendered table { border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%; }
+.md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md-rendered th { background: var(--surface); font-weight: 600; }
+
+/* Docs Viewer */
+.docs-layout { display: flex; gap: 0; height: calc(100vh - 80px); }
+.docs-sidebar { width: 220px; min-width: 180px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.docs-sidebar-header { padding: 10px; border-bottom: 1px solid var(--border); }
+.docs-sidebar-list { flex: 1; overflow-y: auto; padding: 4px; }
+.docs-nav-item { display: flex; flex-direction: column; width: 100%; text-align: left; background: none; border: none; padding: 8px 10px; border-radius: 6px; cursor: pointer; color: var(--text); font-size: 12px; }
+.docs-nav-item:hover { background: var(--surface); }
+.docs-nav-active { background: var(--surface); border: 1px solid var(--border); }
+.docs-nav-name { font-weight: 600; }
+.docs-nav-desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.docs-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.docs-main-header { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.docs-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
 
 /* Output mode toggle */
 .output-mode-toggle {
@@ -1565,17 +1582,17 @@ body.mode-light.theme-material .btn:hover {
 .wf-dag-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; overflow-x: auto; min-height: 200px; position: relative; }
 .wf-node { cursor: pointer; transition: opacity 0.2s; }
 .wf-node:hover { opacity: 0.85; }
-.wf-node.pending rect { fill: #1e1e2e; stroke: #6b6b80; stroke-width: 2; }
-.wf-node.running rect { fill: #172554; stroke: #60a5fa; stroke-width: 2; }
-.wf-node.waiting rect { fill: #2e1065; stroke: #a78bfa; stroke-width: 2; }
-.wf-node.success rect { fill: #064e3b; stroke: #34d399; stroke-width: 2; }
-.wf-node.error rect { fill: #450a0a; stroke: #f87171; stroke-width: 2; }
-.wf-node.skipped rect { fill: #422006; stroke: #fbbf24; stroke-width: 2; }
-.wf-node.timeout rect { fill: #450a0a; stroke: #fb923c; stroke-width: 2; }
-.wf-node.cancelled rect { fill: #1e1e2e; stroke: #a1a1aa; stroke-width: 2; }
+.wf-node.pending rect { fill: color-mix(in srgb, #6b6b80 15%, var(--bg)); stroke: #6b6b80; stroke-width: 2; }
+.wf-node.running rect { fill: color-mix(in srgb, #60a5fa 15%, var(--bg)); stroke: #60a5fa; stroke-width: 2; }
+.wf-node.waiting rect { fill: color-mix(in srgb, #a78bfa 15%, var(--bg)); stroke: #a78bfa; stroke-width: 2; }
+.wf-node.success rect { fill: color-mix(in srgb, #34d399 15%, var(--bg)); stroke: #34d399; stroke-width: 2; }
+.wf-node.error rect { fill: color-mix(in srgb, #f87171 15%, var(--bg)); stroke: #f87171; stroke-width: 2; }
+.wf-node.skipped rect { fill: color-mix(in srgb, #fbbf24 15%, var(--bg)); stroke: #fbbf24; stroke-width: 2; }
+.wf-node.timeout rect { fill: color-mix(in srgb, #fb923c 15%, var(--bg)); stroke: #fb923c; stroke-width: 2; }
+.wf-node.cancelled rect { fill: color-mix(in srgb, #a1a1aa 15%, var(--bg)); stroke: #a1a1aa; stroke-width: 2; }
 .wf-node rect { rx: 8; ry: 8; }
 .wf-node text { fill: var(--text); font-size: 11px; font-family: inherit; }
-.wf-edge { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+.wf-edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
 .wf-edge.handoff { stroke: var(--accent); stroke-dasharray: 6,3; }
 
 /* Workflow Timeline */
@@ -2478,6 +2495,9 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     <div class="nav-label">Marketplace</div>
     <button class="nav-item" id="tab-store" onclick="switchTab('store')">
       <span class="nav-icon">&#x1F3EA;</span> Store
+    </button>
+    <button class="nav-item" id="tab-docs" onclick="switchTab('docs')">
+      <span class="nav-icon">&#x1F4DA;</span> Docs
     </button>
     <div class="nav-divider"></div>
     <div class="nav-label">Settings</div>
@@ -3526,6 +3546,28 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     <!-- All Items Grid -->
     <div id="store-grid" class="store-grid"></div>
   </div><!-- /store-content -->
+
+  <!-- Docs -->
+  <div id="docs-content" style="display:none">
+    <div class="docs-layout">
+      <div class="docs-sidebar">
+        <div class="docs-sidebar-header">
+          <input type="text" id="docs-search" placeholder="Filter docs..." oninput="filterDocsSearch()" style="width:100%;font-size:12px;box-sizing:border-box">
+        </div>
+        <div id="docs-sidebar-list" class="docs-sidebar-list">
+          <div style="color:var(--muted);padding:12px;font-size:12px">Loading...</div>
+        </div>
+      </div>
+      <div class="docs-main">
+        <div class="docs-main-header">
+          <span id="docs-title" style="font-size:15px;font-weight:600;color:var(--text)"></span>
+        </div>
+        <div id="docs-content-body" class="docs-body">
+          <div id="docs-rendered" class="md-rendered"></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /docs-content -->
 
   <div id="settings-content" style="display:none">
     <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>
@@ -6571,6 +6613,33 @@ function renderMarkdown(text) {
       continue;
     }
 
+    // Table rows (lines containing |).
+    if (line.indexOf('|') >= 0 && line.trim().startsWith('|')) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      const cells = line.split('|').slice(1, -1).map(c => c.trim());
+      // Skip separator rows (---|---|---)
+      if (cells.every(c => /^[-:]+$/.test(c))) continue;
+      // Detect if this is a header row (next line is separator)
+      const nextLine = (i + 1 < lines.length) ? escHtml(lines[i + 1]) : '';
+      const nextIsSep = nextLine.indexOf('|') >= 0 && nextLine.split('|').slice(1, -1).every(c => /^[-:\s]+$/.test(c.trim()));
+      if (nextIsSep && result[result.length - 1] !== '<table>') {
+        result.push('<table>');
+        result.push('<tr>' + cells.map(c => '<th>' + inlineFormat(c) + '</th>').join('') + '</tr>');
+      } else {
+        if (result.length > 0 && !result[result.length - 1].includes('<table') && !result[result.length - 1].includes('<tr>') && !result[result.length - 1].includes('<th>')) {
+          // Not in a table yet but got a | row — start table
+          result.push('<table>');
+        }
+        result.push('<tr>' + cells.map(c => '<td>' + inlineFormat(c) + '</td>').join('') + '</tr>');
+      }
+      // Check if next line is NOT a table row — close table
+      const nextLineRaw = (i + 1 < lines.length) ? lines[i + 1] : '';
+      if (!nextLineRaw.trim().startsWith('|')) {
+        result.push('</table>');
+      }
+      continue;
+    }
+
     // Close list if needed.
     if (inList) { result.push('</ul>'); inList = false; }
 
@@ -8919,7 +8988,7 @@ function onJobProjectChange() {
   }
 }
 
-var TAB_LIST = ['dashboard','chat','operations','store','settings'];
+var TAB_LIST = ['dashboard','chat','operations','store','docs','settings'];
 
 // Backward-compat mapping: old tab names → new tab + sub-tab
 var TAB_COMPAT = {
@@ -8960,6 +9029,9 @@ function switchTab(tab) {
   }
   if (tab === 'store') {
     refreshStore();
+  }
+  if (tab === 'docs') {
+    refreshDocs();
   }
   if (tab === 'dashboard') {
     applyDashView();
@@ -10667,8 +10739,8 @@ function renderWfDAG(run, wfDef) {
   svg.setAttribute('viewBox', '0 0 ' + layout.width + ' ' + layout.height);
 
   var html = '<defs>';
-  html += '<marker id="wf-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#4b5563"/></marker>';
-  html += '<marker id="wf-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/></marker>';
+  html += '<marker id="wf-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="var(--muted)"/></marker>';
+  html += '<marker id="wf-arrow-accent" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0 0, 10 3.5, 0 7" fill="var(--accent2)"/></marker>';
   html += '</defs>';
 
   // Draw edges first (behind nodes)
@@ -10700,7 +10772,7 @@ function renderWfDAG(run, wfDef) {
     html += '<rect x="' + n.x + '" y="' + n.y + '" width="' + n.w + '" height="' + n.h + '"/>';
     html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + (roleLabel ? 20 : 28)) + '" text-anchor="middle" font-weight="600">' + esc(label) + '</text>';
     if (roleLabel) {
-      html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + 35) + '" text-anchor="middle" font-size="9" fill="#a1a1aa">' + esc(roleLabel) + '</text>';
+      html += '<text x="' + (n.x + n.w/2) + '" y="' + (n.y + 35) + '" text-anchor="middle" font-size="9" fill="var(--muted)">' + esc(roleLabel) + '</text>';
     }
     html += '</g>';
   });

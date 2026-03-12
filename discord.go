@@ -1225,7 +1225,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 			})
 		}
 
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {

@@ -656,6 +656,7 @@ type SessionConfig struct {
 	ContextMessages int              `json:"contextMessages,omitempty"` // max messages to inject as context (default 20)
 	CompactAfter    int              `json:"compactAfter,omitempty"`    // compact when message_count > N (default 30) [deprecated: use Compaction.MaxMessages]
 	CompactKeep     int              `json:"compactKeep,omitempty"`     // keep last N messages after compact (default 10) [deprecated: use Compaction.CompactTo]
+	CompactTokens   int              `json:"compactTokens,omitempty"`   // compact when total_tokens_in > N (default 200000)
 	Compaction      CompactionConfig `json:"compaction,omitempty"`      // compaction settings
 }
 
@@ -780,6 +781,14 @@ func (c SessionConfig) compactKeepOrDefault() int {
 		return c.CompactKeep
 	}
 	return 10
+}
+
+// compactTokensOrDefault returns the token threshold for compaction (default 200000).
+func (c SessionConfig) compactTokensOrDefault() int {
+	if c.CompactTokens > 0 {
+		return c.CompactTokens
+	}
+	return 200000
 }
 
 // --- Config Loading ---

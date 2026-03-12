@@ -70,6 +70,9 @@
     <button class="nav-item" id="tab-store" onclick="switchTab('store')">
       <span class="nav-icon">&#x1F3EA;</span> Store
     </button>
+    <button class="nav-item" id="tab-docs" onclick="switchTab('docs')">
+      <span class="nav-icon">&#x1F4DA;</span> Docs
+    </button>
     <div class="nav-divider"></div>
     <div class="nav-label">Settings</div>
     <button class="nav-item" id="tab-settings-general" onclick="switchTab('settings');switchSubTab('settings','general')">
@@ -1117,6 +1120,28 @@
     <!-- All Items Grid -->
     <div id="store-grid" class="store-grid"></div>
   </div><!-- /store-content -->
+
+  <!-- Docs -->
+  <div id="docs-content" style="display:none">
+    <div class="docs-layout">
+      <div class="docs-sidebar">
+        <div class="docs-sidebar-header">
+          <input type="text" id="docs-search" placeholder="Filter docs..." oninput="filterDocsSearch()" style="width:100%;font-size:12px;box-sizing:border-box">
+        </div>
+        <div id="docs-sidebar-list" class="docs-sidebar-list">
+          <div style="color:var(--muted);padding:12px;font-size:12px">Loading...</div>
+        </div>
+      </div>
+      <div class="docs-main">
+        <div class="docs-main-header">
+          <span id="docs-title" style="font-size:15px;font-weight:600;color:var(--text)"></span>
+        </div>
+        <div id="docs-content-body" class="docs-body">
+          <div id="docs-rendered" class="md-rendered"></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /docs-content -->
 
   <div id="settings-content" style="display:none">
     <div id="settings-loading" style="text-align:center;color:var(--muted);padding:2rem">Loading settings...</div>

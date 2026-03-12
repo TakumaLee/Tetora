@@ -1,17 +1,17 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.0.0.80
+VERSION  := 2.0.0.87
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
-.PHONY: build dev reload install clean release test bump dashboard
+.PHONY: build dev reload install clean release test bump bump-force dashboard
 
 DASH_PARTS := dashboard/head.html dashboard/style.css dashboard/body.html \
 	dashboard/core.js dashboard/views.js dashboard/workers.js \
 	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/store.js dashboard/office.js dashboard/pwa.js \
+	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js \
 	dashboard/foot.html
 
 dashboard: $(DASH_PARTS)
@@ -85,9 +85,28 @@ install: build
 		fi; \
 	'
 
-bump: dashboard
+_bump_check_running_workflows:
+	@RUNS=$$(curl -sf --max-time 3 http://localhost:7777/workflow-runs 2>/dev/null) || true; \
+	if [ -n "$$RUNS" ]; then \
+		RUNNING=$$(echo "$$RUNS" | python3 -c \
+			"import json,sys; runs=[r for r in json.load(sys.stdin) if r.get('status')=='running']; \
+			[print('  ' + r.get('workflowName','?') + ' / ' + r['id'][:8].upper()) for r in runs]; \
+			sys.exit(1 if runs else 0)" 2>/dev/null); \
+		if [ $$? -ne 0 ]; then \
+			echo ""; \
+			echo "WARNING: Workflows are currently running:"; \
+			echo "$$RUNNING"; \
+			echo ""; \
+			echo "Bumping now will kill them mid-run."; \
+			echo "  Use 'make bump-force' to proceed anyway."; \
+			echo "  Or wait for them to finish and re-run 'make bump'."; \
+			echo ""; \
+			exit 1; \
+		fi; \
+	fi
+
+bump: _bump_check_running_workflows dashboard
 	@CURRENT=$(VERSION); \
-	PARTS=$$(echo $$CURRENT | tr '.' ' '); \
 	MAJOR=$$(echo $$CURRENT | cut -d. -f1); \
 	MINOR=$$(echo $$CURRENT | cut -d. -f2); \
 	PATCH=$$(echo $$CURRENT | cut -d. -f3); \
@@ -95,6 +114,27 @@ bump: dashboard
 	if [ -z "$$DEV" ]; then NEXT="$$MAJOR.$$MINOR.$$PATCH.1"; \
 	else NEXT="$$MAJOR.$$MINOR.$$PATCH.$$((DEV+1))"; fi; \
 	echo "Bumping $$CURRENT → $$NEXT (dev)"; \
+	sed -i '' "s/^VERSION  := .*/VERSION  := $$NEXT/" Makefile; \
+	go build -ldflags "-s -w -X main.tetoraVersion=$$NEXT" -o $(INSTALL)/$(BINARY) .; \
+	codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true; \
+	$(INSTALL)/$(BINARY) stop 2>/dev/null || true; \
+	sleep 1; \
+	if lsof -ti :8991 >/dev/null 2>&1; then \
+		lsof -ti :8991 | xargs kill -9 2>/dev/null || true; \
+		sleep 1; \
+	fi; \
+	$(INSTALL)/$(BINARY) start 2>/dev/null || true; \
+	echo "v$$NEXT installed and reloaded"
+
+bump-force: dashboard
+	@CURRENT=$(VERSION); \
+	MAJOR=$$(echo $$CURRENT | cut -d. -f1); \
+	MINOR=$$(echo $$CURRENT | cut -d. -f2); \
+	PATCH=$$(echo $$CURRENT | cut -d. -f3); \
+	DEV=$$(echo $$CURRENT | cut -d. -f4 -s); \
+	if [ -z "$$DEV" ]; then NEXT="$$MAJOR.$$MINOR.$$PATCH.1"; \
+	else NEXT="$$MAJOR.$$MINOR.$$PATCH.$$((DEV+1))"; fi; \
+	echo "Bumping $$CURRENT → $$NEXT (dev) [force — skipping workflow check]"; \
 	sed -i '' "s/^VERSION  := .*/VERSION  := $$NEXT/" Makefile; \
 	go build -ldflags "-s -w -X main.tetoraVersion=$$NEXT" -o $(INSTALL)/$(BINARY) .; \
 	codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true; \

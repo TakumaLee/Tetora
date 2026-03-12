@@ -75,6 +75,33 @@ function renderMarkdown(text) {
       continue;
     }
 
+    // Table rows (lines containing |).
+    if (line.indexOf('|') >= 0 && line.trim().startsWith('|')) {
+      if (inList) { result.push('</ul>'); inList = false; }
+      const cells = line.split('|').slice(1, -1).map(c => c.trim());
+      // Skip separator rows (---|---|---)
+      if (cells.every(c => /^[-:]+$/.test(c))) continue;
+      // Detect if this is a header row (next line is separator)
+      const nextLine = (i + 1 < lines.length) ? escHtml(lines[i + 1]) : '';
+      const nextIsSep = nextLine.indexOf('|') >= 0 && nextLine.split('|').slice(1, -1).every(c => /^[-:\s]+$/.test(c.trim()));
+      if (nextIsSep && result[result.length - 1] !== '<table>') {
+        result.push('<table>');
+        result.push('<tr>' + cells.map(c => '<th>' + inlineFormat(c) + '</th>').join('') + '</tr>');
+      } else {
+        if (result.length > 0 && !result[result.length - 1].includes('<table') && !result[result.length - 1].includes('<tr>') && !result[result.length - 1].includes('<th>')) {
+          // Not in a table yet but got a | row — start table
+          result.push('<table>');
+        }
+        result.push('<tr>' + cells.map(c => '<td>' + inlineFormat(c) + '</td>').join('') + '</tr>');
+      }
+      // Check if next line is NOT a table row — close table
+      const nextLineRaw = (i + 1 < lines.length) ? lines[i + 1] : '';
+      if (!nextLineRaw.trim().startsWith('|')) {
+        result.push('</table>');
+      }
+      continue;
+    }
+
     // Close list if needed.
     if (inList) { result.push('</ul>'); inList = false; }
 
