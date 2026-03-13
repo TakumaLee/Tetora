@@ -4918,7 +4918,12 @@ function truncateText(s, n) {
 function formatDuration(ms) {
   if (ms < 1000) return ms + 'ms';
   if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-  return Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+  var s = Math.floor(ms / 1000);
+  var h = Math.floor(s / 3600);
+  var m = Math.floor((s % 3600) / 60);
+  var sec = s % 60;
+  if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
+  return m + 'm ' + sec + 's';
 }
 
 // --- End Dashboard SSE ---
@@ -6514,7 +6519,7 @@ async function submitDispatch(e) {
         `<span>${statusBadge(t.status)}</span>`,
         `<span>Cost: ${costFmt(t.costUsd || 0)}</span>`,
         `<span>Model: ${esc(t.model)}</span>`,
-        `<span>${Math.round((result.durationMs || 0) / 1000)}s</span>`,
+        `<span>${formatDuration(result.durationMs || 0)}</span>`,
       ].join('');
 
       const tabFull = document.getElementById('tab-full');
@@ -7289,7 +7294,7 @@ function openLive(taskId) {
     try {
       const d = JSON.parse(e.data);
       const cost = d.data?.costUsd ? ' $' + Number(d.data.costUsd).toFixed(4) : '';
-      const dur = d.data?.durationMs ? ' ' + (d.data.durationMs / 1000).toFixed(1) + 's' : '';
+      const dur = d.data?.durationMs ? ' ' + formatDuration(d.data.durationMs) : '';
       output.innerHTML += '<span class="ev-completed">[completed]' + cost + dur + '</span>\n';
       scrollLive(output);
     } catch(err) {}
@@ -7442,7 +7447,7 @@ function connectSessionStream(sessionId) {
               dur = ' (' + ((Date.now() - toolStarts[tid]) / 1000).toFixed(1) + 's)';
               delete toolStarts[tid];
             } else if (data.duration) {
-              dur = ' (' + (data.duration / 1000).toFixed(1) + 's)';
+              dur = ' (' + formatDuration(data.duration) + ')';
             }
             var resName = data.name || '';
             var isErr = data.isError ? ' <span style="color:var(--red)">error</span>' : '';
@@ -8052,7 +8057,7 @@ async function openTaskDetail(taskId) {
     var durEl = document.getElementById('td-duration-display');
     var datesEl = document.getElementById('td-dates-display');
     costEl.textContent = task.costUsd > 0 ? 'Cost: $' + task.costUsd.toFixed(4) : '';
-    durEl.textContent = task.durationMs > 0 ? 'Duration: ' + (task.durationMs / 1000).toFixed(1) + 's' : '';
+    durEl.textContent = task.durationMs > 0 ? 'Duration: ' + formatDuration(task.durationMs) : '';
     datesEl.textContent = 'Created: ' + (task.createdAt || '').substring(0, 10);
     if (task.completedAt) datesEl.textContent += ' | Done: ' + task.completedAt.substring(0, 10);
 
@@ -8876,7 +8881,7 @@ function renderTaskWfProgress(run) {
     else { cls += ' step-pending'; }
 
     var dur = '';
-    if (s.durationMs > 0) dur = ' <span class="td-wf-step-dur">' + (s.durationMs / 1000).toFixed(1) + 's</span>';
+    if (s.durationMs > 0) dur = ' <span class="td-wf-step-dur">' + formatDuration(s.durationMs) + '</span>';
 
     return '<div class="' + cls + '" data-step-id="' + esc(s.stepId) + '">' +
       '<span class="td-wf-step-icon">' + icon + '</span>' +
@@ -8884,6 +8889,31 @@ function renderTaskWfProgress(run) {
       dur +
     '</div>';
   }).join('');
+
+  // Resume action for failed/cancelled/timeout workflow runs.
+  var actionsEl = document.getElementById('td-wf-actions');
+  if (!actionsEl) {
+    actionsEl = document.createElement('div');
+    actionsEl.id = 'td-wf-actions';
+    actionsEl.style.cssText = 'margin-top:8px';
+    stepsEl.parentElement.appendChild(actionsEl);
+  }
+  if (run.status === 'error' || run.status === 'cancelled' || run.status === 'timeout') {
+    var completed = steps.filter(function(s) { return s.status === 'success' || s.status === 'skipped'; }).length;
+    actionsEl.innerHTML =
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' +
+        completed + '/' + steps.length + ' steps completed — workflow can be resumed from checkpoint' +
+      '</div>' +
+      '<button class="btn" style="font-size:11px;background:var(--accent);color:#fff" ' +
+        'onclick="resumeTaskWorkflow()">Resume from Checkpoint</button>' +
+      ' <button class="btn" style="font-size:11px" ' +
+        'onclick="retryTaskWorkflowFresh()">Clear &amp; Re-dispatch</button>';
+  } else if (run.status === 'resumed') {
+    actionsEl.innerHTML =
+      '<div style="font-size:11px;color:var(--muted)">This run was resumed as a new run.</div>';
+  } else {
+    actionsEl.innerHTML = '';
+  }
 }
 
 function subscribeTaskWfSSE(runId) {
@@ -8933,7 +8963,7 @@ function updateTaskWfStep(stepId, status, durationMs) {
       durEl.className = 'td-wf-step-dur';
       el.appendChild(durEl);
     }
-    durEl.textContent = (durationMs / 1000).toFixed(1) + 's';
+    durEl.textContent = formatDuration(durationMs);
   }
 }
 
@@ -8948,6 +8978,43 @@ function openWfRunFromTask() {
     setTimeout(function() { openWfRun(runId); }, 200);
   }
   return false;
+}
+
+// Resume the failed workflow run for the current task from checkpoint.
+async function resumeTaskWorkflow() {
+  var container = document.getElementById('td-wf-progress');
+  var runId = container ? container.dataset.runId : '';
+  if (!runId) { toast('No workflow run to resume'); return; }
+  if (!confirm('Resume workflow from checkpoint? Completed steps will be skipped.')) return;
+  try {
+    await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/resume', { method: 'POST' });
+    toast('Workflow resume started');
+    // Reload task detail after a delay to pick up the new run.
+    var taskId = document.getElementById('td-id').value;
+    setTimeout(function() {
+      if (taskId) openTaskDetail(taskId);
+    }, 2000);
+  } catch(e) {
+    toast('Resume failed: ' + (e.message || e));
+  }
+}
+
+// Restart the task's workflow from scratch (clear workflowRunId, set to todo).
+async function retryTaskWorkflowFresh() {
+  var taskId = document.getElementById('td-id').value;
+  if (!taskId) return;
+  if (!confirm('Clear workflow progress and re-dispatch? The task will return to todo and start a fresh workflow run.')) return;
+  try {
+    await fetchJSON('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'todo', workflowRunId: '' }),
+    });
+    toast('Task reset to todo — will be re-dispatched');
+    setTimeout(function() { openTaskDetail(taskId); refreshBoard(); }, 500);
+  } catch(e) {
+    toast('Reset failed: ' + (e.message || e));
+  }
 }
 
 // --- Project dropdown in dispatch/job modals ---
@@ -9244,7 +9311,7 @@ function _finalizeTaskStreamBubble(data) {
     else if (data && (data.costUsd > 0 || data.durationMs)) {
       var metaParts = [];
       if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
-      if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+      if (data.durationMs) metaParts.push(formatDuration(data.durationMs));
       if (metaParts.length > 0) {
         el.insertAdjacentHTML('beforeend',
           '<div class="chat-bubble-meta">' + metaParts.map(function(p){ return '<span>' + esc(p) + '</span>'; }).join('') + '</div>');
@@ -9571,7 +9638,7 @@ function finalizeChatBubble(data, isError) {
   var metaParts = [];
   if (data) {
     if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
-    if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+    if (data.durationMs) metaParts.push(formatDuration(data.durationMs));
     if (data.tokensIn || data.tokensOut) metaParts.push((data.tokensIn||0) + '/' + (data.tokensOut||0) + ' tok');
     if (isError && data.error) metaParts.push('Error: ' + data.error);
   }
@@ -10445,11 +10512,13 @@ function renderWfRunsList(runs) {
   var html = '<div class="table-wrap"><table class="wf-runs-table"><thead><tr><th>ID</th><th>Workflow</th><th>Status</th><th>Duration</th><th>Cost</th><th>Started</th></tr></thead><tbody>';
   runs.forEach(function(r) {
     var id = (r.id || '').substring(0, 8);
-    var dur = r.durationMs ? (r.durationMs / 1000).toFixed(1) + 's' : '-';
+    var dur = r.durationMs ? formatDuration(r.durationMs) : '-';
     var cost = r.totalCostUsd != null ? '$' + r.totalCostUsd.toFixed(4) : '-';
     var started = r.startedAt ? r.startedAt.substring(0, 19).replace('T', ' ') : '-';
-    var statusCls = r.status === 'success' ? 'badge-ok' : (r.status === 'error' || r.status === 'timeout') ? 'badge-err' : 'badge-warn';
-    html += '<tr onclick="openWfRun(\'' + escAttr(r.id) + '\')"><td><code style="font-size:11px">' + esc(id) + '</code></td><td>' + esc(r.workflowName || '') + '</td><td><span class="badge ' + statusCls + '">' + esc(r.status || '') + '</span></td><td>' + dur + '</td><td><span class="stat-value cost" style="font-size:13px">' + cost + '</span></td><td style="font-size:12px;color:var(--muted)">' + started + '</td></tr>';
+    var statusCls = r.status === 'success' ? 'badge-ok' : (r.status === 'error' || r.status === 'timeout') ? 'badge-err' : r.status === 'resumed' ? '' : 'badge-warn';
+    var statusLabel = r.status || '';
+    if (r.resumedFrom) statusLabel += ' (resumed)';
+    html += '<tr onclick="openWfRun(\'' + escAttr(r.id) + '\')"><td><code style="font-size:11px">' + esc(id) + '</code></td><td>' + esc(r.workflowName || '') + '</td><td><span class="badge ' + statusCls + '">' + esc(statusLabel) + '</span></td><td>' + dur + '</td><td><span class="stat-value cost" style="font-size:13px">' + cost + '</span></td><td style="font-size:12px;color:var(--muted)">' + started + '</td></tr>';
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
@@ -10521,7 +10590,7 @@ function renderWfStepList(data) {
   var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Step Results</div>';
   steps.forEach(function(sr) {
     var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-warn' : sr.status === 'running' ? 'badge-warn' : '';
-    var dur = sr.durationMs ? (sr.durationMs / 1000).toFixed(1) + 's' : '-';
+    var dur = sr.durationMs ? formatDuration(sr.durationMs) : '-';
     // Show live elapsed time for running steps.
     if (sr.status === 'running' && sr.startedAt && !sr.durationMs) {
       var elapsed = Math.round((Date.now() - new Date(sr.startedAt).getTime()) / 1000);
@@ -10869,6 +10938,20 @@ function showWfNodeDetail(stepId) {
     html += '</div>';
   }
 
+  // Resume button for failed/cancelled/timeout workflows.
+  if (_cancelRunObj && (_cancelRunObj.status === 'error' || _cancelRunObj.status === 'cancelled' || _cancelRunObj.status === 'timeout')) {
+    html += '<div style="margin-top:8px">';
+    html += '<button class="btn" style="font-size:11px;background:var(--accent);color:#fff" onclick="resumeWorkflowRun()">Resume from Checkpoint</button>';
+    html += '</div>';
+  }
+
+  // Show resumedFrom link if this run was resumed from another.
+  if (_cancelRunObj && _cancelRunObj.resumedFrom) {
+    html += '<div style="margin-top:8px;font-size:11px;color:var(--muted)">';
+    html += 'Resumed from <a href="#" onclick="openWfRun(\'' + escAttr(_cancelRunObj.resumedFrom) + '\');return false" style="color:var(--accent)">' + esc(_cancelRunObj.resumedFrom.substring(0, 8)) + '...</a>';
+    html += '</div>';
+  }
+
   panel.innerHTML = html;
   panel.style.display = '';
   panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -10928,6 +11011,25 @@ async function cancelWorkflowRun() {
     }, 800);
   } catch(e) {
     toast('Cancel failed: ' + (e.message || e));
+  }
+}
+
+// Resume a failed/cancelled/timeout workflow from checkpoint.
+async function resumeWorkflowRun() {
+  if (!currentWfRunData) return;
+  var _resumeRun = currentWfRunData.run || currentWfRunData;
+  var runId = _resumeRun.id;
+  if (!confirm('Resume workflow run ' + runId.substring(0, 8) + '... from checkpoint?')) return;
+  try {
+    await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/resume', {
+      method: 'POST',
+    });
+    toast('Workflow resume started');
+    setTimeout(function() {
+      refreshWorkflowRuns();
+    }, 1500);
+  } catch(e) {
+    toast('Resume failed: ' + (e.message || e));
   }
 }
 
@@ -12652,7 +12754,7 @@ function showDryRunResults(run) {
 
   // Summary
   var totalCost = run.totalCostUsd || 0;
-  var dur = run.durationMs ? (run.durationMs / 1000).toFixed(1) + 's' : '-';
+  var dur = run.durationMs ? formatDuration(run.durationMs) : '-';
   html += '<div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px">';
   html += '<div><span style="color:var(--muted)">Est. Cost:</span> <strong>$' + totalCost.toFixed(4) + '</strong></div>';
   html += '<div><span style="color:var(--muted)">Duration:</span> <strong>' + dur + '</strong></div>';

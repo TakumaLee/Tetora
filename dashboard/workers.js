@@ -638,7 +638,7 @@ async function submitDispatch(e) {
         `<span>${statusBadge(t.status)}</span>`,
         `<span>Cost: ${costFmt(t.costUsd || 0)}</span>`,
         `<span>Model: ${esc(t.model)}</span>`,
-        `<span>${Math.round((result.durationMs || 0) / 1000)}s</span>`,
+        `<span>${formatDuration(result.durationMs || 0)}</span>`,
       ].join('');
 
       const tabFull = document.getElementById('tab-full');

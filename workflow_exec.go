@@ -16,7 +16,7 @@ import (
 type WorkflowRun struct {
 	ID           string                       `json:"id"`
 	WorkflowName string                       `json:"workflowName"`
-	Status       string                       `json:"status"` // "running", "success", "error", "cancelled", "timeout"
+	Status       string                       `json:"status"` // "running", "success", "error", "cancelled", "timeout", "resumed"
 	StartedAt    string                       `json:"startedAt"`
 	FinishedAt   string                       `json:"finishedAt,omitempty"`
 	DurationMs   int64                        `json:"durationMs,omitempty"`
@@ -24,6 +24,7 @@ type WorkflowRun struct {
 	Variables    map[string]string            `json:"variables,omitempty"`
 	StepResults  map[string]*StepRunResult    `json:"stepResults"`
 	Error        string                       `json:"error,omitempty"`
+	ResumedFrom  string                       `json:"resumedFrom,omitempty"`
 }
 
 // StepRunResult tracks the execution of one step.
@@ -74,6 +75,9 @@ type workflowExecutor struct {
 	worktreeDir string           // active worktree path (empty = no isolation)
 	repoDir     string           // original repo dir (for merge/cleanup)
 	worktreeMgr *WorktreeManager // worktree manager reference
+
+	// Resume state: non-nil when resuming a previous run. Carries completed step results.
+	resumeState map[string]*StepRunResult
 }
 
 // executeWorkflow runs a full workflow and returns the completed run.
@@ -125,21 +129,8 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 		mode:     runMode,
 	}
 
-	// Apply workflow-level timeout.
-	execCtx := ctx
-	var execCancel context.CancelFunc
-	if w.Timeout != "" {
-		if d, err := time.ParseDuration(w.Timeout); err == nil {
-			execCtx, execCancel = context.WithTimeout(ctx, d)
-			defer execCancel()
-		}
-	}
-
-	// Register canceller for the cancel API.
-	execCtx, cancelRun := context.WithCancel(execCtx)
-	defer cancelRun()
-	runCancellers.Store(runID, cancelRun)
-	defer runCancellers.Delete(runID)
+	execCtx, execCancel := exec.setupExecContext(ctx)
+	defer execCancel()
 
 	// Publish workflow started event.
 	exec.publishEvent("workflow_started", map[string]any{
@@ -150,33 +141,8 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 	})
 
 	// --- Worktree isolation (opt-in) ---
-	if w.GitWorktree && runMode == WorkflowModeLive {
-		repoDir := w.Workdir
-		if repoDir == "" {
-			repoDir = cfg.DefaultWorkdir
-		}
-		if repoDir != "" && isGitRepo(repoDir) {
-			branch := w.Branch
-			if branch == "" {
-				branch = "wf/" + slugifyBranch(w.Name)
-			}
-			// Resolve template variables in branch name.
-			branch = resolveTemplate(branch, wCtx)
-
-			wtBaseDir := filepath.Join(cfg.RuntimeDir, "worktrees")
-			wm := NewWorktreeManager(wtBaseDir)
-			wtDir, wtErr := wm.Create(repoDir, runID, branch)
-			if wtErr != nil {
-				logWarn("workflow worktree: creation failed, continuing without isolation",
-					"workflow", w.Name, "error", wtErr)
-			} else {
-				exec.worktreeDir = wtDir
-				exec.repoDir = repoDir
-				exec.worktreeMgr = wm
-				logInfo("workflow worktree: created",
-					"workflow", w.Name, "runID", runID[:8], "path", wtDir, "branch", branch)
-			}
-		}
+	if runMode == WorkflowModeLive {
+		exec.setupWorktree()
 	}
 
 	// Record running state to DB so dashboard can see it immediately.
@@ -186,69 +152,7 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 	err := exec.executeDAG(execCtx)
 
 	// Finalize run.
-	run.FinishedAt = time.Now().Format(time.RFC3339)
-	run.DurationMs = time.Since(now).Milliseconds()
-
-	// Calculate total cost.
-	for _, sr := range run.StepResults {
-		run.TotalCost += sr.CostUSD
-	}
-
-	if err != nil {
-		run.Status = "error"
-		run.Error = err.Error()
-	} else if execCtx.Err() == context.DeadlineExceeded {
-		run.Status = "timeout"
-		run.Error = "workflow timeout exceeded"
-	} else if ctx.Err() != nil {
-		run.Status = "cancelled"
-		run.Error = "workflow cancelled"
-	} else {
-		// Check if any step failed.
-		hasError := false
-		for _, sr := range run.StepResults {
-			if sr.Status == "error" || sr.Status == "timeout" {
-				hasError = true
-				break
-			}
-		}
-		if hasError {
-			run.Status = "error"
-		} else {
-			run.Status = "success"
-		}
-	}
-
-	// Publish workflow completed event.
-	exec.publishEvent("workflow_completed", map[string]any{
-		"runId":      runID,
-		"workflow":   w.Name,
-		"status":     run.Status,
-		"durationMs": run.DurationMs,
-		"totalCost":  run.TotalCost,
-	})
-
-	// --- Worktree finalization ---
-	if exec.worktreeDir != "" && exec.worktreeMgr != nil {
-		if run.Status == "success" {
-			// Merge worktree branch back to main.
-			diffSummary, mergeErr := exec.worktreeMgr.MergeBranchOnly(exec.repoDir, exec.worktreeDir)
-			if mergeErr != nil {
-				logWarn("workflow worktree: merge failed, keeping for inspection",
-					"workflow", w.Name, "path", exec.worktreeDir, "error", mergeErr)
-			} else {
-				if diffSummary != "" {
-					logInfo("workflow worktree: merged", "workflow", w.Name, "diff", diffSummary)
-				}
-				// Cleanup worktree after successful merge.
-				exec.worktreeMgr.Remove(exec.repoDir, exec.worktreeDir)
-			}
-		} else {
-			// Keep worktree on failure for debugging.
-			logInfo("workflow worktree: keeping for inspection (workflow failed)",
-				"workflow", w.Name, "path", exec.worktreeDir, "status", run.Status)
-		}
-	}
+	exec.finalizeRun(err, now, ctx, execCtx)
 
 	// Prefix status for non-live modes.
 	switch runMode {
@@ -274,6 +178,132 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 	return run
 }
 
+// setupExecContext applies workflow-level timeout and registers the canceller.
+// Returns the execution context and a cleanup function that must be deferred.
+func (e *workflowExecutor) setupExecContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	execCtx := ctx
+	var timeoutCancel context.CancelFunc
+	if e.workflow.Timeout != "" {
+		if d, err := time.ParseDuration(e.workflow.Timeout); err == nil {
+			execCtx, timeoutCancel = context.WithTimeout(ctx, d)
+		}
+	}
+	execCtx, cancelRun := context.WithCancel(execCtx)
+	runCancellers.Store(e.run.ID, cancelRun)
+
+	return execCtx, func() {
+		cancelRun()
+		runCancellers.Delete(e.run.ID)
+		if timeoutCancel != nil {
+			timeoutCancel()
+		}
+	}
+}
+
+// setupWorktree creates a git worktree for isolated execution if configured.
+func (e *workflowExecutor) setupWorktree() {
+	w := e.workflow
+	if !w.GitWorktree {
+		return
+	}
+	repoDir := w.Workdir
+	if repoDir == "" {
+		repoDir = e.cfg.DefaultWorkdir
+	}
+	if repoDir == "" || !isGitRepo(repoDir) {
+		return
+	}
+	branch := w.Branch
+	if branch == "" {
+		branch = "wf/" + slugifyBranch(w.Name)
+	}
+	branch = resolveTemplate(branch, e.wCtx)
+
+	wtBaseDir := filepath.Join(e.cfg.RuntimeDir, "worktrees")
+	wm := NewWorktreeManager(wtBaseDir)
+	wtDir, wtErr := wm.Create(repoDir, e.run.ID, branch)
+	if wtErr != nil {
+		logWarn("workflow worktree: creation failed, continuing without isolation",
+			"workflow", w.Name, "error", wtErr)
+		return
+	}
+	e.worktreeDir = wtDir
+	e.repoDir = repoDir
+	e.worktreeMgr = wm
+	logInfo("workflow worktree: created",
+		"workflow", w.Name, "runID", e.run.ID[:8], "path", wtDir, "branch", branch)
+}
+
+// finalizeRun determines final status, calculates cost, publishes event,
+// and handles worktree merge/cleanup after DAG execution completes.
+func (e *workflowExecutor) finalizeRun(dagErr error, startTime time.Time, outerCtx, execCtx context.Context) {
+	run := e.run
+	run.FinishedAt = time.Now().Format(time.RFC3339)
+	run.DurationMs = time.Since(startTime).Milliseconds()
+
+	// Calculate total cost.
+	for _, sr := range run.StepResults {
+		run.TotalCost += sr.CostUSD
+	}
+
+	// Determine final status.
+	if dagErr != nil {
+		run.Status = "error"
+		run.Error = dagErr.Error()
+	} else if execCtx.Err() == context.DeadlineExceeded {
+		run.Status = "timeout"
+		run.Error = "workflow timeout exceeded"
+	} else if outerCtx.Err() != nil {
+		run.Status = "cancelled"
+		run.Error = "workflow cancelled"
+	} else {
+		hasError := false
+		for _, sr := range run.StepResults {
+			if sr.Status == "error" || sr.Status == "timeout" {
+				hasError = true
+				break
+			}
+		}
+		if hasError {
+			run.Status = "error"
+		} else {
+			run.Status = "success"
+		}
+	}
+
+	// Publish workflow completed event.
+	eventData := map[string]any{
+		"runId":      run.ID,
+		"workflow":   e.workflow.Name,
+		"status":     run.Status,
+		"durationMs": run.DurationMs,
+		"totalCost":  run.TotalCost,
+	}
+	if run.ResumedFrom != "" {
+		eventData["resumedFrom"] = run.ResumedFrom
+	}
+	e.publishEvent("workflow_completed", eventData)
+
+	// Worktree finalization.
+	if e.worktreeDir != "" && e.worktreeMgr != nil {
+		if run.Status == "success" {
+			diffSummary, mergeErr := e.worktreeMgr.MergeBranchOnly(e.repoDir, e.worktreeDir)
+			if mergeErr != nil {
+				logWarn("workflow worktree: merge failed, keeping for inspection",
+					"workflow", e.workflow.Name, "path", e.worktreeDir, "error", mergeErr)
+			} else {
+				if diffSummary != "" {
+					logInfo("workflow worktree: merged", "workflow", e.workflow.Name, "diff", diffSummary)
+				}
+				e.worktreeMgr.Remove(e.repoDir, e.worktreeDir)
+			}
+		} else {
+			logInfo("workflow worktree: keeping for inspection (workflow failed)",
+				"workflow", e.workflow.Name, "path", e.worktreeDir, "status", run.Status)
+		}
+	}
+}
+
 // executeDAG processes the workflow steps respecting dependencies.
 func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 	steps := e.workflow.Steps
@@ -296,17 +326,51 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 	readyCh := make(chan string, len(steps))
 	doneCh := make(chan stepDoneMsg, len(steps))
 
-	// Seed steps with no dependencies.
-	for id, cnt := range remaining {
-		if cnt == 0 {
-			readyCh <- id
-		}
-	}
-
 	completed := 0
 	total := len(steps)
 	inFlight := 0
 	aborted := false
+
+	if e.resumeState != nil {
+		// Resume mode: adjust dependency counts for already-completed steps.
+		for id, sr := range e.resumeState {
+			if _, exists := stepMap[id]; !exists {
+				continue // step removed from definition
+			}
+			if sr.Status == "success" || sr.Status == "skipped" {
+				completed++
+				for _, dep := range dependents[id] {
+					remaining[dep]--
+				}
+			}
+		}
+		// Replay condition branches: mark unchosen branches as skipped.
+		for i := range steps {
+			s := &steps[i]
+			if stepType(s) == "condition" {
+				if sr, ok := e.resumeState[s.ID]; ok && sr.Status == "success" {
+					skipped := e.replayConditionSkips(s, sr, remaining, dependents)
+					completed += len(skipped)
+				}
+			}
+		}
+		// Seed steps that are ready and not already completed.
+		for id, cnt := range remaining {
+			if cnt == 0 {
+				if sr, ok := e.resumeState[id]; ok && (sr.Status == "success" || sr.Status == "skipped") {
+					continue // already completed
+				}
+				readyCh <- id
+			}
+		}
+	} else {
+		// Normal mode: seed steps with no dependencies.
+		for id, cnt := range remaining {
+			if cnt == 0 {
+				readyCh <- id
+			}
+		}
+	}
 
 	for completed < total {
 		select {
@@ -499,6 +563,190 @@ func (e *workflowExecutor) handleConditionResult(step *WorkflowStep, result *Ste
 		e.mu.Unlock()
 	}
 	return skipped
+}
+
+// replayConditionSkips replays a completed condition step's branch choice without re-executing.
+// It marks the unchosen branch as skipped and adjusts dependency counts.
+func (e *workflowExecutor) replayConditionSkips(step *WorkflowStep, sr *StepRunResult,
+	remaining map[string]int, dependents map[string][]string) []string {
+
+	chosenTarget := strings.TrimSpace(sr.Output)
+	skipTarget := ""
+	if chosenTarget == step.Then && step.Else != "" {
+		skipTarget = step.Else
+	} else if chosenTarget == step.Else && step.Then != "" {
+		skipTarget = step.Then
+	}
+
+	var skipped []string
+	if skipTarget != "" {
+		e.mu.Lock()
+		if existing, ok := e.run.StepResults[skipTarget]; ok && existing.Status == "pending" {
+			existing.Status = "skipped"
+			skipped = append(skipped, skipTarget)
+		}
+		e.mu.Unlock()
+		// Adjust dependency counts for skipped step's dependents.
+		for _, dep := range dependents[skipTarget] {
+			remaining[dep]--
+		}
+	}
+	return skipped
+}
+
+// isResumableStatus returns true if a workflow run status can be resumed.
+func isResumableStatus(status string) bool {
+	switch status {
+	case "error", "cancelled", "timeout":
+		return true
+	}
+	return false
+}
+
+// resumeWorkflow creates a new run that skips already-completed steps from a previous run.
+func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
+	state *dispatchState, sem, childSem chan struct{}) (*WorkflowRun, error) {
+
+	// Load the original run.
+	originalRun, err := queryWorkflowRunByID(cfg.HistoryDB, originalRunID)
+	if err != nil {
+		return nil, fmt.Errorf("original run not found: %w", err)
+	}
+
+	// Validate status is resumable.
+	if !isResumableStatus(originalRun.Status) {
+		return nil, fmt.Errorf("run %s has status %q which is not resumable (must be error/cancelled/timeout)",
+			originalRunID[:8], originalRun.Status)
+	}
+
+	// Load current workflow definition.
+	w, err := loadWorkflowByName(cfg, originalRun.WorkflowName)
+	if err != nil {
+		return nil, fmt.Errorf("workflow %q not found: %w", originalRun.WorkflowName, err)
+	}
+
+	// Create new run.
+	runID := newUUID()
+	now := time.Now()
+	run := &WorkflowRun{
+		ID:           runID,
+		WorkflowName: w.Name,
+		Status:       "running",
+		StartedAt:    now.Format(time.RFC3339),
+		Variables:    originalRun.Variables,
+		StepResults:  make(map[string]*StepRunResult),
+		ResumedFrom:  originalRunID,
+	}
+
+	// Build resume state and initialize step results.
+	resumeState := make(map[string]*StepRunResult)
+	skippedCount := 0
+	pendingCount := 0
+
+	for _, s := range w.Steps {
+		if prevSR, ok := originalRun.StepResults[s.ID]; ok && (prevSR.Status == "success" || prevSR.Status == "skipped") {
+			// Carry over completed/skipped results (shallow copy).
+			copied := *prevSR
+			resumeState[s.ID] = &copied
+			run.StepResults[s.ID] = &copied
+			skippedCount++
+		} else {
+			// Step needs to run (pending, error, running, cancelled, timeout, or new).
+			run.StepResults[s.ID] = &StepRunResult{
+				StepID: s.ID,
+				Status: "pending",
+			}
+			pendingCount++
+		}
+	}
+
+	// Log orphaned steps (in original run but removed from current definition).
+	stepSet := make(map[string]bool, len(w.Steps))
+	for _, s := range w.Steps {
+		stepSet[s.ID] = true
+	}
+	for stepID := range originalRun.StepResults {
+		if !stepSet[stepID] {
+			logInfo("workflow resume: orphaned step (removed from definition)", "step", stepID, "workflow", w.Name)
+		}
+	}
+
+	// Pre-populate WorkflowContext with completed step outputs.
+	wCtx := newWorkflowContext(w, originalRun.Variables)
+	for id, sr := range resumeState {
+		if sr.Status == "success" {
+			wCtx.Steps[id] = &WorkflowStepResult{
+				Output: sr.Output,
+				Status: sr.Status,
+				Error:  sr.Error,
+			}
+		}
+	}
+
+	var broker *sseBroker
+	if state != nil {
+		broker = state.broker
+	}
+
+	exec := &workflowExecutor{
+		cfg:         cfg,
+		workflow:    w,
+		run:         run,
+		wCtx:        wCtx,
+		state:       state,
+		sem:         sem,
+		childSem:    childSem,
+		broker:      broker,
+		mode:        WorkflowModeLive,
+		resumeState: resumeState,
+	}
+
+	// Mark original run as "resumed".
+	if _, err := queryDB(cfg.HistoryDB, fmt.Sprintf(
+		`UPDATE workflow_runs SET status='resumed', error='resumed as %s' WHERE id='%s'`,
+		escapeSQLite(runID), escapeSQLite(originalRunID),
+	)); err != nil {
+		logWarn("resumeWorkflow: failed to mark original as resumed", "error", err)
+	}
+
+	logInfo("workflow resumed", "workflow", w.Name, "originalRunID", originalRunID[:8],
+		"newRunID", runID[:8], "skippedSteps", skippedCount, "pendingSteps", pendingCount)
+
+	execCtx, execCancel := exec.setupExecContext(ctx)
+	defer execCancel()
+
+	// Publish workflow resumed event.
+	exec.publishEvent("workflow_resumed", map[string]any{
+		"runId":        runID,
+		"workflow":     w.Name,
+		"resumedFrom":  originalRunID,
+		"skippedSteps": skippedCount,
+		"pendingSteps": pendingCount,
+	})
+
+	exec.setupWorktree()
+
+	// Record running state.
+	recordWorkflowRun(cfg.HistoryDB, run)
+
+	// Execute DAG.
+	dagErr := exec.executeDAG(execCtx)
+
+	// Finalize run.
+	exec.finalizeRun(dagErr, now, ctx, execCtx)
+
+	// Record final state.
+	recordWorkflowRun(cfg.HistoryDB, run)
+
+	if run.Status == "success" {
+		logInfo("workflow resume completed", "workflow", w.Name, "runID", runID[:8],
+			"status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
+	} else {
+		logWarn("workflow resume completed with error", "workflow", w.Name, "runID", runID[:8],
+			"status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
+	}
+
+	return run, nil
 }
 
 // executeStep runs a single step with retry logic.
@@ -1408,6 +1656,12 @@ func initWorkflowRunsTable(dbPath string) {
 	if _, err := queryDB(dbPath, workflowRunsTableSQL); err != nil {
 		logWarn("init workflow_runs table failed", "error", err)
 	}
+	// Migration: add resumed_from column (no-op if column already exists).
+	if _, err := queryDB(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			logWarn("migration: add resumed_from column failed", "error", err)
+		}
+	}
 }
 
 func recordWorkflowRun(dbPath string, run *WorkflowRun) {
@@ -1420,8 +1674,8 @@ func recordWorkflowRun(dbPath string, run *WorkflowRun) {
 	stepsJSON, _ := json.Marshal(run.StepResults)
 
 	sql := fmt.Sprintf(
-		`INSERT OR REPLACE INTO workflow_runs (id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, created_at)
-		 VALUES ('%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s')`,
+		`INSERT OR REPLACE INTO workflow_runs (id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, created_at, resumed_from)
+		 VALUES ('%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s')`,
 		escapeSQLite(run.ID),
 		escapeSQLite(run.WorkflowName),
 		escapeSQLite(run.Status),
@@ -1433,6 +1687,7 @@ func recordWorkflowRun(dbPath string, run *WorkflowRun) {
 		escapeSQLite(string(stepsJSON)),
 		escapeSQLite(run.Error),
 		escapeSQLite(run.StartedAt),
+		escapeSQLite(run.ResumedFrom),
 	)
 
 	if _, err := queryDB(dbPath, sql); err != nil {
@@ -1452,7 +1707,7 @@ func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]Workflo
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error
+		`SELECT id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, COALESCE(resumed_from,'') as resumed_from
 		 FROM workflow_runs %s ORDER BY created_at DESC LIMIT %d`,
 		where, limit,
 	)
@@ -1478,6 +1733,7 @@ func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]Workflo
 			TotalCost:    jsonFloat(row["total_cost"]),
 			Error:        jsonStr(row["error"]),
 			StepResults:  make(map[string]*StepRunResult),
+			ResumedFrom:  jsonStr(row["resumed_from"]),
 		}
 		// Parse variables.
 		if v := jsonStr(row["variables"]); v != "" {
@@ -1495,7 +1751,7 @@ func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]Workflo
 // queryWorkflowRunByID returns a single workflow run.
 func queryWorkflowRunByID(dbPath, id string) (*WorkflowRun, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error
+		`SELECT id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, COALESCE(resumed_from,'') as resumed_from
 		 FROM workflow_runs WHERE id='%s'`,
 		escapeSQLite(id),
 	)
@@ -1522,6 +1778,7 @@ func queryWorkflowRunByID(dbPath, id string) (*WorkflowRun, error) {
 		TotalCost:    jsonFloat(row["total_cost"]),
 		Error:        jsonStr(row["error"]),
 		StepResults:  make(map[string]*StepRunResult),
+		ResumedFrom:  jsonStr(row["resumed_from"]),
 	}
 	if v := jsonStr(row["variables"]); v != "" {
 		json.Unmarshal([]byte(v), &run.Variables)

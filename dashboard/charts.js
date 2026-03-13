@@ -598,11 +598,13 @@ function renderWfRunsList(runs) {
   var html = '<div class="table-wrap"><table class="wf-runs-table"><thead><tr><th>ID</th><th>Workflow</th><th>Status</th><th>Duration</th><th>Cost</th><th>Started</th></tr></thead><tbody>';
   runs.forEach(function(r) {
     var id = (r.id || '').substring(0, 8);
-    var dur = r.durationMs ? (r.durationMs / 1000).toFixed(1) + 's' : '-';
+    var dur = r.durationMs ? formatDuration(r.durationMs) : '-';
     var cost = r.totalCostUsd != null ? '$' + r.totalCostUsd.toFixed(4) : '-';
     var started = r.startedAt ? r.startedAt.substring(0, 19).replace('T', ' ') : '-';
-    var statusCls = r.status === 'success' ? 'badge-ok' : (r.status === 'error' || r.status === 'timeout') ? 'badge-err' : 'badge-warn';
-    html += '<tr onclick="openWfRun(\'' + escAttr(r.id) + '\')"><td><code style="font-size:11px">' + esc(id) + '</code></td><td>' + esc(r.workflowName || '') + '</td><td><span class="badge ' + statusCls + '">' + esc(r.status || '') + '</span></td><td>' + dur + '</td><td><span class="stat-value cost" style="font-size:13px">' + cost + '</span></td><td style="font-size:12px;color:var(--muted)">' + started + '</td></tr>';
+    var statusCls = r.status === 'success' ? 'badge-ok' : (r.status === 'error' || r.status === 'timeout') ? 'badge-err' : r.status === 'resumed' ? '' : 'badge-warn';
+    var statusLabel = r.status || '';
+    if (r.resumedFrom) statusLabel += ' (resumed)';
+    html += '<tr onclick="openWfRun(\'' + escAttr(r.id) + '\')"><td><code style="font-size:11px">' + esc(id) + '</code></td><td>' + esc(r.workflowName || '') + '</td><td><span class="badge ' + statusCls + '">' + esc(statusLabel) + '</span></td><td>' + dur + '</td><td><span class="stat-value cost" style="font-size:13px">' + cost + '</span></td><td style="font-size:12px;color:var(--muted)">' + started + '</td></tr>';
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
@@ -674,7 +676,7 @@ function renderWfStepList(data) {
   var html = '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Step Results</div>';
   steps.forEach(function(sr) {
     var statusCls = sr.status === 'success' ? 'badge-ok' : (sr.status === 'error' || sr.status === 'timeout') ? 'badge-err' : sr.status === 'waiting' ? 'badge-warn' : sr.status === 'running' ? 'badge-warn' : '';
-    var dur = sr.durationMs ? (sr.durationMs / 1000).toFixed(1) + 's' : '-';
+    var dur = sr.durationMs ? formatDuration(sr.durationMs) : '-';
     // Show live elapsed time for running steps.
     if (sr.status === 'running' && sr.startedAt && !sr.durationMs) {
       var elapsed = Math.round((Date.now() - new Date(sr.startedAt).getTime()) / 1000);
@@ -1022,6 +1024,20 @@ function showWfNodeDetail(stepId) {
     html += '</div>';
   }
 
+  // Resume button for failed/cancelled/timeout workflows.
+  if (_cancelRunObj && (_cancelRunObj.status === 'error' || _cancelRunObj.status === 'cancelled' || _cancelRunObj.status === 'timeout')) {
+    html += '<div style="margin-top:8px">';
+    html += '<button class="btn" style="font-size:11px;background:var(--accent);color:#fff" onclick="resumeWorkflowRun()">Resume from Checkpoint</button>';
+    html += '</div>';
+  }
+
+  // Show resumedFrom link if this run was resumed from another.
+  if (_cancelRunObj && _cancelRunObj.resumedFrom) {
+    html += '<div style="margin-top:8px;font-size:11px;color:var(--muted)">';
+    html += 'Resumed from <a href="#" onclick="openWfRun(\'' + escAttr(_cancelRunObj.resumedFrom) + '\');return false" style="color:var(--accent)">' + esc(_cancelRunObj.resumedFrom.substring(0, 8)) + '...</a>';
+    html += '</div>';
+  }
+
   panel.innerHTML = html;
   panel.style.display = '';
   panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -1081,6 +1097,25 @@ async function cancelWorkflowRun() {
     }, 800);
   } catch(e) {
     toast('Cancel failed: ' + (e.message || e));
+  }
+}
+
+// Resume a failed/cancelled/timeout workflow from checkpoint.
+async function resumeWorkflowRun() {
+  if (!currentWfRunData) return;
+  var _resumeRun = currentWfRunData.run || currentWfRunData;
+  var runId = _resumeRun.id;
+  if (!confirm('Resume workflow run ' + runId.substring(0, 8) + '... from checkpoint?')) return;
+  try {
+    await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/resume', {
+      method: 'POST',
+    });
+    toast('Workflow resume started');
+    setTimeout(function() {
+      refreshWorkflowRuns();
+    }, 1500);
+  } catch(e) {
+    toast('Resume failed: ' + (e.message || e));
   }
 }
 

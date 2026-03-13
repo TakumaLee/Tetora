@@ -1593,7 +1593,7 @@ function showDryRunResults(run) {
 
   // Summary
   var totalCost = run.totalCostUsd || 0;
-  var dur = run.durationMs ? (run.durationMs / 1000).toFixed(1) + 's' : '-';
+  var dur = run.durationMs ? formatDuration(run.durationMs) : '-';
   html += '<div style="display:flex;gap:16px;margin-bottom:16px;font-size:13px">';
   html += '<div><span style="color:var(--muted)">Est. Cost:</span> <strong>$' + totalCost.toFixed(4) + '</strong></div>';
   html += '<div><span style="color:var(--muted)">Duration:</span> <strong>' + dur + '</strong></div>';

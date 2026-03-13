@@ -751,7 +751,7 @@ function openLive(taskId) {
     try {
       const d = JSON.parse(e.data);
       const cost = d.data?.costUsd ? ' $' + Number(d.data.costUsd).toFixed(4) : '';
-      const dur = d.data?.durationMs ? ' ' + (d.data.durationMs / 1000).toFixed(1) + 's' : '';
+      const dur = d.data?.durationMs ? ' ' + formatDuration(d.data.durationMs) : '';
       output.innerHTML += '<span class="ev-completed">[completed]' + cost + dur + '</span>\n';
       scrollLive(output);
     } catch(err) {}
@@ -904,7 +904,7 @@ function connectSessionStream(sessionId) {
               dur = ' (' + ((Date.now() - toolStarts[tid]) / 1000).toFixed(1) + 's)';
               delete toolStarts[tid];
             } else if (data.duration) {
-              dur = ' (' + (data.duration / 1000).toFixed(1) + 's)';
+              dur = ' (' + formatDuration(data.duration) + ')';
             }
             var resName = data.name || '';
             var isErr = data.isError ? ' <span style="color:var(--red)">error</span>' : '';

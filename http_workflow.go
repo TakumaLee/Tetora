@@ -342,8 +342,42 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			return
 		}
 
+		// POST /workflow-runs/{id}/resume
+		if action == "resume" && r.Method == http.MethodPost {
+			// Validate the run is resumable before accepting.
+			origRun, err := queryWorkflowRunByID(cfg.HistoryDB, runID)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusNotFound)
+				return
+			}
+			if !isResumableStatus(origRun.Status) {
+				http.Error(w, fmt.Sprintf(`{"error":"run status %q is not resumable (must be error/cancelled/timeout)"}`, origRun.Status), http.StatusBadRequest)
+				return
+			}
+
+			auditLog(cfg.HistoryDB, "workflow.resume", "http",
+				fmt.Sprintf("originalRunID=%s", runID), clientIP(r))
+
+			wfTraceID := traceIDFromContext(r.Context())
+			go func() {
+				run, err := resumeWorkflow(withTraceID(context.Background(), wfTraceID), cfg, runID, state, sem, childSem)
+				if err != nil {
+					logWarn("workflow resume failed", "originalRunID", runID, "error", err)
+				} else {
+					logInfo("workflow resume dispatched", "originalRunID", runID, "newRunID", run.ID[:8])
+				}
+			}()
+
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":      "accepted",
+				"resumedFrom": runID,
+			})
+			return
+		}
+
 		if r.Method != http.MethodGet {
-			http.Error(w, `{"error":"GET or POST .../cancel"}`, http.StatusMethodNotAllowed)
+			http.Error(w, `{"error":"GET or POST .../cancel|resume"}`, http.StatusMethodNotAllowed)
 			return
 		}
 

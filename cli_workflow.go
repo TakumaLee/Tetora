@@ -22,6 +22,7 @@ func cmdWorkflow(args []string) {
 		fmt.Println("  export <name> [-o file]                    Export workflow as shareable JSON package")
 		fmt.Println("  delete <name>                              Delete a workflow")
 		fmt.Println("  run  <name> [--var key=value ...] [--dry-run|--shadow]  Execute a workflow")
+		fmt.Println("  resume <run-id>                            Resume a failed/cancelled run from checkpoint")
 		fmt.Println("  runs [name]                                List workflow run history")
 		fmt.Println("  status <run-id>                            Show run status")
 		fmt.Println("  messages <run-id>                          Show agent messages for a run")
@@ -80,6 +81,12 @@ func cmdWorkflow(args []string) {
 			os.Exit(1)
 		}
 		workflowRunCmd(args[1], args[2:])
+	case "resume":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: tetora workflow resume <run-id>")
+			os.Exit(1)
+		}
+		workflowResumeCmd(args[1])
 	case "runs":
 		name := ""
 		if len(args) > 1 {
@@ -321,7 +328,7 @@ func workflowRunCmd(name string, flags []string) {
 	fmt.Printf("\nWorkflow: %s\n", run.WorkflowName)
 	fmt.Printf("Run ID:   %s\n", run.ID)
 	fmt.Printf("Status:   %s\n", run.Status)
-	fmt.Printf("Duration: %dms\n", run.DurationMs)
+	fmt.Printf("Duration: %s\n", formatDurationMs(run.DurationMs))
 	fmt.Printf("Cost:     $%.4f\n", run.TotalCost)
 
 	if run.Error != "" {
@@ -336,8 +343,8 @@ func workflowRunCmd(name string, flags []string) {
 			continue
 		}
 		icon := statusIcon(sr.Status)
-		fmt.Printf("  %s [%s] %s (%dms, $%.4f)\n",
-			icon, sr.StepID, sr.Status, sr.DurationMs, sr.CostUSD)
+		fmt.Printf("  %s [%s] %s (%s, $%.4f)\n",
+			icon, sr.StepID, sr.Status, formatDurationMs(sr.DurationMs), sr.CostUSD)
 		if sr.Error != "" {
 			fmt.Printf("      Error: %s\n", sr.Error)
 		}
@@ -350,6 +357,50 @@ func workflowRunCmd(name string, flags []string) {
 		}
 	}
 
+	if run.Status != "success" {
+		os.Exit(1)
+	}
+}
+
+func workflowResumeCmd(runID string) {
+	cfg := loadConfig(findConfigPath())
+	resolvedID := resolveWorkflowRunID(cfg, runID)
+
+	originalRun, err := queryWorkflowRunByID(cfg.HistoryDB, resolvedID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !isResumableStatus(originalRun.Status) {
+		fmt.Fprintf(os.Stderr, "Run %s has status %q — only error/cancelled/timeout runs can be resumed.\n",
+			resolvedID[:8], originalRun.Status)
+		os.Exit(1)
+	}
+
+	// Count completed steps.
+	completed := 0
+	total := len(originalRun.StepResults)
+	for _, sr := range originalRun.StepResults {
+		if sr.Status == "success" || sr.Status == "skipped" {
+			completed++
+		}
+	}
+	fmt.Printf("Resuming run %s (%s) — %d/%d steps already completed\n",
+		resolvedID[:8], originalRun.WorkflowName, completed, total)
+
+	state := newDispatchState()
+	sem := make(chan struct{}, 5)
+	childSem := make(chan struct{}, 10)
+
+	run, err := resumeWorkflow(context.Background(), cfg, resolvedID, state, sem, childSem)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Resume failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("New run: %s  Status: %s  Duration: %s  Cost: $%.4f\n",
+		run.ID[:8], run.Status, formatDurationMs(run.DurationMs), run.TotalCost)
 	if run.Status != "success" {
 		os.Exit(1)
 	}
@@ -375,7 +426,7 @@ func workflowRunsCmd(name string) {
 		if len(id) > 8 {
 			id = id[:8]
 		}
-		dur := fmt.Sprintf("%dms", r.DurationMs)
+		dur := formatDurationMs(r.DurationMs)
 		cost := fmt.Sprintf("$%.4f", r.TotalCost)
 		started := r.StartedAt
 		if len(started) > 19 {

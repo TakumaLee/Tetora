@@ -13,10 +13,20 @@ import (
 
 // formatDurationMs converts milliseconds to a human-readable string (e.g. "11.9s", "320ms").
 func formatDurationMs(ms int64) string {
-	if ms >= 1000 {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	s := ms / 1000
+	if s < 60 {
 		return fmt.Sprintf("%.1fs", float64(ms)/1000)
 	}
-	return fmt.Sprintf("%dms", ms)
+	h := s / 3600
+	m := (s % 3600) / 60
+	sec := s % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm %ds", h, m, sec)
+	}
+	return fmt.Sprintf("%dm %ds", m, sec)
 }
 
 // formatTokenField renders the "今日 Token" embed value.

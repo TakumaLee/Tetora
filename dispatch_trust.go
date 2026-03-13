@@ -47,7 +47,7 @@ func estimateTimeout(prompt string) string {
 	}
 	for _, kw := range buildKeywords {
 		if strings.Contains(p, kw) {
-			return "1h"
+			return "2h"
 		}
 	}
 
@@ -71,8 +71,8 @@ func estimateTimeout(prompt string) string {
 		}
 	}
 
-	// Default: 1h is safe for most tasks.
-	return "1h"
+	// Default: 2h — increased from 1h because complex tasks often exceed 1h.
+	return "2h"
 }
 
 func fillDefaults(cfg *Config, t *Task) {

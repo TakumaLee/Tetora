@@ -230,11 +230,14 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 // resetStuckDoing resets tasks that have been stuck in "doing" longer than StuckThreshold
 // back to "todo" so they can be re-dispatched. This handles daemon crash/restart scenarios
 // where in-flight tasks never received their completion callback.
+//
+// Guard: if the task has a workflow_run_id pointing to a still-running workflow,
+// it is NOT stuck — skip it and touch updated_at so the threshold resets.
 func (d *TaskBoardDispatcher) resetStuckDoing() {
 	threshold := d.parseStuckThreshold()
 	cutoff := time.Now().Add(-threshold).UTC().Format(time.RFC3339)
 
-	sql := fmt.Sprintf(`SELECT id, title FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, escapeSQLite(cutoff))
+	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, escapeSQLite(cutoff))
 	rows, err := queryDB(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("taskboard dispatch: resetStuckDoing query failed", "error", err)
@@ -244,6 +247,23 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 	for _, row := range rows {
 		id := fmt.Sprintf("%v", row["id"])
 		title := fmt.Sprintf("%v", row["title"])
+		wfRunID := fmt.Sprintf("%v", row["workflow_run_id"])
+
+		// Guard: if task has a running workflow, it's not stuck — refresh updated_at.
+		if wfRunID != "" {
+			wfRun, wfErr := queryWorkflowRunByID(d.cfg.HistoryDB, wfRunID)
+			if wfErr == nil && wfRun.Status == "running" {
+				touchSQL := fmt.Sprintf(
+					`UPDATE tasks SET updated_at = '%s' WHERE id = '%s'`,
+					escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
+					escapeSQLite(id),
+				)
+				execDB(d.engine.dbPath, touchSQL)
+				logInfo("taskboard dispatch: task has running workflow, refreshing timestamp",
+					"id", id, "title", title, "workflowRunId", wfRunID[:8])
+				continue
+			}
+		}
 
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
@@ -975,7 +995,28 @@ func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoa
 	// Inject taskId into vars so workflow runs can be traced back to tasks.
 	vars["_taskId"] = t.ID
 
-	run := executeWorkflow(ctx, d.cfg, w, vars, d.state, d.sem, d.childSem)
+	// Check for resumable previous run.
+	var run *WorkflowRun
+	if t.WorkflowRunID != "" {
+		prevRun, prevErr := queryWorkflowRunByID(d.cfg.HistoryDB, t.WorkflowRunID)
+		if prevErr == nil && isResumableStatus(prevRun.Status) && prevRun.WorkflowName == workflowName {
+			logInfo("runTaskWithWorkflow: resuming previous run",
+				"task", t.ID, "prevRunID", t.WorkflowRunID[:8])
+			resumedRun, resumeErr := resumeWorkflow(ctx, d.cfg, t.WorkflowRunID, d.state, d.sem, d.childSem)
+			if resumeErr == nil {
+				run = resumedRun
+			} else {
+				logWarn("runTaskWithWorkflow: resume failed, starting fresh", "error", resumeErr)
+			}
+		} else if prevErr == nil && prevRun.WorkflowName != workflowName {
+			logInfo("runTaskWithWorkflow: workflow changed, starting fresh",
+				"task", t.ID, "prevWorkflow", prevRun.WorkflowName, "newWorkflow", workflowName)
+		}
+	}
+
+	if run == nil {
+		run = executeWorkflow(ctx, d.cfg, w, vars, d.state, d.sem, d.childSem)
+	}
 
 	// Persist the workflow run ID on the task for progress tracking.
 	d.engine.UpdateTask(t.ID, map[string]any{"workflowRunId": run.ID})

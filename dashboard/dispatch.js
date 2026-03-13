@@ -292,7 +292,7 @@ function _finalizeTaskStreamBubble(data) {
     else if (data && (data.costUsd > 0 || data.durationMs)) {
       var metaParts = [];
       if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
-      if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+      if (data.durationMs) metaParts.push(formatDuration(data.durationMs));
       if (metaParts.length > 0) {
         el.insertAdjacentHTML('beforeend',
           '<div class="chat-bubble-meta">' + metaParts.map(function(p){ return '<span>' + esc(p) + '</span>'; }).join('') + '</div>');
@@ -619,7 +619,7 @@ function finalizeChatBubble(data, isError) {
   var metaParts = [];
   if (data) {
     if (data.costUsd > 0) metaParts.push(costFmt(data.costUsd));
-    if (data.durationMs) metaParts.push((data.durationMs / 1000).toFixed(1) + 's');
+    if (data.durationMs) metaParts.push(formatDuration(data.durationMs));
     if (data.tokensIn || data.tokensOut) metaParts.push((data.tokensIn||0) + '/' + (data.tokensOut||0) + ' tok');
     if (isError && data.error) metaParts.push('Error: ' + data.error);
   }

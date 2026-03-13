@@ -496,7 +496,7 @@ async function openTaskDetail(taskId) {
     var durEl = document.getElementById('td-duration-display');
     var datesEl = document.getElementById('td-dates-display');
     costEl.textContent = task.costUsd > 0 ? 'Cost: $' + task.costUsd.toFixed(4) : '';
-    durEl.textContent = task.durationMs > 0 ? 'Duration: ' + (task.durationMs / 1000).toFixed(1) + 's' : '';
+    durEl.textContent = task.durationMs > 0 ? 'Duration: ' + formatDuration(task.durationMs) : '';
     datesEl.textContent = 'Created: ' + (task.createdAt || '').substring(0, 10);
     if (task.completedAt) datesEl.textContent += ' | Done: ' + task.completedAt.substring(0, 10);
 
@@ -1320,7 +1320,7 @@ function renderTaskWfProgress(run) {
     else { cls += ' step-pending'; }
 
     var dur = '';
-    if (s.durationMs > 0) dur = ' <span class="td-wf-step-dur">' + (s.durationMs / 1000).toFixed(1) + 's</span>';
+    if (s.durationMs > 0) dur = ' <span class="td-wf-step-dur">' + formatDuration(s.durationMs) + '</span>';
 
     return '<div class="' + cls + '" data-step-id="' + esc(s.stepId) + '">' +
       '<span class="td-wf-step-icon">' + icon + '</span>' +
@@ -1328,6 +1328,31 @@ function renderTaskWfProgress(run) {
       dur +
     '</div>';
   }).join('');
+
+  // Resume action for failed/cancelled/timeout workflow runs.
+  var actionsEl = document.getElementById('td-wf-actions');
+  if (!actionsEl) {
+    actionsEl = document.createElement('div');
+    actionsEl.id = 'td-wf-actions';
+    actionsEl.style.cssText = 'margin-top:8px';
+    stepsEl.parentElement.appendChild(actionsEl);
+  }
+  if (run.status === 'error' || run.status === 'cancelled' || run.status === 'timeout') {
+    var completed = steps.filter(function(s) { return s.status === 'success' || s.status === 'skipped'; }).length;
+    actionsEl.innerHTML =
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' +
+        completed + '/' + steps.length + ' steps completed — workflow can be resumed from checkpoint' +
+      '</div>' +
+      '<button class="btn" style="font-size:11px;background:var(--accent);color:#fff" ' +
+        'onclick="resumeTaskWorkflow()">Resume from Checkpoint</button>' +
+      ' <button class="btn" style="font-size:11px" ' +
+        'onclick="retryTaskWorkflowFresh()">Clear &amp; Re-dispatch</button>';
+  } else if (run.status === 'resumed') {
+    actionsEl.innerHTML =
+      '<div style="font-size:11px;color:var(--muted)">This run was resumed as a new run.</div>';
+  } else {
+    actionsEl.innerHTML = '';
+  }
 }
 
 function subscribeTaskWfSSE(runId) {
@@ -1377,7 +1402,7 @@ function updateTaskWfStep(stepId, status, durationMs) {
       durEl.className = 'td-wf-step-dur';
       el.appendChild(durEl);
     }
-    durEl.textContent = (durationMs / 1000).toFixed(1) + 's';
+    durEl.textContent = formatDuration(durationMs);
   }
 }
 
@@ -1392,5 +1417,42 @@ function openWfRunFromTask() {
     setTimeout(function() { openWfRun(runId); }, 200);
   }
   return false;
+}
+
+// Resume the failed workflow run for the current task from checkpoint.
+async function resumeTaskWorkflow() {
+  var container = document.getElementById('td-wf-progress');
+  var runId = container ? container.dataset.runId : '';
+  if (!runId) { toast('No workflow run to resume'); return; }
+  if (!confirm('Resume workflow from checkpoint? Completed steps will be skipped.')) return;
+  try {
+    await fetchJSON('/workflow-runs/' + encodeURIComponent(runId) + '/resume', { method: 'POST' });
+    toast('Workflow resume started');
+    // Reload task detail after a delay to pick up the new run.
+    var taskId = document.getElementById('td-id').value;
+    setTimeout(function() {
+      if (taskId) openTaskDetail(taskId);
+    }, 2000);
+  } catch(e) {
+    toast('Resume failed: ' + (e.message || e));
+  }
+}
+
+// Restart the task's workflow from scratch (clear workflowRunId, set to todo).
+async function retryTaskWorkflowFresh() {
+  var taskId = document.getElementById('td-id').value;
+  if (!taskId) return;
+  if (!confirm('Clear workflow progress and re-dispatch? The task will return to todo and start a fresh workflow run.')) return;
+  try {
+    await fetchJSON('/tasks/' + encodeURIComponent(taskId), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'todo', workflowRunId: '' }),
+    });
+    toast('Task reset to todo — will be re-dispatched');
+    setTimeout(function() { openTaskDetail(taskId); refreshBoard(); }, 500);
+  } catch(e) {
+    toast('Reset failed: ' + (e.message || e));
+  }
 }
 

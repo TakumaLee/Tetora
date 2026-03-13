@@ -195,6 +195,7 @@ func (s *Server) registerToolRoutes(mux *http.ServeMux) {
 	})
 
 	// --- API Documentation ---
-	mux.HandleFunc("/api/docs", handleAPIDocs)
+	// NOTE: /api/docs is registered in http_docs.go (registerDocsRoutes)
+	mux.HandleFunc("/api/openapi", handleAPIDocs)
 	mux.HandleFunc("/api/spec", handleAPISpec(cfg))
 }

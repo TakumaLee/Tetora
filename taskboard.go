@@ -226,6 +226,8 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 }
 
 // CreateTask creates a new task.
+// Returns an error if a task with the same title already exists in a non-terminal state
+// (todo, backlog, doing, review) to prevent duplicate tickets.
 func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 	if task.ID == "" {
 		task.ID = generateID("task")
@@ -239,6 +241,19 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 	if task.Project == "" {
 		task.Project = "default"
 	}
+
+	// Dedup guard: reject if same title exists in active state.
+	dupSQL := fmt.Sprintf(
+		`SELECT id, status FROM tasks WHERE title = '%s' AND status IN ('todo', 'backlog', 'doing', 'review')`,
+		escapeSQLite(task.Title),
+	)
+	dupRows, _ := queryDB(tb.dbPath, dupSQL)
+	if len(dupRows) > 0 {
+		existingID := fmt.Sprintf("%v", dupRows[0]["id"])
+		existingStatus := fmt.Sprintf("%v", dupRows[0]["status"])
+		return TaskBoard{}, fmt.Errorf("duplicate task: '%s' already exists (id=%s, status=%s)", task.Title, existingID, existingStatus)
+	}
+
 	task.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	task.UpdatedAt = task.CreatedAt
 
