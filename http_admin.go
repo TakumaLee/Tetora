@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -927,7 +926,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		}
 
 		// Reload config in-memory via SIGHUP.
-		syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+		signalSelfReload()
 
 		auditLog(cfg.HistoryDB, "config.toggle", "dashboard",
 			fmt.Sprintf("%s=%v", req.Key, req.Value), "")

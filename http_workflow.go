@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -24,7 +23,7 @@ func mutateTriggerConfig(mutate func(raw map[string]any)) error {
 	if err := updateConfigField(configPath, mutate); err != nil {
 		return err
 	}
-	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+	signalSelfReload()
 	return nil
 }
 
