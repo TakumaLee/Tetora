@@ -1,10 +1,33 @@
 // --- Documentation Viewer ---
 
+var docsLangNames = {
+  'en':'English','zh-TW':'繁體中文','ja':'日本語','ko':'한국어',
+  'id':'Bahasa Indonesia','th':'ภาษาไทย','fil':'Filipino',
+  'es':'Español','fr':'Français','de':'Deutsch'
+};
+
 var docsState = {
   list: [],
   activeFile: '',
+  activeName: '',
+  lang: detectDocsLang(),
   loaded: false
 };
+
+function detectDocsLang() {
+  var stored = localStorage.getItem('tetora-docs-lang');
+  if (stored) return stored;
+  var nav = (navigator.language || '').replace('_', '-');
+  var supported = ['zh-TW', 'ja', 'ko', 'id', 'th', 'fil', 'es', 'fr', 'de'];
+  for (var i = 0; i < supported.length; i++) {
+    if (nav === supported[i]) return supported[i];
+  }
+  var prefix = nav.split('-')[0];
+  for (var i = 0; i < supported.length; i++) {
+    if (supported[i].split('-')[0] === prefix) return supported[i];
+  }
+  return 'en';
+}
 
 async function refreshDocs() {
   if (docsState.loaded) return;
@@ -67,8 +90,40 @@ function renderDocsSidebar(filter) {
   }).join('');
 }
 
+function renderDocsLangSelect() {
+  var sel = document.getElementById('docs-lang-select');
+  if (!sel) return;
+  var active = docsState.list.find(function(d) { return d.file === docsState.activeFile; });
+  var langs = (active && active.langs) || [];
+  if (langs.length === 0) {
+    sel.style.display = 'none';
+    return;
+  }
+  sel.style.display = '';
+  var currentLang = docsState.lang;
+  var options = '<option value="en"' + (currentLang === 'en' ? ' selected' : '') + '>English</option>';
+  for (var i = 0; i < langs.length; i++) {
+    var selected = currentLang === langs[i] ? ' selected' : '';
+    options += '<option value="' + langs[i] + '"' + selected + '>' + (docsLangNames[langs[i]] || langs[i]) + '</option>';
+  }
+  sel.innerHTML = options;
+  // If current lang not available for this doc, show English selected
+  if (currentLang !== 'en' && langs.indexOf(currentLang) < 0) {
+    sel.value = 'en';
+  }
+}
+
+function changeDocsLang(lang) {
+  docsState.lang = lang;
+  localStorage.setItem('tetora-docs-lang', lang);
+  if (docsState.activeFile) {
+    loadDoc(docsState.activeFile, docsState.activeName);
+  }
+}
+
 async function loadDoc(file, name) {
   docsState.activeFile = file;
+  docsState.activeName = name;
   renderDocsSidebar(document.getElementById('docs-search') ? document.getElementById('docs-search').value : '');
 
   var title = document.getElementById('docs-title');
@@ -76,8 +131,14 @@ async function loadDoc(file, name) {
   if (title) title.textContent = name || file;
   if (content) content.innerHTML = '<div style="color:var(--muted);padding:24px;font-size:13px">Loading...</div>';
 
+  renderDocsLangSelect();
+
   try {
-    var resp = await fetch('/api/docs/' + file);
+    var url = '/api/docs/' + file;
+    if (docsState.lang && docsState.lang !== 'en') {
+      url += '?lang=' + encodeURIComponent(docsState.lang);
+    }
+    var resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     var text = await resp.text();
     if (content) {

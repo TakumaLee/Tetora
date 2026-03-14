@@ -1133,8 +1133,9 @@
         </div>
       </div>
       <div class="docs-main">
-        <div class="docs-main-header">
+        <div class="docs-main-header" style="display:flex;align-items:center;justify-content:space-between">
           <span id="docs-title" style="font-size:15px;font-weight:600;color:var(--text)"></span>
+          <select id="docs-lang-select" onchange="changeDocsLang(this.value)" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer"></select>
         </div>
         <div id="docs-content-body" class="docs-body">
           <div id="docs-rendered" class="md-rendered"></div>

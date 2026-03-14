@@ -21,10 +21,9 @@ Tetora is an AI agent orchestrator that lets you define multiple agent roles -- 
 **Core capabilities:**
 
 - **Multi-agent roles** -- define distinct agents with separate personalities, budgets, and tool permissions
-- **Multi-provider** -- Claude API, OpenAI, Gemini, Claude Code CLI (tmux), and more; swap or combine freely
+- **Multi-provider** -- Claude API, OpenAI, Gemini, and more; swap or combine freely
 - **Multi-platform** -- Telegram, Discord, Slack, Google Chat, LINE, Matrix, Teams, Signal, WhatsApp, iMessage
-- **Web dashboard** -- CEO command center with ROI metrics, pixel office, live activity feed, and interactive terminal viewer
-- **CLI workers** -- agents run inside Claude Code with full tool access; monitor and interact via dashboard or Discord
+- **Web dashboard** -- CEO command center with ROI metrics, pixel office, and live activity feed
 - **Cron jobs** -- schedule recurring tasks with approval gates and notifications
 - **Knowledge base** -- feed documents to agents for grounded responses
 - **Persistent memory** -- agents remember context across sessions; unified memory layer with consolidation
@@ -143,11 +142,9 @@ Tetora ships with a built-in web dashboard at `http://localhost:8991/dashboard`.
 | Zone | Contents |
 |------|----------|
 | **Command Center** | Executive summary (ROI cards), pixel team sprites, expandable Agent World office |
-| **Operations** | Compact ops bar, agent scorecard + live activity feed (side-by-side), workers, running tasks |
+| **Operations** | Compact ops bar, agent scorecard + live activity feed (side-by-side), running tasks |
 | **Insights** | 7-day trend chart, historical task throughput and cost charts |
 | **Engineering Details** | Cost dashboard, cron jobs, sessions, provider health, trust, SLA, version history, routing, memory, and more (collapsible) |
-
-The dashboard includes an interactive terminal viewer for monitoring and controlling CLI workers in real time -- send keystrokes, answer questions, and view live output directly from your browser.
 
 Multiple themes are available (Glass, Clean, Material, Boardroom, Retro). The Agent World pixel office can be customized with decorations and zoom controls.
 

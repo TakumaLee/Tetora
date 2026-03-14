@@ -178,8 +178,42 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 	return nil
 }
 
-// ListTasks returns tasks filtered by status and assignee.
+// TaskListResult holds a paginated list of tasks.
+type TaskListResult struct {
+	Tasks      []TaskBoard `json:"tasks"`
+	Pagination Pagination  `json:"pagination"`
+}
+
+// Pagination holds pagination metadata.
+type Pagination struct {
+	Page    int  `json:"page"`
+	Limit   int  `json:"limit"`
+	Total   int  `json:"total"`
+	HasMore bool `json:"hasMore"`
+}
+
+// ListTasks returns tasks filtered by status and assignee (unpaginated, backward-compatible).
 func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBoard, error) {
+	result, err := tb.ListTasksPaginated(status, assignee, project, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+	return result.Tasks, nil
+}
+
+// ListTasksPaginated returns tasks with pagination support.
+func (tb *TaskBoardEngine) ListTasksPaginated(status, assignee, project string, page, limit int) (*TaskListResult, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
 	var whereClauses []string
 	if status != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("status = '%s'", escapeSQLite(status)))
@@ -196,6 +230,20 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 		whereClause = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 
+	// Get total count.
+	countSQL := fmt.Sprintf("SELECT COUNT(*) as total FROM tasks %s", whereClause)
+	countRows, err := queryDB(tb.dbPath, countSQL)
+	if err != nil {
+		return nil, err
+	}
+	total := 0
+	if len(countRows) > 0 {
+		if v, ok := countRows[0]["total"]; ok {
+			total = toInt(v)
+		}
+	}
+
+	// Get paginated tasks.
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
@@ -210,8 +258,8 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 				ELSE 5
 			END,
 			created_at DESC
-		LIMIT 100
-	`, whereClause)
+		LIMIT %d OFFSET %d
+	`, whereClause, limit, offset)
 
 	rows, err := queryDB(tb.dbPath, sql)
 	if err != nil {
@@ -222,7 +270,16 @@ func (tb *TaskBoardEngine) ListTasks(status, assignee, project string) ([]TaskBo
 	for _, row := range rows {
 		tasks = append(tasks, parseTaskRow(row))
 	}
-	return tasks, nil
+
+	return &TaskListResult{
+		Tasks: tasks,
+		Pagination: Pagination{
+			Page:    page,
+			Limit:   limit,
+			Total:   total,
+			HasMore: offset+len(tasks) < total,
+		},
+	}, nil
 }
 
 // CreateTask creates a new task.
@@ -814,13 +871,18 @@ type BoardStats struct {
 
 // BoardFilter holds optional filters for GetBoardView.
 type BoardFilter struct {
-	Project  string
-	Assignee string
-	Priority string
-	Workflow string
+	Project     string
+	Assignee    string
+	Priority    string
+	Workflow    string
+	IncludeDone bool // if false (default), exclude done/failed statuses from board query
 }
 
+// activeStatuses are the kanban statuses shown by default (excluding terminal states).
+var activeStatuses = []string{"idea", "needs-thought", "backlog", "todo", "doing", "partial-done", "review"}
+
 // GetBoardView returns all tasks grouped by status column with aggregate stats.
+// By default, excludes done/failed statuses unless f.IncludeDone is true.
 func (tb *TaskBoardEngine) GetBoardView(f BoardFilter) (*BoardView, error) {
 	var whereClauses []string
 	for _, pair := range []struct{ col, val string }{
@@ -832,6 +894,15 @@ func (tb *TaskBoardEngine) GetBoardView(f BoardFilter) (*BoardView, error) {
 		if pair.val != "" {
 			whereClauses = append(whereClauses, fmt.Sprintf("%s = '%s'", pair.col, escapeSQLite(pair.val)))
 		}
+	}
+
+	// By default, only fetch active statuses to reduce payload.
+	if !f.IncludeDone {
+		placeholders := make([]string, len(activeStatuses))
+		for i, s := range activeStatuses {
+			placeholders[i] = fmt.Sprintf("'%s'", s)
+		}
+		whereClauses = append(whereClauses, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
 	}
 
 	whereClause := ""

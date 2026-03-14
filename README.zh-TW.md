@@ -21,11 +21,19 @@ Tetora 是一個 AI 代理協調器，讓你定義多個代理角色——每個
 - **多代理角色** -- 定義具有獨立個性、預算和工具權限的不同代理
 - **多供應商** -- Claude API、OpenAI、Gemini 等；可自由切換或組合
 - **多平台** -- Telegram、Discord、Slack、Google Chat、LINE、Matrix、Teams、Signal、WhatsApp、iMessage
+- **網頁儀表板** -- CEO 指揮中心，含 ROI 指標、像素辦公室、即時動態資訊流
 - **排程任務** -- 設定週期性任務，支援核准閘門與通知
 - **知識庫** -- 提供文件給代理以產生有依據的回應
 - **持久記憶** -- 代理能跨工作階段記住上下文；統一記憶層具備整合功能
 - **MCP 支援** -- 連接 Model Context Protocol 伺服器作為工具供應商
 - **技能與工作流程** -- 可組合的技能包和多步驟工作流程管線
+- **工作流程引擎** -- 基於 DAG 的管線執行，支援條件分支、平行步驟、重試邏輯、動態模型路由（Sonnet 處理例行任務，Opus 處理複雜任務）
+- **範本市集** -- Store 分頁：瀏覽、匯入、匯出工作流程範本
+- **看板自動派工** -- 看板式任務管理，具備自動任務分派、可設定並行 slot、slot 壓力系統為互動式工作階段預留容量
+- **GitLab MR + GitHub PR** -- 工作流程完成後自動建立 PR/MR；自動偵測遠端主機
+- **工作階段壓縮** -- 基於 token 與訊息數的自動上下文壓縮，確保工作階段不超出模型限制
+- **Service Worker PWA** -- 具備離線功能的儀表板，搭配智慧快取
+- **部分完成狀態** -- 任務完成但後處理失敗（git merge、review）時進入可復原的中間狀態，而非直接遺失
 - **Webhooks** -- 從外部系統觸發代理動作
 - **成本管控** -- 各角色和全域預算，具備自動模型降級功能
 - **資料保留** -- 可依資料表設定清理策略，支援完整匯出與清除
@@ -125,6 +133,26 @@ You speak in a warm, concise tone and prefer actionable advice.
 
 ---
 
+## 儀表板
+
+Tetora 內建網頁儀表板，位於 `http://localhost:8991/dashboard`。儀表板分為四個區域：
+
+| 區域 | 內容 |
+|------|------|
+| **指揮中心** | 執行摘要（ROI 卡片）、像素團隊精靈、可展開的 Agent World 辦公室 |
+| **營運** | 精簡營運列、代理記分卡 + 即時動態資訊流（並排顯示）、執行中任務 |
+| **洞察** | 7 天趨勢圖、歷史任務產出與成本圖表 |
+| **工程細節** | 成本儀表板、排程任務、工作階段、供應商健康度、信任度、SLA、版本歷史、路由、記憶等（可收合） |
+
+提供多種主題（Glass、Clean、Material、Boardroom、Retro）。Agent World 像素辦公室可自訂裝飾與縮放控制。
+
+```bash
+# 在預設瀏覽器中開啟儀表板
+tetora dashboard
+```
+
+---
+
 ## 從原始碼建置
 
 ```bash
@@ -172,12 +200,19 @@ make test
   config.json        主要設定檔（供應商、角色、整合設定）
   jobs.json          排程任務定義
   history.db         SQLite 資料庫（歷史紀錄、記憶、工作階段、嵌入向量等）
-  sessions/          各代理的工作階段檔案
-  knowledge/         知識庫文件
-  logs/              結構化日誌檔
-  outputs/           產生的輸出檔案
-  uploads/           暫存上傳儲存
   bin/               安裝的二進位檔
+  agents/            各代理靈魂檔案（agents/{name}/SOUL.md）
+  workspace/
+    rules/           治理規則，自動注入所有代理提示詞
+    memory/          共享觀察紀錄，任何代理皆可讀寫
+    knowledge/       參考文件（自動注入，上限 50 KB）
+    skills/          可重用程序，透過提示詞比對載入
+    tasks/           任務檔案與待辦清單
+  runtime/
+    sessions/        各代理的工作階段檔案
+    outputs/         產生的輸出檔案
+    logs/            結構化日誌檔
+    cache/           暫存快取
 ```
 
 設定使用純 JSON 格式，支援 `$ENV_VAR` 參照，因此密鑰永遠不需要寫死在設定中。設定精靈（`tetora init`）會以互動方式產生可運作的 `config.json`。
@@ -231,6 +266,10 @@ tetora workflow status <run-id>
 | `tetora knowledge list` | 列出知識庫文件 |
 | `tetora skill list` | 列出可用技能 |
 | `tetora workflow list` | 列出已設定的工作流程 |
+| `tetora workflow run <name>` | 執行工作流程（使用 `--var key=value` 傳入變數） |
+| `tetora workflow status <run-id>` | 顯示工作流程執行狀態 |
+| `tetora workflow export <name>` | 匯出工作流程為可分享的 JSON 檔案 |
+| `tetora workflow create <file>` | 驗證並從 JSON 檔案匯入工作流程 |
 | `tetora mcp list` | 列出 MCP 伺服器連線 |
 | `tetora budget show` | 顯示預算狀態 |
 | `tetora config show` | 顯示目前設定 |

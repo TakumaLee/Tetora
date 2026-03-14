@@ -3559,8 +3559,9 @@ body:not([class*="theme-"])::after, body.theme-default::after {
         </div>
       </div>
       <div class="docs-main">
-        <div class="docs-main-header">
+        <div class="docs-main-header" style="display:flex;align-items:center;justify-content:space-between">
           <span id="docs-title" style="font-size:15px;font-weight:600;color:var(--text)"></span>
+          <select id="docs-lang-select" onchange="changeDocsLang(this.value)" style="display:none;font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);cursor:pointer"></select>
         </div>
         <div id="docs-content-body" class="docs-body">
           <div id="docs-rendered" class="md-rendered"></div>
@@ -5579,7 +5580,7 @@ async function refreshHistoryTrends() {
 // ====== Quest Log View ======
 async function refreshQuestLog() {
   try {
-    var data = await fetchJSON('/api/tasks/board');
+    var data = await fetchJSON('/api/tasks/board?includeDone=true');
     var cols = data.columns || {};
     var sections = [
       { title: 'In Progress', keys: ['doing'], cls: 'quest-doing' },
@@ -5791,7 +5792,7 @@ async function refreshStatsReport() {
     var [taskData, usageData, boardData] = await Promise.all([
       fetchJSON('/api/tasks/trend?days=' + statsReportDays).catch(function() { return []; }),
       fetchJSON('/api/usage/trend?days=' + statsReportDays).catch(function() { return []; }),
-      fetchJSON('/api/tasks/board').catch(function() { return { columns: {}, stats: {}, projects: [], agents: [] }; }),
+      fetchJSON('/api/tasks/board?includeDone=true').catch(function() { return { columns: {}, stats: {}, projects: [], agents: [] }; }),
     ]);
 
     var taskArr = Array.isArray(taskData) ? taskData : [];

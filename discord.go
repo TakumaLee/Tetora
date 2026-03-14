@@ -1155,7 +1155,15 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 			// Otherwise delete and re-send as chunks.
 			output := result.Output
 			if strings.TrimSpace(output) == "" {
-				output = "Task completed successfully."
+				// Session mode: result.Output is empty but progressBuilder may have accumulated content
+				if progressBuilder != nil {
+					if text := progressBuilder.getText(); strings.TrimSpace(text) != "" {
+						output = strings.TrimSpace(text)
+					}
+				}
+				if strings.TrimSpace(output) == "" {
+					output = "Task completed successfully."
+				}
 			}
 			if len(output) <= 1900 {
 				db.editMessageWithComponents(msg.ChannelID, progressMsgID, output, nil)

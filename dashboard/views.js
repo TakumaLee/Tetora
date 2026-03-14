@@ -99,7 +99,7 @@ async function refreshHistoryTrends() {
 // ====== Quest Log View ======
 async function refreshQuestLog() {
   try {
-    var data = await fetchJSON('/api/tasks/board');
+    var data = await fetchJSON('/api/tasks/board?includeDone=true');
     var cols = data.columns || {};
     var sections = [
       { title: 'In Progress', keys: ['doing'], cls: 'quest-doing' },
@@ -311,7 +311,7 @@ async function refreshStatsReport() {
     var [taskData, usageData, boardData] = await Promise.all([
       fetchJSON('/api/tasks/trend?days=' + statsReportDays).catch(function() { return []; }),
       fetchJSON('/api/usage/trend?days=' + statsReportDays).catch(function() { return []; }),
-      fetchJSON('/api/tasks/board').catch(function() { return { columns: {}, stats: {}, projects: [], agents: [] }; }),
+      fetchJSON('/api/tasks/board?includeDone=true').catch(function() { return { columns: {}, stats: {}, projects: [], agents: [] }; }),
     ]);
 
     var taskArr = Array.isArray(taskData) ? taskData : [];

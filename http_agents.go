@@ -111,15 +111,25 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 			status := r.URL.Query().Get("status")
 			assignee := r.URL.Query().Get("assignee")
 			project := r.URL.Query().Get("project")
-			tasks, err := taskBoardEngine.ListTasks(status, assignee, project)
+
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			if page < 1 {
+				page = 1
+			}
+			if limit < 1 {
+				limit = 50
+			}
+
+			result, err := taskBoardEngine.ListTasksPaginated(status, assignee, project, page, limit)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
 			}
-			if tasks == nil {
-				tasks = []TaskBoard{}
+			if result.Tasks == nil {
+				result.Tasks = []TaskBoard{}
 			}
-			json.NewEncoder(w).Encode(map[string]any{"tasks": tasks})
+			json.NewEncoder(w).Encode(result)
 
 		case http.MethodPost:
 			var task TaskBoard
@@ -152,11 +162,13 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		includeDone := r.URL.Query().Get("includeDone") == "true"
 		board, err := taskBoardEngine.GetBoardView(BoardFilter{
-			Project:  r.URL.Query().Get("project"),
-			Assignee: r.URL.Query().Get("assignee"),
-			Priority: r.URL.Query().Get("priority"),
-			Workflow: r.URL.Query().Get("workflow"),
+			Project:     r.URL.Query().Get("project"),
+			Assignee:    r.URL.Query().Get("assignee"),
+			Priority:    r.URL.Query().Get("priority"),
+			Workflow:    r.URL.Query().Get("workflow"),
+			IncludeDone: includeDone,
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
