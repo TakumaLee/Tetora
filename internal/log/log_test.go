@@ -1,4 +1,4 @@
-package main
+package log
 
 import (
 	"bytes"
@@ -13,8 +13,7 @@ import (
 
 func TestLogger_LevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatText, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatText, &buf)
 
 	l.Debug("should not appear")
 	l.Info("should appear")
@@ -34,8 +33,7 @@ func TestLogger_LevelFiltering(t *testing.T) {
 
 func TestLogger_LevelDebugPassesAll(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelDebug, FormatText, &buf)
-	l.out = &buf
+	l := New(LevelDebug, FormatText, &buf)
 
 	l.Debug("d")
 	l.Info("i")
@@ -52,8 +50,7 @@ func TestLogger_LevelDebugPassesAll(t *testing.T) {
 
 func TestLogger_JSONFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatJSON, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatJSON, &buf)
 
 	l.Info("test message", "key1", "val1", "key2", 42)
 
@@ -81,8 +78,7 @@ func TestLogger_JSONFormat(t *testing.T) {
 
 func TestLogger_TextFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatText, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatText, &buf)
 
 	l.Info("server started", "addr", ":7777")
 
@@ -100,8 +96,7 @@ func TestLogger_TextFormat(t *testing.T) {
 
 func TestLogger_TraceIDInOutput(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatText, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatText, &buf)
 
 	l.log(LevelInfo, "http-abc123", "test msg")
 
@@ -126,8 +121,7 @@ func TestLogger_TraceIDInOutput(t *testing.T) {
 
 func TestLogger_NoTraceID(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatJSON, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatJSON, &buf)
 
 	l.Info("no trace")
 
@@ -140,10 +134,15 @@ func TestLogger_NoTraceID(t *testing.T) {
 
 func TestLogger_ContextMethods(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatJSON, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatJSON, &buf)
+	l.SetTraceExtractor(func(ctx context.Context) string {
+		if v, ok := ctx.Value("test-trace").(string); ok {
+			return v
+		}
+		return ""
+	})
 
-	ctx := withTraceID(context.Background(), "ctx-aabbcc")
+	ctx := context.WithValue(context.Background(), "test-trace", "ctx-aabbcc")
 	l.InfoCtx(ctx, "from context")
 
 	var entry map[string]any
@@ -155,8 +154,7 @@ func TestLogger_ContextMethods(t *testing.T) {
 
 func TestLogger_EmptyContextNoTrace(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatJSON, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatJSON, &buf)
 
 	l.InfoCtx(context.Background(), "bare context")
 
@@ -169,8 +167,7 @@ func TestLogger_EmptyContextNoTrace(t *testing.T) {
 
 func TestLogger_ConcurrentWrites(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatText, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatText, &buf)
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -192,7 +189,7 @@ func TestLogger_Rotation(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "test.log")
 
-	l := newLogger(LevelInfo, FormatText, os.Stderr)
+	l := New(LevelInfo, FormatText, os.Stderr)
 	l.maxSize = 200 // Tiny: rotate after 200 bytes
 	l.maxFiles = 3
 	l.setupFile(logPath)
@@ -213,7 +210,7 @@ func TestLogger_RotationMaxFiles(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "test.log")
 
-	l := newLogger(LevelInfo, FormatText, os.Stderr)
+	l := New(LevelInfo, FormatText, os.Stderr)
 	l.maxSize = 100
 	l.maxFiles = 2
 	l.setupFile(logPath)
@@ -236,7 +233,7 @@ func TestLogger_RotationMaxFiles(t *testing.T) {
 func TestLogger_ParseLevel(t *testing.T) {
 	tests := []struct {
 		input string
-		want  LogLevel
+		want  Level
 	}{
 		{"debug", LevelDebug},
 		{"DEBUG", LevelDebug},
@@ -250,32 +247,31 @@ func TestLogger_ParseLevel(t *testing.T) {
 		{"", LevelInfo},
 	}
 	for _, tt := range tests {
-		got := parseLevel(tt.input)
+		got := ParseLevel(tt.input)
 		if got != tt.want {
-			t.Errorf("parseLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			t.Errorf("ParseLevel(%q) = %v, want %v", tt.input, got, tt.want)
 		}
 	}
 }
 
 func TestLogger_ParseFormat(t *testing.T) {
-	if parseFormat("json") != FormatJSON {
-		t.Error("parseFormat(json) should be FormatJSON")
+	if ParseFormat("json") != FormatJSON {
+		t.Error("ParseFormat(json) should be FormatJSON")
 	}
-	if parseFormat("JSON") != FormatJSON {
-		t.Error("parseFormat(JSON) should be FormatJSON")
+	if ParseFormat("JSON") != FormatJSON {
+		t.Error("ParseFormat(JSON) should be FormatJSON")
 	}
-	if parseFormat("text") != FormatText {
-		t.Error("parseFormat(text) should be FormatText")
+	if ParseFormat("text") != FormatText {
+		t.Error("ParseFormat(text) should be FormatText")
 	}
-	if parseFormat("") != FormatText {
-		t.Error("parseFormat('') should default to FormatText")
+	if ParseFormat("") != FormatText {
+		t.Error("ParseFormat('') should default to FormatText")
 	}
 }
 
 func TestLogger_FieldsOddCount(t *testing.T) {
 	var buf bytes.Buffer
-	l := newLogger(LevelInfo, FormatJSON, &buf)
-	l.out = &buf
+	l := New(LevelInfo, FormatJSON, &buf)
 
 	l.Info("odd fields", "key1", "val1", "orphan")
 
@@ -291,18 +287,18 @@ func TestLogger_FieldsOddCount(t *testing.T) {
 }
 
 func TestBuildFieldMap_Empty(t *testing.T) {
-	m := buildFieldMap(nil)
+	m := BuildFieldMap(nil)
 	if m != nil {
 		t.Error("nil fields should return nil map")
 	}
-	m = buildFieldMap([]any{})
+	m = BuildFieldMap([]any{})
 	if m != nil {
 		t.Error("empty fields should return nil map")
 	}
 }
 
-func TestFormatJSON_NoFields(t *testing.T) {
-	out := formatJSON("2026-01-01T00:00:00Z", "INFO", "", "hello", nil)
+func TestFormatJSONLine_NoFields(t *testing.T) {
+	out := FormatJSONLine("2026-01-01T00:00:00Z", "INFO", "", "hello", nil)
 	var entry map[string]any
 	if err := json.Unmarshal([]byte(out), &entry); err != nil {
 		t.Fatalf("invalid JSON: %v", err)

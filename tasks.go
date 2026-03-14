@@ -1,74 +1,39 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"strings"
-	"sync"
+
+	"tetora/internal/db"
 )
 
 // --- SQLite Task Management ---
 // Uses the system `sqlite3` CLI (macOS built-in) to query the dashboard DB.
 // No cgo or external Go modules required.
 
-type DBTask struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	Priority  string `json:"priority"`
-	CreatedAt string `json:"created_at"`
-	Error     string `json:"error"`
-}
+// DBTask is an alias for db.Task for backward compatibility.
+type DBTask = db.Task
 
-type TaskStats struct {
-	Todo    int `json:"todo"`
-	Running int `json:"running"`
-	Review  int `json:"review"`
-	Done    int `json:"done"`
-	Failed  int `json:"failed"`
-	Total   int `json:"total"`
-}
+// TaskStats is an alias for db.TaskStats for backward compatibility.
+type TaskStats = db.TaskStats
 
-// dbWriteMu serializes all SQLite write operations to prevent "database is locked"
-// errors from concurrent sqlite3 CLI processes competing for the same DB file.
-var dbWriteMu sync.Mutex
-
-// execDB runs a write SQL statement against the SQLite database.
-// Writes are serialized via dbWriteMu to prevent concurrent sqlite3 processes
-// from causing "database is locked" errors.
+// execDB delegates to db.Exec.
 func execDB(dbPath, sql string) error {
-	dbWriteMu.Lock()
-	defer dbWriteMu.Unlock()
-	cmd := exec.Command("sqlite3", dbPath, ".timeout 30000", sql)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("sqlite3: %s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return nil
+	return db.Exec(dbPath, sql)
 }
 
-// queryDB runs a SQL query against the SQLite database and returns JSON rows.
-// Uses .timeout dot-command (no output) instead of PRAGMA busy_timeout (produces JSON).
+// queryDB delegates to db.Query.
 func queryDB(dbPath, sql string) ([]map[string]any, error) {
-	cmd := exec.Command("sqlite3", "-json", dbPath, ".timeout 30000", sql)
-	out, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("sqlite3: %s", string(exitErr.Stderr))
-		}
-		return nil, fmt.Errorf("sqlite3: %w", err)
-	}
+	return db.Query(dbPath, sql)
+}
 
-	outStr := strings.TrimSpace(string(out))
-	if outStr == "" || outStr == "[]" {
-		return nil, nil
-	}
+// pragmaDB delegates to db.Pragma.
+func pragmaDB(dbPath string) error {
+	return db.Pragma(dbPath)
+}
 
-	var rows []map[string]any
-	if err := json.Unmarshal([]byte(outStr), &rows); err != nil {
-		return nil, fmt.Errorf("parse sqlite3 output: %w", err)
-	}
-	return rows, nil
+// escapeSQLite delegates to db.Escape.
+func escapeSQLite(s string) string {
+	return db.Escape(s)
 }
 
 // getTaskStats returns aggregate task counts by status.
@@ -161,32 +126,4 @@ func updateTaskStatus(dbPath string, id, status, errMsg string) error {
 		 WHERE id = %s`,
 		escapeSQLite(status), escapeSQLite(errMsg), escapeSQLite(id))
 	return execDB(dbPath, sql)
-}
-
-// pragmaDB sets recommended SQLite pragmas for reliability.
-// WAL mode enables concurrent reads during writes.
-// busy_timeout prevents "database is locked" under contention.
-func pragmaDB(dbPath string) error {
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL;",
-		"PRAGMA busy_timeout=30000;",
-		"PRAGMA synchronous=NORMAL;",
-	}
-	for _, p := range pragmas {
-		cmd := exec.Command("sqlite3", dbPath, p)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("pragma %q: %s: %w", p, string(out), err)
-		}
-	}
-	return nil
-}
-
-// escapeSQLite sanitizes a string for safe SQLite interpolation.
-// Handles single quotes, null bytes, and control characters.
-func escapeSQLite(s string) string {
-	// Remove null bytes — these can truncate SQL strings.
-	s = strings.ReplaceAll(s, "\x00", "")
-	// Escape single quotes for SQL.
-	s = strings.ReplaceAll(s, "'", "''")
-	return s
 }
