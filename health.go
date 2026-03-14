@@ -64,7 +64,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 			}
 			// Circuit breaker status.
 			if cfg.circuits != nil {
-				cb := cfg.circuits.get(name)
+				cb := cfg.circuits.Get(name)
 				st := cb.State()
 				pc["circuit"] = st.String()
 				if st == CircuitOpen {
@@ -81,7 +81,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 		if _, exists := providerChecks["claude"]; !exists {
 			pc := map[string]any{"status": "ok", "type": "claude-cli"}
 			if cfg.circuits != nil {
-				cb := cfg.circuits.get("claude")
+				cb := cfg.circuits.Get("claude")
 				st := cb.State()
 				pc["circuit"] = st.String()
 				if st == CircuitOpen {
@@ -151,7 +151,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 
 	// --- Circuit Breakers (summary) ---
 	if cfg.circuits != nil {
-		circuitStatus := cfg.circuits.status()
+		circuitStatus := cfg.circuits.Status()
 		if len(circuitStatus) > 0 {
 			checks["circuits"] = circuitStatus
 		}

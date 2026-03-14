@@ -387,7 +387,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 	for i, providerName := range candidates {
 		// Circuit breaker check.
 		if cfg.circuits != nil {
-			cb := cfg.circuits.get(providerName)
+			cb := cfg.circuits.Get(providerName)
 			if !cb.Allow() {
 				logDebugCtx(ctx, "circuit open, skipping provider", "provider", providerName)
 				if i == 0 && len(candidates) > 1 {
@@ -419,7 +419,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 			if isTransientError(errMsg) {
 				// Transient error: record failure, try next provider.
 				if cfg.circuits != nil {
-					cfg.circuits.get(providerName).RecordFailure()
+					cfg.circuits.Get(providerName).RecordFailure()
 				}
 				logWarnCtx(ctx, "provider transient error", "provider", providerName, "error", errMsg)
 				lastErr = fmt.Sprintf("provider %s: %s", providerName, errMsg)
@@ -444,7 +444,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 		if errMsg == "" {
 			// Success.
 			if cfg.circuits != nil {
-				cfg.circuits.get(providerName).RecordSuccess()
+				cfg.circuits.Get(providerName).RecordSuccess()
 			}
 			if result == nil {
 				result = &ProviderResult{}

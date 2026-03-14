@@ -90,8 +90,8 @@ func TestDeepHealthCheck_DegradedCircuit(t *testing.T) {
 	cfg.registry = initProviders(cfg)
 
 	// Trip the openai circuit.
-	cfg.circuits.get("openai").RecordFailure()
-	cfg.circuits.get("openai").RecordFailure()
+	cfg.circuits.Get("openai").RecordFailure()
+	cfg.circuits.Get("openai").RecordFailure()
 
 	state := newDispatchState()
 	result := deepHealthCheck(cfg, state, nil, time.Now())

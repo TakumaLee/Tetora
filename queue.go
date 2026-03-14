@@ -341,7 +341,7 @@ func (d *queueDrainer) anyProviderAvailable() bool {
 		return true // no circuit breaker = always available
 	}
 	for name := range d.cfg.Providers {
-		cb := d.cfg.circuits.get(name)
+		cb := d.cfg.circuits.Get(name)
 		if cb.State() != CircuitOpen {
 			return true
 		}

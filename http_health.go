@@ -176,7 +176,7 @@ func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/json")
 		var status map[string]any
 		if cfg.circuits != nil {
-			status = cfg.circuits.status()
+			status = cfg.circuits.Status()
 		} else {
 			status = map[string]any{}
 		}
@@ -200,7 +200,7 @@ func (s *Server) registerHealthRoutes(mux *http.ServeMux) {
 			http.Error(w, `{"error":"circuit breaker not initialized"}`, http.StatusServiceUnavailable)
 			return
 		}
-		if ok := cfg.circuits.reset(provider); !ok {
+		if ok := cfg.circuits.ResetKey(provider); !ok {
 			http.Error(w, `{"error":"provider not found"}`, http.StatusNotFound)
 			return
 		}
