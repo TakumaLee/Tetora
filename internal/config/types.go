@@ -1293,6 +1293,19 @@ type StoreConfig struct {
 	AuthToken   string `json:"authToken,omitempty"`
 }
 
+// RDDEngineConfig controls the Requirement-Driven Development (RDD) state engine.
+type RDDEngineConfig struct {
+	Enabled       bool   `json:"enabled,omitempty"`       // Turn on RDD features and STATE.md management
+	StateFileName string `json:"stateFileName,omitempty"` // Default: "STATE.md"
+}
+
+func (c RDDEngineConfig) StateFileNameOrDefault() string {
+	if c.StateFileName != "" {
+		return c.StateFileName
+	}
+	return "STATE.md"
+}
+
 type ReminderConfig struct {
 	Enabled       bool   `json:"enabled,omitempty"`
 	CheckInterval string `json:"checkInterval,omitempty"`

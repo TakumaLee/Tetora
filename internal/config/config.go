@@ -193,6 +193,7 @@ type Config struct {
 	PlanGate              PlanGateConfig                   `json:"planGate,omitempty"`
 	MCPBridge             MCPBridgeConfig                  `json:"mcpBridge,omitempty"`
 	Store                 StoreConfig                      `json:"store,omitempty"`
+	RDDEngine             RDDEngineConfig                  `json:"rddEngine,omitempty"`               // --- RDD & STATE.md Infrastructure ---
 
 	// Runtime fields — set after load, not serialized.
 	BaseDir    string            `json:"-"`

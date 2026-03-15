@@ -439,6 +439,9 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		}
 	}
 
+	// --- RDD Engine: Check for /rdd resume ---
+	applyRDDResume(cfg, &task)
+
 	// Classify request complexity and build tiered system prompt.
 	complexity := classify.Classify(task.Prompt, task.Source)
 	if task.Source != "route-classify" {
@@ -685,6 +688,9 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			Error: fmt.Sprintf("injection defense: %v", err), Model: task.Model, SessionID: task.SessionID,
 		}
 	}
+
+	// --- RDD Engine: Check for /rdd resume ---
+	applyRDDResume(cfg, &task)
 
 	// Classify request complexity and build tiered system prompt.
 	complexity := classify.Classify(task.Prompt, task.Source)
@@ -4213,4 +4219,29 @@ func (s *Server) handleAskUser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"answer": answer})
+}
+
+// applyRDDResume checks if the task prompt is "/rdd resume".
+// If so, it attempts to load the STATE.md context to replace the prompt.
+func applyRDDResume(cfg *Config, task *Task) {
+	if !cfg.RDDEngine.Enabled {
+		return
+	}
+	if strings.TrimSpace(task.Prompt) != "/rdd resume" {
+		return
+	}
+	if task.Workdir == "" {
+		task.Prompt = "Error: Cannot resume without a working directory (Workdir is empty)."
+		return
+	}
+
+	stateFileName := cfg.RDDEngine.StateFileNameOrDefault()
+	resumeCtx, err := BuildResumeContext(task.Workdir, stateFileName)
+	if err != nil {
+		task.Prompt = fmt.Sprintf("Error reading resume context: %v", err)
+		return
+	}
+
+	task.Prompt = resumeCtx
+	log.Info("RDD resume activated", "workdir", task.Workdir, "stateFile", stateFileName)
 }
