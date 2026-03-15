@@ -63,6 +63,9 @@ self.addEventListener('fetch', function(e) {
 
   var url = new URL(e.request.url);
 
+  // Explicitly skip SSE streams.
+  if (url.pathname.indexOf('/stream') === 0) return;
+
   // Only cache app shell assets. Let all API requests pass through
   // to the browser's native fetch so Referer and cookies are preserved
   // (SW-initiated fetches can strip Referer, causing auth failures).

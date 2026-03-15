@@ -140,6 +140,7 @@ type Config struct {
 	PlanGate              PlanGateConfig                   `json:"planGate,omitempty"`                // --- v3: Plan Gate Mode ---
 	MCPBridge             MCPBridgeConfig                  `json:"mcpBridge,omitempty"`               // --- v3: MCP Server Bridge ---
 	Store                 StoreConfig                      `json:"store,omitempty"`                   // --- Template Marketplace ---
+	RDDEngine             RDDEngineConfig                  `json:"rddEngine,omitempty"`               // --- RDD & STATE.md Infrastructure ---
 
 	// Resolved at runtime (not serialized).
 	baseDir           string
@@ -446,6 +447,19 @@ func (c TaskManagerConfig) defaultProjectOrInbox() string {
 		return c.DefaultProject
 	}
 	return "inbox"
+}
+
+// RDDEngineConfig controls the Requirement-Driven Development (RDD) state engine.
+type RDDEngineConfig struct {
+	Enabled       bool   `json:"enabled,omitempty"`       // Turn on RDD features and STATE.md management
+	StateFileName string `json:"stateFileName,omitempty"` // Default: "STATE.md"
+}
+
+func (c RDDEngineConfig) stateFileNameOrDefault() string {
+	if c.StateFileName != "" {
+		return c.StateFileName
+	}
+	return "STATE.md"
 }
 
 type WebhookConfig struct {

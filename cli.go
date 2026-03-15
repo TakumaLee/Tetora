@@ -224,9 +224,10 @@ func restartDaemonProcess(binaryPath string) bool {
 	}
 
 	// Release the child so it doesn't become a zombie.
+	pid := cmd.Process.Pid
 	cmd.Process.Release()
 
-	fmt.Printf("Daemon restarted (PID %d).\n", cmd.Process.Pid)
+	fmt.Printf("Daemon restarted (PID %d).\n", pid)
 	return true
 }
 
@@ -252,8 +253,9 @@ func cmdStart() {
 		fmt.Fprintf(os.Stderr, "Failed to start daemon: %v\n", err)
 		os.Exit(1)
 	}
+	pid := cmd.Process.Pid
 	cmd.Process.Release()
-	fmt.Printf("Daemon started (PID %d).\n", cmd.Process.Pid)
+	fmt.Printf("Daemon started (PID %d).\n", pid)
 	waitForHealthy()
 }
 
@@ -293,9 +295,14 @@ func cmdRestart() {
 // waitForHealthy polls /healthz for up to 10 seconds after a restart to confirm
 // the daemon is up. Prints version on success or a warning on timeout.
 func waitForHealthy() {
-	cfg, _ := tryLoadConfig("")
-	if cfg == nil || cfg.ListenAddr == "" {
-		fmt.Println("Service restarted.")
+	cfg, err := tryLoadConfig("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not load config: %v\n", err)
+		fmt.Println("Daemon may have failed to start or needs configuration (run 'tetora init').")
+		return
+	}
+	if cfg.ListenAddr == "" {
+		fmt.Println("Service restarted (no listen address configured).")
 		return
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
