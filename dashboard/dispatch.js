@@ -665,8 +665,11 @@ async function createNewChat() {
     var sess = await fetch('/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role })
-    }).then(function(r) { return r.json(); });
+      body: JSON.stringify({ agent: role })
+    }).then(function(r) {
+      if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || r.statusText); });
+      return r.json();
+    });
     if (sess && sess.id) {
       closeNewChatModal();
       await refreshChatSidebar();
