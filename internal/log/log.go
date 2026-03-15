@@ -371,16 +371,22 @@ func Debug(msg string, fields ...any) {
 func Info(msg string, fields ...any) {
 	if defaultLogger != nil {
 		defaultLogger.Info(msg, fields...)
+	} else {
+		fmt.Fprintf(os.Stderr, "INFO: %s %v\n", msg, buildFieldMap(fields))
 	}
 }
 func Warn(msg string, fields ...any) {
 	if defaultLogger != nil {
 		defaultLogger.Warn(msg, fields...)
+	} else {
+		fmt.Fprintf(os.Stderr, "WARN: %s %v\n", msg, buildFieldMap(fields))
 	}
 }
 func Error(msg string, fields ...any) {
 	if defaultLogger != nil {
 		defaultLogger.Error(msg, fields...)
+	} else {
+		fmt.Fprintf(os.Stderr, "ERROR: %s %v\n", msg, buildFieldMap(fields))
 	}
 }
 
