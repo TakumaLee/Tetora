@@ -968,7 +968,9 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 		db.reactions.reactQueued(msg.ChannelID, msg.ID)
 	}
 
-	ctx := withTraceID(context.Background(), newTraceID("discord"))
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	defer baseCancel()
+	ctx := withTraceID(baseCtx, newTraceID("discord"))
 	dbPath := db.cfg.HistoryDB
 
 	// Generate a task ID early for Discord activity tracking.
@@ -1141,13 +1143,10 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 				},
 				Callback: func(data discordInteractionData) {
 					logInfo("progress escape: cancelling task", "taskId", task.ID)
-					if db.state != nil {
-						db.state.mu.Lock()
-						if ts, ok := db.state.running[task.ID]; ok && ts.cancelFn != nil {
-							ts.cancelFn()
-						}
-						db.state.mu.Unlock()
-					}
+					// Cancel the base context directly — works for both
+					// Discord chat mode (no state.running entry) and
+					// dispatch mode.
+					baseCancel()
 				},
 			})
 
