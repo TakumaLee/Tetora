@@ -957,7 +957,7 @@ func main() {
 
 		// --- P19.1: Gmail Integration ---
 		if cfg.Gmail.Enabled {
-			app.Gmail = &GmailService{cfg: cfg}
+			app.Gmail = newGmailService(cfg)
 			logInfo("gmail integration enabled")
 		}
 
