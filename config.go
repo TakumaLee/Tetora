@@ -18,6 +18,7 @@ import (
 	"tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
 	"tetora/internal/messaging/signal"
+	"tetora/internal/migrate"
 	"tetora/internal/messaging/slack"
 	"tetora/internal/messaging/teams"
 	tgbot "tetora/internal/messaging/telegram"
@@ -847,7 +848,7 @@ func tryLoadConfig(path string) (*Config, error) {
 	}
 
 	// Auto-migrate config if version is outdated.
-	autoMigrateConfig(path)
+	migrate.AutoMigrateConfig(path)
 
 	data, err := os.ReadFile(path)
 	if err != nil {

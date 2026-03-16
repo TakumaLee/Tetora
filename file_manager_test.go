@@ -9,16 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"tetora/internal/storage"
 )
 
-func testFileManagerService(t *testing.T) (*FileManagerService, string) {
+func testFileManagerService(t *testing.T) (*storage.Service, string) {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	storageDir := filepath.Join(dir, "files")
 	os.MkdirAll(storageDir, 0o755)
 
-	if err := initFileManagerDB(dbPath); err != nil {
+	if err := storage.InitDB(dbPath); err != nil {
 		t.Fatalf("initFileManagerDB: %v", err)
 	}
 
@@ -34,11 +36,11 @@ func TestInitFileManagerDB(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 
-	if err := initFileManagerDB(dbPath); err != nil {
+	if err := storage.InitDB(dbPath); err != nil {
 		t.Fatalf("first init: %v", err)
 	}
 	// Idempotent.
-	if err := initFileManagerDB(dbPath); err != nil {
+	if err := storage.InitDB(dbPath); err != nil {
 		t.Fatalf("second init: %v", err)
 	}
 
@@ -110,7 +112,7 @@ func TestStoreFileMaxSize(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	storageDir := filepath.Join(dir, "files")
 	os.MkdirAll(storageDir, 0o755)
-	initFileManagerDB(dbPath)
+	storage.InitDB(dbPath)
 
 	cfg := &Config{
 		HistoryDB:   dbPath,
@@ -334,26 +336,26 @@ func TestMimeFromExt(t *testing.T) {
 		{"unknown.xyz", "application/octet-stream"},
 	}
 	for _, tt := range tests {
-		got := mimeFromExt(tt.filename)
+		got := storage.MimeFromExt(tt.filename)
 		if got != tt.expected {
-			t.Errorf("mimeFromExt(%s) = %s, want %s", tt.filename, got, tt.expected)
+			t.Errorf("storage.MimeFromExt(%s) = %s, want %s", tt.filename, got, tt.expected)
 		}
 	}
 }
 
 func TestContentHash(t *testing.T) {
 	data := []byte("test data")
-	h := contentHash(data)
+	h := storage.ContentHash(data)
 	if len(h) != 32 {
 		t.Errorf("expected hash length 32, got %d", len(h))
 	}
 	// Deterministic.
-	h2 := contentHash(data)
+	h2 := storage.ContentHash(data)
 	if h != h2 {
 		t.Error("expected same hash for same data")
 	}
 	// Different data, different hash.
-	h3 := contentHash([]byte("other data"))
+	h3 := storage.ContentHash([]byte("other data"))
 	if h == h3 {
 		t.Error("expected different hash for different data")
 	}
@@ -361,7 +363,7 @@ func TestContentHash(t *testing.T) {
 
 // --- Tool Handler Tests ---
 
-func testFileAppCtx(fm *FileManagerService) context.Context {
+func testFileAppCtx(fm *storage.Service) context.Context {
 	app := &App{FileManager: fm}
 	return withApp(context.Background(), app)
 }

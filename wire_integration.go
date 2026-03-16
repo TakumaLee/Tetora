@@ -25,6 +25,7 @@ import (
 	"tetora/internal/integration/podcast"
 	"tetora/internal/integration/spotify"
 	"tetora/internal/integration/twitter"
+	"tetora/internal/storage"
 )
 
 // --- Config type aliases ---
@@ -488,7 +489,7 @@ func toolDriveUpload(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("Google Drive integration not enabled")
 	}
 	if args.MimeType == "" {
-		args.MimeType = mimeFromExt(args.Name)
+		args.MimeType = storage.MimeFromExt(args.Name)
 	}
 	result, err := app.Drive.Upload(ctx, args.Name, args.MimeType, args.ParentID, []byte(args.Content))
 	if err != nil {

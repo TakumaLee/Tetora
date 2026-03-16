@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tetora/internal/upload"
 )
 
 // --- sanitizeFilename tests ---
@@ -20,9 +22,9 @@ func TestSanitizeFilename_Normal(t *testing.T) {
 		{"my-file_v2.pdf", "my-file_v2.pdf"},
 	}
 	for _, tc := range cases {
-		got := sanitizeFilename(tc.input)
+		got := upload.SanitizeFilename(tc.input)
 		if got != tc.expected {
-			t.Errorf("sanitizeFilename(%q) = %q, want %q", tc.input, got, tc.expected)
+			t.Errorf("upload.SanitizeFilename(%q) = %q, want %q", tc.input, got, tc.expected)
 		}
 	}
 }
@@ -36,36 +38,36 @@ func TestSanitizeFilename_PathTraversal(t *testing.T) {
 		{"../../../secret.txt"},
 	}
 	for _, tc := range cases {
-		got := sanitizeFilename(tc.input)
+		got := upload.SanitizeFilename(tc.input)
 		if strings.Contains(got, "/") || strings.Contains(got, "..") {
-			t.Errorf("sanitizeFilename(%q) = %q, should not contain path separators", tc.input, got)
+			t.Errorf("upload.SanitizeFilename(%q) = %q, should not contain path separators", tc.input, got)
 		}
 	}
 }
 
 func TestSanitizeFilename_LeadingDots(t *testing.T) {
-	got := sanitizeFilename(".hidden")
+	got := upload.SanitizeFilename(".hidden")
 	if strings.HasPrefix(got, ".") {
-		t.Errorf("sanitizeFilename(%q) = %q, should not start with dot", ".hidden", got)
+		t.Errorf("upload.SanitizeFilename(%q) = %q, should not start with dot", ".hidden", got)
 	}
 }
 
 func TestSanitizeFilename_UnsafeChars(t *testing.T) {
-	got := sanitizeFilename("file name (1).txt")
+	got := upload.SanitizeFilename("file name (1).txt")
 	// Spaces and parens should be stripped.
 	if strings.ContainsAny(got, " ()") {
 		t.Errorf("sanitizeFilename returned unsafe chars: %q", got)
 	}
 	// Should still contain the safe parts.
 	if !strings.Contains(got, "filename1.txt") {
-		t.Errorf("sanitizeFilename(%q) = %q, expected safe characters preserved", "file name (1).txt", got)
+		t.Errorf("upload.SanitizeFilename(%q) = %q, expected safe characters preserved", "file name (1).txt", got)
 	}
 }
 
 func TestSanitizeFilename_Empty(t *testing.T) {
-	got := sanitizeFilename("...")
+	got := upload.SanitizeFilename("...")
 	if got != "" {
-		t.Errorf("sanitizeFilename(%q) = %q, want empty", "...", got)
+		t.Errorf("upload.SanitizeFilename(%q) = %q, want empty", "...", got)
 	}
 }
 
@@ -90,9 +92,9 @@ func TestDetectMimeType(t *testing.T) {
 		{"noext", "application/octet-stream"},
 	}
 	for _, tc := range cases {
-		got := detectMimeType(tc.name)
+		got := upload.DetectMimeType(tc.name)
 		if got != tc.expected {
-			t.Errorf("detectMimeType(%q) = %q, want %q", tc.name, got, tc.expected)
+			t.Errorf("upload.DetectMimeType(%q) = %q, want %q", tc.name, got, tc.expected)
 		}
 	}
 }
@@ -101,11 +103,11 @@ func TestDetectMimeType(t *testing.T) {
 
 func TestInitUploadDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	dir := initUploadDir(tmpDir)
+	dir := upload.InitDir(tmpDir)
 
 	expected := filepath.Join(tmpDir, "uploads")
 	if dir != expected {
-		t.Errorf("initUploadDir(%q) = %q, want %q", tmpDir, dir, expected)
+		t.Errorf("upload.InitDir(%q) = %q, want %q", tmpDir, dir, expected)
 	}
 
 	info, err := os.Stat(dir)
@@ -121,12 +123,12 @@ func TestInitUploadDir(t *testing.T) {
 
 func TestSaveUpload_Success(t *testing.T) {
 	tmpDir := t.TempDir()
-	uploadDir := initUploadDir(tmpDir)
+	uploadDir := upload.InitDir(tmpDir)
 
 	content := "hello world"
 	reader := strings.NewReader(content)
 
-	file, err := saveUpload(uploadDir, "test.txt", reader, int64(len(content)), "test")
+	file, err := upload.Save(uploadDir, "test.txt", reader, int64(len(content)), "test")
 	if err != nil {
 		t.Fatalf("saveUpload failed: %v", err)
 	}
@@ -159,12 +161,12 @@ func TestSaveUpload_Success(t *testing.T) {
 
 func TestSaveUpload_EmptyName(t *testing.T) {
 	tmpDir := t.TempDir()
-	uploadDir := initUploadDir(tmpDir)
+	uploadDir := upload.InitDir(tmpDir)
 
 	content := "data"
 	reader := strings.NewReader(content)
 
-	file, err := saveUpload(uploadDir, "", reader, int64(len(content)), "test")
+	file, err := upload.Save(uploadDir, "", reader, int64(len(content)), "test")
 	if err != nil {
 		t.Fatalf("saveUpload failed: %v", err)
 	}
@@ -176,12 +178,12 @@ func TestSaveUpload_EmptyName(t *testing.T) {
 
 func TestSaveUpload_PathTraversal(t *testing.T) {
 	tmpDir := t.TempDir()
-	uploadDir := initUploadDir(tmpDir)
+	uploadDir := upload.InitDir(tmpDir)
 
 	content := "malicious"
 	reader := strings.NewReader(content)
 
-	file, err := saveUpload(uploadDir, "../../etc/passwd", reader, int64(len(content)), "test")
+	file, err := upload.Save(uploadDir, "../../etc/passwd", reader, int64(len(content)), "test")
 	if err != nil {
 		t.Fatalf("saveUpload failed: %v", err)
 	}
@@ -194,10 +196,10 @@ func TestSaveUpload_PathTraversal(t *testing.T) {
 
 func TestSaveUpload_TimestampPrefix(t *testing.T) {
 	tmpDir := t.TempDir()
-	uploadDir := initUploadDir(tmpDir)
+	uploadDir := upload.InitDir(tmpDir)
 
 	reader := strings.NewReader("x")
-	file, err := saveUpload(uploadDir, "doc.pdf", reader, 1, "test")
+	file, err := upload.Save(uploadDir, "doc.pdf", reader, 1, "test")
 	if err != nil {
 		t.Fatalf("saveUpload failed: %v", err)
 	}
@@ -212,14 +214,14 @@ func TestSaveUpload_TimestampPrefix(t *testing.T) {
 // --- buildFilePromptPrefix tests ---
 
 func TestBuildFilePromptPrefix_Empty(t *testing.T) {
-	got := buildFilePromptPrefix(nil)
+	got := upload.BuildPromptPrefix(nil)
 	if got != "" {
-		t.Errorf("buildFilePromptPrefix(nil) = %q, want empty", got)
+		t.Errorf("upload.BuildPromptPrefix(nil) = %q, want empty", got)
 	}
 }
 
 func TestBuildFilePromptPrefix_SingleFile(t *testing.T) {
-	files := []*UploadedFile{
+	files := []*upload.File{
 		{
 			Name:     "report.pdf",
 			Path:     "/tmp/uploads/20260222-120000_report.pdf",
@@ -227,7 +229,7 @@ func TestBuildFilePromptPrefix_SingleFile(t *testing.T) {
 			MimeType: "application/pdf",
 		},
 	}
-	got := buildFilePromptPrefix(files)
+	got := upload.BuildPromptPrefix(files)
 	if !strings.Contains(got, "The user has attached the following files:") {
 		t.Error("prefix should contain header")
 	}
@@ -243,11 +245,11 @@ func TestBuildFilePromptPrefix_SingleFile(t *testing.T) {
 }
 
 func TestBuildFilePromptPrefix_MultipleFiles(t *testing.T) {
-	files := []*UploadedFile{
+	files := []*upload.File{
 		{Name: "a.txt", Path: "/tmp/a.txt", Size: 10, MimeType: "text/plain"},
 		{Name: "b.png", Path: "/tmp/b.png", Size: 2048, MimeType: "image/png"},
 	}
-	got := buildFilePromptPrefix(files)
+	got := upload.BuildPromptPrefix(files)
 	if !strings.Contains(got, "a.txt") || !strings.Contains(got, "b.png") {
 		t.Error("prefix should contain both filenames")
 	}
@@ -268,7 +270,7 @@ func TestBuildFilePromptPrefix_MultipleFiles(t *testing.T) {
 
 func TestCleanupUploads(t *testing.T) {
 	tmpDir := t.TempDir()
-	uploadDir := initUploadDir(tmpDir)
+	uploadDir := upload.InitDir(tmpDir)
 
 	// Create an "old" file.
 	oldFile := filepath.Join(uploadDir, "old.txt")
@@ -282,7 +284,7 @@ func TestCleanupUploads(t *testing.T) {
 	os.WriteFile(newFile, []byte("new"), 0o644)
 
 	// Cleanup files older than 7 days.
-	cleanupUploads(uploadDir, 7)
+	upload.Cleanup(uploadDir, 7)
 
 	// Old file should be removed.
 	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
@@ -297,7 +299,7 @@ func TestCleanupUploads(t *testing.T) {
 
 func TestCleanupUploads_NonExistentDir(t *testing.T) {
 	// Should not panic on non-existent directory.
-	cleanupUploads("/nonexistent/dir/that/does/not/exist", 7)
+	upload.Cleanup("/nonexistent/dir/that/does/not/exist", 7)
 }
 
 // --- coalesce tests ---
@@ -314,9 +316,9 @@ func TestCoalesce(t *testing.T) {
 		{[]string{}, ""},
 	}
 	for _, tc := range cases {
-		got := coalesce(tc.input...)
+		got := upload.Coalesce(tc.input...)
 		if got != tc.expected {
-			t.Errorf("coalesce(%v) = %q, want %q", tc.input, got, tc.expected)
+			t.Errorf("upload.Coalesce(%v) = %q, want %q", tc.input, got, tc.expected)
 		}
 	}
 }

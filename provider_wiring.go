@@ -157,7 +157,7 @@ func initProviders(cfg *Config) *provider.Registry {
 				DefaultWorkdir: cfg.DefaultWorkdir,
 				Profile:        newProfileAdapter(tmux.NewClaudeProfile()),
 				Tmux:           tmuxOpsAdapter{},
-				Workers:        newWorkerTrackerAdapter(newTmuxSupervisor()),
+				Workers:        newWorkerTrackerAdapter(tmux.NewSupervisor()),
 			})
 
 		case "terminal-codex":
@@ -170,7 +170,7 @@ func initProviders(cfg *Config) *provider.Registry {
 				DefaultWorkdir: cfg.DefaultWorkdir,
 				Profile:        newProfileAdapter(tmux.NewCodexProfile()),
 				Tmux:           tmuxOpsAdapter{},
-				Workers:        newWorkerTrackerAdapter(newTmuxSupervisor()),
+				Workers:        newWorkerTrackerAdapter(tmux.NewSupervisor()),
 			})
 
 		case "codex-cli":
@@ -459,37 +459,37 @@ func (d *dockerRunnerAdapter) BuildCmd(ctx context.Context, binaryPath, workdir 
 type tmuxOpsAdapter struct{}
 
 func (t tmuxOpsAdapter) Create(session string, cols, rows int, command, workdir string) error {
-	return tmuxCreate(session, cols, rows, command, workdir)
+	return tmux.Create(session, cols, rows, command, workdir)
 }
 
 // Kill calls tmuxKill and silently discards the error, satisfying provider.TmuxOps
 // which declares Kill with no return value.
 func (t tmuxOpsAdapter) Kill(session string) {
-	_ = tmuxKill(session)
+	_ = tmux.Kill(session)
 }
 
 func (t tmuxOpsAdapter) Capture(session string) (string, error) {
-	return tmuxCapture(session)
+	return tmux.Capture(session)
 }
 
 func (t tmuxOpsAdapter) HasSession(session string) bool {
-	return tmuxHasSession(session)
+	return tmux.HasSession(session)
 }
 
 func (t tmuxOpsAdapter) LoadAndPaste(session, text string) error {
-	return tmuxLoadAndPaste(session, text)
+	return tmux.LoadAndPaste(session, text)
 }
 
 func (t tmuxOpsAdapter) SendText(session, text string) error {
-	return tmuxSendText(session, text)
+	return tmux.SendText(session, text)
 }
 
 func (t tmuxOpsAdapter) SendKeys(session string, keys ...string) error {
-	return tmuxSendKeys(session, keys...)
+	return tmux.SendKeys(session, keys...)
 }
 
 func (t tmuxOpsAdapter) CaptureHistory(session string) (string, error) {
-	return tmuxCaptureHistory(session)
+	return tmux.CaptureHistory(session)
 }
 
 // --- Worker Tracker Adapter ---

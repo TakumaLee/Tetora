@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"tetora/internal/storage"
 )
 
 // --- P23.3: File & Document Processing ---
@@ -34,7 +36,13 @@ func (c FileManagerConfig) maxSizeOrDefault() int {
 }
 
 // globalFileManager is exposed for tool handlers.
-var globalFileManager *FileManagerService
+var globalFileManager *storage.Service
+
+// newFileManagerService constructs a storage.Service from Config.
+func newFileManagerService(cfg *Config) *storage.Service {
+	dir := cfg.FileManager.storageDirOrDefault(cfg.baseDir)
+	return storage.New(cfg.HistoryDB, dir, cfg.FileManager.maxSizeOrDefault(), makeLifeDB(), newUUID)
+}
 
 // --- Tool Handlers ---
 
@@ -119,7 +127,7 @@ func toolDocSummarize(ctx context.Context, cfg *Config, input json.RawMessage) (
 		}
 	} else if args.FilePath != "" {
 		filename = filepath.Base(args.FilePath)
-		mimeType = mimeFromExt(filename)
+		mimeType = storage.MimeFromExt(filename)
 		if mimeType == "application/pdf" {
 			text, err := svc.ExtractPDF(args.FilePath)
 			if err != nil {

@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"tetora/internal/upload"
 )
 
 // --- Retention Config ---
@@ -420,7 +422,7 @@ func runRetention(cfg *Config) []RetentionResult {
 
 	// Upload files
 	days = retentionDays(cfg.Retention.Uploads, 7)
-	cleanupUploads(filepath.Join(cfg.baseDir, "uploads"), days)
+	upload.Cleanup(filepath.Join(cfg.baseDir, "uploads"), days)
 	results = append(results, RetentionResult{Table: "uploads", Deleted: -1})
 
 	// Log files

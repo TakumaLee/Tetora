@@ -159,3 +159,13 @@ func Cleanup(uploadDir string, days int) {
 		}
 	}
 }
+
+// Coalesce returns the first non-empty string from the arguments.
+func Coalesce(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}

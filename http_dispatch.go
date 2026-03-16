@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tetora/internal/trace"
+	"tetora/internal/upload"
 )
 
 func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
@@ -499,8 +500,8 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		defer file.Close()
 
-		uploadDir := initUploadDir(cfg.baseDir)
-		uploaded, err := saveUpload(uploadDir, header.Filename, file, header.Size, "http")
+		uploadDir := upload.InitDir(cfg.baseDir)
+		uploaded, err := upload.Save(uploadDir, header.Filename, file, header.Size, "http")
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return

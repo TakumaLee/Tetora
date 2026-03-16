@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 
 	"tetora/internal/cli"
+	"tetora/internal/completion"
 	"tetora/internal/sla"
+	"tetora/internal/storage"
+	"tetora/internal/upload"
 	"strings"
 	"syscall"
 	"time"
@@ -187,7 +190,7 @@ func main() {
 			}
 			return
 		case "completion":
-			cmdCompletion(os.Args[2:])
+			completion.Run(os.Args[2:])
 			return
 		case "stop":
 			killDaemonProcess()
@@ -407,7 +410,7 @@ func main() {
 
 		// --- P23.3: File & Document Processing ---
 		if cfg.FileManager.Enabled && cfg.HistoryDB != "" {
-			if err := initFileManagerDB(cfg.HistoryDB); err != nil {
+			if err := storage.InitDB(cfg.HistoryDB); err != nil {
 				logWarn("init file_manager tables failed", "error", err)
 			} else {
 				app.FileManager = newFileManagerService(cfg)
@@ -525,8 +528,8 @@ func main() {
 		cleanupOutputs(cfg.baseDir, retentionDays(cfg.Retention.Outputs, 30))
 
 		// Init uploads directory + cleanup.
-		uploadDir := initUploadDir(cfg.baseDir)
-		cleanupUploads(uploadDir, retentionDays(cfg.Retention.Uploads, 7))
+		uploadDir := upload.InitDir(cfg.baseDir)
+		upload.Cleanup(uploadDir, retentionDays(cfg.Retention.Uploads, 7))
 		logInfo("uploads dir initialized", "path", uploadDir)
 
 		// Init knowledge base directory.

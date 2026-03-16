@@ -3,10 +3,12 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"tetora/internal/completion"
 )
 
 func TestCompletionSubcommands(t *testing.T) {
-	cmds := completionSubcommands()
+	cmds := completion.Subcommands()
 
 	expected := []string{
 		"serve", "run", "dispatch", "route", "init", "doctor", "health",
@@ -17,7 +19,7 @@ func TestCompletionSubcommands(t *testing.T) {
 	}
 
 	if len(cmds) != len(expected) {
-		t.Fatalf("completionSubcommands() returned %d items, want %d", len(cmds), len(expected))
+		t.Fatalf("Subcommands() returned %d items, want %d", len(cmds), len(expected))
 	}
 
 	set := make(map[string]bool)
@@ -27,7 +29,7 @@ func TestCompletionSubcommands(t *testing.T) {
 
 	for _, e := range expected {
 		if !set[e] {
-			t.Errorf("completionSubcommands() missing %q", e)
+			t.Errorf("Subcommands() missing %q", e)
 		}
 	}
 }
@@ -56,14 +58,14 @@ func TestCompletionSubActions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		actions := completionSubActions(tt.cmd)
+		actions := completion.SubActions(tt.cmd)
 		if len(actions) != len(tt.expected) {
-			t.Errorf("completionSubActions(%q) returned %d items, want %d: %v", tt.cmd, len(actions), len(tt.expected), actions)
+			t.Errorf("SubActions(%q) returned %d items, want %d: %v", tt.cmd, len(actions), len(tt.expected), actions)
 			continue
 		}
 		for i, a := range actions {
 			if a != tt.expected[i] {
-				t.Errorf("completionSubActions(%q)[%d] = %q, want %q", tt.cmd, i, a, tt.expected[i])
+				t.Errorf("SubActions(%q)[%d] = %q, want %q", tt.cmd, i, a, tt.expected[i])
 			}
 		}
 	}
@@ -71,42 +73,36 @@ func TestCompletionSubActions(t *testing.T) {
 	// Commands without sub-actions should return nil.
 	nilCmds := []string{"serve", "run", "dispatch", "init", "doctor", "dashboard", "version", "help", "nonexistent"}
 	for _, cmd := range nilCmds {
-		if actions := completionSubActions(cmd); actions != nil {
-			t.Errorf("completionSubActions(%q) = %v, want nil", cmd, actions)
+		if actions := completion.SubActions(cmd); actions != nil {
+			t.Errorf("SubActions(%q) = %v, want nil", cmd, actions)
 		}
 	}
 }
 
 func TestGenerateBashCompletion(t *testing.T) {
-	output := generateBashCompletion()
+	output := completion.GenerateBash()
 
-	// Must contain the function name.
 	if !strings.Contains(output, "_tetora_completions") {
 		t.Error("bash completion missing _tetora_completions function")
 	}
-
-	// Must register the completion function.
 	if !strings.Contains(output, "complete -F _tetora_completions tetora") {
 		t.Error("bash completion missing 'complete -F' registration")
 	}
 
-	// Must contain all top-level subcommands.
-	for _, cmd := range completionSubcommands() {
+	for _, cmd := range completion.Subcommands() {
 		if !strings.Contains(output, cmd) {
 			t.Errorf("bash completion missing subcommand %q", cmd)
 		}
 	}
 
-	// Must contain sub-action words for key commands.
 	for _, cmd := range []string{"job", "agent", "workflow", "config"} {
-		for _, action := range completionSubActions(cmd) {
+		for _, action := range completion.SubActions(cmd) {
 			if !strings.Contains(output, action) {
 				t.Errorf("bash completion missing sub-action %q for %q", action, cmd)
 			}
 		}
 	}
 
-	// Must contain dynamic completion hints.
 	if !strings.Contains(output, "tetora agent list --names") {
 		t.Error("bash completion missing dynamic agent completion")
 	}
@@ -116,36 +112,27 @@ func TestGenerateBashCompletion(t *testing.T) {
 }
 
 func TestGenerateZshCompletion(t *testing.T) {
-	output := generateZshCompletion()
+	output := completion.GenerateZsh()
 
-	// Must contain the compdef directive.
 	if !strings.Contains(output, "#compdef tetora") {
 		t.Error("zsh completion missing #compdef tetora")
 	}
-
-	// Must contain the function name.
 	if !strings.Contains(output, "_tetora") {
 		t.Error("zsh completion missing _tetora function")
 	}
-
-	// Must contain _arguments for argument handling.
 	if !strings.Contains(output, "_arguments") {
 		t.Error("zsh completion missing _arguments")
 	}
-
-	// Must contain _describe for sub-action descriptions.
 	if !strings.Contains(output, "_describe") {
 		t.Error("zsh completion missing _describe")
 	}
 
-	// Must contain all subcommands with descriptions.
-	descs := completionSubcommandDescriptions()
-	for _, cmd := range completionSubcommands() {
+	descs := completion.SubcommandDescriptions()
+	for _, cmd := range completion.Subcommands() {
 		if !strings.Contains(output, cmd) {
 			t.Errorf("zsh completion missing subcommand %q", cmd)
 		}
 		if desc, ok := descs[cmd]; ok {
-			// Descriptions may have escaped colons.
 			escaped := strings.ReplaceAll(desc, ":", "\\:")
 			if !strings.Contains(output, escaped) {
 				t.Errorf("zsh completion missing description for %q: %q", cmd, desc)
@@ -153,7 +140,6 @@ func TestGenerateZshCompletion(t *testing.T) {
 		}
 	}
 
-	// Must contain dynamic completions.
 	if !strings.Contains(output, "tetora agent list --names") {
 		t.Error("zsh completion missing dynamic agent completion")
 	}
@@ -163,32 +149,26 @@ func TestGenerateZshCompletion(t *testing.T) {
 }
 
 func TestGenerateFishCompletion(t *testing.T) {
-	output := generateFishCompletion()
+	output := completion.GenerateFish()
 
-	// Must use fish complete command.
 	if !strings.Contains(output, "complete -c tetora") {
 		t.Error("fish completion missing 'complete -c tetora'")
 	}
-
-	// Must use __fish_use_subcommand for top-level commands.
 	if !strings.Contains(output, "__fish_use_subcommand") {
 		t.Error("fish completion missing __fish_use_subcommand condition")
 	}
 
-	// Must contain all subcommands.
-	for _, cmd := range completionSubcommands() {
+	for _, cmd := range completion.Subcommands() {
 		if !strings.Contains(output, cmd) {
 			t.Errorf("fish completion missing subcommand %q", cmd)
 		}
 	}
 
-	// Must contain __fish_seen_subcommand_from for sub-actions.
 	if !strings.Contains(output, "__fish_seen_subcommand_from") {
 		t.Error("fish completion missing __fish_seen_subcommand_from")
 	}
 
-	// Must contain descriptions.
-	descs := completionSubcommandDescriptions()
+	descs := completion.SubcommandDescriptions()
 	for _, cmd := range []string{"serve", "dispatch", "workflow", "budget"} {
 		if desc, ok := descs[cmd]; ok {
 			if !strings.Contains(output, desc) {
@@ -199,39 +179,36 @@ func TestGenerateFishCompletion(t *testing.T) {
 }
 
 func TestCompletionSubcommandDescriptions(t *testing.T) {
-	descs := completionSubcommandDescriptions()
-	cmds := completionSubcommands()
+	descs := completion.SubcommandDescriptions()
+	cmds := completion.Subcommands()
 
-	// Every subcommand must have a description.
 	for _, cmd := range cmds {
 		if _, ok := descs[cmd]; !ok {
-			t.Errorf("completionSubcommandDescriptions missing description for %q", cmd)
+			t.Errorf("SubcommandDescriptions missing description for %q", cmd)
 		}
 	}
 
-	// No description should be empty.
 	for cmd, desc := range descs {
 		if desc == "" {
-			t.Errorf("completionSubcommandDescriptions has empty description for %q", cmd)
+			t.Errorf("SubcommandDescriptions has empty description for %q", cmd)
 		}
 	}
 }
 
 func TestCompletionSubActionDescriptions(t *testing.T) {
-	// Every command with sub-actions should have descriptions for each action.
-	for _, cmd := range completionSubcommands() {
-		actions := completionSubActions(cmd)
+	for _, cmd := range completion.Subcommands() {
+		actions := completion.SubActions(cmd)
 		if actions == nil {
 			continue
 		}
-		descs := completionSubActionDescriptions(cmd)
+		descs := completion.SubActionDescriptions(cmd)
 		if descs == nil {
-			t.Errorf("completionSubActionDescriptions(%q) returned nil, but has sub-actions", cmd)
+			t.Errorf("SubActionDescriptions(%q) returned nil, but has sub-actions", cmd)
 			continue
 		}
 		for _, action := range actions {
 			if desc, ok := descs[action]; !ok || desc == "" {
-				t.Errorf("completionSubActionDescriptions(%q) missing or empty description for %q", cmd, action)
+				t.Errorf("SubActionDescriptions(%q) missing or empty description for %q", cmd, action)
 			}
 		}
 	}

@@ -4,7 +4,11 @@ import (
 	"context"
 
 	imessagebot "tetora/internal/messaging/imessage"
+	"tetora/internal/storage"
 )
+
+// globalIMessageBot is the package-level iMessage bot instance.
+var globalIMessageBot *imessagebot.Bot
 
 // appCtxKey is the context key for the App container.
 type appCtxKey struct{}
@@ -34,7 +38,7 @@ type App struct {
 	UserProfile *UserProfileService
 	Finance     *FinanceService
 	TaskManager *TaskManagerService
-	FileManager *FileManagerService
+	FileManager *storage.Service
 	Spotify     *SpotifyService
 	Podcast     *PodcastService
 	Family      *FamilyService

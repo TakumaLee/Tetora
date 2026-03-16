@@ -121,7 +121,7 @@ func (tb *terminalBridge) startSession(channelID, userID, workdir, tool string) 
 	tmuxName := "tetora-term-" + sessionID
 
 	// Create tmux session.
-	if err := tmuxCreate(tmuxName, tb.cfg.CaptureCols, tb.cfg.CaptureRows, command, workdir); err != nil {
+	if err := tmux.Create(tmuxName, tb.cfg.CaptureCols, tb.cfg.CaptureRows, command, workdir); err != nil {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
@@ -145,7 +145,7 @@ func (tb *terminalBridge) startSession(channelID, userID, workdir, tool string) 
 	displayContent := fmt.Sprintf("```\nStarting %s session...\n```", toolLabel)
 	displayMsgID, err := tb.bot.sendMessageReturningID(channelID, displayContent)
 	if err != nil {
-		tmuxKill(tmuxName)
+		tmux.Kill(tmuxName)
 		return fmt.Errorf("send display message: %w", err)
 	}
 	session.displayMsgID = displayMsgID
@@ -157,7 +157,7 @@ func (tb *terminalBridge) startSession(channelID, userID, workdir, tool string) 
 	}
 	controlMsgID, err := tb.sendControlPanel(channelID, "Terminal Controls:", sessionID, allowedIDs)
 	if err != nil {
-		tmuxKill(tmuxName)
+		tmux.Kill(tmuxName)
 		return fmt.Errorf("send control panel: %w", err)
 	}
 	session.controlMsgID = controlMsgID
@@ -189,8 +189,8 @@ func (tb *terminalBridge) stopSession(channelID string) error {
 
 	close(session.stopCh)
 
-	if tmuxHasSession(session.TmuxName) {
-		tmuxKill(session.TmuxName)
+	if tmux.HasSession(session.TmuxName) {
+		tmux.Kill(session.TmuxName)
 	}
 
 	tb.unregisterControlButtons(session.ID)
@@ -282,7 +282,7 @@ func (tb *terminalBridge) runCaptureLoop(session *terminalSession) {
 			time.Sleep(500 * time.Millisecond)
 		}
 
-		if !tmuxHasSession(session.TmuxName) {
+		if !tmux.HasSession(session.TmuxName) {
 			logInfo("terminal tmux session gone, stopping", "session", session.ID)
 			tb.stopSession(session.ChannelID)
 			return
@@ -299,7 +299,7 @@ func (tb *terminalBridge) runCaptureLoop(session *terminalSession) {
 			return
 		}
 
-		raw, err := tmuxCapture(session.TmuxName)
+		raw, err := tmux.Capture(session.TmuxName)
 		if err != nil {
 			continue
 		}
@@ -402,7 +402,7 @@ func (tb *terminalBridge) registerControlButtons(sessionID string, allowedIDs []
 				session.LastActivity = time.Now()
 				session.mu.Unlock()
 
-				tmuxSendKeys(session.TmuxName, keys...)
+				tmux.SendKeys(session.TmuxName, keys...)
 				tb.signalCapture(session)
 			},
 		})
@@ -444,8 +444,8 @@ func (tb *terminalBridge) registerControlButtons(sessionID string, allowedIDs []
 			session.LastActivity = time.Now()
 			session.mu.Unlock()
 
-			tmuxSendText(session.TmuxName, text)
-			tmuxSendKeys(session.TmuxName, "Enter")
+			tmux.SendText(session.TmuxName, text)
+			tmux.SendKeys(session.TmuxName, "Enter")
 			tb.signalCapture(session)
 		},
 	})
@@ -569,8 +569,8 @@ func (tb *terminalBridge) handleTerminalInput(channelID, text string) bool {
 	session.LastActivity = time.Now()
 	session.mu.Unlock()
 
-	tmuxSendText(session.TmuxName, text)
-	tmuxSendKeys(session.TmuxName, "Enter")
+	tmux.SendText(session.TmuxName, text)
+	tmux.SendKeys(session.TmuxName, "Enter")
 	tb.signalCapture(session)
 	return true
 }

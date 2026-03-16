@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"tetora/internal/trace"
+	"tetora/internal/upload"
 )
 
 // --- Discord Config ---
@@ -515,7 +516,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	text = strings.TrimSpace(text)
 
 	// Download attachments and inject into prompt.
-	var attachedFiles []*UploadedFile
+	var attachedFiles []*upload.File
 	for _, att := range msg.Attachments {
 		if f, err := downloadDiscordAttachment(db.cfg.baseDir, att); err != nil {
 			logWarn("discord: attachment download failed", "url", att.URL, "err", err)
@@ -523,7 +524,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 			attachedFiles = append(attachedFiles, f)
 		}
 	}
-	if prefix := buildFilePromptPrefix(attachedFiles); prefix != "" {
+	if prefix := upload.BuildPromptPrefix(attachedFiles); prefix != "" {
 		text = prefix + text
 	}
 
@@ -592,7 +593,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 }
 
 // downloadDiscordAttachment fetches an attachment from Discord CDN and saves it locally.
-func downloadDiscordAttachment(baseDir string, att discordAttachment) (*UploadedFile, error) {
+func downloadDiscordAttachment(baseDir string, att discordAttachment) (*upload.File, error) {
 	resp, err := http.Get(att.URL) //nolint:noctx
 	if err != nil {
 		return nil, fmt.Errorf("discord attachment: http get: %w", err)
@@ -601,8 +602,8 @@ func downloadDiscordAttachment(baseDir string, att discordAttachment) (*Uploaded
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("discord attachment: HTTP %d for %s", resp.StatusCode, att.Filename)
 	}
-	uploadDir := initUploadDir(baseDir)
-	return saveUpload(uploadDir, att.Filename, resp.Body, att.Size, "discord")
+	uploadDir := upload.InitDir(baseDir)
+	return upload.Save(uploadDir, att.Filename, resp.Body, att.Size, "discord")
 }
 
 // discordIsMentioned checks if the bot user ID appears in the mentions list.

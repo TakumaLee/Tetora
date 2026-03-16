@@ -14,6 +14,7 @@ import (
 
 	"tetora/internal/messaging"
 	"tetora/internal/trace"
+	"tetora/internal/upload"
 )
 
 // messagingRuntime implements messaging.BotRuntime using root package functions.
@@ -162,8 +163,8 @@ func (r *messagingRuntime) WorkspaceDir() string {
 }
 
 func (r *messagingRuntime) SaveUpload(filename string, data []byte) (string, error) {
-	uploadDir := initUploadDir(r.cfg.baseDir)
-	f, err := saveUpload(uploadDir, filename, bytes.NewReader(data), int64(len(data)), "messaging")
+	uploadDir := upload.InitDir(r.cfg.baseDir)
+	f, err := upload.Save(uploadDir, filename, bytes.NewReader(data), int64(len(data)), "messaging")
 	if err != nil {
 		return "", err
 	}
@@ -364,8 +365,8 @@ func (r *messagingRuntime) DownloadFile(url, filename, authHeader string) (strin
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("HTTP %d downloading %s", resp.StatusCode, filename)
 	}
-	uploadDir := initUploadDir(r.cfg.baseDir)
-	f, err := saveUpload(uploadDir, filename, resp.Body, resp.ContentLength, "messaging")
+	uploadDir := upload.InitDir(r.cfg.baseDir)
+	f, err := upload.Save(uploadDir, filename, resp.Body, resp.ContentLength, "messaging")
 	if err != nil {
 		return "", err
 	}
@@ -373,11 +374,11 @@ func (r *messagingRuntime) DownloadFile(url, filename, authHeader string) (strin
 }
 
 func (r *messagingRuntime) BuildFilePromptPrefix(filePaths []string) string {
-	var files []*UploadedFile
+	var files []*upload.File
 	for _, p := range filePaths {
-		files = append(files, &UploadedFile{Path: p})
+		files = append(files, &upload.File{Path: p})
 	}
-	return buildFilePromptPrefix(files)
+	return upload.BuildPromptPrefix(files)
 }
 
 func (r *messagingRuntime) AgentModels() map[string]string {
