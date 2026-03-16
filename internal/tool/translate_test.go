@@ -1,4 +1,4 @@
-package main
+package tool
 
 import (
 	"context"
@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-func TestToolTranslateLingva(t *testing.T) {
+func TestTranslateLingva(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify path contains source/target/text.
 		if !strings.Contains(r.URL.Path, "/api/v1/en/ja/") {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
@@ -21,13 +20,12 @@ func TestToolTranslateLingva(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origURL := lingvaBaseURL
-	lingvaBaseURL = srv.URL
-	defer func() { lingvaBaseURL = origURL }()
+	origURL := LingvaBaseURL
+	LingvaBaseURL = srv.URL
+	defer func() { LingvaBaseURL = origURL }()
 
-	cfg := &Config{Translate: TranslateConfig{Provider: "lingva"}}
 	input, _ := json.Marshal(map[string]any{"text": "Hello world", "from": "en", "to": "ja"})
-	result, err := toolTranslate(context.Background(), cfg, input)
+	result, err := Translate(context.Background(), "lingva", "", input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,7 +37,7 @@ func TestToolTranslateLingva(t *testing.T) {
 	}
 }
 
-func TestToolTranslateLingvaAutoDetect(t *testing.T) {
+func TestTranslateLingvaAutoDetect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/api/v1/auto/en/") {
 			t.Errorf("expected auto detect, got path: %s", r.URL.Path)
@@ -50,13 +48,12 @@ func TestToolTranslateLingvaAutoDetect(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origURL := lingvaBaseURL
-	lingvaBaseURL = srv.URL
-	defer func() { lingvaBaseURL = origURL }()
+	origURL := LingvaBaseURL
+	LingvaBaseURL = srv.URL
+	defer func() { LingvaBaseURL = origURL }()
 
-	cfg := &Config{} // Default provider = lingva.
 	input, _ := json.Marshal(map[string]any{"text": "Bonjour", "to": "en"})
-	result, err := toolTranslate(context.Background(), cfg, input)
+	result, err := Translate(context.Background(), "", "", input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +62,7 @@ func TestToolTranslateLingvaAutoDetect(t *testing.T) {
 	}
 }
 
-func TestToolTranslateDeepL(t *testing.T) {
+func TestTranslateDeepL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -89,13 +86,12 @@ func TestToolTranslateDeepL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origURL := deeplBaseURL
-	deeplBaseURL = srv.URL
-	defer func() { deeplBaseURL = origURL }()
+	origURL := DeeplBaseURL
+	DeeplBaseURL = srv.URL
+	defer func() { DeeplBaseURL = origURL }()
 
-	cfg := &Config{Translate: TranslateConfig{Provider: "deepl", APIKey: "test-key-123"}}
 	input, _ := json.Marshal(map[string]any{"text": "Hello", "to": "ja"})
-	result, err := toolTranslate(context.Background(), cfg, input)
+	result, err := Translate(context.Background(), "deepl", "test-key-123", input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,10 +103,9 @@ func TestToolTranslateDeepL(t *testing.T) {
 	}
 }
 
-func TestToolTranslateDeepLMissingKey(t *testing.T) {
-	cfg := &Config{Translate: TranslateConfig{Provider: "deepl"}}
+func TestTranslateDeepLMissingKey(t *testing.T) {
 	input, _ := json.Marshal(map[string]any{"text": "Hello", "to": "ja"})
-	_, err := toolTranslate(context.Background(), cfg, input)
+	_, err := Translate(context.Background(), "deepl", "", input)
 	if err == nil {
 		t.Fatal("expected error for missing API key")
 	}
@@ -119,38 +114,35 @@ func TestToolTranslateDeepLMissingKey(t *testing.T) {
 	}
 }
 
-func TestToolTranslateMissingText(t *testing.T) {
-	cfg := &Config{}
+func TestTranslateMissingText(t *testing.T) {
 	input, _ := json.Marshal(map[string]any{"to": "en"})
-	_, err := toolTranslate(context.Background(), cfg, input)
+	_, err := Translate(context.Background(), "", "", input)
 	if err == nil {
 		t.Fatal("expected error for missing text")
 	}
 }
 
-func TestToolTranslateMissingTarget(t *testing.T) {
-	cfg := &Config{}
+func TestTranslateMissingTarget(t *testing.T) {
 	input, _ := json.Marshal(map[string]any{"text": "Hello"})
-	_, err := toolTranslate(context.Background(), cfg, input)
+	_, err := Translate(context.Background(), "", "", input)
 	if err == nil {
 		t.Fatal("expected error for missing target")
 	}
 }
 
-func TestToolTranslateLingvaAPIError(t *testing.T) {
+func TestTranslateLingvaAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write([]byte("internal error"))
 	}))
 	defer srv.Close()
 
-	origURL := lingvaBaseURL
-	lingvaBaseURL = srv.URL
-	defer func() { lingvaBaseURL = origURL }()
+	origURL := LingvaBaseURL
+	LingvaBaseURL = srv.URL
+	defer func() { LingvaBaseURL = origURL }()
 
-	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"text": "Hello", "to": "ja"})
-	_, err := toolTranslate(context.Background(), cfg, input)
+	_, err := Translate(context.Background(), "", "", input)
 	if err == nil {
 		t.Fatal("expected error for API failure")
 	}
@@ -159,7 +151,7 @@ func TestToolTranslateLingvaAPIError(t *testing.T) {
 	}
 }
 
-func TestToolDetectLanguageHeuristic(t *testing.T) {
+func TestDetectLanguageHeuristic(t *testing.T) {
 	tests := []struct {
 		text     string
 		expected string
@@ -169,19 +161,11 @@ func TestToolDetectLanguageHeuristic(t *testing.T) {
 		{"你好世界", "zh"},
 		{"안녕하세요", "ko"},
 		{"Привет мир", "ru"},
-		{"", "unknown"},
 	}
 
-	cfg := &Config{} // No DeepL, use heuristic.
 	for _, tt := range tests {
 		input, _ := json.Marshal(map[string]any{"text": tt.text})
-		result, err := toolDetectLanguage(context.Background(), cfg, input)
-		if tt.text == "" {
-			if err == nil {
-				t.Errorf("expected error for empty text")
-			}
-			continue
-		}
+		result, err := DetectLanguage(context.Background(), "", "", input)
 		if err != nil {
 			t.Fatalf("unexpected error for %q: %v", tt.text, err)
 		}
@@ -191,7 +175,15 @@ func TestToolDetectLanguageHeuristic(t *testing.T) {
 	}
 }
 
-func TestToolDetectLanguageDeepL(t *testing.T) {
+func TestDetectLanguageEmpty(t *testing.T) {
+	input, _ := json.Marshal(map[string]any{"text": ""})
+	_, err := DetectLanguage(context.Background(), "", "", input)
+	if err == nil {
+		t.Errorf("expected error for empty text")
+	}
+}
+
+func TestDetectLanguageDeepL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"translations": []map[string]any{
@@ -201,13 +193,12 @@ func TestToolDetectLanguageDeepL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origURL := deeplBaseURL
-	deeplBaseURL = srv.URL
-	defer func() { deeplBaseURL = origURL }()
+	origURL := DeeplBaseURL
+	DeeplBaseURL = srv.URL
+	defer func() { DeeplBaseURL = origURL }()
 
-	cfg := &Config{Translate: TranslateConfig{Provider: "deepl", APIKey: "test-key"}}
 	input, _ := json.Marshal(map[string]any{"text": "Bonjour le monde"})
-	result, err := toolDetectLanguage(context.Background(), cfg, input)
+	result, err := DetectLanguage(context.Background(), "deepl", "test-key", input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,7 +211,6 @@ func TestToolDetectLanguageDeepL(t *testing.T) {
 }
 
 func TestDetectLanguageHeuristicDirect(t *testing.T) {
-	// Test the heuristic function directly.
 	tests := []struct {
 		text string
 		lang string
@@ -233,9 +223,9 @@ func TestDetectLanguageHeuristicDirect(t *testing.T) {
 		{"12345", "unknown"},
 	}
 	for _, tt := range tests {
-		got := detectLanguageHeuristic(tt.text)
+		got := DetectLanguageHeuristic(tt.text)
 		if !strings.Contains(got, tt.lang) {
-			t.Errorf("detectLanguageHeuristic(%q) = %q, want to contain %q", tt.text, got, tt.lang)
+			t.Errorf("DetectLanguageHeuristic(%q) = %q, want to contain %q", tt.text, got, tt.lang)
 		}
 	}
 }

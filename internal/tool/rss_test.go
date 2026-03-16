@@ -1,4 +1,4 @@
-package main
+package tool
 
 import (
 	"context"
@@ -51,21 +51,22 @@ const testAtomXML = `<?xml version="1.0" encoding="UTF-8"?>
   </entry>
 </feed>`
 
-func TestToolRSSReadRSS20(t *testing.T) {
+func clearRSSCache() {
+	RSSCache.Mu.Lock()
+	RSSCache.Entries = make(map[string]RSSCacheEntry)
+	RSSCache.Mu.Unlock()
+}
+
+func TestRSSReadRSS20(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		w.Write([]byte(testRSS20XML))
 	}))
 	defer srv.Close()
+	clearRSSCache()
 
-	// Clear cache.
-	rssCache.mu.Lock()
-	rssCache.entries = make(map[string]rssCacheEntry)
-	rssCache.mu.Unlock()
-
-	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"url": srv.URL, "limit": 2})
-	result, err := toolRSSRead(context.Background(), cfg, input)
+	result, err := RSSRead(context.Background(), nil, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,20 +88,16 @@ func TestToolRSSReadRSS20(t *testing.T) {
 	}
 }
 
-func TestToolRSSReadAtom(t *testing.T) {
+func TestRSSReadAtom(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/atom+xml")
 		w.Write([]byte(testAtomXML))
 	}))
 	defer srv.Close()
+	clearRSSCache()
 
-	rssCache.mu.Lock()
-	rssCache.entries = make(map[string]rssCacheEntry)
-	rssCache.mu.Unlock()
-
-	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"url": srv.URL})
-	result, err := toolRSSRead(context.Background(), cfg, input)
+	result, err := RSSRead(context.Background(), nil, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,10 +115,9 @@ func TestToolRSSReadAtom(t *testing.T) {
 	}
 }
 
-func TestToolRSSReadMissingURL(t *testing.T) {
-	cfg := &Config{}
+func TestRSSReadMissingURL(t *testing.T) {
 	input, _ := json.Marshal(map[string]any{})
-	_, err := toolRSSRead(context.Background(), cfg, input)
+	_, err := RSSRead(context.Background(), nil, input)
 	if err == nil {
 		t.Fatal("expected error for missing URL")
 	}
@@ -130,19 +126,15 @@ func TestToolRSSReadMissingURL(t *testing.T) {
 	}
 }
 
-func TestToolRSSReadDefaultFeed(t *testing.T) {
+func TestRSSReadDefaultFeed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(testRSS20XML))
 	}))
 	defer srv.Close()
+	clearRSSCache()
 
-	rssCache.mu.Lock()
-	rssCache.entries = make(map[string]rssCacheEntry)
-	rssCache.mu.Unlock()
-
-	cfg := &Config{RSS: RSSConfig{Feeds: []string{srv.URL}}}
 	input, _ := json.Marshal(map[string]any{})
-	result, err := toolRSSRead(context.Background(), cfg, input)
+	result, err := RSSRead(context.Background(), []string{srv.URL}, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,12 +143,10 @@ func TestToolRSSReadDefaultFeed(t *testing.T) {
 	}
 }
 
-func TestToolRSSList(t *testing.T) {
-	cfg := &Config{RSS: RSSConfig{
-		Feeds: []string{"https://example.com/feed1", "https://example.com/feed2"},
-	}}
+func TestRSSList(t *testing.T) {
+	feeds := []string{"https://example.com/feed1", "https://example.com/feed2"}
 	input, _ := json.Marshal(map[string]any{})
-	result, err := toolRSSList(context.Background(), cfg, input)
+	result, err := RSSList(context.Background(), feeds, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,10 +158,9 @@ func TestToolRSSList(t *testing.T) {
 	}
 }
 
-func TestToolRSSListEmpty(t *testing.T) {
-	cfg := &Config{}
+func TestRSSListEmpty(t *testing.T) {
 	input, _ := json.Marshal(map[string]any{})
-	result, err := toolRSSList(context.Background(), cfg, input)
+	result, err := RSSList(context.Background(), nil, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -180,28 +169,24 @@ func TestToolRSSListEmpty(t *testing.T) {
 	}
 }
 
-func TestToolRSSCache(t *testing.T) {
+func TestRSSCache(t *testing.T) {
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.Write([]byte(testRSS20XML))
 	}))
 	defer srv.Close()
+	clearRSSCache()
 
-	rssCache.mu.Lock()
-	rssCache.entries = make(map[string]rssCacheEntry)
-	rssCache.mu.Unlock()
-
-	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"url": srv.URL})
 
 	// First call.
-	_, err := toolRSSRead(context.Background(), cfg, input)
+	_, err := RSSRead(context.Background(), nil, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Second call should use cache.
-	_, err = toolRSSRead(context.Background(), cfg, input)
+	_, err = RSSRead(context.Background(), nil, input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -211,19 +196,15 @@ func TestToolRSSCache(t *testing.T) {
 	}
 }
 
-func TestToolRSSHTTPError(t *testing.T) {
+func TestRSSHTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	}))
 	defer srv.Close()
+	clearRSSCache()
 
-	rssCache.mu.Lock()
-	rssCache.entries = make(map[string]rssCacheEntry)
-	rssCache.mu.Unlock()
-
-	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"url": srv.URL})
-	_, err := toolRSSRead(context.Background(), cfg, input)
+	_, err := RSSRead(context.Background(), nil, input)
 	if err == nil {
 		t.Fatal("expected error for HTTP failure")
 	}
@@ -233,18 +214,18 @@ func TestToolRSSHTTPError(t *testing.T) {
 }
 
 func TestParseFeedBytesEmpty(t *testing.T) {
-	title, items := parseFeedBytes([]byte("not xml"))
+	title, items := ParseFeedBytes([]byte("not xml"))
 	if title != "" || items != nil {
 		t.Errorf("expected empty result for invalid XML, got title=%q items=%v", title, items)
 	}
 }
 
 func TestTruncateText(t *testing.T) {
-	result := truncateText("Hello, World!", 5)
+	result := TruncateText("Hello, World!", 5)
 	if result != "Hello..." {
 		t.Errorf("expected 'Hello...', got %q", result)
 	}
-	result = truncateText("Hi", 10)
+	result = TruncateText("Hi", 10)
 	if result != "Hi" {
 		t.Errorf("expected 'Hi', got %q", result)
 	}

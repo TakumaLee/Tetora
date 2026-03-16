@@ -1,4 +1,4 @@
-package main
+package tool
 
 import (
 	"context"
@@ -15,16 +15,16 @@ import (
 
 // --- RSS/Atom Feed Parser ---
 
-// rssCache is a simple in-memory cache with TTL.
-var rssCache = struct {
-	mu      sync.Mutex
-	entries map[string]rssCacheEntry
-}{entries: make(map[string]rssCacheEntry)}
+// RSSCache is a simple in-memory cache with TTL.
+var RSSCache = struct {
+	Mu      sync.Mutex
+	Entries map[string]RSSCacheEntry
+}{Entries: make(map[string]RSSCacheEntry)}
 
-type rssCacheEntry struct {
-	items   []rssFeedItem
-	title   string
-	fetched time.Time
+type RSSCacheEntry struct {
+	Items   []rssFeedItem
+	Title   string
+	Fetched time.Time
 }
 
 const rssCacheTTL = 5 * time.Minute
@@ -60,11 +60,11 @@ type atomXML struct {
 }
 
 type atomEntryXML struct {
-	Title   string       `xml:"title"`
+	Title   string        `xml:"title"`
 	Links   []atomLinkXML `xml:"link"`
-	Summary string       `xml:"summary"`
-	Content string       `xml:"content"`
-	Updated string       `xml:"updated"`
+	Summary string        `xml:"summary"`
+	Content string        `xml:"content"`
+	Updated string        `xml:"updated"`
 }
 
 type atomLinkXML struct {
@@ -72,14 +72,14 @@ type atomLinkXML struct {
 	Rel  string `xml:"rel,attr"`
 }
 
-func fetchFeed(feedURL string) (title string, items []rssFeedItem, err error) {
+func FetchFeed(feedURL string) (title string, items []rssFeedItem, err error) {
 	// Check cache.
-	rssCache.mu.Lock()
-	if entry, ok := rssCache.entries[feedURL]; ok && time.Since(entry.fetched) < rssCacheTTL {
-		rssCache.mu.Unlock()
-		return entry.title, entry.items, nil
+	RSSCache.Mu.Lock()
+	if entry, ok := RSSCache.Entries[feedURL]; ok && time.Since(entry.Fetched) < rssCacheTTL {
+		RSSCache.Mu.Unlock()
+		return entry.Title, entry.Items, nil
 	}
-	rssCache.mu.Unlock()
+	RSSCache.Mu.Unlock()
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(feedURL)
@@ -96,21 +96,21 @@ func fetchFeed(feedURL string) (title string, items []rssFeedItem, err error) {
 		return "", nil, fmt.Errorf("read feed error: %w", err)
 	}
 
-	title, items = parseFeedBytes(body)
+	title, items = ParseFeedBytes(body)
 
 	// Update cache.
-	rssCache.mu.Lock()
-	rssCache.entries[feedURL] = rssCacheEntry{
-		items:   items,
-		title:   title,
-		fetched: time.Now(),
+	RSSCache.Mu.Lock()
+	RSSCache.Entries[feedURL] = RSSCacheEntry{
+		Items:   items,
+		Title:   title,
+		Fetched: time.Now(),
 	}
-	rssCache.mu.Unlock()
+	RSSCache.Mu.Unlock()
 
 	return title, items, nil
 }
 
-func parseFeedBytes(body []byte) (string, []rssFeedItem) {
+func ParseFeedBytes(body []byte) (string, []rssFeedItem) {
 	// Try RSS 2.0 first.
 	var rss rssXML
 	if err := xml.Unmarshal(body, &rss); err == nil && len(rss.Channel.Items) > 0 {
@@ -119,7 +119,7 @@ func parseFeedBytes(body []byte) (string, []rssFeedItem) {
 			items[i] = rssFeedItem{
 				Title:   html.UnescapeString(it.Title),
 				Link:    it.Link,
-				Summary: truncateText(stripHTMLTags(html.UnescapeString(it.Description)), 200),
+				Summary: TruncateText(stripHTMLTags(html.UnescapeString(it.Description)), 200),
 				PubDate: it.PubDate,
 			}
 		}
@@ -148,7 +148,7 @@ func parseFeedBytes(body []byte) (string, []rssFeedItem) {
 			items[i] = rssFeedItem{
 				Title:   html.UnescapeString(e.Title),
 				Link:    link,
-				Summary: truncateText(stripHTMLTags(html.UnescapeString(summary)), 200),
+				Summary: TruncateText(stripHTMLTags(html.UnescapeString(summary)), 200),
 				PubDate: e.Updated,
 			}
 		}
@@ -158,8 +158,8 @@ func parseFeedBytes(body []byte) (string, []rssFeedItem) {
 	return "", nil
 }
 
-// truncateText truncates a string to maxLen characters.
-func truncateText(s string, maxLen int) string {
+// TruncateText truncates a string to maxLen characters.
+func TruncateText(s string, maxLen int) string {
 	runes := []rune(s)
 	if len(runes) <= maxLen {
 		return s
@@ -167,7 +167,7 @@ func truncateText(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "..."
 }
 
-func toolRSSRead(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+func RSSRead(ctx context.Context, defaultFeeds []string, input json.RawMessage) (string, error) {
 	var args struct {
 		URL   string `json:"url"`
 		Limit int    `json:"limit"`
@@ -177,8 +177,8 @@ func toolRSSRead(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 	}
 	if args.URL == "" {
 		// Use first configured feed.
-		if len(cfg.RSS.Feeds) > 0 {
-			args.URL = cfg.RSS.Feeds[0]
+		if len(defaultFeeds) > 0 {
+			args.URL = defaultFeeds[0]
 		} else {
 			return "", fmt.Errorf("feed URL required (pass url parameter or configure default feeds)")
 		}
@@ -187,7 +187,7 @@ func toolRSSRead(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 		args.Limit = 10
 	}
 
-	title, items, err := fetchFeed(args.URL)
+	title, items, err := FetchFeed(args.URL)
 	if err != nil {
 		return "", err
 	}
@@ -221,14 +221,33 @@ func toolRSSRead(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 	return sb.String(), nil
 }
 
-func toolRSSList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if len(cfg.RSS.Feeds) == 0 {
+func RSSList(ctx context.Context, feeds []string, input json.RawMessage) (string, error) {
+	if len(feeds) == 0 {
 		return "No default RSS feeds configured. Add feeds to config.json under rss.feeds.", nil
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Configured RSS feeds (%d):\n", len(cfg.RSS.Feeds))
-	for i, f := range cfg.RSS.Feeds {
+	fmt.Fprintf(&sb, "Configured RSS feeds (%d):\n", len(feeds))
+	for i, f := range feeds {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, f)
 	}
 	return sb.String(), nil
+}
+
+// stripHTMLTags removes HTML tags from a string.
+func stripHTMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	for _, c := range s {
+		if c == '<' {
+			inTag = true
+		} else if c == '>' {
+			inTag = false
+		} else if !inTag {
+			result.WriteRune(c)
+		}
+	}
+	// Collapse multiple whitespace.
+	text := result.String()
+	text = strings.Join(strings.Fields(text), " ")
+	return text
 }

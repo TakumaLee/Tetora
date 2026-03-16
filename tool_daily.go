@@ -102,7 +102,9 @@ func registerDailyTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 					"limit": {"type": "integer", "description": "Max items to return (default 10)"}
 				}
 			}`),
-			Handler: toolRSSRead,
+			Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+				return tool.RSSRead(ctx, cfg.RSS.Feeds, input)
+			},
 			Builtin: true,
 		})
 	}
@@ -114,7 +116,9 @@ func registerDailyTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 				"type": "object",
 				"properties": {}
 			}`),
-			Handler: toolRSSList,
+			Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+				return tool.RSSList(ctx, cfg.RSS.Feeds, input)
+			},
 			Builtin: true,
 		})
 	}
@@ -133,7 +137,9 @@ func registerDailyTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 				},
 				"required": ["text", "to"]
 			}`),
-			Handler: toolTranslate,
+			Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+				return tool.Translate(ctx, cfg.Translate.Provider, cfg.Translate.APIKey, input)
+			},
 			Builtin: true,
 		})
 	}
@@ -148,7 +154,9 @@ func registerDailyTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 				},
 				"required": ["text"]
 			}`),
-			Handler: toolDetectLanguage,
+			Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+				return tool.DetectLanguage(ctx, cfg.Translate.Provider, cfg.Translate.APIKey, input)
+			},
 			Builtin: true,
 		})
 	}

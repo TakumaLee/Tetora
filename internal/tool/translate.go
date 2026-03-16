@@ -1,4 +1,4 @@
-package main
+package tool
 
 import (
 	"context"
@@ -14,11 +14,11 @@ import (
 
 // Base URLs for translation APIs (overridable in tests).
 var (
-	lingvaBaseURL = "https://lingva.ml"
-	deeplBaseURL  = "https://api-free.deepl.com"
+	LingvaBaseURL = "https://lingva.ml"
+	DeeplBaseURL  = "https://api-free.deepl.com"
 )
 
-func toolTranslate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+func Translate(ctx context.Context, provider, apiKey string, input json.RawMessage) (string, error) {
 	var args struct {
 		Text string `json:"text"`
 		From string `json:"from"`
@@ -37,14 +37,14 @@ func toolTranslate(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		args.From = "auto"
 	}
 
-	provider := strings.ToLower(cfg.Translate.Provider)
-	if provider == "" {
-		provider = "lingva"
+	prov := strings.ToLower(provider)
+	if prov == "" {
+		prov = "lingva"
 	}
 
-	switch provider {
+	switch prov {
 	case "deepl":
-		return translateDeepL(args.Text, args.From, args.To, cfg.Translate.APIKey)
+		return translateDeepL(args.Text, args.From, args.To, apiKey)
 	default:
 		return translateLingva(args.Text, args.From, args.To)
 	}
@@ -52,7 +52,7 @@ func toolTranslate(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 func translateLingva(text, from, to string) (string, error) {
 	apiURL := fmt.Sprintf("%s/api/v1/%s/%s/%s",
-		lingvaBaseURL,
+		LingvaBaseURL,
 		url.PathEscape(strings.ToLower(from)),
 		url.PathEscape(strings.ToLower(to)),
 		url.PathEscape(text))
@@ -90,7 +90,7 @@ func translateDeepL(text, from, to, apiKey string) (string, error) {
 		form.Set("source_lang", strings.ToUpper(from))
 	}
 
-	apiURL := deeplBaseURL + "/v2/translate"
+	apiURL := DeeplBaseURL + "/v2/translate"
 	req, err := http.NewRequest("POST", apiURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create request error: %w", err)
@@ -130,7 +130,7 @@ func translateDeepL(text, from, to, apiKey string) (string, error) {
 	return fmt.Sprintf("[%s -> %s] %s", srcLang, to, t.Text), nil
 }
 
-func toolDetectLanguage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+func DetectLanguage(ctx context.Context, provider, apiKey string, input json.RawMessage) (string, error) {
 	var args struct {
 		Text string `json:"text"`
 	}
@@ -141,13 +141,13 @@ func toolDetectLanguage(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("text is required")
 	}
 
-	provider := strings.ToLower(cfg.Translate.Provider)
-	if provider == "deepl" && cfg.Translate.APIKey != "" {
-		return detectLanguageDeepL(args.Text, cfg.Translate.APIKey)
+	prov := strings.ToLower(provider)
+	if prov == "deepl" && apiKey != "" {
+		return detectLanguageDeepL(args.Text, apiKey)
 	}
 
 	// Heuristic-based detection.
-	return detectLanguageHeuristic(args.Text), nil
+	return DetectLanguageHeuristic(args.Text), nil
 }
 
 func detectLanguageDeepL(text, apiKey string) (string, error) {
@@ -156,7 +156,7 @@ func detectLanguageDeepL(text, apiKey string) (string, error) {
 	form.Set("text", text)
 	form.Set("target_lang", "EN")
 
-	apiURL := deeplBaseURL + "/v2/translate"
+	apiURL := DeeplBaseURL + "/v2/translate"
 	req, err := http.NewRequest("POST", apiURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("create request error: %w", err)
@@ -190,7 +190,7 @@ func detectLanguageDeepL(text, apiKey string) (string, error) {
 	return fmt.Sprintf("Detected language: %s (via DeepL)", lang), nil
 }
 
-func detectLanguageHeuristic(text string) string {
+func DetectLanguageHeuristic(text string) string {
 	var (
 		cjk      int
 		hiragana int
