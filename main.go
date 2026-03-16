@@ -912,7 +912,7 @@ func main() {
 		if cfg.Notes.Enabled {
 			notesSvc := newNotesService(cfg)
 			setGlobalNotesService(notesSvc)
-			logInfo("notes service initialized", "vault", cfg.Notes.vaultPathResolved(cfg.baseDir))
+			logInfo("notes service initialized", "vault", cfg.Notes.VaultPathResolved(cfg.baseDir))
 		}
 
 		// --- P19.5: Unified Presence/Typing Indicators --- Initialize presence manager.

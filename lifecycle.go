@@ -192,7 +192,7 @@ func (le *LifecycleEngine) OnGoalCompleted(goalID string) error {
 
 	// Write celebration note to vault.
 	if le.cfg.Notes.Enabled {
-		vaultPath := le.cfg.Notes.vaultPathResolved(le.cfg.baseDir)
+		vaultPath := le.cfg.Notes.VaultPathResolved(le.cfg.baseDir)
 		os.MkdirAll(vaultPath, 0o755)
 		filename := fmt.Sprintf("goal-completed-%s.md", time.Now().Format("20060102-150405"))
 		content := fmt.Sprintf("# 🎉 Goal Completed: %s\n\n"+

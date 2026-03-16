@@ -107,7 +107,7 @@ func executeCapture(ctx context.Context, cfg *Config, category, text string) (st
 		if !cfg.Notes.Enabled {
 			return "", fmt.Errorf("notes not enabled in config")
 		}
-		vaultPath := cfg.Notes.vaultPathResolved(cfg.baseDir)
+		vaultPath := cfg.Notes.VaultPathResolved(cfg.baseDir)
 		prefix := "note"
 		if category == "idea" {
 			prefix = "idea"

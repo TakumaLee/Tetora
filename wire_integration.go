@@ -13,12 +13,14 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"tetora/internal/integration/drive"
 	"tetora/internal/integration/dropbox"
 	"tetora/internal/integration/gmail"
 	"tetora/internal/integration/homeassistant"
+	"tetora/internal/integration/notes"
 	"tetora/internal/integration/oauthif"
 	"tetora/internal/integration/podcast"
 	"tetora/internal/integration/spotify"
@@ -32,6 +34,7 @@ type SpotifyConfig = spotify.Config
 type TwitterConfig = twitter.Config
 type PodcastConfig = podcast.Config
 type HomeAssistantConfig = homeassistant.Config
+type NotesConfig = notes.Config
 
 // --- Service type aliases ---
 
@@ -42,6 +45,7 @@ type SpotifyService = spotify.Service
 type TwitterService = twitter.Service
 type PodcastService = podcast.Service
 type HAService = homeassistant.Service
+type NotesService = notes.Service
 
 // --- Data type aliases ---
 
@@ -72,6 +76,10 @@ type PodcastEpisode = podcast.Episode
 
 // HomeAssistant types
 type HAEntity = homeassistant.Entity
+
+// Notes types
+type NoteInfo = notes.NoteInfo
+type NotesSearchResult = notes.SearchResult
 
 // --- Gmail helper forwarding ---
 
@@ -110,9 +118,15 @@ func truncatePodcastText(s string, maxLen int) string { return podcast.TruncateT
 func formatEpisodes(episodes []PodcastEpisode) string  { return podcast.FormatEpisodes(episodes) }
 
 // HomeAssistant WebSocket helper forwarding
-func wsGenerateKey() string                                   { return homeassistant.WsGenerateKey() }
-func wsReadFrame(r *bufio.Reader) ([]byte, error)             { return homeassistant.WsReadFrame(r) }
-func wsWriteFrame(conn net.Conn, payload []byte) error        { return homeassistant.WsWriteFrame(conn, payload) }
+func wsGenerateKey() string                            { return homeassistant.WsGenerateKey() }
+func wsReadFrame(r *bufio.Reader) ([]byte, error)      { return homeassistant.WsReadFrame(r) }
+func wsWriteFrame(conn net.Conn, payload []byte) error { return homeassistant.WsWriteFrame(conn, payload) }
+
+// Notes helper forwarding
+func validateNoteName(name string) error           { return notes.ValidateNoteName(name) }
+func extractWikilinks(content string) []string     { return notes.ExtractWikilinks(content) }
+func extractTags(content string) []string          { return notes.ExtractTags(content) }
+func lnNotes(x float64) float64                   { return notes.Ln(x) }
 
 // --- OAuth adapters ---
 
@@ -204,6 +218,42 @@ func newPodcastService(dbPath string) *PodcastService {
 
 func newHAService(cfg HomeAssistantConfig) *HAService {
 	return homeassistant.New(cfg, logInfo, logWarn, logDebug)
+}
+
+func newNotesService(cfg *Config) *NotesService {
+	var embedFn notes.EmbedFn
+	if cfg.Notes.AutoEmbed && cfg.Embedding.Enabled {
+		embedFn = func(ctx context.Context, name, content string, tags []string) error {
+			vec, err := getEmbedding(ctx, cfg, content)
+			if err != nil {
+				return err
+			}
+			meta := map[string]interface{}{
+				"name": name,
+				"tags": tags,
+			}
+			return storeEmbedding(cfg.HistoryDB, "notes", name, content, vec, meta)
+		}
+	}
+	return notes.New(cfg.Notes, cfg.baseDir, cfg.Embedding.Enabled, embedFn, logInfo, logWarn, logDebug)
+}
+
+// Global notes service with thread-safe access (matches original pattern).
+var (
+	globalNotesMu      sync.RWMutex
+	globalNotesService *NotesService
+)
+
+func setGlobalNotesService(svc *NotesService) {
+	globalNotesMu.Lock()
+	defer globalNotesMu.Unlock()
+	globalNotesService = svc
+}
+
+func getGlobalNotesService() *NotesService {
+	globalNotesMu.RLock()
+	defer globalNotesMu.RUnlock()
+	return globalNotesService
 }
 
 // haEventPublisherAdapter wraps *sseBroker to satisfy homeassistant.EventPublisher.
@@ -1199,4 +1249,141 @@ func toolHASetState(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	}
 
 	return fmt.Sprintf("set %s to %s", args.EntityID, args.State), nil
+}
+
+// --- Notes tool handler stubs ---
+
+func toolNoteCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+
+	svc := getGlobalNotesService()
+	if svc == nil {
+		return "", fmt.Errorf("notes service is not enabled")
+	}
+
+	if err := svc.CreateNote(args.Name, args.Content); err != nil {
+		return "", err
+	}
+
+	result := map[string]any{
+		"status": "created",
+		"name":   args.Name,
+		"path":   svc.FullPath(args.Name),
+	}
+	b, _ := json.Marshal(result)
+	return string(b), nil
+}
+
+func toolNoteRead(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+
+	svc := getGlobalNotesService()
+	if svc == nil {
+		return "", fmt.Errorf("notes service is not enabled")
+	}
+
+	content, err := svc.ReadNote(args.Name)
+	if err != nil {
+		return "", err
+	}
+
+	result := map[string]any{
+		"name":    args.Name,
+		"content": content,
+		"tags":    extractTags(content),
+		"links":   extractWikilinks(content),
+	}
+	b, _ := json.Marshal(result)
+	return string(b), nil
+}
+
+func toolNoteAppend(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+
+	svc := getGlobalNotesService()
+	if svc == nil {
+		return "", fmt.Errorf("notes service is not enabled")
+	}
+
+	if err := svc.AppendNote(args.Name, args.Content); err != nil {
+		return "", err
+	}
+
+	result := map[string]any{
+		"status": "appended",
+		"name":   args.Name,
+	}
+	b, _ := json.Marshal(result)
+	return string(b), nil
+}
+
+func toolNoteList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Prefix string `json:"prefix"`
+	}
+	json.Unmarshal(input, &args)
+
+	svc := getGlobalNotesService()
+	if svc == nil {
+		return "", fmt.Errorf("notes service is not enabled")
+	}
+
+	notesList, err := svc.ListNotes(args.Prefix)
+	if err != nil {
+		return "", err
+	}
+
+	b, _ := json.Marshal(notesList)
+	return string(b), nil
+}
+
+func toolNoteSearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Query      string `json:"query"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+	if args.MaxResults <= 0 {
+		args.MaxResults = 5
+	}
+
+	svc := getGlobalNotesService()
+	if svc == nil {
+		return "", fmt.Errorf("notes service is not enabled")
+	}
+
+	results := svc.SearchNotes(args.Query, args.MaxResults)
+	b, _ := json.Marshal(results)
+	return string(b), nil
 }

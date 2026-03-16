@@ -26,7 +26,7 @@ func toolNoteDedup(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("notes service is not enabled")
 	}
 
-	vaultPath := svc.vaultPath
+	vaultPath := svc.VaultPath()
 
 	// Walk vault and compute hashes.
 	type fileHash struct {
@@ -113,7 +113,7 @@ func toolSourceAudit(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("notes service is not enabled")
 	}
 
-	vaultPath := svc.vaultPath
+	vaultPath := svc.VaultPath()
 	prefix := args.Prefix
 	if prefix == "" {
 		prefix = "."

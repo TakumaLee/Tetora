@@ -6,22 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"tetora/internal/integration/notes"
 )
 
 func TestToolNoteDedup(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Set up a mock global notes service.
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -66,16 +59,7 @@ func TestToolNoteDedup(t *testing.T) {
 func TestToolNoteDedupAutoDelete(t *testing.T) {
 	tmp := t.TempDir()
 
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -116,16 +100,7 @@ func TestToolNoteDedupAutoDelete(t *testing.T) {
 func TestToolNoteDedupPrefix(t *testing.T) {
 	tmp := t.TempDir()
 
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -157,16 +132,7 @@ func TestToolNoteDedupPrefix(t *testing.T) {
 func TestToolSourceAudit(t *testing.T) {
 	tmp := t.TempDir()
 
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -217,16 +183,7 @@ func TestToolSourceAudit(t *testing.T) {
 func TestToolSourceAuditExtra(t *testing.T) {
 	tmp := t.TempDir()
 
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"tetora/internal/integration/notes"
 )
 
 func TestParseSitemapURLs(t *testing.T) {
@@ -168,16 +170,7 @@ func TestWebCrawlSingle(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -242,16 +235,7 @@ func TestWebCrawlSitemap(t *testing.T) {
 	defer sitemapSrv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -296,16 +280,7 @@ func TestWebCrawlDedup(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -350,16 +325,7 @@ func TestWebCrawlEmptyPage(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -402,16 +368,7 @@ func TestWebCrawlMaxPages(t *testing.T) {
 	defer sitemapSrv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
@@ -450,16 +407,7 @@ func TestSourceAuditURL(t *testing.T) {
 	defer srv.Close()
 
 	tmp := t.TempDir()
-	svc := &NotesService{
-		cfg:        &Config{},
-		vaultPath:  tmp,
-		defaultExt: ".md",
-		idx: &notesIndex{
-			docs:      make(map[string]*docEntry),
-			idf:       make(map[string]float64),
-			vaultPath: tmp,
-		},
-	}
+	svc := notes.New(NotesConfig{Enabled: true, VaultPath: tmp, DefaultExt: ".md"}, tmp, false, nil, nil, nil, nil)
 	setGlobalNotesService(svc)
 	defer setGlobalNotesService(nil)
 
