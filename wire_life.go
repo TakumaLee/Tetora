@@ -19,11 +19,17 @@ import (
 	"tetora/internal/life/habits"
 	"tetora/internal/life/lifedb"
 	"tetora/internal/life/pricewatch"
+	"tetora/internal/life/profile"
 	"tetora/internal/life/reminder"
 	"tetora/internal/life/timetracking"
 )
 
 // --- Service type aliases ---
+
+type UserProfileService = profile.Service
+type UserProfile = profile.UserProfile
+type ChannelIdentity = profile.ChannelIdentity
+type UserPreference = profile.UserPreference
 
 type FinanceService = finance.Service
 type HabitsService = habits.Service
@@ -233,4 +239,21 @@ func defaultMilestones() []Milestone {
 
 func calculateMilestoneProgress(milestones []Milestone) int {
 	return goals.CalculateMilestoneProgress(milestones)
+}
+
+// --- Profile ---
+
+func newUserProfileService(cfg *Config) *UserProfileService {
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	return profile.New(cfg.HistoryDB, profile.Config{
+		Enabled:          cfg.UserProfile.Enabled,
+		SentimentEnabled: cfg.UserProfile.SentimentEnabled,
+	}, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
+}
+
+func initUserProfileDB(dbPath string) error {
+	return profile.InitDB(dbPath)
 }

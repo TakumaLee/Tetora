@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"tetora/internal/life/profile"
 )
 
 // testProfileDB creates a temp DB file and initializes schema.
@@ -15,6 +17,16 @@ func testProfileDB(t *testing.T) string {
 		t.Fatalf("initUserProfileDB: %v", err)
 	}
 	return dbPath
+}
+
+func testProfileService(t *testing.T, dbPath string) *UserProfileService {
+	t.Helper()
+	cfg := profile.Config{Enabled: true, SentimentEnabled: false}
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	return profile.New(dbPath, cfg, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
 }
 
 func TestInitUserProfileDB(t *testing.T) {
@@ -38,21 +50,21 @@ func TestInitUserProfileDB(t *testing.T) {
 
 func TestCreateProfile(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
-	profile := UserProfile{
+	p := UserProfile{
 		ID:                "user-001",
 		DisplayName:       "Alice",
 		PreferredLanguage: "en",
 		Timezone:          "America/New_York",
 	}
-	err := svc.CreateProfile(profile)
+	err := svc.CreateProfile(p)
 	if err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
 	// Duplicate insert should not fail (INSERT OR IGNORE).
-	err = svc.CreateProfile(profile)
+	err = svc.CreateProfile(p)
 	if err != nil {
 		t.Fatalf("CreateProfile duplicate: %v", err)
 	}
@@ -60,7 +72,7 @@ func TestCreateProfile(t *testing.T) {
 
 func TestGetProfile(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	// Non-existent.
 	p, err := svc.GetProfile("nonexistent")
@@ -90,7 +102,7 @@ func TestGetProfile(t *testing.T) {
 
 func TestUpdateProfile(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	svc.CreateProfile(UserProfile{ID: "user-003", DisplayName: "Charlie"})
 
@@ -120,7 +132,7 @@ func TestUpdateProfile(t *testing.T) {
 
 func TestResolveUser(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	// First resolution creates a new user.
 	uid1, err := svc.ResolveUser("tg:12345")
@@ -152,7 +164,7 @@ func TestResolveUser(t *testing.T) {
 
 func TestLinkChannel(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	// Create a user.
 	svc.CreateProfile(UserProfile{ID: "user-link-001", DisplayName: "LinkTest"})
@@ -181,7 +193,7 @@ func TestLinkChannel(t *testing.T) {
 
 func TestGetChannelIdentities(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	svc.CreateProfile(UserProfile{ID: "user-ci-001"})
 	svc.LinkChannel("user-ci-001", "tg:111", "TG User")
@@ -210,7 +222,7 @@ func TestGetChannelIdentities(t *testing.T) {
 
 func TestObservePreference(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	svc.CreateProfile(UserProfile{ID: "user-pref-001"})
 
@@ -243,7 +255,7 @@ func TestObservePreference(t *testing.T) {
 
 func TestGetPreferences_ConfidenceGrows(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	svc.CreateProfile(UserProfile{ID: "user-conf-001"})
 
@@ -273,14 +285,15 @@ func TestGetPreferences_ConfidenceGrows(t *testing.T) {
 
 func TestRecordMessage(t *testing.T) {
 	dbPath := testProfileDB(t)
-	cfg := &Config{
-		HistoryDB: dbPath,
-		UserProfile: UserProfileConfig{
-			Enabled:          true,
-			SentimentEnabled: true,
-		},
+	cfg := profile.Config{
+		Enabled:          true,
+		SentimentEnabled: true,
 	}
-	svc := &UserProfileService{dbPath: dbPath, cfg: cfg}
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	svc := profile.New(dbPath, cfg, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
 
 	// Record a positive message.
 	err := svc.RecordMessage("tg:msg-001", "TestUser", "I'm so happy today!")
@@ -310,14 +323,15 @@ func TestRecordMessage(t *testing.T) {
 
 func TestRecordMessage_NoSentiment(t *testing.T) {
 	dbPath := testProfileDB(t)
-	cfg := &Config{
-		HistoryDB: dbPath,
-		UserProfile: UserProfileConfig{
-			Enabled:          true,
-			SentimentEnabled: false, // Disabled
-		},
+	cfg := profile.Config{
+		Enabled:          true,
+		SentimentEnabled: false,
 	}
-	svc := &UserProfileService{dbPath: dbPath, cfg: cfg}
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	svc := profile.New(dbPath, cfg, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
 
 	// Record a message -- should not log mood.
 	err := svc.RecordMessage("tg:nosenti-001", "TestUser", "I'm so happy today!")
@@ -334,14 +348,15 @@ func TestRecordMessage_NoSentiment(t *testing.T) {
 
 func TestGetMoodTrend(t *testing.T) {
 	dbPath := testProfileDB(t)
-	cfg := &Config{
-		HistoryDB: dbPath,
-		UserProfile: UserProfileConfig{
-			Enabled:          true,
-			SentimentEnabled: true,
-		},
+	cfg := profile.Config{
+		Enabled:          true,
+		SentimentEnabled: true,
 	}
-	svc := &UserProfileService{dbPath: dbPath, cfg: cfg}
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	svc := profile.New(dbPath, cfg, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
 
 	// Record multiple messages with different sentiments.
 	svc.RecordMessage("tg:mood-001", "MoodUser", "I'm so happy and love this!")
@@ -361,14 +376,15 @@ func TestGetMoodTrend(t *testing.T) {
 
 func TestGetUserContext(t *testing.T) {
 	dbPath := testProfileDB(t)
-	cfg := &Config{
-		HistoryDB: dbPath,
-		UserProfile: UserProfileConfig{
-			Enabled:          true,
-			SentimentEnabled: true,
-		},
+	cfg := profile.Config{
+		Enabled:          true,
+		SentimentEnabled: true,
 	}
-	svc := &UserProfileService{dbPath: dbPath, cfg: cfg}
+	sentimentFn := func(text string) (float64, []string) {
+		r := analyzeSentiment(text)
+		return r.Score, r.Keywords
+	}
+	svc := profile.New(dbPath, cfg, makeLifeDB(), newUUID, sentimentFn, sentimentLabel)
 
 	// Set up a user with data.
 	svc.RecordMessage("tg:ctx-001", "ContextUser", "I love sushi!")
@@ -398,7 +414,7 @@ func TestGetUserContext(t *testing.T) {
 
 func TestGetPreferences_FilterByCategory(t *testing.T) {
 	dbPath := testProfileDB(t)
-	svc := &UserProfileService{dbPath: dbPath, cfg: &Config{}}
+	svc := testProfileService(t, dbPath)
 
 	svc.CreateProfile(UserProfile{ID: "user-cat-001"})
 	svc.ObservePreference("user-cat-001", "food", "favorite", "sushi")

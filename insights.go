@@ -314,7 +314,7 @@ func (e *InsightsEngine) buildTasksReport(start, end time.Time) *TasksReport {
 }
 
 func (e *InsightsEngine) buildMoodReport(start, end time.Time) *MoodReport {
-	dbPath := globalUserProfileService.dbPath
+	dbPath := globalUserProfileService.DBPath()
 	startStr := start.Format(time.RFC3339)
 	endStr := end.Format(time.RFC3339)
 
@@ -609,7 +609,7 @@ func (e *InsightsEngine) detectSpendingAnomalies(days int, today string) []LifeI
 }
 
 func (e *InsightsEngine) detectMoodAnomalies(days int, today string) []LifeInsight {
-	dbPath := globalUserProfileService.dbPath
+	dbPath := globalUserProfileService.DBPath()
 
 	recentStart := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
 

@@ -145,8 +145,8 @@ func setupTestGlobals(t *testing.T, dbPath string, cfg *Config) func() {
 	oldInsights := globalInsightsEngine
 
 	globalFinanceService = newFinanceService(cfg)
-	globalTaskManager = &TaskManagerService{dbPath: dbPath, cfg: cfg}
-	globalUserProfileService = &UserProfileService{dbPath: dbPath, cfg: cfg}
+	globalTaskManager = newTaskManagerService(cfg)
+	globalUserProfileService = newUserProfileService(cfg)
 	globalContactsService = newContactsService(cfg)
 	globalHabitsService = newHabitsService(cfg)
 
