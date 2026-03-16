@@ -18,7 +18,7 @@ func CmdService(args []string) {
 	}
 	switch args[0] {
 	case "install":
-		serviceInstall()
+		ServiceInstall()
 	case "uninstall":
 		serviceUninstall()
 	case "status":
@@ -83,7 +83,7 @@ func launchdInstall() {
 		os.Exit(1)
 	}
 
-	if err := restartLaunchd(plistPath); err != nil {
+	if err := RestartLaunchd(plistPath); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -168,9 +168,9 @@ func KillDaemonProcess() bool {
 	return true
 }
 
-// restartLaunchd kills the running daemon, then uses launchctl bootout/bootstrap
+// RestartLaunchd kills the running daemon, then uses launchctl bootout/bootstrap
 // to restart the service. This is the modern replacement for unload/load.
-func restartLaunchd(plistPath string) error {
+func RestartLaunchd(plistPath string) error {
 	KillDaemonProcess()
 
 	uid := fmt.Sprintf("%d", os.Getuid())
@@ -319,7 +319,7 @@ func systemdStatus() {
 
 // --- Dispatcher ---
 
-func serviceInstall() {
+func ServiceInstall() {
 	switch runtime.GOOS {
 	case "darwin":
 		launchdInstall()

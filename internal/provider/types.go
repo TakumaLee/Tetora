@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"time"
 )
 
@@ -53,8 +54,10 @@ type Request struct {
 	// Tools for agentic loop (passed to provider).
 	Tools []ToolDef
 
-	// Optional event channel for SSE streaming.
-	// When set, provider publishes output_chunk events as output is generated.
+	// OnEvent callback for streaming events (provider publishes output_chunk, tool_call, etc.).
+	OnEvent func(Event) `json:"-"`
+
+	// Optional event channel for SSE streaming (alternative to OnEvent).
 	EventCh chan<- Event `json:"-"`
 
 	// Messages for multi-turn tool loop.
@@ -139,3 +142,63 @@ const (
 	EventToolCall    = "tool_call"
 	EventToolResult  = "tool_result"
 )
+
+// --- Terminal Provider Dependencies ---
+
+// DockerRunner builds Docker-wrapped exec.Cmd for sandboxed execution.
+type DockerRunner interface {
+	BuildCmd(ctx context.Context, binaryPath, workdir string, args, addDirs []string, mcpPath string) *exec.Cmd
+}
+
+// TmuxOps abstracts tmux session operations.
+type TmuxOps interface {
+	Create(session string, cols, rows int, command, workdir string) error
+	Kill(session string)
+	Capture(session string) (string, error)
+	HasSession(session string) bool
+	LoadAndPaste(session, text string) error
+	SendText(session, text string) error
+	SendKeys(session string, keys ...string) error
+	CaptureHistory(session string) (string, error)
+}
+
+// TmuxProfile defines CLI-specific tmux behavior (command building, state detection).
+type TmuxProfile interface {
+	Name() string
+	BuildCommand(binaryPath string, req Request) string
+	DetectState(capture string) ScreenState
+	ApproveKeys() []string
+	RejectKeys() []string
+}
+
+// WorkerTracker tracks active tmux worker sessions.
+type WorkerTracker interface {
+	Register(sessionName string, info WorkerInfo)
+	Unregister(sessionName string)
+	UpdateWorker(sessionName string, state ScreenState, capture string, changed bool)
+}
+
+// ScreenState represents the detected state of a tmux terminal session.
+type ScreenState int
+
+const (
+	ScreenUnknown  ScreenState = iota
+	ScreenStarting             // CLI is launching
+	ScreenWorking              // CLI is processing
+	ScreenWaiting              // CLI is idle, waiting for input
+	ScreenApproval             // CLI is asking for permission
+	ScreenQuestion             // CLI is asking a question
+	ScreenDone                 // CLI has exited
+)
+
+// WorkerInfo describes a registered tmux worker.
+type WorkerInfo struct {
+	TmuxName    string
+	TaskID      string
+	Agent       string
+	Prompt      string
+	Workdir     string
+	State       ScreenState
+	CreatedAt   time.Time
+	LastChanged time.Time
+}

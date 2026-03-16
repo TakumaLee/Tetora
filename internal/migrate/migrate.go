@@ -1,15 +1,17 @@
-package main
+// Package migrate handles config schema versioning and upgrades.
+package migrate
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
 	"time"
+
+	tlog "tetora/internal/log"
 )
 
-// currentConfigVersion is the latest config schema version.
-// Bump this when adding new migrations.
-const currentConfigVersion = 3
+// CurrentConfigVersion is the latest config schema version.
+const CurrentConfigVersion = 3
 
 // Migration describes a single config schema migration.
 type Migration struct {
@@ -18,25 +20,22 @@ type Migration struct {
 	Migrate     func(raw map[string]json.RawMessage) error
 }
 
-// migrations is the ordered list of all config migrations.
-// Each migration upgrades from Version-1 to Version.
-var migrations = []Migration{
+// Migrations is the ordered list of all config migrations.
+var Migrations = []Migration{
 	{
 		Version:     2,
 		Description: "Add configVersion, smartDispatch defaults, knowledgeDir",
 		Migrate: func(raw map[string]json.RawMessage) error {
-			// Set configVersion to 2.
 			v, _ := json.Marshal(2)
 			raw["configVersion"] = v
 
-			// Add smartDispatch with defaults if missing.
 			if _, ok := raw["smartDispatch"]; !ok {
-				sd := SmartDispatchConfig{
-					Enabled:         false,
-					Coordinator:     "琉璃",
-					DefaultAgent:     "琉璃",
-					ClassifyBudget:  0.1,
-					ClassifyTimeout: "30s",
+				sd := map[string]interface{}{
+					"enabled":         false,
+					"coordinator":     "琉璃",
+					"defaultAgent":    "琉璃",
+					"classifyBudget":  0.1,
+					"classifyTimeout": "30s",
 				}
 				b, err := json.Marshal(sd)
 				if err != nil {
@@ -45,7 +44,6 @@ var migrations = []Migration{
 				raw["smartDispatch"] = b
 			}
 
-			// Add knowledgeDir default if missing.
 			if _, ok := raw["knowledgeDir"]; !ok {
 				b, _ := json.Marshal("knowledge")
 				raw["knowledgeDir"] = b
@@ -58,7 +56,6 @@ var migrations = []Migration{
 		Version:     3,
 		Description: "Rename roles->agents, defaultRole->defaultAgent, rule.role->rule.agent",
 		Migrate: func(raw map[string]json.RawMessage) error {
-			// Rename top-level "roles" → "agents".
 			if _, ok := raw["agents"]; !ok {
 				if rolesRaw, ok := raw["roles"]; ok {
 					raw["agents"] = rolesRaw
@@ -66,11 +63,9 @@ var migrations = []Migration{
 				}
 			}
 
-			// Rename inside smartDispatch: "defaultRole" → "defaultAgent", rules[].role → rules[].agent.
 			if sdRaw, ok := raw["smartDispatch"]; ok {
 				var sd map[string]json.RawMessage
 				if err := json.Unmarshal(sdRaw, &sd); err == nil {
-					// defaultRole → defaultAgent
 					if _, ok := sd["defaultAgent"]; !ok {
 						if drRaw, ok := sd["defaultRole"]; ok {
 							sd["defaultAgent"] = drRaw
@@ -78,7 +73,6 @@ var migrations = []Migration{
 						}
 					}
 
-					// rules[].role → rules[].agent
 					if rulesRaw, ok := sd["rules"]; ok {
 						var rules []map[string]json.RawMessage
 						if err := json.Unmarshal(rulesRaw, &rules); err == nil {
@@ -103,7 +97,6 @@ var migrations = []Migration{
 				}
 			}
 
-			// Rename inside discord.routes: {id}.role → {id}.agent.
 			if discordRaw, ok := raw["discord"]; ok {
 				var discord map[string]json.RawMessage
 				if err := json.Unmarshal(discordRaw, &discord); err == nil {
@@ -130,7 +123,6 @@ var migrations = []Migration{
 				}
 			}
 
-			// Set configVersion.
 			v, _ := json.Marshal(3)
 			raw["configVersion"] = v
 
@@ -139,9 +131,8 @@ var migrations = []Migration{
 	},
 }
 
-// getConfigVersion parses the configVersion field from raw JSON config.
-// Returns 1 if the field is missing or invalid (pre-versioning configs).
-func getConfigVersion(raw map[string]json.RawMessage) int {
+// GetConfigVersion parses the configVersion field from raw JSON config.
+func GetConfigVersion(raw map[string]json.RawMessage) int {
 	vRaw, ok := raw["configVersion"]
 	if !ok {
 		return 1
@@ -156,12 +147,9 @@ func getConfigVersion(raw map[string]json.RawMessage) int {
 	return v
 }
 
-// migrateConfig reads a config file, detects its version, and applies
-// all pending migrations in order. If dryRun is true, the file is not
-// modified. Returns the list of applied migration descriptions.
-//
-// Before writing, a backup is created at configPath.backup.TIMESTAMP.
-func migrateConfig(configPath string, dryRun bool) ([]string, error) {
+// MigrateConfig reads a config file, detects its version, and applies
+// all pending migrations in order. If dryRun is true, the file is not modified.
+func MigrateConfig(configPath string, dryRun bool) ([]string, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -172,13 +160,13 @@ func migrateConfig(configPath string, dryRun bool) ([]string, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	currentVer := getConfigVersion(raw)
-	if currentVer >= currentConfigVersion {
-		return nil, nil // already up to date
+	currentVer := GetConfigVersion(raw)
+	if currentVer >= CurrentConfigVersion {
+		return nil, nil
 	}
 
 	var applied []string
-	for _, m := range migrations {
+	for _, m := range Migrations {
 		if m.Version <= currentVer {
 			continue
 		}
@@ -188,21 +176,18 @@ func migrateConfig(configPath string, dryRun bool) ([]string, error) {
 		applied = append(applied, fmt.Sprintf("v%d: %s", m.Version, m.Description))
 	}
 
-	// Update configVersion in raw JSON.
-	vBytes, _ := json.Marshal(currentConfigVersion)
+	vBytes, _ := json.Marshal(CurrentConfigVersion)
 	raw["configVersion"] = vBytes
 
 	if dryRun {
 		return applied, nil
 	}
 
-	// Create backup before writing.
 	backupPath := configPath + ".backup." + time.Now().Format("20060102-150405")
 	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		return applied, fmt.Errorf("create backup: %w", err)
 	}
 
-	// Write migrated config.
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return applied, fmt.Errorf("marshal config: %w", err)
@@ -214,10 +199,8 @@ func migrateConfig(configPath string, dryRun bool) ([]string, error) {
 	return applied, nil
 }
 
-// autoMigrateConfig checks the config version and applies migrations
-// if needed. Called during loadConfig(). Returns the config path used
-// for re-reading if migration was performed.
-func autoMigrateConfig(configPath string) {
+// AutoMigrateConfig checks the config version and applies migrations if needed.
+func AutoMigrateConfig(configPath string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return
@@ -228,19 +211,19 @@ func autoMigrateConfig(configPath string) {
 		return
 	}
 
-	ver := getConfigVersion(raw)
-	if ver >= currentConfigVersion {
+	ver := GetConfigVersion(raw)
+	if ver >= CurrentConfigVersion {
 		return
 	}
 
-	logInfo("config auto-migration starting", "currentVersion", ver, "targetVersion", currentConfigVersion)
-	applied, err := migrateConfig(configPath, false)
+	tlog.Info("config auto-migration starting", "currentVersion", ver, "targetVersion", CurrentConfigVersion)
+	applied, err := MigrateConfig(configPath, false)
 	if err != nil {
-		logWarn("config migration failed", "error", err)
+		tlog.Warn("config migration failed", "error", err)
 		return
 	}
 	for _, desc := range applied {
-		logInfo("config migration applied", "migration", desc)
+		tlog.Info("config migration applied", "migration", desc)
 	}
-	logInfo("config migration completed", "version", currentConfigVersion)
+	tlog.Info("config migration completed", "version", CurrentConfigVersion)
 }

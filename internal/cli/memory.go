@@ -44,7 +44,7 @@ func CmdMemory(args []string) {
 }
 
 // parseRoleFlag extracts --agent (or legacy --role) value from args and returns remaining args.
-func parseRoleFlag(args []string) (string, []string) {
+func ParseRoleFlag(args []string) (string, []string) {
 	role := ""
 	var remaining []string
 	for i := 0; i < len(args); i++ {
@@ -59,7 +59,7 @@ func parseRoleFlag(args []string) (string, []string) {
 }
 
 func memoryList(args []string) {
-	role, _ := parseRoleFlag(args)
+	role, _ := ParseRoleFlag(args)
 	cfg := LoadCLIConfig(FindConfigPath())
 
 	entries, err := listMemory(cfg, role)
@@ -91,7 +91,7 @@ func memoryList(args []string) {
 }
 
 func memoryGet(args []string) {
-	role, remaining := parseRoleFlag(args)
+	role, remaining := ParseRoleFlag(args)
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: tetora memory get <key> --agent AGENT")
 		os.Exit(1)
@@ -116,7 +116,7 @@ func memoryGet(args []string) {
 }
 
 func memorySet(args []string) {
-	role, remaining := parseRoleFlag(args)
+	role, remaining := ParseRoleFlag(args)
 	if len(remaining) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: tetora memory set <key> <value> --agent AGENT")
 		os.Exit(1)
@@ -137,7 +137,7 @@ func memorySet(args []string) {
 }
 
 func memoryDelete(args []string) {
-	role, remaining := parseRoleFlag(args)
+	role, remaining := ParseRoleFlag(args)
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: tetora memory delete <key> --agent AGENT")
 		os.Exit(1)

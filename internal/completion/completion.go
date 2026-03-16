@@ -1,4 +1,5 @@
-package main
+// Package completion generates shell completion scripts for tetora.
+package completion
 
 import (
 	"fmt"
@@ -6,7 +7,8 @@ import (
 	"strings"
 )
 
-func cmdCompletion(args []string) {
+// Run is the entry point for the completion subcommand.
+func Run(args []string) {
 	if len(args) == 0 {
 		fmt.Println("Usage: tetora completion <bash|zsh|fish>")
 		fmt.Println()
@@ -21,19 +23,18 @@ func cmdCompletion(args []string) {
 
 	switch args[0] {
 	case "bash":
-		fmt.Print(generateBashCompletion())
+		fmt.Print(GenerateBash())
 	case "zsh":
-		fmt.Print(generateZshCompletion())
+		fmt.Print(GenerateZsh())
 	case "fish":
-		fmt.Print(generateFishCompletion())
+		fmt.Print(GenerateFish())
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown shell: %s (use bash, zsh, or fish)\n", args[0])
 		os.Exit(1)
 	}
 }
 
-// completionSubcommands returns all top-level tetora subcommands.
-func completionSubcommands() []string {
+func Subcommands() []string {
 	return []string{
 		"serve", "run", "dispatch", "route", "init", "doctor", "health",
 		"status", "service", "job", "agent", "history", "config",
@@ -43,8 +44,7 @@ func completionSubcommands() []string {
 	}
 }
 
-// completionSubActions returns sub-actions for a given subcommand.
-func completionSubActions(cmd string) []string {
+func SubActions(cmd string) []string {
 	switch cmd {
 	case "job":
 		return []string{"list", "add", "enable", "disable", "remove", "trigger", "history"}
@@ -82,9 +82,9 @@ func completionSubActions(cmd string) []string {
 		return []string{"install", "uninstall", "status"}
 	case "data":
 		return []string{"status", "cleanup", "export", "purge"}
-	case "plugin": // --- P13.1: Plugin System ---
+	case "plugin":
 		return []string{"list", "start", "stop"}
-	case "task": // --- P14.6: Task Board ---
+	case "task":
 		return []string{"list", "create", "move", "assign", "comment", "thread"}
 	case "completion":
 		return []string{"bash", "zsh", "fish"}
@@ -92,8 +92,7 @@ func completionSubActions(cmd string) []string {
 	return nil
 }
 
-// completionSubcommandDescriptions returns subcommand to description mapping.
-func completionSubcommandDescriptions() map[string]string {
+func SubcommandDescriptions() map[string]string {
 	return map[string]string{
 		"serve":      "Start daemon (Telegram + Slack + HTTP + Cron)",
 		"run":        "Dispatch tasks (CLI mode)",
@@ -134,8 +133,7 @@ func completionSubcommandDescriptions() map[string]string {
 	}
 }
 
-// completionSubActionDescriptions returns sub-action descriptions for a given subcommand.
-func completionSubActionDescriptions(cmd string) map[string]string {
+func SubActionDescriptions(cmd string) map[string]string {
 	switch cmd {
 	case "job":
 		return map[string]string{
@@ -233,25 +231,25 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 			"install": "Install as launchd service", "uninstall": "Uninstall launchd service",
 			"status": "Show service status",
 		}
-	case "plugin": // --- P13.1: Plugin System ---
+	case "plugin":
 		return map[string]string{
 			"list":  "List configured plugins",
 			"start": "Start a plugin",
 			"stop":  "Stop a running plugin",
 		}
-	case "proactive": // --- P11.1: Proactive Agent ---
+	case "proactive":
 		return map[string]string{
 			"list":    "List proactive rules",
 			"trigger": "Manually trigger proactive engine",
 			"status":  "Show proactive engine status",
 		}
-	case "quick": // --- P11.2: Quick Actions ---
+	case "quick":
 		return map[string]string{
 			"list":   "List quick actions",
 			"run":    "Run a quick action",
 			"search": "Search for quick actions",
 		}
-	case "task": // --- P14.6: Built-in Task Board API ---
+	case "task":
 		return map[string]string{
 			"list":    "List tasks",
 			"create":  "Create a new task",
@@ -271,7 +269,8 @@ func completionSubActionDescriptions(cmd string) map[string]string {
 	return nil
 }
 
-func generateBashCompletion() string {
+// GenerateBash returns the bash completion script.
+func GenerateBash() string {
 	var b strings.Builder
 
 	b.WriteString(`#!/bin/bash
@@ -282,7 +281,7 @@ _tetora_completions() {
     _init_completion || return
 
     local commands="`)
-	b.WriteString(strings.Join(completionSubcommands(), " "))
+	b.WriteString(strings.Join(Subcommands(), " "))
 	b.WriteString(`"
 
     # Complete top-level subcommands.
@@ -295,9 +294,8 @@ _tetora_completions() {
     case "${words[1]}" in
 `)
 
-	// Emit a case branch for each subcommand that has sub-actions.
-	for _, cmd := range completionSubcommands() {
-		actions := completionSubActions(cmd)
+	for _, cmd := range Subcommands() {
+		actions := SubActions(cmd)
 		if len(actions) == 0 {
 			continue
 		}
@@ -310,7 +308,6 @@ _tetora_completions() {
 		b.WriteString("\" -- \"${cur}\"))\n")
 		b.WriteString("            fi\n")
 
-		// Add dynamic completions for specific commands at position 3.
 		switch cmd {
 		case "agent":
 			b.WriteString("            if [[ ${cword} -eq 3 && (\"${words[2]}\" == \"show\" || \"${words[2]}\" == \"remove\") ]]; then\n")
@@ -362,10 +359,11 @@ complete -F _tetora_completions tetora
 	return b.String()
 }
 
-func generateZshCompletion() string {
+// GenerateZsh returns the zsh completion script.
+func GenerateZsh() string {
 	var b strings.Builder
 
-	descs := completionSubcommandDescriptions()
+	descs := SubcommandDescriptions()
 
 	b.WriteString(`#compdef tetora
 # tetora zsh completion — generated by tetora completion zsh
@@ -375,9 +373,8 @@ _tetora() {
     commands=(
 `)
 
-	for _, cmd := range completionSubcommands() {
+	for _, cmd := range Subcommands() {
 		desc := descs[cmd]
-		// Escape colons in descriptions for zsh _describe format.
 		desc = strings.ReplaceAll(desc, ":", "\\:")
 		b.WriteString(fmt.Sprintf("        '%s:%s'\n", cmd, desc))
 	}
@@ -396,12 +393,12 @@ _tetora() {
         case ${words[1]} in
 `)
 
-	for _, cmd := range completionSubcommands() {
-		actions := completionSubActions(cmd)
+	for _, cmd := range Subcommands() {
+		actions := SubActions(cmd)
 		if len(actions) == 0 {
 			continue
 		}
-		actionDescs := completionSubActionDescriptions(cmd)
+		actionDescs := SubActionDescriptions(cmd)
 
 		b.WriteString("        ")
 		b.WriteString(cmd)
@@ -415,7 +412,6 @@ _tetora() {
 		}
 		b.WriteString("            )\n")
 
-		// Add dynamic completions for specific subcommands.
 		switch cmd {
 		case "agent":
 			b.WriteString("            if (( CURRENT == 3 )) && [[ ${words[2]} == (show|remove) ]]; then\n")
@@ -454,32 +450,28 @@ _tetora "$@"
 	return b.String()
 }
 
-func generateFishCompletion() string {
+// GenerateFish returns the fish completion script.
+func GenerateFish() string {
 	var b strings.Builder
 
-	descs := completionSubcommandDescriptions()
+	descs := SubcommandDescriptions()
 
 	b.WriteString("# tetora fish completion — generated by tetora completion fish\n\n")
-
-	// Disable file completions by default.
 	b.WriteString("complete -c tetora -f\n\n")
-
-	// Top-level subcommands: only complete when no subcommand given yet.
 	b.WriteString("# Top-level subcommands\n")
-	for _, cmd := range completionSubcommands() {
+	for _, cmd := range Subcommands() {
 		desc := descs[cmd]
 		b.WriteString(fmt.Sprintf("complete -c tetora -n '__fish_use_subcommand' -a %s -d '%s'\n", cmd, desc))
 	}
 
 	b.WriteString("\n# Sub-actions\n")
 
-	// Sub-actions for each subcommand.
-	for _, cmd := range completionSubcommands() {
-		actions := completionSubActions(cmd)
+	for _, cmd := range Subcommands() {
+		actions := SubActions(cmd)
 		if len(actions) == 0 {
 			continue
 		}
-		actionDescs := completionSubActionDescriptions(cmd)
+		actionDescs := SubActionDescriptions(cmd)
 		for _, action := range actions {
 			desc := actionDescs[action]
 			b.WriteString(fmt.Sprintf("complete -c tetora -n '__fish_seen_subcommand_from %s' -a %s -d '%s'\n",
@@ -487,7 +479,6 @@ func generateFishCompletion() string {
 		}
 	}
 
-	// Dynamic completions for specific commands.
 	b.WriteString("\n# Dynamic completions\n")
 	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from agent; and __fish_seen_subcommand_from show remove' -a '(tetora agent list --names 2>/dev/null)' -d 'Agent name'\n")
 	b.WriteString("complete -c tetora -n '__fish_seen_subcommand_from workflow; and __fish_seen_subcommand_from show run validate delete' -a '(tetora workflow list --names 2>/dev/null)' -d 'Workflow name'\n")
