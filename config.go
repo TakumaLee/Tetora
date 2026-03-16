@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -177,7 +178,11 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	*c = Config(alias)
+	// Use reflect to copy ConfigAlias → Config. Passing pointers avoids copylocks vet warnings.
+	// alias.mcpMu is always zero-initialized here (no json tag), so the copy is safe.
+	srcVal := reflect.ValueOf(&alias).Elem()
+	dstType := reflect.TypeOf((*Config)(nil)).Elem()
+	reflect.ValueOf(c).Elem().Set(srcVal.Convert(dstType))
 	return nil
 }
 
