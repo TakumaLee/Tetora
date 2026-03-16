@@ -603,7 +603,8 @@ func wsWriteFrame(conn net.Conn, payload []byte) error {
 
 // toolHAListEntities lists HA entities, optionally filtered by domain.
 func toolHAListEntities(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHAService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
 		return "", fmt.Errorf("home assistant not configured")
 	}
 
@@ -612,7 +613,7 @@ func toolHAListEntities(ctx context.Context, cfg *Config, input json.RawMessage)
 	}
 	json.Unmarshal(input, &args)
 
-	entities, err := globalHAService.ListEntities(args.Domain)
+	entities, err := app.HA.ListEntities(args.Domain)
 	if err != nil {
 		return "", fmt.Errorf("list entities: %w", err)
 	}
@@ -639,7 +640,8 @@ func toolHAListEntities(ctx context.Context, cfg *Config, input json.RawMessage)
 
 // toolHAGetState gets the state of a single HA entity.
 func toolHAGetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHAService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
 		return "", fmt.Errorf("home assistant not configured")
 	}
 
@@ -653,7 +655,7 @@ func toolHAGetState(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("entity_id is required")
 	}
 
-	entity, err := globalHAService.GetState(args.EntityID)
+	entity, err := app.HA.GetState(args.EntityID)
 	if err != nil {
 		return "", fmt.Errorf("get state: %w", err)
 	}
@@ -664,7 +666,8 @@ func toolHAGetState(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolHACallService invokes a Home Assistant service.
 func toolHACallService(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHAService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
 		return "", fmt.Errorf("home assistant not configured")
 	}
 
@@ -680,7 +683,7 @@ func toolHACallService(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("domain and service are required")
 	}
 
-	if err := globalHAService.CallService(args.Domain, args.Service, args.Data); err != nil {
+	if err := app.HA.CallService(args.Domain, args.Service, args.Data); err != nil {
 		return "", fmt.Errorf("call service: %w", err)
 	}
 
@@ -689,7 +692,8 @@ func toolHACallService(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolHASetState directly sets the state of an HA entity.
 func toolHASetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHAService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
 		return "", fmt.Errorf("home assistant not configured")
 	}
 
@@ -705,7 +709,7 @@ func toolHASetState(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("entity_id and state are required")
 	}
 
-	if err := globalHAService.SetState(args.EntityID, args.State, args.Attributes); err != nil {
+	if err := app.HA.SetState(args.EntityID, args.State, args.Attributes); err != nil {
 		return "", fmt.Errorf("set state: %w", err)
 	}
 

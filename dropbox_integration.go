@@ -64,7 +64,8 @@ func newDropboxService() *DropboxService {
 
 // dropboxAPIRequest makes an authenticated JSON request to the Dropbox API.
 func (d *DropboxService) dropboxAPIRequest(ctx context.Context, path string, body any) (*http.Response, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("OAuth manager not initialized")
 	}
 
@@ -78,7 +79,7 @@ func (d *DropboxService) dropboxAPIRequest(ctx context.Context, path string, bod
 	}
 
 	reqURL := dropboxAPIBaseURL + path
-	resp, err := globalOAuthManager.Request(ctx, d.oauthService, http.MethodPost, reqURL, bodyReader)
+	resp, err := app.OAuth.Request(ctx, d.oauthService, http.MethodPost, reqURL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -148,11 +149,12 @@ func (d *DropboxService) Upload(ctx context.Context, path string, data []byte, o
 	argsJSON, _ := json.Marshal(uploadArgs)
 
 	reqURL := dropboxContentBaseURL + "/2/files/upload"
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("OAuth manager not initialized")
 	}
 
-	resp, err := globalOAuthManager.Request(ctx, d.oauthService, http.MethodPost, reqURL, bytes.NewReader(data))
+	resp, err := app.OAuth.Request(ctx, d.oauthService, http.MethodPost, reqURL, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("dropbox upload: %w", err)
 	}
@@ -188,12 +190,13 @@ func (d *DropboxService) Download(ctx context.Context, path string) ([]byte, *Dr
 	argsJSON, _ := json.Marshal(dlArgs)
 
 	reqURL := dropboxContentBaseURL + "/2/files/download"
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, nil, fmt.Errorf("OAuth manager not initialized")
 	}
 
 	// For download, we pass nil body; the path is in Dropbox-API-Arg header.
-	resp, err := globalOAuthManager.Request(ctx, d.oauthService, http.MethodPost, reqURL, nil)
+	resp, err := app.OAuth.Request(ctx, d.oauthService, http.MethodPost, reqURL, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dropbox download: %w", err)
 	}
@@ -273,10 +276,11 @@ func toolDropboxOp(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("action is required (search, upload, download, list)")
 	}
 
-	svc := globalDropboxService
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Dropbox == nil {
 		return "", fmt.Errorf("Dropbox integration not enabled")
 	}
+	svc := app.Dropbox
 
 	switch args.Action {
 	case "search":
@@ -322,7 +326,7 @@ func toolDropboxOp(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		}
 
 		// Optionally save to local file manager.
-		if args.SaveAs != "" && globalFileManager != nil {
+		if args.SaveAs != "" && app.FileManager != nil {
 			name := args.SaveAs
 			if name == "auto" && meta != nil {
 				name = meta.Name
@@ -332,7 +336,7 @@ func toolDropboxOp(ctx context.Context, cfg *Config, input json.RawMessage) (str
 				parts := strings.Split(args.Path, "/")
 				name = parts[len(parts)-1]
 			}
-			mf, isDup, err := globalFileManager.StoreFile("", name, "dropbox", "dropbox", args.Path, data)
+			mf, isDup, err := app.FileManager.StoreFile("", name, "dropbox", "dropbox", args.Path, data)
 			if err != nil {
 				return "", fmt.Errorf("save to file manager: %w", err)
 			}

@@ -826,7 +826,13 @@ func toolOAuthRequest(ctx context.Context, cfg *Config, input json.RawMessage) (
 		args.Method = "GET"
 	}
 
-	mgr := newOAuthManager(cfg)
+	app := appFromCtx(ctx)
+	var mgr *OAuthManager
+	if app != nil && app.OAuth != nil {
+		mgr = app.OAuth
+	} else {
+		mgr = newOAuthManager(cfg)
+	}
 	var body io.Reader
 	if args.Body != "" {
 		body = strings.NewReader(args.Body)
@@ -858,7 +864,13 @@ func toolOAuthAuthorize(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("service is required")
 	}
 
-	mgr := newOAuthManager(cfg)
+	app := appFromCtx(ctx)
+	var mgr *OAuthManager
+	if app != nil && app.OAuth != nil {
+		mgr = app.OAuth
+	} else {
+		mgr = newOAuthManager(cfg)
+	}
 	svcCfg, err := mgr.resolveServiceConfig(args.Service)
 	if err != nil {
 		return "", err

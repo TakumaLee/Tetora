@@ -225,7 +225,8 @@ func (le *LifecycleEngine) OnGoalCompleted(goalID string) error {
 
 // toolLifecycleSync handles the lifecycle_sync tool.
 func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalLifecycleEngine == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Lifecycle == nil {
 		return "", fmt.Errorf("lifecycle engine not initialized")
 	}
 
@@ -243,14 +244,14 @@ func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	switch args.Action {
 	case "birthdays":
-		n, err := globalLifecycleEngine.SyncBirthdayReminders()
+		n, err := app.Lifecycle.SyncBirthdayReminders()
 		if err != nil {
 			return "", err
 		}
 		result["birthdays_synced"] = n
 
 	case "insights":
-		actions, err := globalLifecycleEngine.RunInsightActions()
+		actions, err := app.Lifecycle.RunInsightActions()
 		if err != nil {
 			return "", err
 		}
@@ -258,7 +259,7 @@ func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	case "all":
 		if cfg.Lifecycle.AutoBirthdayRemind {
-			n, err := globalLifecycleEngine.SyncBirthdayReminders()
+			n, err := app.Lifecycle.SyncBirthdayReminders()
 			if err != nil {
 				result["birthday_error"] = err.Error()
 			} else {
@@ -266,7 +267,7 @@ func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) 
 			}
 		}
 		if cfg.Lifecycle.AutoInsightAction {
-			actions, err := globalLifecycleEngine.RunInsightActions()
+			actions, err := app.Lifecycle.RunInsightActions()
 			if err != nil {
 				result["insight_error"] = err.Error()
 			} else {
@@ -284,7 +285,8 @@ func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolLifecycleSuggest handles the lifecycle_suggest tool.
 func toolLifecycleSuggest(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalLifecycleEngine == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Lifecycle == nil {
 		return "", fmt.Errorf("lifecycle engine not initialized")
 	}
 
@@ -299,7 +301,7 @@ func toolLifecycleSuggest(ctx context.Context, cfg *Config, input json.RawMessag
 		return "", fmt.Errorf("goal_title is required")
 	}
 
-	suggestions := globalLifecycleEngine.SuggestHabitForGoal(args.GoalTitle, args.GoalCategory)
+	suggestions := app.Lifecycle.SuggestHabitForGoal(args.GoalTitle, args.GoalCategory)
 	result := map[string]any{
 		"goal_title":  args.GoalTitle,
 		"suggestions": suggestions,

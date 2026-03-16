@@ -16,7 +16,8 @@ var globalHabitsService *HabitsService
 
 // toolHabitCreate handles the habit_create tool.
 func toolHabitCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -33,7 +34,7 @@ func toolHabitCreate(ctx context.Context, cfg *Config, input json.RawMessage) (s
 	}
 
 	id := newUUID()
-	if err := globalHabitsService.CreateHabit(id, args.Name, args.Description, args.Frequency, args.Category, args.Scope, args.TargetCount); err != nil {
+	if err := app.Habits.CreateHabit(id, args.Name, args.Description, args.Frequency, args.Category, args.Scope, args.TargetCount); err != nil {
 		return "", err
 	}
 
@@ -47,7 +48,8 @@ func toolHabitCreate(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolHabitLog handles the habit_log tool.
 func toolHabitLog(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -62,12 +64,12 @@ func toolHabitLog(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	}
 
 	logID := newUUID()
-	if err := globalHabitsService.LogHabit(logID, args.HabitID, args.Note, args.Scope, args.Value); err != nil {
+	if err := app.Habits.LogHabit(logID, args.HabitID, args.Note, args.Scope, args.Value); err != nil {
 		return "", err
 	}
 
 	// Return current streak after logging.
-	current, longest, _ := globalHabitsService.GetStreak(args.HabitID, args.Scope)
+	current, longest, _ := app.Habits.GetStreak(args.HabitID, args.Scope)
 
 	out, _ := json.MarshalIndent(map[string]any{
 		"status":         "logged",
@@ -80,7 +82,8 @@ func toolHabitLog(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 
 // toolHabitStatus handles the habit_status tool.
 func toolHabitStatus(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -91,7 +94,7 @@ func toolHabitStatus(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	habits, err := globalHabitsService.HabitStatus(args.Scope, logWarn)
+	habits, err := app.Habits.HabitStatus(args.Scope, logWarn)
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +108,8 @@ func toolHabitStatus(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolHabitReport handles the habit_report tool.
 func toolHabitReport(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -118,7 +122,7 @@ func toolHabitReport(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	report, err := globalHabitsService.HabitReport(args.HabitID, args.Period, args.Scope)
+	report, err := app.Habits.HabitReport(args.HabitID, args.Period, args.Scope)
 	if err != nil {
 		return "", err
 	}
@@ -129,7 +133,8 @@ func toolHabitReport(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolHealthLog handles the health_log tool.
 func toolHealthLog(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -145,7 +150,7 @@ func toolHealthLog(ctx context.Context, cfg *Config, input json.RawMessage) (str
 	}
 
 	id := newUUID()
-	if err := globalHabitsService.LogHealth(id, args.Metric, args.Value, args.Unit, args.Source, args.Scope); err != nil {
+	if err := app.Habits.LogHealth(id, args.Metric, args.Value, args.Unit, args.Source, args.Scope); err != nil {
 		return "", err
 	}
 
@@ -160,7 +165,8 @@ func toolHealthLog(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolHealthSummary handles the health_summary tool.
 func toolHealthSummary(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalHabitsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
 
@@ -173,7 +179,7 @@ func toolHealthSummary(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	summary, err := globalHabitsService.GetHealthSummary(args.Metric, args.Period, args.Scope)
+	summary, err := app.Habits.GetHealthSummary(args.Metric, args.Period, args.Scope)
 	if err != nil {
 		return "", err
 	}

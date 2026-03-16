@@ -307,6 +307,7 @@ func (ns *NotionSync) SyncAll(userID string) (pulled int, pushed int, err error)
 
 // toolNotionSync handles the notion_sync tool.
 func toolNotionSync(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	if !cfg.TaskManager.Notion.Enabled {
 		return "", fmt.Errorf("notion sync not enabled")
 	}
@@ -331,10 +332,10 @@ func toolNotionSync(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		}
 		return fmt.Sprintf("Pulled %d tasks from Notion.", n), nil
 	case "push":
-		if globalTaskManager == nil {
+		if app == nil || app.TaskManager == nil {
 			return "", fmt.Errorf("task manager not initialized")
 		}
-		tasks, _ := globalTaskManager.ListTasks(args.UserID, TaskFilter{})
+		tasks, _ := app.TaskManager.ListTasks(args.UserID, TaskFilter{})
 		pushed := 0
 		for _, task := range tasks {
 			if task.ExternalSource == "notion" || task.ExternalID != "" {

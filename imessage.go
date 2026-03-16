@@ -596,11 +596,12 @@ func toolIMessageSend(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("chat_guid and text are required")
 	}
 
-	if globalIMessageBot == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.IMessage == nil {
 		return "", fmt.Errorf("iMessage bot not initialized")
 	}
 
-	if err := globalIMessageBot.sendMessage(args.ChatGUID, args.Text); err != nil {
+	if err := app.IMessage.sendMessage(args.ChatGUID, args.Text); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("message sent to %s", args.ChatGUID), nil
@@ -622,11 +623,12 @@ func toolIMessageSearch(ctx context.Context, cfg *Config, input json.RawMessage)
 		args.Limit = 10
 	}
 
-	if globalIMessageBot == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.IMessage == nil {
 		return "", fmt.Errorf("iMessage bot not initialized")
 	}
 
-	messages, err := globalIMessageBot.searchMessages(args.Query, args.Limit)
+	messages, err := app.IMessage.searchMessages(args.Query, args.Limit)
 	if err != nil {
 		return "", err
 	}
@@ -651,11 +653,12 @@ func toolIMessageRead(ctx context.Context, cfg *Config, input json.RawMessage) (
 		args.Limit = 20
 	}
 
-	if globalIMessageBot == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.IMessage == nil {
 		return "", fmt.Errorf("iMessage bot not initialized")
 	}
 
-	messages, err := globalIMessageBot.readRecentMessages(args.ChatGUID, args.Limit)
+	messages, err := app.IMessage.readRecentMessages(args.ChatGUID, args.Limit)
 	if err != nil {
 		return "", err
 	}

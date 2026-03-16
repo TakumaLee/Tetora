@@ -85,6 +85,7 @@ func estimateImageCost(model, quality, size string) float64 {
 }
 
 func toolImageGenerate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		Prompt  string `json:"prompt"`
 		Size    string `json:"size"`
@@ -98,7 +99,10 @@ func toolImageGenerate(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 
 	// Check limits.
-	ok, reason := globalImageGenLimiter.check(cfg)
+	if app == nil || app.ImageGenLimiter == nil {
+		return "", fmt.Errorf("image generation blocked: limiter not initialized")
+	}
+	ok, reason := app.ImageGenLimiter.check(cfg)
 	if !ok {
 		return "", fmt.Errorf("image generation blocked: %s", reason)
 	}
@@ -189,7 +193,7 @@ func toolImageGenerate(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 
 	// Record usage.
-	globalImageGenLimiter.record(cost)
+	app.ImageGenLimiter.record(cost)
 
 	// Log to DB for cost tracking.
 	logImageGenUsage(cfg, cost, model, quality, size)
@@ -203,14 +207,19 @@ func toolImageGenerate(ctx context.Context, cfg *Config, input json.RawMessage) 
 }
 
 func toolImageGenerateStatus(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	globalImageGenLimiter.mu.Lock()
-	defer globalImageGenLimiter.mu.Unlock()
+	app := appFromCtx(ctx)
+	if app == nil || app.ImageGenLimiter == nil {
+		return "", fmt.Errorf("image generation blocked: limiter not initialized")
+	}
+
+	app.ImageGenLimiter.mu.Lock()
+	defer app.ImageGenLimiter.mu.Unlock()
 
 	today := time.Now().Format("2006-01-02")
-	if globalImageGenLimiter.date != today {
-		globalImageGenLimiter.date = today
-		globalImageGenLimiter.count = 0
-		globalImageGenLimiter.costUSD = 0
+	if app.ImageGenLimiter.date != today {
+		app.ImageGenLimiter.date = today
+		app.ImageGenLimiter.count = 0
+		app.ImageGenLimiter.costUSD = 0
 	}
 
 	limit := cfg.ImageGen.DailyLimit
@@ -222,18 +231,18 @@ func toolImageGenerateStatus(ctx context.Context, cfg *Config, input json.RawMes
 		maxCost = 1.00
 	}
 
-	remaining := limit - globalImageGenLimiter.count
+	remaining := limit - app.ImageGenLimiter.count
 	if remaining < 0 {
 		remaining = 0
 	}
-	costRemaining := maxCost - globalImageGenLimiter.costUSD
+	costRemaining := maxCost - app.ImageGenLimiter.costUSD
 	if costRemaining < 0 {
 		costRemaining = 0
 	}
 
 	return fmt.Sprintf("Image Generation Status (today: %s)\nGenerated: %d / %d\nCost: $%.3f / $%.2f\nRemaining: %d images, $%.3f budget",
-		today, globalImageGenLimiter.count, limit,
-		globalImageGenLimiter.costUSD, maxCost,
+		today, app.ImageGenLimiter.count, limit,
+		app.ImageGenLimiter.costUSD, maxCost,
 		remaining, costRemaining), nil
 }
 

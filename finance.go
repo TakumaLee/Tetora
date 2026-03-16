@@ -17,7 +17,8 @@ var globalFinanceService *FinanceService
 
 // toolExpenseAdd handles the expense_add tool.
 func toolExpenseAdd(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFinanceService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Finance == nil {
 		return "", fmt.Errorf("finance service not initialized (enable finance in config)")
 	}
 
@@ -60,7 +61,7 @@ func toolExpenseAdd(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("could not determine amount; provide amount or natural language text like '午餐 350 元'")
 	}
 
-	expense, err := globalFinanceService.AddExpense(args.UserID, amount, currency, category, description, args.Tags)
+	expense, err := app.Finance.AddExpense(args.UserID, amount, currency, category, description, args.Tags)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +72,8 @@ func toolExpenseAdd(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolExpenseReport handles the expense_report tool.
 func toolExpenseReport(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFinanceService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Finance == nil {
 		return "", fmt.Errorf("finance service not initialized (enable finance in config)")
 	}
 
@@ -90,7 +92,7 @@ func toolExpenseReport(ctx context.Context, cfg *Config, input json.RawMessage) 
 		period = "month"
 	}
 
-	report, err := globalFinanceService.GenerateReport(args.UserID, period, args.Currency)
+	report, err := app.Finance.GenerateReport(args.UserID, period, args.Currency)
 	if err != nil {
 		return "", err
 	}
@@ -101,7 +103,8 @@ func toolExpenseReport(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolExpenseBudget handles the expense_budget tool.
 func toolExpenseBudget(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFinanceService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Finance == nil {
 		return "", fmt.Errorf("finance service not initialized (enable finance in config)")
 	}
 
@@ -124,7 +127,7 @@ func toolExpenseBudget(ctx context.Context, cfg *Config, input json.RawMessage) 
 		if args.Limit <= 0 {
 			return "", fmt.Errorf("limit must be positive for set action")
 		}
-		err := globalFinanceService.SetBudget(args.UserID, args.Category, args.Limit, args.Currency)
+		err := app.Finance.SetBudget(args.UserID, args.Category, args.Limit, args.Currency)
 		if err != nil {
 			return "", err
 		}
@@ -138,7 +141,7 @@ func toolExpenseBudget(ctx context.Context, cfg *Config, input json.RawMessage) 
 			}()), nil
 
 	case "list":
-		budgets, err := globalFinanceService.GetBudgets(args.UserID)
+		budgets, err := app.Finance.GetBudgets(args.UserID)
 		if err != nil {
 			return "", err
 		}
@@ -149,7 +152,7 @@ func toolExpenseBudget(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return string(out), nil
 
 	case "check":
-		statuses, err := globalFinanceService.CheckBudgets(args.UserID)
+		statuses, err := app.Finance.CheckBudgets(args.UserID)
 		if err != nil {
 			return "", err
 		}

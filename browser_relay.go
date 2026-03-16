@@ -263,10 +263,15 @@ func (br *BrowserRelay) handleToolRequest(action string) http.HandlerFunc {
 // toolBrowserRelay returns a tool handler that sends commands to the browser extension.
 func toolBrowserRelay(action string) ToolHandler {
 	return func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-		if globalBrowserRelay == nil || !globalBrowserRelay.Connected() {
+		app := appFromCtx(ctx)
+		relay := globalBrowserRelay
+		if app != nil && app.Browser != nil {
+			relay = app.Browser
+		}
+		if relay == nil || !relay.Connected() {
 			return "", fmt.Errorf("browser extension not connected. Install the Tetora Chrome extension and enable it.")
 		}
-		result, err := globalBrowserRelay.SendCommand(action, input, 30*time.Second)
+		result, err := relay.SendCommand(action, input, 30*time.Second)
 		if err != nil {
 			return "", err
 		}

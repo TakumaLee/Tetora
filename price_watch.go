@@ -15,7 +15,12 @@ import (
 
 // toolPriceWatch handles the price_watch tool.
 func toolPriceWatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFinanceService == nil {
+	app := appFromCtx(ctx)
+	fs := globalFinanceService
+	if app != nil && app.Finance != nil {
+		fs = app.Finance
+	}
+	if fs == nil {
 		return "", fmt.Errorf("finance service not initialized (enable finance in config)")
 	}
 
@@ -35,7 +40,7 @@ func toolPriceWatch(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 	engineCfg := cfg
 	if engineCfg.HistoryDB == "" {
-		engineCfg = &Config{HistoryDB: globalFinanceService.DBPath()}
+		engineCfg = &Config{HistoryDB: fs.DBPath()}
 	}
 	engine := newPriceWatchEngine(engineCfg)
 

@@ -389,7 +389,8 @@ func rowsToEpisodes(rows []map[string]any) []PodcastEpisode {
 
 // toolPodcastList handles podcast management actions.
 func toolPodcastList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalPodcastService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Podcast == nil {
 		return "", fmt.Errorf("podcast service not initialized")
 	}
 
@@ -410,7 +411,7 @@ func toolPodcastList(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		args.Limit = 10
 	}
 
-	svc := globalPodcastService
+	svc := app.Podcast
 
 	switch args.Action {
 	case "subscribe":

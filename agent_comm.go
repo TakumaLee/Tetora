@@ -179,14 +179,19 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 
 	// --- P13.3: Enforce max children per parent task.
+	app := appFromCtx(ctx)
 	maxChildren := maxChildrenPerTaskOrDefault(cfg)
 	if args.ParentID != "" {
-		if !globalSpawnTracker.trySpawn(args.ParentID, maxChildren) {
+		tracker := globalSpawnTracker
+		if app != nil && app.SpawnTracker != nil {
+			tracker = app.SpawnTracker
+		}
+		if !tracker.trySpawn(args.ParentID, maxChildren) {
 			return "", fmt.Errorf("max children per task exceeded: parent %s already has %d active children (limit %d)",
-				args.ParentID, globalSpawnTracker.count(args.ParentID), maxChildren)
+				args.ParentID, tracker.count(args.ParentID), maxChildren)
 		}
 		// Release when done (deferred).
-		defer globalSpawnTracker.release(args.ParentID)
+		defer tracker.release(args.ParentID)
 	}
 
 	// Check if agent exists.

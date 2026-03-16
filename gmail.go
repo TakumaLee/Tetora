@@ -185,7 +185,8 @@ func (g *GmailService) SearchMessages(ctx context.Context, query string, maxResu
 
 // searchMessages is the shared implementation for ListMessages and SearchMessages.
 func (g *GmailService) searchMessages(ctx context.Context, query string, maxResults int) ([]GmailMessageSummary, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("oauth manager not initialized")
 	}
 
@@ -204,7 +205,7 @@ func (g *GmailService) searchMessages(ctx context.Context, query string, maxResu
 	params.Set("maxResults", fmt.Sprintf("%d", maxResults))
 
 	reqURL := fmt.Sprintf("%s/messages?%s", gmailBaseURL, params.Encode())
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodGet, reqURL, nil)
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("gmail list messages: %w", err)
 	}
@@ -252,10 +253,11 @@ func (g *GmailService) searchMessages(ctx context.Context, query string, maxResu
 
 // fetchMessageSummary fetches minimal metadata for a message.
 func (g *GmailService) fetchMessageSummary(ctx context.Context, messageID, threadID string) (*GmailMessageSummary, error) {
+	app := appFromCtx(ctx)
 	reqURL := fmt.Sprintf("%s/messages/%s?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date",
 		gmailBaseURL, url.PathEscape(messageID))
 
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodGet, reqURL, nil)
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -309,12 +311,13 @@ func (g *GmailService) fetchMessageSummary(ctx context.Context, messageID, threa
 
 // GetMessage fetches a full email message by ID.
 func (g *GmailService) GetMessage(ctx context.Context, messageID string) (*GmailMessage, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("oauth manager not initialized")
 	}
 
 	reqURL := fmt.Sprintf("%s/messages/%s?format=full", gmailBaseURL, url.PathEscape(messageID))
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodGet, reqURL, nil)
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("gmail get message: %w", err)
 	}
@@ -359,7 +362,8 @@ func (g *GmailService) GetMessage(ctx context.Context, messageID string) (*Gmail
 
 // SendMessage sends an email and returns the message ID.
 func (g *GmailService) SendMessage(ctx context.Context, to, subject, body string, cc, bcc []string) (string, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return "", fmt.Errorf("oauth manager not initialized")
 	}
 
@@ -377,7 +381,7 @@ func (g *GmailService) SendMessage(ctx context.Context, to, subject, body string
 	payloadBytes, _ := json.Marshal(payload)
 
 	reqURL := fmt.Sprintf("%s/messages/send", gmailBaseURL)
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", fmt.Errorf("gmail send: %w", err)
 	}
@@ -402,7 +406,8 @@ func (g *GmailService) SendMessage(ctx context.Context, to, subject, body string
 
 // CreateDraft creates a draft email and returns the draft ID.
 func (g *GmailService) CreateDraft(ctx context.Context, to, subject, body string) (string, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return "", fmt.Errorf("oauth manager not initialized")
 	}
 
@@ -422,7 +427,7 @@ func (g *GmailService) CreateDraft(ctx context.Context, to, subject, body string
 	payloadBytes, _ := json.Marshal(payload)
 
 	reqURL := fmt.Sprintf("%s/drafts", gmailBaseURL)
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", fmt.Errorf("gmail create draft: %w", err)
 	}
@@ -449,7 +454,8 @@ func (g *GmailService) CreateDraft(ctx context.Context, to, subject, body string
 
 // ModifyLabels adds or removes labels from a message.
 func (g *GmailService) ModifyLabels(ctx context.Context, messageID string, addLabels, removeLabels []string) error {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return fmt.Errorf("oauth manager not initialized")
 	}
 
@@ -460,7 +466,7 @@ func (g *GmailService) ModifyLabels(ctx context.Context, messageID string, addLa
 	payloadBytes, _ := json.Marshal(payload)
 
 	reqURL := fmt.Sprintf("%s/messages/%s/modify", gmailBaseURL, url.PathEscape(messageID))
-	resp, err := globalOAuthManager.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
+	resp, err := app.OAuth.Request(ctx, "google", http.MethodPost, reqURL, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return fmt.Errorf("gmail modify labels: %w", err)
 	}
@@ -479,6 +485,7 @@ func (g *GmailService) ModifyLabels(ctx context.Context, messageID string, addLa
 
 // toolEmailList lists emails with optional query.
 func toolEmailList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		Query      string `json:"query"`
 		MaxResults int    `json:"maxResults"`
@@ -487,11 +494,11 @@ func toolEmailList(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	messages, err := globalGmailService.ListMessages(ctx, args.Query, args.MaxResults)
+	messages, err := app.Gmail.ListMessages(ctx, args.Query, args.MaxResults)
 	if err != nil {
 		return "", err
 	}
@@ -505,6 +512,7 @@ func toolEmailList(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolEmailRead reads a specific email by ID.
 func toolEmailRead(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		MessageID string `json:"message_id"`
 	}
@@ -515,11 +523,11 @@ func toolEmailRead(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("message_id is required")
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	msg, err := globalGmailService.GetMessage(ctx, args.MessageID)
+	msg, err := app.Gmail.GetMessage(ctx, args.MessageID)
 	if err != nil {
 		return "", err
 	}
@@ -530,6 +538,7 @@ func toolEmailRead(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolEmailSend sends an email (requires auth).
 func toolEmailSend(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		To      string   `json:"to"`
 		Subject string   `json:"subject"`
@@ -550,11 +559,11 @@ func toolEmailSend(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("body is required")
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	messageID, err := globalGmailService.SendMessage(ctx, args.To, args.Subject, args.Body, args.Cc, args.Bcc)
+	messageID, err := app.Gmail.SendMessage(ctx, args.To, args.Subject, args.Body, args.Cc, args.Bcc)
 	if err != nil {
 		return "", err
 	}
@@ -564,6 +573,7 @@ func toolEmailSend(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolEmailDraft creates an email draft.
 func toolEmailDraft(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		To      string `json:"to"`
 		Subject string `json:"subject"`
@@ -579,11 +589,11 @@ func toolEmailDraft(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("subject is required")
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	draftID, err := globalGmailService.CreateDraft(ctx, args.To, args.Subject, args.Body)
+	draftID, err := app.Gmail.CreateDraft(ctx, args.To, args.Subject, args.Body)
 	if err != nil {
 		return "", err
 	}
@@ -593,6 +603,7 @@ func toolEmailDraft(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolEmailSearch searches emails with advanced Gmail syntax.
 func toolEmailSearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		Query      string `json:"query"`
 		MaxResults int    `json:"maxResults"`
@@ -604,11 +615,11 @@ func toolEmailSearch(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("query is required")
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	messages, err := globalGmailService.SearchMessages(ctx, args.Query, args.MaxResults)
+	messages, err := app.Gmail.SearchMessages(ctx, args.Query, args.MaxResults)
 	if err != nil {
 		return "", err
 	}
@@ -622,6 +633,7 @@ func toolEmailSearch(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolEmailLabel modifies labels on a message.
 func toolEmailLabel(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		MessageID    string   `json:"message_id"`
 		AddLabels    []string `json:"add_labels"`
@@ -637,11 +649,11 @@ func toolEmailLabel(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("at least one of add_labels or remove_labels is required")
 	}
 
-	if globalGmailService == nil {
+	if app == nil || app.Gmail == nil {
 		return "", fmt.Errorf("gmail not configured; enable gmail in config and connect via OAuth")
 	}
 
-	if err := globalGmailService.ModifyLabels(ctx, args.MessageID, args.AddLabels, args.RemoveLabels); err != nil {
+	if err := app.Gmail.ModifyLabels(ctx, args.MessageID, args.AddLabels, args.RemoveLabels); err != nil {
 		return "", err
 	}
 

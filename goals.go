@@ -18,7 +18,8 @@ var globalGoalsService *GoalsService
 
 // toolGoalCreate handles the goal_create tool.
 func toolGoalCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalGoalsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Goals == nil {
 		return "", fmt.Errorf("goals service not initialized")
 	}
 	var args struct {
@@ -39,7 +40,7 @@ func toolGoalCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	}
 
 	id := newUUID()
-	goal, err := globalGoalsService.CreateGoal(id, args.UserID, args.Title, args.Description, args.Category, args.TargetDate, newUUID)
+	goal, err := app.Goals.CreateGoal(id, args.UserID, args.Title, args.Description, args.Category, args.TargetDate, newUUID)
 	if err != nil {
 		return "", err
 	}
@@ -48,8 +49,8 @@ func toolGoalCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	result := string(out)
 
 	// P29.0: Suggest habits for the new goal.
-	if globalLifecycleEngine != nil && cfg.Lifecycle.AutoHabitSuggest {
-		suggestions := globalLifecycleEngine.SuggestHabitForGoal(args.Title, args.Category)
+	if app.Lifecycle != nil && cfg.Lifecycle.AutoHabitSuggest {
+		suggestions := app.Lifecycle.SuggestHabitForGoal(args.Title, args.Category)
 		if len(suggestions) > 0 {
 			result += "\n\nSuggested habits: " + strings.Join(suggestions, ", ")
 		}
@@ -60,7 +61,8 @@ func toolGoalCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolGoalList handles the goal_list tool.
 func toolGoalList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalGoalsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Goals == nil {
 		return "", fmt.Errorf("goals service not initialized")
 	}
 	var args struct {
@@ -75,7 +77,7 @@ func toolGoalList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		args.UserID = "default"
 	}
 
-	goals, err := globalGoalsService.ListGoals(args.UserID, args.Status, args.Limit)
+	goals, err := app.Goals.ListGoals(args.UserID, args.Status, args.Limit)
 	if err != nil {
 		return "", err
 	}
@@ -86,7 +88,8 @@ func toolGoalList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 
 // toolGoalUpdate handles the goal_update tool.
 func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalGoalsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Goals == nil {
 		return "", fmt.Errorf("goals service not initialized")
 	}
 	var args struct {
@@ -117,10 +120,10 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		if args.MilestoneID == "" {
 			return "", fmt.Errorf("milestone_id is required for complete_milestone")
 		}
-		if err := globalGoalsService.CompleteMilestone(args.ID, args.MilestoneID); err != nil {
+		if err := app.Goals.CompleteMilestone(args.ID, args.MilestoneID); err != nil {
 			return "", err
 		}
-		goal, err := globalGoalsService.GetGoal(args.ID)
+		goal, err := app.Goals.GetGoal(args.ID)
 		if err != nil {
 			return "", err
 		}
@@ -132,7 +135,7 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 			return "", fmt.Errorf("title is required for add_milestone")
 		}
 		milestoneID := newUUID()
-		goal, err := globalGoalsService.AddMilestone(args.ID, milestoneID, args.Title, args.DueDate)
+		goal, err := app.Goals.AddMilestone(args.ID, milestoneID, args.Title, args.DueDate)
 		if err != nil {
 			return "", err
 		}
@@ -143,10 +146,10 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		if args.Note == "" {
 			return "", fmt.Errorf("note is required for review")
 		}
-		if err := globalGoalsService.ReviewGoal(args.ID, args.Note); err != nil {
+		if err := app.Goals.ReviewGoal(args.ID, args.Note); err != nil {
 			return "", err
 		}
-		goal, err := globalGoalsService.GetGoal(args.ID)
+		goal, err := app.Goals.GetGoal(args.ID)
 		if err != nil {
 			return "", err
 		}
@@ -173,14 +176,14 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		if args.Progress != nil {
 			fields["progress"] = *args.Progress
 		}
-		goal, err := globalGoalsService.UpdateGoal(args.ID, fields)
+		goal, err := app.Goals.UpdateGoal(args.ID, fields)
 		if err != nil {
 			return "", err
 		}
 
 		// P29.0: Trigger celebration on goal completion.
-		if args.Status == "completed" && globalLifecycleEngine != nil {
-			if err := globalLifecycleEngine.OnGoalCompleted(args.ID); err != nil {
+		if args.Status == "completed" && app.Lifecycle != nil {
+			if err := app.Lifecycle.OnGoalCompleted(args.ID); err != nil {
 				logWarn("lifecycle: goal completion hook failed", "error", err)
 			}
 		}
@@ -192,7 +195,8 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolGoalReview handles the goal_review tool (weekly review summary).
 func toolGoalReview(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalGoalsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Goals == nil {
 		return "", fmt.Errorf("goals service not initialized")
 	}
 	var args struct {
@@ -209,12 +213,12 @@ func toolGoalReview(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		args.StaleDays = 14
 	}
 
-	staleGoals, err := globalGoalsService.GetStaleGoals(args.UserID, args.StaleDays)
+	staleGoals, err := app.Goals.GetStaleGoals(args.UserID, args.StaleDays)
 	if err != nil {
 		return "", err
 	}
 
-	summary, err := globalGoalsService.GoalSummary(args.UserID)
+	summary, err := app.Goals.GoalSummary(args.UserID)
 	if err != nil {
 		return "", err
 	}

@@ -39,7 +39,8 @@ var globalFamilyService *FamilyService
 
 // toolFamilyListAdd adds an item to a shared list.
 func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFamilyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Family == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -61,7 +62,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	// If listId not provided, use the first shopping list or create one.
 	if args.ListID == "" {
-		lists, err := globalFamilyService.ListLists()
+		lists, err := app.Family.ListLists()
 		if err != nil {
 			return "", err
 		}
@@ -72,7 +73,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 			}
 		}
 		if args.ListID == "" {
-			list, err := globalFamilyService.CreateList("Shopping", "shopping", args.AddedBy, newUUID)
+			list, err := app.Family.CreateList("Shopping", "shopping", args.AddedBy, newUUID)
 			if err != nil {
 				return "", fmt.Errorf("create default shopping list: %w", err)
 			}
@@ -80,7 +81,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 		}
 	}
 
-	item, err := globalFamilyService.AddListItem(args.ListID, args.Text, args.Quantity, args.AddedBy)
+	item, err := app.Family.AddListItem(args.ListID, args.Text, args.Quantity, args.AddedBy)
 	if err != nil {
 		return "", err
 	}
@@ -94,7 +95,8 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolFamilyListView lists shared lists or items.
 func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFamilyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Family == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -108,11 +110,11 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 
 	// If listId provided, show items for that list.
 	if args.ListID != "" {
-		items, err := globalFamilyService.GetListItems(args.ListID)
+		items, err := app.Family.GetListItems(args.ListID)
 		if err != nil {
 			return "", err
 		}
-		list, _ := globalFamilyService.GetList(args.ListID)
+		list, _ := app.Family.GetList(args.ListID)
 		result := map[string]any{
 			"items": items,
 		}
@@ -124,7 +126,7 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 	}
 
 	// Otherwise, show all lists (optionally filtered by type).
-	lists, err := globalFamilyService.ListLists()
+	lists, err := app.Family.ListLists()
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +146,8 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 
 // toolUserSwitch switches the active user context.
 func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFamilyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Family == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -158,15 +161,15 @@ func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("userId is required")
 	}
 
-	user, err := globalFamilyService.GetUser(args.UserID)
+	user, err := app.Family.GetUser(args.UserID)
 	if err != nil {
 		return "", fmt.Errorf("user not found or inactive: %w", err)
 	}
 
 	// Check rate limit.
-	allowed, remaining, _ := globalFamilyService.CheckRateLimit(args.UserID)
+	allowed, remaining, _ := app.Family.CheckRateLimit(args.UserID)
 
-	perms, _ := globalFamilyService.GetPermissions(args.UserID)
+	perms, _ := app.Family.GetPermissions(args.UserID)
 
 	b, _ := json.Marshal(map[string]any{
 		"status":      "switched",
@@ -182,7 +185,8 @@ func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolFamilyManage is a multipurpose family management tool.
 func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalFamilyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Family == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -205,22 +209,22 @@ func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if args.Role == "" {
 			args.Role = "member"
 		}
-		if err := globalFamilyService.AddUser(args.UserID, args.DisplayName, args.Role); err != nil {
+		if err := app.Family.AddUser(args.UserID, args.DisplayName, args.Role); err != nil {
 			return "", err
 		}
-		user, _ := globalFamilyService.GetUser(args.UserID)
+		user, _ := app.Family.GetUser(args.UserID)
 		b, _ := json.Marshal(map[string]any{"status": "added", "user": user})
 		return string(b), nil
 
 	case "remove":
-		if err := globalFamilyService.RemoveUser(args.UserID); err != nil {
+		if err := app.Family.RemoveUser(args.UserID); err != nil {
 			return "", err
 		}
 		b, _ := json.Marshal(map[string]any{"status": "removed", "userId": args.UserID})
 		return string(b), nil
 
 	case "list":
-		users, err := globalFamilyService.ListUsers()
+		users, err := app.Family.ListUsers()
 		if err != nil {
 			return "", err
 		}
@@ -241,26 +245,26 @@ func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if args.Budget > 0 {
 			updates["budgetMonthly"] = args.Budget
 		}
-		if err := globalFamilyService.UpdateUser(args.UserID, updates); err != nil {
+		if err := app.Family.UpdateUser(args.UserID, updates); err != nil {
 			return "", err
 		}
-		user, _ := globalFamilyService.GetUser(args.UserID)
+		user, _ := app.Family.GetUser(args.UserID)
 		b, _ := json.Marshal(map[string]any{"status": "updated", "user": user})
 		return string(b), nil
 
 	case "permissions":
 		if args.Permission != "" {
 			if args.Grant {
-				if err := globalFamilyService.GrantPermission(args.UserID, args.Permission); err != nil {
+				if err := app.Family.GrantPermission(args.UserID, args.Permission); err != nil {
 					return "", err
 				}
 			} else {
-				if err := globalFamilyService.RevokePermission(args.UserID, args.Permission); err != nil {
+				if err := app.Family.RevokePermission(args.UserID, args.Permission); err != nil {
 					return "", err
 				}
 			}
 		}
-		perms, err := globalFamilyService.GetPermissions(args.UserID)
+		perms, err := app.Family.GetPermissions(args.UserID)
 		if err != nil {
 			return "", err
 		}

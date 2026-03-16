@@ -417,11 +417,12 @@ func toolTweetPost(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("text is required")
 	}
 
-	if globalTwitterService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Twitter == nil {
 		return "", fmt.Errorf("twitter not configured; enable twitter in config and connect via OAuth")
 	}
 
-	tweet, err := globalTwitterService.PostTweet(ctx, args.Text, args.ReplyTo)
+	tweet, err := app.Twitter.PostTweet(ctx, args.Text, args.ReplyTo)
 	if err != nil {
 		return "", err
 	}
@@ -442,11 +443,12 @@ func toolTweetTimeline(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	if globalTwitterService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Twitter == nil {
 		return "", fmt.Errorf("twitter not configured; enable twitter in config and connect via OAuth")
 	}
 
-	tweets, err := globalTwitterService.ReadTimeline(ctx, args.MaxResults)
+	tweets, err := app.Twitter.ReadTimeline(ctx, args.MaxResults)
 	if err != nil {
 		return "", err
 	}
@@ -471,11 +473,12 @@ func toolTweetSearch(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("query is required")
 	}
 
-	if globalTwitterService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Twitter == nil {
 		return "", fmt.Errorf("twitter not configured; enable twitter in config and connect via OAuth")
 	}
 
-	tweets, err := globalTwitterService.SearchTweets(ctx, args.Query, args.MaxResults)
+	tweets, err := app.Twitter.SearchTweets(ctx, args.Query, args.MaxResults)
 	if err != nil {
 		return "", err
 	}
@@ -503,11 +506,12 @@ func toolTweetReply(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("text is required")
 	}
 
-	if globalTwitterService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Twitter == nil {
 		return "", fmt.Errorf("twitter not configured; enable twitter in config and connect via OAuth")
 	}
 
-	tweet, err := globalTwitterService.ReplyToTweet(ctx, args.TweetID, args.Text)
+	tweet, err := app.Twitter.ReplyToTweet(ctx, args.TweetID, args.Text)
 	if err != nil {
 		return "", err
 	}
@@ -535,11 +539,12 @@ func toolTweetDM(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 		return "", fmt.Errorf("text is required")
 	}
 
-	if globalTwitterService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Twitter == nil {
 		return "", fmt.Errorf("twitter not configured; enable twitter in config and connect via OAuth")
 	}
 
-	if err := globalTwitterService.SendDM(ctx, args.RecipientID, args.Text); err != nil {
+	if err := app.Twitter.SendDM(ctx, args.RecipientID, args.Text); err != nil {
 		return "", err
 	}
 

@@ -569,7 +569,8 @@ func FormatBriefing(br *Briefing) string {
 // --- Tool Handlers ---
 
 func toolBriefingMorning(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalBriefingService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Briefing == nil {
 		return "", fmt.Errorf("briefing service not initialized")
 	}
 	var args struct {
@@ -586,7 +587,7 @@ func toolBriefingMorning(ctx context.Context, cfg *Config, input json.RawMessage
 		}
 		date = parsed
 	}
-	briefing, err := globalBriefingService.GenerateMorning(date)
+	briefing, err := app.Briefing.GenerateMorning(date)
 	if err != nil {
 		return "", err
 	}
@@ -594,7 +595,8 @@ func toolBriefingMorning(ctx context.Context, cfg *Config, input json.RawMessage
 }
 
 func toolBriefingEvening(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalBriefingService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Briefing == nil {
 		return "", fmt.Errorf("briefing service not initialized")
 	}
 	var args struct {
@@ -611,7 +613,7 @@ func toolBriefingEvening(ctx context.Context, cfg *Config, input json.RawMessage
 		}
 		date = parsed
 	}
-	briefing, err := globalBriefingService.GenerateEvening(date)
+	briefing, err := app.Briefing.GenerateEvening(date)
 	if err != nil {
 		return "", err
 	}

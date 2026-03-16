@@ -422,10 +422,11 @@ func toolPdfRead(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	var pdfPath string
 	if args.FileID != "" {
@@ -460,10 +461,11 @@ func toolDocSummarize(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	var content string
 	var filename string
@@ -560,10 +562,11 @@ func toolFileOrganize(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("category is required")
 	}
 
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	mf, err := svc.OrganizeFile(args.FileID, args.Category)
 	if err != nil {
@@ -585,10 +588,11 @@ func toolFileList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	files, err := svc.ListFiles(args.Category, args.UserID, args.Limit)
 	if err != nil {
@@ -609,10 +613,11 @@ func toolFileList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 
 // toolFileDuplicates finds duplicate files by content hash.
 func toolFileDuplicates(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	groups, err := svc.FindDuplicates()
 	if err != nil {
@@ -652,10 +657,11 @@ func toolFileStore(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("filename is required")
 	}
 
-	svc := globalFileManager
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.FileManager == nil {
 		return "", fmt.Errorf("file manager not enabled")
 	}
+	svc := app.FileManager
 
 	var data []byte
 	if args.Base64 != "" {

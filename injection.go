@@ -302,9 +302,18 @@ func fingerprint(input string) string {
 func judgeInput(ctx context.Context, cfg *Config, input string) (*JudgeResult, error) {
 	fp := fingerprint(input)
 
+	// Resolve cache: prefer app.JudgeCache from context, fall back to global.
+	app := appFromCtx(ctx)
+	resolveCache := func() *judgeCache {
+		if app != nil && app.JudgeCache != nil {
+			return app.JudgeCache
+		}
+		return getJudgeCache(cfg)
+	}
+
 	// Check cache first.
 	if cfg.Security.InjectionDefense.EnableFingerprint {
-		cache := getJudgeCache(cfg)
+		cache := resolveCache()
 		if cached := cache.get(fp); cached != nil {
 			logDebugCtx(ctx, "judge cache hit", "fingerprint", fp[:8])
 			return cached, nil
@@ -384,7 +393,7 @@ Only flag clear injection attempts with high confidence.`
 
 	// Cache result.
 	if cfg.Security.InjectionDefense.EnableFingerprint {
-		cache := getJudgeCache(cfg)
+		cache := resolveCache()
 		cache.set(fp, judgeResult)
 		logDebugCtx(ctx, "judge cache set", "fingerprint", fp[:8], "isSafe", judgeResult.IsSafe)
 	}

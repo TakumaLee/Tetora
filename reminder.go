@@ -56,6 +56,7 @@ func parseNaturalTime(input string) (time.Time, error) {
 var globalReminderEngine *ReminderEngine
 
 func toolReminderSet(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		Text      string `json:"text"`
 		Time      string `json:"time"`
@@ -73,7 +74,7 @@ func toolReminderSet(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("time is required")
 	}
 
-	if globalReminderEngine == nil {
+	if app == nil || app.Reminder == nil {
 		return "", fmt.Errorf("reminder engine not initialized (enable reminders in config)")
 	}
 
@@ -89,7 +90,7 @@ func toolReminderSet(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		}
 	}
 
-	rem, err := globalReminderEngine.Add(args.Text, dueAt, args.Recurring, args.Channel, args.UserID)
+	rem, err := app.Reminder.Add(args.Text, dueAt, args.Recurring, args.Channel, args.UserID)
 	if err != nil {
 		return "", err
 	}
@@ -99,16 +100,17 @@ func toolReminderSet(ctx context.Context, cfg *Config, input json.RawMessage) (s
 }
 
 func toolReminderList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		UserID string `json:"user_id"`
 	}
 	json.Unmarshal(input, &args)
 
-	if globalReminderEngine == nil {
+	if app == nil || app.Reminder == nil {
 		return "", fmt.Errorf("reminder engine not initialized")
 	}
 
-	reminders, err := globalReminderEngine.List(args.UserID)
+	reminders, err := app.Reminder.List(args.UserID)
 	if err != nil {
 		return "", err
 	}
@@ -124,6 +126,7 @@ func toolReminderList(ctx context.Context, cfg *Config, input json.RawMessage) (
 }
 
 func toolReminderCancel(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	var args struct {
 		ID     string `json:"id"`
 		UserID string `json:"user_id"`
@@ -135,11 +138,11 @@ func toolReminderCancel(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("id is required")
 	}
 
-	if globalReminderEngine == nil {
+	if app == nil || app.Reminder == nil {
 		return "", fmt.Errorf("reminder engine not initialized")
 	}
 
-	if err := globalReminderEngine.Cancel(args.ID, args.UserID); err != nil {
+	if err := app.Reminder.Cancel(args.ID, args.UserID); err != nil {
 		return "", err
 	}
 

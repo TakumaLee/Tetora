@@ -18,7 +18,8 @@ var globalContactsService *ContactsService
 
 // toolContactAdd adds a new contact.
 func toolContactAdd(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalContactsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Contacts == nil {
 		return "", fmt.Errorf("contacts service not initialized")
 	}
 
@@ -58,7 +59,7 @@ func toolContactAdd(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		UpdatedAt:    now,
 	}
 
-	if err := globalContactsService.AddContact(c); err != nil {
+	if err := app.Contacts.AddContact(c); err != nil {
 		return "", err
 	}
 
@@ -68,7 +69,8 @@ func toolContactAdd(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolContactSearch searches contacts by query.
 func toolContactSearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalContactsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Contacts == nil {
 		return "", fmt.Errorf("contacts service not initialized")
 	}
 
@@ -86,7 +88,7 @@ func toolContactSearch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		args.Limit = 10
 	}
 
-	contacts, err := globalContactsService.SearchContacts(args.Query, args.Limit)
+	contacts, err := app.Contacts.SearchContacts(args.Query, args.Limit)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +99,8 @@ func toolContactSearch(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolContactList lists contacts with optional relationship filter.
 func toolContactList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalContactsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Contacts == nil {
 		return "", fmt.Errorf("contacts service not initialized")
 	}
 
@@ -112,7 +115,7 @@ func toolContactList(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		args.Limit = 20
 	}
 
-	contacts, err := globalContactsService.ListContacts(args.Relationship, args.Limit)
+	contacts, err := app.Contacts.ListContacts(args.Relationship, args.Limit)
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +126,8 @@ func toolContactList(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolContactUpcoming returns upcoming birthdays and anniversaries.
 func toolContactUpcoming(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalContactsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Contacts == nil {
 		return "", fmt.Errorf("contacts service not initialized")
 	}
 
@@ -137,7 +141,7 @@ func toolContactUpcoming(ctx context.Context, cfg *Config, input json.RawMessage
 		args.Days = 30
 	}
 
-	events, err := globalContactsService.GetUpcomingEvents(args.Days)
+	events, err := app.Contacts.GetUpcomingEvents(args.Days)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +152,8 @@ func toolContactUpcoming(ctx context.Context, cfg *Config, input json.RawMessage
 
 // toolContactLog logs an interaction with a contact.
 func toolContactLog(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalContactsService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Contacts == nil {
 		return "", fmt.Errorf("contacts service not initialized")
 	}
 
@@ -170,7 +175,7 @@ func toolContactLog(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	}
 
 	id := newUUID()
-	if err := globalContactsService.LogInteraction(id, args.ContactID, args.Channel, args.Type, args.Summary, args.Sentiment); err != nil {
+	if err := app.Contacts.LogInteraction(id, args.ContactID, args.Channel, args.Type, args.Summary, args.Sentiment); err != nil {
 		return "", err
 	}
 

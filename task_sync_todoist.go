@@ -233,6 +233,7 @@ func (ts *TodoistSync) SyncAll(userID string) (pulled int, pushed int, err error
 
 // toolTodoistSync handles the todoist_sync tool.
 func toolTodoistSync(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
 	if !cfg.TaskManager.Todoist.Enabled {
 		return "", fmt.Errorf("todoist sync not enabled")
 	}
@@ -257,10 +258,10 @@ func toolTodoistSync(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		}
 		return fmt.Sprintf("Pulled %d tasks from Todoist.", n), nil
 	case "push":
-		if globalTaskManager == nil {
+		if app == nil || app.TaskManager == nil {
 			return "", fmt.Errorf("task manager not initialized")
 		}
-		tasks, _ := globalTaskManager.ListTasks(args.UserID, TaskFilter{})
+		tasks, _ := app.TaskManager.ListTasks(args.UserID, TaskFilter{})
 		pushed := 0
 		for _, task := range tasks {
 			if task.ExternalSource == "todoist" || task.ExternalID != "" {

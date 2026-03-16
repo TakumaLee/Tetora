@@ -546,13 +546,14 @@ func toolUserProfileGet(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	if globalUserProfileService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.UserProfile == nil {
 		return "", fmt.Errorf("user profile service not initialized")
 	}
 
 	// Resolve channel key to user ID if needed.
 	if args.UserID == "" && args.ChannelKey != "" {
-		uid, err := globalUserProfileService.ResolveUser(args.ChannelKey)
+		uid, err := app.UserProfile.ResolveUser(args.ChannelKey)
 		if err != nil {
 			return "", fmt.Errorf("resolve user: %w", err)
 		}
@@ -562,10 +563,10 @@ func toolUserProfileGet(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("userId or channelKey is required")
 	}
 
-	userCtx, err := globalUserProfileService.GetUserContext(args.ChannelKey)
+	userCtx, err := app.UserProfile.GetUserContext(args.ChannelKey)
 	if err != nil {
 		// Fallback: try just the profile.
-		profile, err2 := globalUserProfileService.GetProfile(args.UserID)
+		profile, err2 := app.UserProfile.GetProfile(args.UserID)
 		if err2 != nil {
 			return "", fmt.Errorf("get profile: %w", err2)
 		}
@@ -596,14 +597,15 @@ func toolUserProfileSet(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("userId is required")
 	}
 
-	if globalUserProfileService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.UserProfile == nil {
 		return "", fmt.Errorf("user profile service not initialized")
 	}
 
 	// Ensure profile exists.
-	profile, _ := globalUserProfileService.GetProfile(args.UserID)
+	profile, _ := app.UserProfile.GetProfile(args.UserID)
 	if profile == nil {
-		err := globalUserProfileService.CreateProfile(UserProfile{ID: args.UserID})
+		err := app.UserProfile.CreateProfile(UserProfile{ID: args.UserID})
 		if err != nil {
 			return "", fmt.Errorf("create profile: %w", err)
 		}
@@ -621,14 +623,14 @@ func toolUserProfileSet(ctx context.Context, cfg *Config, input json.RawMessage)
 		updates["timezone"] = args.Timezone
 	}
 	if len(updates) > 0 {
-		if err := globalUserProfileService.UpdateProfile(args.UserID, updates); err != nil {
+		if err := app.UserProfile.UpdateProfile(args.UserID, updates); err != nil {
 			return "", fmt.Errorf("update profile: %w", err)
 		}
 	}
 
 	// Link channel if provided.
 	if args.ChannelKey != "" {
-		if err := globalUserProfileService.LinkChannel(args.UserID, args.ChannelKey, args.ChannelName); err != nil {
+		if err := app.UserProfile.LinkChannel(args.UserID, args.ChannelKey, args.ChannelName); err != nil {
 			return "", fmt.Errorf("link channel: %w", err)
 		}
 	}
@@ -646,13 +648,14 @@ func toolMoodCheck(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	if globalUserProfileService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.UserProfile == nil {
 		return "", fmt.Errorf("user profile service not initialized")
 	}
 
 	// Resolve.
 	if args.UserID == "" && args.ChannelKey != "" {
-		uid, err := globalUserProfileService.ResolveUser(args.ChannelKey)
+		uid, err := app.UserProfile.ResolveUser(args.ChannelKey)
 		if err != nil {
 			return "", fmt.Errorf("resolve user: %w", err)
 		}
@@ -666,7 +669,7 @@ func toolMoodCheck(ctx context.Context, cfg *Config, input json.RawMessage) (str
 		args.Days = 7
 	}
 
-	mood, err := globalUserProfileService.GetMoodTrend(args.UserID, args.Days)
+	mood, err := app.UserProfile.GetMoodTrend(args.UserID, args.Days)
 	if err != nil {
 		return "", fmt.Errorf("get mood: %w", err)
 	}

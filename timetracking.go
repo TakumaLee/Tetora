@@ -20,7 +20,8 @@ var globalTimeTracking *TimeTrackingService
 
 // toolTimeStart handles the time_start tool.
 func toolTimeStart(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTimeTracking == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TimeTracking == nil {
 		return "", fmt.Errorf("time tracking not initialized")
 	}
 	var args struct {
@@ -32,7 +33,7 @@ func toolTimeStart(ctx context.Context, cfg *Config, input json.RawMessage) (str
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
-	entry, err := globalTimeTracking.StartTimer(args.UserID, args.Project, args.Activity, args.Tags, newUUID)
+	entry, err := app.TimeTracking.StartTimer(args.UserID, args.Project, args.Activity, args.Tags, newUUID)
 	if err != nil {
 		return "", err
 	}
@@ -42,7 +43,8 @@ func toolTimeStart(ctx context.Context, cfg *Config, input json.RawMessage) (str
 
 // toolTimeStop handles the time_stop tool.
 func toolTimeStop(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTimeTracking == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TimeTracking == nil {
 		return "", fmt.Errorf("time tracking not initialized")
 	}
 	var args struct {
@@ -51,7 +53,7 @@ func toolTimeStop(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
-	entry, err := globalTimeTracking.StopTimer(args.UserID)
+	entry, err := app.TimeTracking.StopTimer(args.UserID)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +63,8 @@ func toolTimeStop(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 
 // toolTimeLog handles the time_log tool.
 func toolTimeLog(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTimeTracking == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TimeTracking == nil {
 		return "", fmt.Errorf("time tracking not initialized")
 	}
 	var args struct {
@@ -79,7 +82,7 @@ func toolTimeLog(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 	if args.Duration <= 0 {
 		return "", fmt.Errorf("duration (minutes) is required and must be positive")
 	}
-	entry, err := globalTimeTracking.LogEntry(args.UserID, args.Project, args.Activity, args.Duration, args.Date, args.Note, args.Tags, newUUID)
+	entry, err := app.TimeTracking.LogEntry(args.UserID, args.Project, args.Activity, args.Duration, args.Date, args.Note, args.Tags, newUUID)
 	if err != nil {
 		return "", err
 	}
@@ -89,7 +92,8 @@ func toolTimeLog(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 
 // toolTimeReport handles the time_report tool.
 func toolTimeReport(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTimeTracking == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TimeTracking == nil {
 		return "", fmt.Errorf("time tracking not initialized")
 	}
 	var args struct {
@@ -100,7 +104,7 @@ func toolTimeReport(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
-	report, err := globalTimeTracking.Report(args.UserID, args.Period, args.Project)
+	report, err := app.TimeTracking.Report(args.UserID, args.Period, args.Project)
 	if err != nil {
 		return "", err
 	}

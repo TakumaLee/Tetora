@@ -69,10 +69,11 @@ func mergeEvents(events []ScheduleEvent) []ScheduleEvent {
 type schedulingCalendarAdapter struct{}
 
 func (a *schedulingCalendarAdapter) ListEvents(ctx context.Context, timeMin, timeMax string, maxResults int) ([]scheduling.CalendarEvent, error) {
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return nil, nil
 	}
-	events, err := globalCalendarService.ListEvents(ctx, timeMin, timeMax, maxResults)
+	events, err := app.Calendar.ListEvents(ctx, timeMin, timeMax, maxResults)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +120,8 @@ func (a *schedulingTaskAdapter) ListTasks(userID string, filter scheduling.TaskF
 
 // toolScheduleView handles the schedule_view tool.
 func toolScheduleView(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSchedulingService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
 		return "", fmt.Errorf("scheduling service not initialized")
 	}
 
@@ -137,7 +139,7 @@ func toolScheduleView(ctx context.Context, cfg *Config, input json.RawMessage) (
 		args.Days = 30
 	}
 
-	schedules, err := globalSchedulingService.ViewSchedule(args.Date, args.Days)
+	schedules, err := app.Scheduling.ViewSchedule(args.Date, args.Days)
 	if err != nil {
 		return "", err
 	}
@@ -151,7 +153,8 @@ func toolScheduleView(ctx context.Context, cfg *Config, input json.RawMessage) (
 
 // toolScheduleSuggest handles the schedule_suggest tool.
 func toolScheduleSuggest(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSchedulingService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
 		return "", fmt.Errorf("scheduling service not initialized")
 	}
 
@@ -173,7 +176,7 @@ func toolScheduleSuggest(ctx context.Context, cfg *Config, input json.RawMessage
 		args.Days = 14
 	}
 
-	suggestions, err := globalSchedulingService.SuggestSlots(args.DurationMinutes, args.PreferMorning, args.Days)
+	suggestions, err := app.Scheduling.SuggestSlots(args.DurationMinutes, args.PreferMorning, args.Days)
 	if err != nil {
 		return "", err
 	}
@@ -191,7 +194,8 @@ func toolScheduleSuggest(ctx context.Context, cfg *Config, input json.RawMessage
 
 // toolSchedulePlan handles the schedule_plan tool.
 func toolSchedulePlan(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSchedulingService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
 		return "", fmt.Errorf("scheduling service not initialized")
 	}
 
@@ -205,7 +209,7 @@ func toolSchedulePlan(ctx context.Context, cfg *Config, input json.RawMessage) (
 		args.UserID = "default"
 	}
 
-	plan, err := globalSchedulingService.PlanWeek(args.UserID)
+	plan, err := app.Scheduling.PlanWeek(args.UserID)
 	if err != nil {
 		return "", err
 	}

@@ -52,11 +52,12 @@ func newDriveService() *DriveService {
 
 // driveRequest makes an authenticated request to the Drive API.
 func (d *DriveService) driveRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("OAuth manager not initialized")
 	}
 	reqURL := driveBaseURL + path
-	return globalOAuthManager.Request(ctx, d.oauthService, method, reqURL, body)
+	return app.OAuth.Request(ctx, d.oauthService, method, reqURL, body)
 }
 
 // Search searches for files in Google Drive.
@@ -135,12 +136,13 @@ func (d *DriveService) Upload(ctx context.Context, name, mimeType, parentID stri
 
 	apiPath := "/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,createdTime,modifiedTime,webViewLink"
 
-	if globalOAuthManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.OAuth == nil {
 		return nil, fmt.Errorf("OAuth manager not initialized")
 	}
 
 	reqURL := driveBaseURL + apiPath
-	resp, err := globalOAuthManager.Request(ctx, d.oauthService, http.MethodPost, reqURL, &buf)
+	resp, err := app.OAuth.Request(ctx, d.oauthService, http.MethodPost, reqURL, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("drive upload: %w", err)
 	}
@@ -250,10 +252,11 @@ func toolDriveSearch(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("query is required")
 	}
 
-	svc := globalDriveService
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Drive == nil {
 		return "", fmt.Errorf("Google Drive integration not enabled")
 	}
+	svc := app.Drive
 
 	files, err := svc.Search(ctx, args.Query, args.MaxResults)
 	if err != nil {
@@ -294,10 +297,11 @@ func toolDriveUpload(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("content is required")
 	}
 
-	svc := globalDriveService
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Drive == nil {
 		return "", fmt.Errorf("Google Drive integration not enabled")
 	}
+	svc := app.Drive
 
 	if args.MimeType == "" {
 		args.MimeType = mimeFromExt(args.Name)
@@ -325,10 +329,11 @@ func toolDriveDownload(ctx context.Context, cfg *Config, input json.RawMessage) 
 		return "", fmt.Errorf("file_id is required")
 	}
 
-	svc := globalDriveService
-	if svc == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Drive == nil {
 		return "", fmt.Errorf("Google Drive integration not enabled")
 	}
+	svc := app.Drive
 
 	data, fileMeta, err := svc.Download(ctx, args.FileID)
 	if err != nil {
@@ -336,12 +341,12 @@ func toolDriveDownload(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 
 	// Optionally store in local file manager.
-	if args.SaveAs != "" && globalFileManager != nil {
+	if args.SaveAs != "" && app.FileManager != nil {
 		name := args.SaveAs
 		if name == "auto" {
 			name = fileMeta.Name
 		}
-		mf, isDup, err := globalFileManager.StoreFile("", name, "drive", "google_drive", fileMeta.ID, data)
+		mf, isDup, err := app.FileManager.StoreFile("", name, "drive", "google_drive", fileMeta.ID, data)
 		if err != nil {
 			return "", fmt.Errorf("save to file manager: %w", err)
 		}

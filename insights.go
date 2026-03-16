@@ -967,7 +967,8 @@ func (e *InsightsEngine) SpendingForecast(month string) (map[string]any, error) 
 
 // toolLifeReport handles the life_report tool.
 func toolLifeReport(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalInsightsEngine == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Insights == nil {
 		return "", fmt.Errorf("insights engine not initialized")
 	}
 
@@ -996,7 +997,7 @@ func toolLifeReport(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		targetDate = parsed
 	}
 
-	report, err := globalInsightsEngine.GenerateReport(period, targetDate)
+	report, err := app.Insights.GenerateReport(period, targetDate)
 	if err != nil {
 		return "", err
 	}
@@ -1007,7 +1008,8 @@ func toolLifeReport(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolLifeInsights handles the life_insights tool.
 func toolLifeInsights(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalInsightsEngine == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Insights == nil {
 		return "", fmt.Errorf("insights engine not initialized")
 	}
 
@@ -1027,7 +1029,7 @@ func toolLifeInsights(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if days <= 0 {
 			days = 7
 		}
-		insights, err := globalInsightsEngine.DetectAnomalies(days)
+		insights, err := app.Insights.DetectAnomalies(days)
 		if err != nil {
 			return "", err
 		}
@@ -1041,7 +1043,7 @@ func toolLifeInsights(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return string(out), nil
 
 	case "list":
-		insights, err := globalInsightsEngine.GetInsights(20, false)
+		insights, err := app.Insights.GetInsights(20, false)
 		if err != nil {
 			return "", err
 		}
@@ -1052,13 +1054,13 @@ func toolLifeInsights(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if args.InsightID == "" {
 			return "", fmt.Errorf("insight_id is required for acknowledge action")
 		}
-		if err := globalInsightsEngine.AcknowledgeInsight(args.InsightID); err != nil {
+		if err := app.Insights.AcknowledgeInsight(args.InsightID); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Insight %s acknowledged.", args.InsightID), nil
 
 	case "forecast":
-		result, err := globalInsightsEngine.SpendingForecast(args.Month)
+		result, err := app.Insights.SpendingForecast(args.Month)
 		if err != nil {
 			return "", err
 		}

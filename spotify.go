@@ -439,7 +439,8 @@ func (s *SpotifyService) GetRecommendations(seedTracks []string, limit int) ([]S
 
 // toolSpotifyPlay handles playback control actions.
 func toolSpotifyPlay(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSpotifyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Spotify == nil {
 		return "", fmt.Errorf("spotify not initialized")
 	}
 
@@ -454,7 +455,7 @@ func toolSpotifyPlay(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	svc := globalSpotifyService
+	svc := app.Spotify
 
 	switch args.Action {
 	case "play":
@@ -510,7 +511,8 @@ func toolSpotifyPlay(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 // toolSpotifySearch searches Spotify for items.
 func toolSpotifySearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSpotifyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Spotify == nil {
 		return "", fmt.Errorf("spotify not initialized")
 	}
 
@@ -532,7 +534,7 @@ func toolSpotifySearch(ctx context.Context, cfg *Config, input json.RawMessage) 
 		args.Limit = 5
 	}
 
-	results, err := globalSpotifyService.Search(args.Query, args.Type, args.Limit)
+	results, err := app.Spotify.Search(args.Query, args.Type, args.Limit)
 	if err != nil {
 		return "", err
 	}
@@ -565,11 +567,12 @@ func toolSpotifySearch(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 // toolSpotifyNowPlaying returns the currently playing track.
 func toolSpotifyNowPlaying(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSpotifyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Spotify == nil {
 		return "", fmt.Errorf("spotify not initialized")
 	}
 
-	item, err := globalSpotifyService.CurrentlyPlaying()
+	item, err := app.Spotify.CurrentlyPlaying()
 	if err != nil {
 		return "", err
 	}
@@ -598,11 +601,12 @@ func toolSpotifyNowPlaying(ctx context.Context, cfg *Config, input json.RawMessa
 
 // toolSpotifyDevices lists available Spotify Connect devices.
 func toolSpotifyDevices(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSpotifyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Spotify == nil {
 		return "", fmt.Errorf("spotify not initialized")
 	}
 
-	devices, err := globalSpotifyService.GetDevices()
+	devices, err := app.Spotify.GetDevices()
 	if err != nil {
 		return "", err
 	}
@@ -625,7 +629,8 @@ func toolSpotifyDevices(ctx context.Context, cfg *Config, input json.RawMessage)
 
 // toolSpotifyRecommend gets recommendations based on current or specified tracks.
 func toolSpotifyRecommend(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalSpotifyService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Spotify == nil {
 		return "", fmt.Errorf("spotify not initialized")
 	}
 
@@ -639,7 +644,7 @@ func toolSpotifyRecommend(ctx context.Context, cfg *Config, input json.RawMessag
 
 	// If no seed tracks provided, try to use currently playing track
 	if len(args.TrackIDs) == 0 {
-		current, err := globalSpotifyService.CurrentlyPlaying()
+		current, err := app.Spotify.CurrentlyPlaying()
 		if err != nil {
 			return "", fmt.Errorf("no seed tracks provided and cannot get current track: %w", err)
 		}
@@ -652,7 +657,7 @@ func toolSpotifyRecommend(ctx context.Context, cfg *Config, input json.RawMessag
 		args.Limit = 5
 	}
 
-	results, err := globalSpotifyService.GetRecommendations(args.TrackIDs, args.Limit)
+	results, err := app.Spotify.GetRecommendations(args.TrackIDs, args.Limit)
 	if err != nil {
 		return "", err
 	}

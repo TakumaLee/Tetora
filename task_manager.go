@@ -545,7 +545,8 @@ func (svc *TaskManagerService) DecomposeTask(taskID string, subtitles []string) 
 
 // toolTaskCreate handles the task_create tool.
 func toolTaskCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTaskManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
 		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
 	}
 	var args struct {
@@ -579,14 +580,14 @@ func toolTaskCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		Tags:        args.Tags,
 	}
 
-	created, err := globalTaskManager.CreateTask(task)
+	created, err := app.TaskManager.CreateTask(task)
 	if err != nil {
 		return "", err
 	}
 
 	// Auto-decompose if requested.
 	if args.Decompose && len(args.Subtasks) > 0 {
-		subs, err := globalTaskManager.DecomposeTask(created.ID, args.Subtasks)
+		subs, err := app.TaskManager.DecomposeTask(created.ID, args.Subtasks)
 		if err != nil {
 			return "", fmt.Errorf("task created but decomposition failed: %w", err)
 		}
@@ -604,7 +605,8 @@ func toolTaskCreate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 
 // toolTaskList handles the task_list tool.
 func toolTaskList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTaskManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
 		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
 	}
 	var args struct {
@@ -632,7 +634,7 @@ func toolTaskList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		Limit:    args.Limit,
 	}
 
-	tasks, err := globalTaskManager.ListTasks(args.UserID, filters)
+	tasks, err := app.TaskManager.ListTasks(args.UserID, filters)
 	if err != nil {
 		return "", err
 	}
@@ -644,7 +646,7 @@ func toolTaskList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 	}
 	results := make([]taskWithSubs, 0, len(tasks))
 	for _, t := range tasks {
-		subs, _ := globalTaskManager.GetSubtasks(t.ID)
+		subs, _ := app.TaskManager.GetSubtasks(t.ID)
 		results = append(results, taskWithSubs{UserTask: t, SubtaskCount: len(subs)})
 	}
 
@@ -654,7 +656,8 @@ func toolTaskList(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 
 // toolTaskComplete handles the task_complete tool.
 func toolTaskComplete(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTaskManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
 		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
 	}
 	var args struct {
@@ -667,11 +670,11 @@ func toolTaskComplete(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("taskId is required")
 	}
 
-	if err := globalTaskManager.CompleteTask(args.TaskID); err != nil {
+	if err := app.TaskManager.CompleteTask(args.TaskID); err != nil {
 		return "", err
 	}
 
-	task, _ := globalTaskManager.GetTask(args.TaskID)
+	task, _ := app.TaskManager.GetTask(args.TaskID)
 	if task != nil {
 		out, _ := json.MarshalIndent(task, "", "  ")
 		return fmt.Sprintf("Task completed.\n%s", string(out)), nil
@@ -681,7 +684,8 @@ func toolTaskComplete(ctx context.Context, cfg *Config, input json.RawMessage) (
 
 // toolTaskReview handles the task_review tool.
 func toolTaskReview(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	if globalTaskManager == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
 		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
 	}
 	var args struct {
@@ -698,7 +702,7 @@ func toolTaskReview(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		args.Period = "daily"
 	}
 
-	review, err := globalTaskManager.GenerateReview(args.UserID, args.Period)
+	review, err := app.TaskManager.GenerateReview(args.UserID, args.Period)
 	if err != nil {
 		return "", err
 	}

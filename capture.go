@@ -48,12 +48,17 @@ func classifyCapture(input string) string {
 
 // executeCapture routes captured text to the appropriate service.
 func executeCapture(ctx context.Context, cfg *Config, category, text string) (string, error) {
+	app := appFromCtx(ctx)
 	switch category {
 	case "task":
-		if globalTaskManager == nil {
+		tm := globalTaskManager
+		if app != nil && app.TaskManager != nil {
+			tm = app.TaskManager
+		}
+		if tm == nil {
 			return "", fmt.Errorf("task manager not initialized")
 		}
-		task, err := globalTaskManager.CreateTask(UserTask{
+		task, err := tm.CreateTask(UserTask{
 			Title:  text,
 			Status: "todo",
 		})
@@ -68,23 +73,31 @@ func executeCapture(ctx context.Context, cfg *Config, category, text string) (st
 		return toolExpenseAdd(ctx, cfg, input)
 
 	case "reminder":
-		if globalReminderEngine == nil {
+		re := globalReminderEngine
+		if app != nil && app.Reminder != nil {
+			re = app.Reminder
+		}
+		if re == nil {
 			return "", fmt.Errorf("reminder engine not initialized")
 		}
 		due := time.Now().Add(24 * time.Hour)
-		r, err := globalReminderEngine.Add(text, due, "", "", "default")
+		r, err := re.Add(text, due, "", "", "default")
 		if err != nil {
 			return "", fmt.Errorf("add reminder: %w", err)
 		}
 		return fmt.Sprintf("Reminder set: %s (due=%s)", r.Text, r.DueAt), nil
 
 	case "contact":
-		if globalContactsService == nil {
+		cs := globalContactsService
+		if app != nil && app.Contacts != nil {
+			cs = app.Contacts
+		}
+		if cs == nil {
 			return "", fmt.Errorf("contacts service not initialized")
 		}
 		now := time.Now().UTC().Format(time.RFC3339)
 		c := &Contact{ID: newUUID(), Name: text, CreatedAt: now, UpdatedAt: now}
-		if err := globalContactsService.AddContact(c); err != nil {
+		if err := cs.AddContact(c); err != nil {
 			return "", fmt.Errorf("add contact: %w", err)
 		}
 		return fmt.Sprintf("Contact added: %s (id=%s)", c.Name, c.ID), nil

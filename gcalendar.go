@@ -28,7 +28,8 @@ func toolCalendarList(ctx context.Context, cfg *Config, input json.RawMessage) (
 	if !cfg.Calendar.Enabled {
 		return "", fmt.Errorf("calendar integration is not enabled")
 	}
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return "", fmt.Errorf("calendar service not initialized")
 	}
 
@@ -53,7 +54,7 @@ func toolCalendarList(ctx context.Context, cfg *Config, input json.RawMessage) (
 		args.TimeMax = now.AddDate(0, 0, days).Format(time.RFC3339)
 	}
 
-	events, err := globalCalendarService.ListEvents(ctx, args.TimeMin, args.TimeMax, args.MaxResults)
+	events, err := app.Calendar.ListEvents(ctx, args.TimeMin, args.TimeMax, args.MaxResults)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +75,8 @@ func toolCalendarCreate(ctx context.Context, cfg *Config, input json.RawMessage)
 	if !cfg.Calendar.Enabled {
 		return "", fmt.Errorf("calendar integration is not enabled")
 	}
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return "", fmt.Errorf("calendar service not initialized")
 	}
 
@@ -124,10 +126,10 @@ func toolCalendarCreate(ctx context.Context, cfg *Config, input json.RawMessage)
 	}
 
 	if eventInput.TimeZone == "" {
-		eventInput.TimeZone = globalCalendarService.TimeZone()
+		eventInput.TimeZone = app.Calendar.TimeZone()
 	}
 
-	ev, err := globalCalendarService.CreateEvent(ctx, eventInput)
+	ev, err := app.Calendar.CreateEvent(ctx, eventInput)
 	if err != nil {
 		return "", err
 	}
@@ -141,7 +143,8 @@ func toolCalendarUpdate(ctx context.Context, cfg *Config, input json.RawMessage)
 	if !cfg.Calendar.Enabled {
 		return "", fmt.Errorf("calendar integration is not enabled")
 	}
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return "", fmt.Errorf("calendar service not initialized")
 	}
 
@@ -176,10 +179,10 @@ func toolCalendarUpdate(ctx context.Context, cfg *Config, input json.RawMessage)
 	}
 
 	if eventInput.TimeZone == "" {
-		eventInput.TimeZone = globalCalendarService.TimeZone()
+		eventInput.TimeZone = app.Calendar.TimeZone()
 	}
 
-	ev, err := globalCalendarService.UpdateEvent(ctx, args.EventID, eventInput)
+	ev, err := app.Calendar.UpdateEvent(ctx, args.EventID, eventInput)
 	if err != nil {
 		return "", err
 	}
@@ -193,7 +196,8 @@ func toolCalendarDelete(ctx context.Context, cfg *Config, input json.RawMessage)
 	if !cfg.Calendar.Enabled {
 		return "", fmt.Errorf("calendar integration is not enabled")
 	}
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return "", fmt.Errorf("calendar service not initialized")
 	}
 
@@ -208,7 +212,7 @@ func toolCalendarDelete(ctx context.Context, cfg *Config, input json.RawMessage)
 		return "", fmt.Errorf("eventId is required")
 	}
 
-	if err := globalCalendarService.DeleteEvent(ctx, args.EventID); err != nil {
+	if err := app.Calendar.DeleteEvent(ctx, args.EventID); err != nil {
 		return "", err
 	}
 
@@ -220,7 +224,8 @@ func toolCalendarSearch(ctx context.Context, cfg *Config, input json.RawMessage)
 	if !cfg.Calendar.Enabled {
 		return "", fmt.Errorf("calendar integration is not enabled")
 	}
-	if globalCalendarService == nil {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
 		return "", fmt.Errorf("calendar service not initialized")
 	}
 
@@ -245,7 +250,7 @@ func toolCalendarSearch(ctx context.Context, cfg *Config, input json.RawMessage)
 		args.TimeMax = time.Now().AddDate(0, 0, 90).Format(time.RFC3339)
 	}
 
-	events, err := globalCalendarService.SearchEvents(ctx, args.Query, args.TimeMin, args.TimeMax)
+	events, err := app.Calendar.SearchEvents(ctx, args.Query, args.TimeMin, args.TimeMax)
 	if err != nil {
 		return "", err
 	}
