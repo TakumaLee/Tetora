@@ -5,10 +5,12 @@ package main
 // root API surface stable.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +18,9 @@ import (
 	"tetora/internal/integration/drive"
 	"tetora/internal/integration/dropbox"
 	"tetora/internal/integration/gmail"
+	"tetora/internal/integration/homeassistant"
 	"tetora/internal/integration/oauthif"
+	"tetora/internal/integration/podcast"
 	"tetora/internal/integration/spotify"
 	"tetora/internal/integration/twitter"
 )
@@ -26,6 +30,8 @@ import (
 type GmailConfig = gmail.Config
 type SpotifyConfig = spotify.Config
 type TwitterConfig = twitter.Config
+type PodcastConfig = podcast.Config
+type HomeAssistantConfig = homeassistant.Config
 
 // --- Service type aliases ---
 
@@ -34,6 +40,8 @@ type DriveService = drive.Service
 type DropboxService = dropbox.Service
 type SpotifyService = spotify.Service
 type TwitterService = twitter.Service
+type PodcastService = podcast.Service
+type HAService = homeassistant.Service
 
 // --- Data type aliases ---
 
@@ -57,6 +65,13 @@ type SpotifyDevice = spotify.Device
 // Twitter types
 type Tweet = twitter.Tweet
 type TwitterUser = twitter.User
+
+// Podcast types
+type PodcastFeed = podcast.Feed
+type PodcastEpisode = podcast.Episode
+
+// HomeAssistant types
+type HAEntity = homeassistant.Entity
 
 // --- Gmail helper forwarding ---
 
@@ -86,6 +101,18 @@ func jsonStrField(m map[string]any, key string) string { return spotify.JSONStrF
 
 // Twitter helper forwarding
 func parseTweetsResponse(body io.Reader) ([]Tweet, error) { return twitter.ParseTweetsResponse(body) }
+
+// Podcast helper forwarding
+func parsePodcastRSS(data []byte) (*PodcastFeed, []PodcastEpisode, error) {
+	return podcast.ParseRSS(data)
+}
+func truncatePodcastText(s string, maxLen int) string { return podcast.TruncateText(s, maxLen) }
+func formatEpisodes(episodes []PodcastEpisode) string  { return podcast.FormatEpisodes(episodes) }
+
+// HomeAssistant WebSocket helper forwarding
+func wsGenerateKey() string                                   { return homeassistant.WsGenerateKey() }
+func wsReadFrame(r *bufio.Reader) ([]byte, error)             { return homeassistant.WsReadFrame(r) }
+func wsWriteFrame(conn net.Conn, payload []byte) error        { return homeassistant.WsWriteFrame(conn, payload) }
 
 // --- OAuth adapters ---
 
@@ -161,6 +188,35 @@ func newTwitterService(cfg *Config) *TwitterService {
 	return twitter.New(cfg.Twitter, oauth)
 }
 
+func initPodcastDB(dbPath string) error {
+	return podcast.InitDB(dbPath, execDB)
+}
+
+func newPodcastService(dbPath string) *PodcastService {
+	return podcast.New(dbPath, podcast.DB{
+		Query:   queryDB,
+		Exec:    execDB,
+		Escape:  escapeSQLite,
+		LogInfo: logInfo,
+		LogWarn: logWarn,
+	})
+}
+
+func newHAService(cfg HomeAssistantConfig) *HAService {
+	return homeassistant.New(cfg, logInfo, logWarn, logDebug)
+}
+
+// haEventPublisherAdapter wraps *sseBroker to satisfy homeassistant.EventPublisher.
+type haEventPublisherAdapter struct {
+	broker *sseBroker
+}
+
+func (a *haEventPublisherAdapter) PublishEvent(key, eventType string, data any) {
+	a.broker.Publish(key, SSEEvent{Type: eventType, Data: data})
+}
+
+var _ homeassistant.EventPublisher = (*haEventPublisherAdapter)(nil)
+
 // --- Global singletons (backwards compat) ---
 
 var (
@@ -169,6 +225,8 @@ var (
 	globalDropboxService *DropboxService
 	globalSpotifyService *SpotifyService
 	globalTwitterService *TwitterService
+	globalPodcastService *PodcastService
+	globalHAService      *HAService
 )
 
 // --- Base URL forwarding for tests ---
@@ -927,4 +985,218 @@ func toolTweetDM(ctx context.Context, cfg *Config, input json.RawMessage) (strin
 	}
 
 	return `{"status":"dm_sent"}`, nil
+}
+
+// --- Podcast tool handler stubs ---
+
+func toolPodcastList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Podcast == nil {
+		return "", fmt.Errorf("podcast service not initialized")
+	}
+
+	var args struct {
+		Action  string `json:"action"`
+		FeedURL string `json:"feedUrl"`
+		GUID    string `json:"guid"`
+		UserID  string `json:"userId"`
+		Limit   int    `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.UserID == "" {
+		args.UserID = "default"
+	}
+	if args.Limit <= 0 {
+		args.Limit = 10
+	}
+
+	svc := app.Podcast
+
+	switch args.Action {
+	case "subscribe":
+		if err := svc.Subscribe(args.UserID, args.FeedURL); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Subscribed to %s", args.FeedURL), nil
+
+	case "unsubscribe":
+		if err := svc.Unsubscribe(args.UserID, args.FeedURL); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Unsubscribed from %s", args.FeedURL), nil
+
+	case "list":
+		feeds, err := svc.ListFeeds(args.UserID)
+		if err != nil {
+			return "", err
+		}
+		if len(feeds) == 0 {
+			return "No podcast subscriptions.", nil
+		}
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Podcast subscriptions (%d):\n\n", len(feeds))
+		for i, f := range feeds {
+			fmt.Fprintf(&sb, "%d. %s\n", i+1, f.Title)
+			fmt.Fprintf(&sb, "   %s\n", f.FeedURL)
+			if f.Description != "" {
+				desc := f.Description
+				if len(desc) > 100 {
+					desc = desc[:100] + "..."
+				}
+				fmt.Fprintf(&sb, "   %s\n", desc)
+			}
+			sb.WriteString("\n")
+		}
+		return sb.String(), nil
+
+	case "episodes":
+		if args.FeedURL == "" {
+			return "", fmt.Errorf("feedUrl required for episodes action")
+		}
+		episodes, err := svc.ListEpisodes(args.FeedURL, args.Limit)
+		if err != nil {
+			return "", err
+		}
+		if len(episodes) == 0 {
+			return "No episodes found.", nil
+		}
+		return formatEpisodes(episodes), nil
+
+	case "latest":
+		episodes, err := svc.LatestEpisodes(args.UserID, args.Limit)
+		if err != nil {
+			return "", err
+		}
+		if len(episodes) == 0 {
+			return "No new episodes.", nil
+		}
+		return formatEpisodes(episodes), nil
+
+	case "played":
+		if args.FeedURL == "" || args.GUID == "" {
+			return "", fmt.Errorf("feedUrl and guid required for played action")
+		}
+		if err := svc.MarkPlayed(args.FeedURL, args.GUID); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Marked episode %s as played.", args.GUID), nil
+
+	default:
+		return "", fmt.Errorf("unknown action %q — use subscribe, unsubscribe, list, episodes, latest, or played", args.Action)
+	}
+}
+
+// --- HomeAssistant tool handler stubs ---
+
+func toolHAListEntities(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
+		return "", fmt.Errorf("home assistant not configured")
+	}
+
+	var args struct {
+		Domain string `json:"domain"`
+	}
+	json.Unmarshal(input, &args)
+
+	entities, err := app.HA.ListEntities(args.Domain)
+	if err != nil {
+		return "", fmt.Errorf("list entities: %w", err)
+	}
+
+	type entitySummary struct {
+		EntityID     string `json:"entity_id"`
+		State        string `json:"state"`
+		FriendlyName string `json:"friendly_name,omitempty"`
+	}
+	summaries := make([]entitySummary, 0, len(entities))
+	for _, e := range entities {
+		name, _ := e.Attributes["friendly_name"].(string)
+		summaries = append(summaries, entitySummary{
+			EntityID:     e.EntityID,
+			State:        e.State,
+			FriendlyName: name,
+		})
+	}
+
+	b, _ := json.Marshal(summaries)
+	return string(b), nil
+}
+
+func toolHAGetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
+		return "", fmt.Errorf("home assistant not configured")
+	}
+
+	var args struct {
+		EntityID string `json:"entity_id"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.EntityID == "" {
+		return "", fmt.Errorf("entity_id is required")
+	}
+
+	entity, err := app.HA.GetState(args.EntityID)
+	if err != nil {
+		return "", fmt.Errorf("get state: %w", err)
+	}
+
+	b, _ := json.Marshal(entity)
+	return string(b), nil
+}
+
+func toolHACallService(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
+		return "", fmt.Errorf("home assistant not configured")
+	}
+
+	var args struct {
+		Domain  string         `json:"domain"`
+		Service string         `json:"service"`
+		Data    map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Domain == "" || args.Service == "" {
+		return "", fmt.Errorf("domain and service are required")
+	}
+
+	if err := app.HA.CallService(args.Domain, args.Service, args.Data); err != nil {
+		return "", fmt.Errorf("call service: %w", err)
+	}
+
+	return fmt.Sprintf("called %s/%s successfully", args.Domain, args.Service), nil
+}
+
+func toolHASetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.HA == nil {
+		return "", fmt.Errorf("home assistant not configured")
+	}
+
+	var args struct {
+		EntityID   string         `json:"entity_id"`
+		State      string         `json:"state"`
+		Attributes map[string]any `json:"attributes"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.EntityID == "" || args.State == "" {
+		return "", fmt.Errorf("entity_id and state are required")
+	}
+
+	if err := app.HA.SetState(args.EntityID, args.State, args.Attributes); err != nil {
+		return "", fmt.Errorf("set state: %w", err)
+	}
+
+	return fmt.Sprintf("set %s to %s", args.EntityID, args.State), nil
 }

@@ -1,4 +1,5 @@
-package main
+// Package homeassistant provides a Home Assistant REST and WebSocket client.
+package homeassistant
 
 import (
 	"bufio"
@@ -16,10 +17,8 @@ import (
 	"time"
 )
 
-// --- P20.1: Home Assistant Integration ---
-
-// HomeAssistantConfig configures the Home Assistant integration.
-type HomeAssistantConfig struct {
+// Config configures the Home Assistant integration.
+type Config struct {
 	Enabled    bool     `json:"enabled"`
 	BaseURL    string   `json:"baseUrl"`              // e.g., "http://192.168.1.100:8123"
 	Token      string   `json:"token"`                // long-lived access token ($ENV_VAR supported)
@@ -27,8 +26,8 @@ type HomeAssistantConfig struct {
 	AreaFilter []string `json:"areaFilter,omitempty"` // optional area/room filter
 }
 
-// HAEntity represents a Home Assistant entity state.
-type HAEntity struct {
+// Entity represents a Home Assistant entity state.
+type Entity struct {
 	EntityID    string         `json:"entity_id"`
 	State       string         `json:"state"`
 	Attributes  map[string]any `json:"attributes"`
@@ -36,12 +35,24 @@ type HAEntity struct {
 	LastUpdated string         `json:"last_updated"`
 }
 
-// HAService wraps the Home Assistant REST + WebSocket API.
-type HAService struct {
-	cfg     HomeAssistantConfig
+// EventPublisher publishes events to an SSE broker or similar.
+type EventPublisher interface {
+	PublishEvent(key, eventType string, data any)
+}
+
+// LogFn is a structured log function accepting a message and alternating key/value pairs.
+type LogFn func(msg string, keyvals ...any)
+
+// Service wraps the Home Assistant REST + WebSocket API.
+type Service struct {
+	cfg     Config
 	baseURL string
 	token   string
 	client  *http.Client
+
+	logInfo  LogFn
+	logWarn  LogFn
+	logDebug LogFn
 
 	// WebSocket reconnect state.
 	wsMu       sync.Mutex
@@ -49,24 +60,32 @@ type HAService struct {
 	wsStopping bool
 }
 
-// globalHAService is the singleton HA service instance.
-var globalHAService *HAService
-
-// newHAService creates a new HAService, resolving $ENV_VAR for token.
-func newHAService(cfg HomeAssistantConfig) *HAService {
+// New creates a new Service. Nil log functions are replaced with no-ops.
+func New(cfg Config, logInfo, logWarn, logDebug LogFn) *Service {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
-	return &HAService{
-		cfg:     cfg,
-		baseURL: baseURL,
-		token:   cfg.Token, // already resolved by resolveSecrets
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+	noop := func(string, ...any) {}
+	if logInfo == nil {
+		logInfo = noop
+	}
+	if logWarn == nil {
+		logWarn = noop
+	}
+	if logDebug == nil {
+		logDebug = noop
+	}
+	return &Service{
+		cfg:      cfg,
+		baseURL:  baseURL,
+		token:    cfg.Token,
+		client:   &http.Client{Timeout: 10 * time.Second},
+		logInfo:  logInfo,
+		logWarn:  logWarn,
+		logDebug: logDebug,
 	}
 }
 
 // request performs a generic HTTP request to the HA REST API.
-func (s *HAService) request(method, path string, body any) ([]byte, error) {
+func (s *Service) request(method, path string, body any) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -103,13 +122,14 @@ func (s *HAService) request(method, path string, body any) ([]byte, error) {
 }
 
 // ListEntities returns entities, optionally filtered by domain (e.g. "light", "switch", "sensor").
-func (s *HAService) ListEntities(domain string) ([]HAEntity, error) {
+// If AreaFilter is configured on the service, results are further narrowed by area.
+func (s *Service) ListEntities(domain string) ([]Entity, error) {
 	data, err := s.request("GET", "/api/states", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var entities []HAEntity
+	var entities []Entity
 	if err := json.Unmarshal(data, &entities); err != nil {
 		return nil, fmt.Errorf("parse entities: %w", err)
 	}
@@ -117,7 +137,7 @@ func (s *HAService) ListEntities(domain string) ([]HAEntity, error) {
 	// Filter by domain if specified.
 	if domain != "" {
 		prefix := domain + "."
-		filtered := make([]HAEntity, 0, len(entities))
+		filtered := make([]Entity, 0, len(entities))
 		for _, e := range entities {
 			if strings.HasPrefix(e.EntityID, prefix) {
 				filtered = append(filtered, e)
@@ -132,7 +152,7 @@ func (s *HAService) ListEntities(domain string) ([]HAEntity, error) {
 		for _, a := range s.cfg.AreaFilter {
 			areaSet[strings.ToLower(a)] = true
 		}
-		filtered := make([]HAEntity, 0, len(entities))
+		filtered := make([]Entity, 0, len(entities))
 		for _, e := range entities {
 			if area, ok := e.Attributes["area"].(string); ok {
 				if areaSet[strings.ToLower(area)] {
@@ -159,13 +179,13 @@ func (s *HAService) ListEntities(domain string) ([]HAEntity, error) {
 }
 
 // GetState returns the state of a single entity.
-func (s *HAService) GetState(entityID string) (*HAEntity, error) {
+func (s *Service) GetState(entityID string) (*Entity, error) {
 	data, err := s.request("GET", "/api/states/"+entityID, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var entity HAEntity
+	var entity Entity
 	if err := json.Unmarshal(data, &entity); err != nil {
 		return nil, fmt.Errorf("parse entity: %w", err)
 	}
@@ -174,14 +194,14 @@ func (s *HAService) GetState(entityID string) (*HAEntity, error) {
 }
 
 // CallService invokes a Home Assistant service (e.g. light/turn_on).
-func (s *HAService) CallService(domain, service string, data map[string]any) error {
+func (s *Service) CallService(domain, service string, data map[string]any) error {
 	path := fmt.Sprintf("/api/services/%s/%s", domain, service)
 	_, err := s.request("POST", path, data)
 	return err
 }
 
 // SetState directly sets the state of an entity.
-func (s *HAService) SetState(entityID, state string, attributes map[string]any) error {
+func (s *Service) SetState(entityID, state string, attributes map[string]any) error {
 	body := map[string]any{
 		"state": state,
 	}
@@ -192,12 +212,10 @@ func (s *HAService) SetState(entityID, state string, attributes map[string]any) 
 	return err
 }
 
-// --- WebSocket Event Listener ---
-
-// StartEventListener connects to HA WebSocket API, authenticates, subscribes
-// to state_changed events, and publishes them as SSE events via the broker.
+// StartEventListener connects to the HA WebSocket API, authenticates, subscribes
+// to state_changed events, and publishes them via publisher.
 // Auto-reconnects on disconnect with exponential backoff.
-func (s *HAService) StartEventListener(ctx context.Context, broker *sseBroker) {
+func (s *Service) StartEventListener(ctx context.Context, publisher EventPublisher) {
 	backoff := time.Second
 	maxBackoff := 2 * time.Minute
 
@@ -208,7 +226,7 @@ func (s *HAService) StartEventListener(ctx context.Context, broker *sseBroker) {
 		default:
 		}
 
-		err := s.wsConnect(ctx, broker)
+		err := s.wsConnect(ctx, publisher)
 		if err != nil {
 			s.wsMu.Lock()
 			stopping := s.wsStopping
@@ -216,7 +234,7 @@ func (s *HAService) StartEventListener(ctx context.Context, broker *sseBroker) {
 			if stopping {
 				return
 			}
-			logWarn("ha websocket disconnected, reconnecting", "error", err, "backoff", backoff.String())
+			s.logWarn("ha websocket disconnected, reconnecting", "error", err, "backoff", backoff.String())
 		}
 
 		select {
@@ -235,7 +253,7 @@ func (s *HAService) StartEventListener(ctx context.Context, broker *sseBroker) {
 
 // wsConnect establishes one WebSocket connection, authenticates, subscribes,
 // and reads events until error or context cancellation.
-func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
+func (s *Service) wsConnect(ctx context.Context, publisher EventPublisher) error {
 	u, err := url.Parse(s.baseURL)
 	if err != nil {
 		return fmt.Errorf("parse base url: %w", err)
@@ -277,7 +295,7 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 	}()
 
 	// Send HTTP upgrade request.
-	wsKey := wsGenerateKey()
+	wsKey := WsGenerateKey()
 	upgradeReq := fmt.Sprintf(
 		"GET /api/websocket HTTP/1.1\r\n"+
 			"Host: %s\r\n"+
@@ -312,10 +330,10 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 		}
 	}
 
-	logInfo("ha websocket connected", "url", wsURL)
+	s.logInfo("ha websocket connected", "url", wsURL)
 
 	// Read the auth_required message.
-	msg, err := wsReadFrame(reader)
+	msg, err := WsReadFrame(reader)
 	if err != nil {
 		return fmt.Errorf("read auth_required: %w", err)
 	}
@@ -332,12 +350,12 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 		"type":         "auth",
 		"access_token": s.token,
 	})
-	if err := wsWriteFrame(conn, authMsg); err != nil {
+	if err := WsWriteFrame(conn, authMsg); err != nil {
 		return fmt.Errorf("send auth: %w", err)
 	}
 
 	// Read auth result.
-	msg, err = wsReadFrame(reader)
+	msg, err = WsReadFrame(reader)
 	if err != nil {
 		return fmt.Errorf("read auth result: %w", err)
 	}
@@ -349,7 +367,7 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 	if authResult.Type != "auth_ok" {
 		return fmt.Errorf("auth failed: %s (%s)", authResult.Type, authResult.Message)
 	}
-	logInfo("ha websocket authenticated")
+	s.logInfo("ha websocket authenticated")
 
 	// Subscribe to state_changed events.
 	subMsg, _ := json.Marshal(map[string]any{
@@ -357,16 +375,16 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 		"type":       "subscribe_events",
 		"event_type": "state_changed",
 	})
-	if err := wsWriteFrame(conn, subMsg); err != nil {
+	if err := WsWriteFrame(conn, subMsg); err != nil {
 		return fmt.Errorf("send subscribe: %w", err)
 	}
 
 	// Read subscription confirmation.
-	msg, err = wsReadFrame(reader)
+	msg, err = WsReadFrame(reader)
 	if err != nil {
 		return fmt.Errorf("read subscribe result: %w", err)
 	}
-	logDebug("ha websocket subscribed", "response", string(msg))
+	s.logDebug("ha websocket subscribed", "response", string(msg))
 
 	// Event read loop.
 	for {
@@ -379,7 +397,7 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 		// Set read deadline to detect disconnects.
 		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
-		msg, err := wsReadFrame(reader)
+		msg, err := WsReadFrame(reader)
 		if err != nil {
 			return fmt.Errorf("read event: %w", err)
 		}
@@ -390,14 +408,14 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 			Event struct {
 				EventType string `json:"event_type"`
 				Data      struct {
-					EntityID string   `json:"entity_id"`
-					NewState HAEntity `json:"new_state"`
-					OldState HAEntity `json:"old_state"`
+					EntityID string `json:"entity_id"`
+					NewState Entity `json:"new_state"`
+					OldState Entity `json:"old_state"`
 				} `json:"data"`
 			} `json:"event"`
 		}
 		if err := json.Unmarshal(msg, &wsEvent); err != nil {
-			logDebug("ha websocket parse error", "error", err)
+			s.logDebug("ha websocket parse error", "error", err)
 			continue
 		}
 
@@ -411,20 +429,17 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 		}
 
 		// Publish SSE event.
-		if broker != nil {
+		if publisher != nil {
 			sseData := map[string]any{
-				"entity_id": entityID,
-				"old_state": wsEvent.Event.Data.OldState.State,
-				"new_state": wsEvent.Event.Data.NewState.State,
+				"entity_id":  entityID,
+				"old_state":  wsEvent.Event.Data.OldState.State,
+				"new_state":  wsEvent.Event.Data.NewState.State,
 				"attributes": wsEvent.Event.Data.NewState.Attributes,
 			}
-			broker.Publish("ha.state_changed", SSEEvent{
-				Type: "ha.state_changed",
-				Data: sseData,
-			})
+			publisher.PublishEvent("ha.state_changed", "ha.state_changed", sseData)
 		}
 
-		logDebug("ha state changed", "entity", entityID,
+		s.logDebug("ha state changed", "entity", entityID,
 			"old", wsEvent.Event.Data.OldState.State,
 			"new", wsEvent.Event.Data.NewState.State)
 	}
@@ -432,8 +447,8 @@ func (s *HAService) wsConnect(ctx context.Context, broker *sseBroker) error {
 
 // --- Minimal WebSocket Frame Helpers (stdlib only) ---
 
-// wsGenerateKey generates a random base64-encoded key for the WebSocket handshake.
-func wsGenerateKey() string {
+// WsGenerateKey generates a random base64-encoded key for the WebSocket handshake.
+func WsGenerateKey() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	// Simple base64 encoding without importing encoding/base64.
@@ -465,9 +480,9 @@ func wsGenerateKey() string {
 	return result.String()
 }
 
-// wsReadFrame reads a single WebSocket text frame from the reader.
-// Handles server→client frames (unmasked).
-func wsReadFrame(r *bufio.Reader) ([]byte, error) {
+// WsReadFrame reads a single WebSocket text frame from the reader.
+// Handles server-to-client frames (unmasked).
+func WsReadFrame(r *bufio.Reader) ([]byte, error) {
 	// Byte 0: FIN + opcode.
 	b0, err := r.ReadByte()
 	if err != nil {
@@ -479,9 +494,8 @@ func wsReadFrame(r *bufio.Reader) ([]byte, error) {
 	if opcode == 0x08 {
 		return nil, fmt.Errorf("received close frame")
 	}
-	// Handle ping: read payload and ignore (we don't send pong from this simple client).
+	// Handle ping: read payload and discard (no pong sent from this simple client).
 	if opcode == 0x09 {
-		// Read and discard ping payload, then try next frame.
 		b1, err := r.ReadByte()
 		if err != nil {
 			return nil, err
@@ -493,7 +507,7 @@ func wsReadFrame(r *bufio.Reader) ([]byte, error) {
 				return nil, err
 			}
 		}
-		return wsReadFrame(r) // Read next frame.
+		return WsReadFrame(r) // Read next frame.
 	}
 
 	// Byte 1: mask flag + payload length.
@@ -548,9 +562,9 @@ func wsReadFrame(r *bufio.Reader) ([]byte, error) {
 	return payload, nil
 }
 
-// wsWriteFrame writes a masked text frame to the connection.
-// Client→server frames must be masked per RFC 6455.
-func wsWriteFrame(conn net.Conn, payload []byte) error {
+// WsWriteFrame writes a masked text frame to the connection.
+// Client-to-server frames must be masked per RFC 6455.
+func WsWriteFrame(conn net.Conn, payload []byte) error {
 	length := len(payload)
 
 	// Calculate frame header size.
@@ -597,121 +611,4 @@ func wsWriteFrame(conn net.Conn, payload []byte) error {
 
 	_, err := conn.Write(frame)
 	return err
-}
-
-// --- Tool Handlers ---
-
-// toolHAListEntities lists HA entities, optionally filtered by domain.
-func toolHAListEntities(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.HA == nil {
-		return "", fmt.Errorf("home assistant not configured")
-	}
-
-	var args struct {
-		Domain string `json:"domain"`
-	}
-	json.Unmarshal(input, &args)
-
-	entities, err := app.HA.ListEntities(args.Domain)
-	if err != nil {
-		return "", fmt.Errorf("list entities: %w", err)
-	}
-
-	// Build compact output.
-	type entitySummary struct {
-		EntityID   string `json:"entity_id"`
-		State      string `json:"state"`
-		FriendlyName string `json:"friendly_name,omitempty"`
-	}
-	summaries := make([]entitySummary, 0, len(entities))
-	for _, e := range entities {
-		name, _ := e.Attributes["friendly_name"].(string)
-		summaries = append(summaries, entitySummary{
-			EntityID:     e.EntityID,
-			State:        e.State,
-			FriendlyName: name,
-		})
-	}
-
-	b, _ := json.Marshal(summaries)
-	return string(b), nil
-}
-
-// toolHAGetState gets the state of a single HA entity.
-func toolHAGetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.HA == nil {
-		return "", fmt.Errorf("home assistant not configured")
-	}
-
-	var args struct {
-		EntityID string `json:"entity_id"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if args.EntityID == "" {
-		return "", fmt.Errorf("entity_id is required")
-	}
-
-	entity, err := app.HA.GetState(args.EntityID)
-	if err != nil {
-		return "", fmt.Errorf("get state: %w", err)
-	}
-
-	b, _ := json.Marshal(entity)
-	return string(b), nil
-}
-
-// toolHACallService invokes a Home Assistant service.
-func toolHACallService(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.HA == nil {
-		return "", fmt.Errorf("home assistant not configured")
-	}
-
-	var args struct {
-		Domain  string         `json:"domain"`
-		Service string         `json:"service"`
-		Data    map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if args.Domain == "" || args.Service == "" {
-		return "", fmt.Errorf("domain and service are required")
-	}
-
-	if err := app.HA.CallService(args.Domain, args.Service, args.Data); err != nil {
-		return "", fmt.Errorf("call service: %w", err)
-	}
-
-	return fmt.Sprintf("called %s/%s successfully", args.Domain, args.Service), nil
-}
-
-// toolHASetState directly sets the state of an HA entity.
-func toolHASetState(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.HA == nil {
-		return "", fmt.Errorf("home assistant not configured")
-	}
-
-	var args struct {
-		EntityID   string         `json:"entity_id"`
-		State      string         `json:"state"`
-		Attributes map[string]any `json:"attributes"`
-	}
-	if err := json.Unmarshal(input, &args); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if args.EntityID == "" || args.State == "" {
-		return "", fmt.Errorf("entity_id and state are required")
-	}
-
-	if err := app.HA.SetState(args.EntityID, args.State, args.Attributes); err != nil {
-		return "", fmt.Errorf("set state: %w", err)
-	}
-
-	return fmt.Sprintf("set %s to %s", args.EntityID, args.State), nil
 }

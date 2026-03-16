@@ -945,7 +945,7 @@ func main() {
 		if cfg.HomeAssistant.Enabled && cfg.HomeAssistant.BaseURL != "" {
 			app.HA = newHAService(cfg.HomeAssistant)
 			if cfg.HomeAssistant.WebSocket {
-				go app.HA.StartEventListener(ctx, state.broker)
+				go app.HA.StartEventListener(ctx, &haEventPublisherAdapter{broker: state.broker})
 			}
 			logInfo("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
 		}
