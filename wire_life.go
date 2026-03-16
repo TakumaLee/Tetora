@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 
@@ -21,6 +22,7 @@ import (
 	"tetora/internal/life/pricewatch"
 	"tetora/internal/life/profile"
 	"tetora/internal/life/reminder"
+	"tetora/internal/life/tasks"
 	"tetora/internal/life/timetracking"
 )
 
@@ -30,6 +32,13 @@ type UserProfileService = profile.Service
 type UserProfile = profile.UserProfile
 type ChannelIdentity = profile.ChannelIdentity
 type UserPreference = profile.UserPreference
+
+type TaskManagerService = tasks.Service
+type UserTask = tasks.UserTask
+type TaskProject = tasks.TaskProject
+type TaskReview = tasks.TaskReview
+type TaskFilter = tasks.TaskFilter
+type TodoistTask = tasks.TodoistTask
 
 type FinanceService = finance.Service
 type HabitsService = habits.Service
@@ -256,4 +265,49 @@ func newUserProfileService(cfg *Config) *UserProfileService {
 
 func initUserProfileDB(dbPath string) error {
 	return profile.InitDB(dbPath)
+}
+
+// --- Tasks ---
+
+func newTaskManagerService(cfg *Config) *TaskManagerService {
+	return tasks.New(cfg.HistoryDB, tasks.Config{
+		DefaultProject: cfg.TaskManager.defaultProjectOrInbox(),
+	}, makeLifeDB(), newUUID)
+}
+
+func initTaskManagerDB(dbPath string) error {
+	return tasks.InitDB(dbPath)
+}
+
+func newNotionSync(cfg *Config) *tasks.NotionSync {
+	svc := globalTaskManager
+	return tasks.NewNotionSync(svc, tasks.NotionConfig{
+		APIKey:     cfg.TaskManager.Notion.APIKey,
+		DatabaseID: cfg.TaskManager.Notion.DatabaseID,
+	})
+}
+
+func newTodoistSync(cfg *Config) *tasks.TodoistSync {
+	svc := globalTaskManager
+	return tasks.NewTodoistSync(svc, tasks.TodoistConfig{
+		APIKey: cfg.TaskManager.Todoist.APIKey,
+	})
+}
+
+// taskFromRow delegates to tasks package.
+func taskFromRow(row map[string]any) UserTask {
+	return tasks.TaskFromRow(row)
+}
+
+// taskFieldToColumn delegates to tasks package.
+func taskFieldToColumn(field string) string {
+	return tasks.TaskFieldToColumn(field)
+}
+
+// findTaskByExternalID delegates to globalTaskManager.
+func findTaskByExternalID(dbPath, source, externalID string) (*UserTask, error) {
+	if globalTaskManager == nil {
+		return nil, fmt.Errorf("task manager not initialized")
+	}
+	return globalTaskManager.FindByExternalID(source, externalID)
 }

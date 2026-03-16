@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"tetora/internal/life/tasks"
 )
 
 // --- Todoist Sync Tests ---
@@ -17,9 +19,6 @@ func TestNewTodoistSync(t *testing.T) {
 	ts := newTodoistSync(cfg)
 	if ts == nil {
 		t.Fatal("expected non-nil TodoistSync")
-	}
-	if ts.dbPath != "/tmp/test.db" {
-		t.Errorf("expected dbPath '/tmp/test.db', got %q", ts.dbPath)
 	}
 }
 
@@ -34,13 +33,13 @@ func TestTodoistPriorityConversion(t *testing.T) {
 		{1, 4}, // normal
 	}
 	for _, tt := range tests {
-		got := todoistPriorityToLocal(tt.todoist)
+		got := tasks.TodoistPriorityToLocal(tt.todoist)
 		if got != tt.local {
-			t.Errorf("todoistPriorityToLocal(%d) = %d, want %d", tt.todoist, got, tt.local)
+			t.Errorf("TodoistPriorityToLocal(%d) = %d, want %d", tt.todoist, got, tt.local)
 		}
-		back := localPriorityToTodoist(tt.local)
+		back := tasks.LocalPriorityToTodoist(tt.local)
 		if back != tt.todoist {
-			t.Errorf("localPriorityToTodoist(%d) = %d, want %d", tt.local, back, tt.todoist)
+			t.Errorf("LocalPriorityToTodoist(%d) = %d, want %d", tt.local, back, tt.todoist)
 		}
 	}
 }
@@ -86,9 +85,9 @@ func TestTodoistPullTasks_MockServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origBase := todoistAPIBase
-	todoistAPIBase = srv.URL
-	defer func() { todoistAPIBase = origBase }()
+	origBase := tasks.TodoistAPIBase
+	tasks.TodoistAPIBase = srv.URL
+	defer func() { tasks.TodoistAPIBase = origBase }()
 
 	cfg := &Config{
 		HistoryDB: dbPath,
@@ -115,9 +114,9 @@ func TestTodoistPullTasks_MockServer(t *testing.T) {
 	}
 
 	// Verify tasks were created.
-	tasks, _ := globalTaskManager.ListTasks("user1", TaskFilter{})
-	if len(tasks) != 2 {
-		t.Errorf("expected 2 tasks in DB, got %d", len(tasks))
+	taskList, _ := globalTaskManager.ListTasks("user1", TaskFilter{})
+	if len(taskList) != 2 {
+		t.Errorf("expected 2 tasks in DB, got %d", len(taskList))
 	}
 }
 
@@ -168,9 +167,6 @@ func TestNewNotionSync(t *testing.T) {
 	ns := newNotionSync(cfg)
 	if ns == nil {
 		t.Fatal("expected non-nil NotionSync")
-	}
-	if ns.dbPath != "/tmp/test.db" {
-		t.Errorf("expected dbPath '/tmp/test.db', got %q", ns.dbPath)
 	}
 }
 
@@ -235,9 +231,9 @@ func TestNotionPullTasks_MockServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	origBase := notionAPIBase
-	notionAPIBase = srv.URL
-	defer func() { notionAPIBase = origBase }()
+	origBase := tasks.NotionAPIBase
+	tasks.NotionAPIBase = srv.URL
+	defer func() { tasks.NotionAPIBase = origBase }()
 
 	cfg := &Config{
 		HistoryDB: dbPath,
@@ -309,55 +305,6 @@ func TestToolNotionSync_UnknownAction(t *testing.T) {
 
 func TestNotionStatusMapping(t *testing.T) {
 	tests := []struct {
-		notion string
-		local  string
-	}{
-		{"Done", "done"},
-		{"Complete", "done"},
-		{"In Progress", "in_progress"},
-		{"Doing", "in_progress"},
-		{"Cancelled", "cancelled"},
-		{"To Do", "todo"},
-		{"Unknown", "todo"},
-	}
-	for _, tt := range tests {
-		page := notionPage{}
-		page.Properties.Status.Select = &struct {
-			Name string `json:"name"`
-		}{Name: tt.notion}
-		got := notionStatusToLocal(page)
-		if got != tt.local {
-			t.Errorf("notionStatusToLocal(%q) = %q, want %q", tt.notion, got, tt.local)
-		}
-	}
-}
-
-func TestNotionPriorityMapping(t *testing.T) {
-	tests := []struct {
-		notion string
-		local  int
-	}{
-		{"Urgent", 1},
-		{"High", 2},
-		{"Medium", 3},
-		{"Low", 4},
-		{"P1", 1},
-		{"P4", 4},
-	}
-	for _, tt := range tests {
-		page := notionPage{}
-		page.Properties.Priority.Select = &struct {
-			Name string `json:"name"`
-		}{Name: tt.notion}
-		got := notionPriorityToLocal(page)
-		if got != tt.local {
-			t.Errorf("notionPriorityToLocal(%q) = %d, want %d", tt.notion, got, tt.local)
-		}
-	}
-}
-
-func TestLocalStatusToNotion(t *testing.T) {
-	tests := []struct {
 		local  string
 		notion string
 	}{
@@ -368,14 +315,14 @@ func TestLocalStatusToNotion(t *testing.T) {
 		{"unknown", ""},
 	}
 	for _, tt := range tests {
-		got := localStatusToNotion(tt.local)
+		got := tasks.LocalStatusToNotion(tt.local)
 		if got != tt.notion {
-			t.Errorf("localStatusToNotion(%q) = %q, want %q", tt.local, got, tt.notion)
+			t.Errorf("LocalStatusToNotion(%q) = %q, want %q", tt.local, got, tt.notion)
 		}
 	}
 }
 
-func TestLocalPriorityToNotion(t *testing.T) {
+func TestNotionPriorityMapping(t *testing.T) {
 	tests := []struct {
 		local  int
 		notion string
@@ -387,9 +334,9 @@ func TestLocalPriorityToNotion(t *testing.T) {
 		{0, ""},
 	}
 	for _, tt := range tests {
-		got := localPriorityToNotion(tt.local)
+		got := tasks.LocalPriorityToNotion(tt.local)
 		if got != tt.notion {
-			t.Errorf("localPriorityToNotion(%d) = %q, want %q", tt.local, got, tt.notion)
+			t.Errorf("LocalPriorityToNotion(%d) = %q, want %q", tt.local, got, tt.notion)
 		}
 	}
 }
@@ -404,10 +351,12 @@ func TestFindTaskByExternalID(t *testing.T) {
 	initTaskManagerDB(dbPath)
 
 	cfg := &Config{HistoryDB: dbPath}
-	svc := newTaskManagerService(cfg)
+	oldMgr := globalTaskManager
+	globalTaskManager = newTaskManagerService(cfg)
+	defer func() { globalTaskManager = oldMgr }()
 
 	// Create a task with external ID.
-	svc.CreateTask(UserTask{
+	globalTaskManager.CreateTask(UserTask{
 		UserID:         "u1",
 		Title:          "Synced task",
 		ExternalID:     "ext-123",

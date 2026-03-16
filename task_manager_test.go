@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -528,7 +529,7 @@ func TestGenerateReview(t *testing.T) {
 		// Manually set completed_at via raw SQL.
 		setCompleted := fmt.Sprintf(`UPDATE user_tasks SET completed_at = '%s' WHERE id = '%s';`,
 			escapeSQLite(past), escapeSQLite(tasks[0].ID))
-		exec.Command("sqlite3", svc.dbPath, setCompleted).Run()
+		exec.Command("sqlite3", svc.DBPath(), setCompleted).Run()
 	}
 
 	svc.CreateTask(UserTask{UserID: "u1", Title: "In progress", Status: "in_progress", Project: "work"})
@@ -656,6 +657,11 @@ func TestCreateTaskPriorityValidation(t *testing.T) {
 	}
 }
 
+func testAppCtx(tm *TaskManagerService) context.Context {
+	app := &App{TaskManager: tm}
+	return withApp(context.Background(), app)
+}
+
 func TestToolTaskCreate_JSONOutput(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -664,15 +670,14 @@ func TestToolTaskCreate_JSONOutput(t *testing.T) {
 	initTaskManagerDB(dbPath)
 
 	cfg := &Config{HistoryDB: dbPath}
-	old := globalTaskManager
-	globalTaskManager = newTaskManagerService(cfg)
-	defer func() { globalTaskManager = old }()
+	svc := newTaskManagerService(cfg)
+	ctx := testAppCtx(svc)
 
 	input, _ := json.Marshal(map[string]any{
 		"title":  "Test tool create",
 		"userId": "tool-user",
 	})
-	result, err := toolTaskCreate(nil, cfg, input)
+	result, err := toolTaskCreate(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolTaskCreate: %v", err)
 	}
@@ -694,9 +699,8 @@ func TestToolTaskCreate_WithDecompose(t *testing.T) {
 	initTaskManagerDB(dbPath)
 
 	cfg := &Config{HistoryDB: dbPath}
-	old := globalTaskManager
-	globalTaskManager = newTaskManagerService(cfg)
-	defer func() { globalTaskManager = old }()
+	svc := newTaskManagerService(cfg)
+	ctx := testAppCtx(svc)
 
 	input, _ := json.Marshal(map[string]any{
 		"title":     "Big task",
@@ -704,7 +708,7 @@ func TestToolTaskCreate_WithDecompose(t *testing.T) {
 		"decompose": true,
 		"subtasks":  []string{"Step 1", "Step 2"},
 	})
-	result, err := toolTaskCreate(nil, cfg, input)
+	result, err := toolTaskCreate(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolTaskCreate with decompose: %v", err)
 	}
@@ -722,24 +726,20 @@ func TestToolTaskCreate_WithDecompose(t *testing.T) {
 }
 
 func TestToolTaskCreate_MissingTitle(t *testing.T) {
-	old := globalTaskManager
-	globalTaskManager = &TaskManagerService{}
-	defer func() { globalTaskManager = old }()
+	ctx := testAppCtx(newTaskManagerService(&Config{}))
 
 	input, _ := json.Marshal(map[string]any{})
-	_, err := toolTaskCreate(nil, &Config{}, input)
+	_, err := toolTaskCreate(ctx, &Config{}, input)
 	if err == nil {
 		t.Fatal("expected error for missing title")
 	}
 }
 
 func TestToolTaskCreate_NotInitialized(t *testing.T) {
-	old := globalTaskManager
-	globalTaskManager = nil
-	defer func() { globalTaskManager = old }()
+	ctx := testAppCtx(nil)
 
 	input, _ := json.Marshal(map[string]any{"title": "test"})
-	_, err := toolTaskCreate(nil, &Config{}, input)
+	_, err := toolTaskCreate(ctx, &Config{}, input)
 	if err == nil {
 		t.Fatal("expected error when not initialized")
 	}

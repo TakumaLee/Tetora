@@ -268,7 +268,7 @@ func (e *InsightsEngine) buildSpendingReport(start, end, prevStart, prevEnd time
 }
 
 func (e *InsightsEngine) buildTasksReport(start, end time.Time) *TasksReport {
-	dbPath := globalTaskManager.dbPath
+	dbPath := globalTaskManager.DBPath()
 	startStr := start.Format(time.RFC3339)
 	endStr := end.Format(time.RFC3339)
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -675,7 +675,7 @@ func (e *InsightsEngine) detectMoodAnomalies(days int, today string) []LifeInsig
 }
 
 func (e *InsightsEngine) detectTaskAnomalies(today string) []LifeInsight {
-	dbPath := globalTaskManager.dbPath
+	dbPath := globalTaskManager.DBPath()
 
 	// Count overdue tasks.
 	sql := fmt.Sprintf(
