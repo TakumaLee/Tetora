@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	"tetora/internal/cli"
 	"tetora/internal/sla"
 	"strings"
 	"syscall"
@@ -21,127 +22,153 @@ import (
 )
 
 func main() {
+	// Set CLI version before routing.
+	cli.TetoraVersion = tetoraVersion
+
 	// Subcommand routing.
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "init":
-			cmdInit()
-			return
+		// --- Commands routed to internal/cli ---
 		case "doctor":
-			cmdDoctor()
+			cli.CmdDoctor()
 			return
 		case "health":
-			cmdHealth(os.Args[2:])
+			cli.CmdHealth(os.Args[2:])
 			return
 		case "service":
-			cmdService(os.Args[2:])
+			cli.CmdService(os.Args[2:])
 			return
 		case "job":
-			cmdJob(os.Args[2:])
+			cli.CmdJob(os.Args[2:])
 			return
 		case "history":
-			cmdHistory(os.Args[2:])
+			cli.CmdHistory(os.Args[2:])
 			return
 		case "agent":
-			cmdAgent(os.Args[2:])
+			cli.CmdAgent(os.Args[2:])
 			return
 		case "status":
-			cmdStatus(os.Args[2:])
+			cli.CmdStatus(os.Args[2:])
 			return
 		case "dispatch":
-			cmdDispatch(os.Args[2:])
+			cli.CmdDispatch(os.Args[2:])
 			return
 		case "route":
-			cmdRouteDispatch(os.Args[2:])
+			cli.CmdRouteDispatch(os.Args[2:])
 			return
 		case "config":
-			cmdConfig(os.Args[2:])
+			cli.CmdConfig(os.Args[2:])
 			return
 		case "logs", "log":
-			cmdLogs(os.Args[2:])
+			cli.CmdLogs(os.Args[2:])
 			return
 		case "prompt":
-			cmdPrompt(os.Args[2:])
+			cli.CmdPrompt(os.Args[2:])
 			return
 		case "memory":
-			cmdMemory(os.Args[2:])
+			cli.CmdMemory(os.Args[2:])
 			return
 		case "mcp":
-			cmdMCP(os.Args[2:])
-			return
-		case "mcp-server":
-			cmdMCPServer()
+			cli.CmdMCP(os.Args[2:])
 			return
 		case "hooks":
-			cmdHooks(os.Args[2:])
+			cli.CmdHooks(os.Args[2:])
 			return
 		case "knowledge":
-			cmdKnowledge(os.Args[2:])
+			cli.CmdKnowledge(os.Args[2:])
 			return
 		case "skill":
-			cmdSkill(os.Args[2:])
+			cli.CmdSkill(os.Args[2:])
+			return
+		case "security":
+			cli.CmdSecurity(os.Args[2:])
+			return
+		case "session", "sessions":
+			cli.CmdSession(os.Args[2:])
+			return
+		case "budget":
+			cli.CmdBudget(os.Args[2:])
+			return
+		case "usage":
+			cli.CmdUsage(os.Args[2:])
+			return
+		case "trust":
+			cli.CmdTrust(os.Args[2:])
+			return
+		case "webhook":
+			cli.CmdWebhook(os.Args[2:])
+			return
+		case "data":
+			cli.CmdData(os.Args[2:])
+			return
+		case "oauth":
+			cli.CmdOAuth(os.Args[2:])
+			return
+		case "backup":
+			cli.CmdBackup(os.Args[2:])
+			return
+		case "restore":
+			cli.CmdRestore(os.Args[2:])
+			return
+		case "mirror":
+			cli.CmdMirror(os.Args[2:])
+			return
+		case "discord":
+			cli.CmdDiscord(os.Args[2:])
+			return
+		case "access":
+			cli.CmdAccess(os.Args[2:])
+			return
+		case "release":
+			cli.CmdRelease(os.Args[2:])
+			return
+		case "import":
+			if len(os.Args) > 2 {
+				switch os.Args[2] {
+				case "config":
+					cli.CmdImportConfig(os.Args[3:])
+				default:
+					fmt.Fprintln(os.Stderr, "Usage: tetora import <config>")
+					os.Exit(1)
+				}
+			} else {
+				fmt.Fprintln(os.Stderr, "Usage: tetora import <config>")
+				os.Exit(1)
+			}
+			return
+
+		// --- Commands staying in root (deeply coupled) ---
+		case "init":
+			cmdInit()
 			return
 		case "workflow":
 			cmdWorkflow(os.Args[2:])
 			return
-		case "security":
-			cmdSecurity(os.Args[2:])
-			return
-		case "session", "sessions":
-			cmdSession(os.Args[2:])
-			return
-		case "budget":
-			cmdBudget(os.Args[2:])
-			return
-		case "usage":
-			cmdUsage(os.Args[2:])
-			return
-		case "trust":
-			cmdTrust(os.Args[2:])
-			return
-		case "webhook":
-			cmdWebhook(os.Args[2:])
-			return
-		case "proactive":
-			runProactive(os.Args[2:])
-			return
 		case "quick":
 			cmdQuick(os.Args[2:], loadConfig(""))
-			return
-		case "compact":
-			runCompaction(os.Args[2:])
 			return
 		case "pairing":
 			cmdPairing(os.Args[2:])
 			return
-		case "data":
-			cmdData(os.Args[2:])
+		case "mcp-server":
+			cmdMCPServer()
 			return
-		case "oauth": // --- P18.2: OAuth 2.0 Framework ---
-			cmdOAuth(os.Args[2:])
+		case "proactive":
+			runProactive(os.Args[2:])
 			return
-		case "plugin": // --- P13.1: Plugin System ---
+		case "compact":
+			runCompaction(os.Args[2:])
+			return
+		case "plugin":
 			cmdPlugin(os.Args[2:])
 			return
-		case "task": // --- P14.6: Task Board ---
+		case "task":
 			cmdTask(os.Args[2:])
-			return
-		case "backup":
-			cmdBackup(os.Args[2:])
-			return
-		case "restore":
-			cmdRestore(os.Args[2:])
-			return
-		case "mirror":
-			cmdMirror(os.Args[2:])
-			return
-		case "discord":
-			handleDiscordCLI(os.Args[2:])
 			return
 		case "dashboard":
 			cmdOpenDashboard()
 			return
-		case "migrate": // --- P27.2: Encrypt ---
+		case "migrate":
 			if len(os.Args) > 2 && os.Args[2] == "encrypt" {
 				cmdMigrateEncrypt()
 			} else {
@@ -151,23 +178,6 @@ func main() {
 			return
 		case "completion":
 			cmdCompletion(os.Args[2:])
-			return
-		case "access":
-			cmdAccess(os.Args[2:])
-			return
-		case "import":
-			if len(os.Args) > 2 {
-				switch os.Args[2] {
-				case "config":
-					cmdImportConfig(os.Args[3:])
-				default:
-					fmt.Fprintln(os.Stderr, "Usage: tetora import <config>")
-					os.Exit(1)
-				}
-			} else {
-				fmt.Fprintln(os.Stderr, "Usage: tetora import <config>")
-				os.Exit(1)
-			}
 			return
 		case "stop":
 			killDaemonProcess()
@@ -180,9 +190,6 @@ func main() {
 			return
 		case "restart":
 			cmdRestart()
-			return
-		case "release":
-			cmdRelease(os.Args[2:])
 			return
 		case "upgrade":
 			cmdUpgrade(os.Args[2:])
