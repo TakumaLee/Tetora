@@ -237,6 +237,11 @@ func main() {
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 
+	// App is the single source of truth for all services.
+	// Services are initialized into app fields below, then SyncToGlobals()
+	// backfills global vars for callers that haven't migrated yet.
+	app := &App{Cfg: cfg}
+
 	// Initialize hooks event receiver.
 	hookRecv := newHookReceiver(state.broker, cfg)
 	cfg.hookRecv = hookRecv
@@ -346,7 +351,7 @@ func main() {
 			if err := initUserProfileDB(cfg.HistoryDB); err != nil {
 				logWarn("init user_profiles failed", "error", err)
 			} else {
-				globalUserProfileService = newUserProfileService(cfg)
+				app.UserProfile = newUserProfileService(cfg)
 				logInfo("user profile service initialized", "sentiment", cfg.UserProfile.SentimentEnabled)
 			}
 		}
@@ -363,7 +368,7 @@ func main() {
 			if err := initFinanceDB(cfg.HistoryDB); err != nil {
 				logWarn("init finance tables failed", "error", err)
 			} else {
-				globalFinanceService = newFinanceService(cfg)
+				app.Finance = newFinanceService(cfg)
 				logInfo("finance service initialized", "defaultCurrency", cfg.Finance.defaultCurrencyOrTWD())
 			}
 		}
@@ -373,7 +378,7 @@ func main() {
 			if err := initTaskManagerDB(cfg.HistoryDB); err != nil {
 				logWarn("init task_manager tables failed", "error", err)
 			} else {
-				globalTaskManager = newTaskManagerService(cfg)
+				app.TaskManager = newTaskManagerService(cfg)
 				logInfo("task manager initialized", "defaultProject", cfg.TaskManager.defaultProjectOrInbox())
 			}
 		}
@@ -383,21 +388,21 @@ func main() {
 			if err := initFileManagerDB(cfg.HistoryDB); err != nil {
 				logWarn("init file_manager tables failed", "error", err)
 			} else {
-				globalFileManager = newFileManagerService(cfg)
+				app.FileManager = newFileManagerService(cfg)
 				logInfo("file manager initialized", "storageDir", cfg.FileManager.storageDirOrDefault(cfg.baseDir))
 			}
 		}
 
 		// --- P23.5: Media Control ---
 		if cfg.Spotify.Enabled {
-			globalSpotifyService = newSpotifyService(cfg)
+			app.Spotify = newSpotifyService(cfg)
 			logInfo("spotify service initialized", "market", cfg.Spotify.marketOrDefault())
 		}
 		if cfg.Podcast.Enabled && cfg.HistoryDB != "" {
 			if err := initPodcastDB(cfg.HistoryDB); err != nil {
 				logWarn("init podcast tables failed", "error", err)
 			} else {
-				globalPodcastService = newPodcastService(cfg.HistoryDB)
+				app.Podcast = newPodcastService(cfg.HistoryDB)
 				logInfo("podcast service initialized")
 			}
 		}
@@ -411,7 +416,7 @@ func main() {
 				if err != nil {
 					logWarn("init family service failed", "error", err)
 				} else {
-					globalFamilyService = svc
+					app.Family = svc
 					logInfo("family mode initialized", "maxUsers", cfg.Family.maxUsersOrDefault())
 				}
 			}
@@ -422,7 +427,7 @@ func main() {
 			if err := initContactsDB(cfg.HistoryDB); err != nil {
 				logWarn("init contacts tables failed", "error", err)
 			} else {
-				globalContactsService = newContactsService(cfg)
+				app.Contacts = newContactsService(cfg)
 				logInfo("contacts service initialized")
 			}
 		}
@@ -432,13 +437,13 @@ func main() {
 			if err := initInsightsDB(cfg.HistoryDB); err != nil {
 				logWarn("init insights tables failed", "error", err)
 			} else {
-				globalInsightsEngine = newInsightsEngine(cfg)
+				app.Insights = newInsightsEngine(cfg)
 				logInfo("insights engine initialized")
 			}
 		}
 
 		// --- P24.4: Smart Scheduling ---
-		globalSchedulingService = newSchedulingService(cfg)
+		app.Scheduling = newSchedulingService(cfg)
 		logInfo("scheduling service initialized")
 
 		// --- P24.5: Habit & Wellness Tracking ---
@@ -446,7 +451,7 @@ func main() {
 			if err := initHabitsDB(cfg.HistoryDB); err != nil {
 				logWarn("init habits tables failed", "error", err)
 			} else {
-				globalHabitsService = newHabitsService(cfg)
+				app.Habits = newHabitsService(cfg)
 				logInfo("habits service initialized")
 			}
 		}
@@ -456,7 +461,7 @@ func main() {
 			if err := initGoalsDB(cfg.HistoryDB); err != nil {
 				logWarn("init goals tables failed", "error", err)
 			} else {
-				globalGoalsService = newGoalsService(cfg)
+				app.Goals = newGoalsService(cfg)
 				logInfo("goals service initialized")
 			}
 		}
@@ -466,14 +471,14 @@ func main() {
 			if err := initTimeTrackingDB(cfg.HistoryDB); err != nil {
 				logWarn("init time_entries failed", "error", err)
 			} else {
-				globalTimeTracking = newTimeTrackingService(cfg)
+				app.TimeTracking = newTimeTrackingService(cfg)
 				logInfo("time tracking initialized")
 			}
 		}
 
 		// --- P29.0: Lifecycle Automation ---
 		if cfg.Lifecycle.Enabled {
-			globalLifecycleEngine = newLifecycleEngine(cfg)
+			app.Lifecycle = newLifecycleEngine(cfg)
 			logInfo("lifecycle engine initialized",
 				"autoHabitSuggest", cfg.Lifecycle.AutoHabitSuggest,
 				"autoInsightAction", cfg.Lifecycle.AutoInsightAction,
@@ -482,7 +487,7 @@ func main() {
 
 		// --- P24.7: Morning Briefing & Evening Wrap ---
 		if cfg.HistoryDB != "" {
-			globalBriefingService = newBriefingService(cfg)
+			app.Briefing = newBriefingService(cfg)
 			logInfo("briefing service initialized")
 		}
 
@@ -862,14 +867,12 @@ func main() {
 		}
 
 		// --- P19.3: Smart Reminders --- Initialize reminder engine.
-		var reminderEngine *ReminderEngine
 		if cfg.Reminders.Enabled && cfg.HistoryDB != "" {
 			if err := initReminderDB(cfg.HistoryDB); err != nil {
 				logWarn("init reminders table failed", "error", err)
 			} else {
-				reminderEngine = newReminderEngine(cfg, notifyFn)
-				reminderEngine.Start()
-				globalReminderEngine = reminderEngine
+				app.Reminder = newReminderEngine(cfg, notifyFn)
+				app.Reminder.Start()
 				logInfo("reminder engine started", "checkInterval", cfg.Reminders.checkIntervalOrDefault().String(), "maxPerUser", cfg.Reminders.maxPerUserOrDefault())
 			}
 		}
@@ -883,35 +886,35 @@ func main() {
 
 		// --- P19.5: Unified Presence/Typing Indicators --- Initialize presence manager.
 		// Note: Telegram bot is registered after creation below.
-		globalPresence = newPresenceManager()
+		app.Presence = newPresenceManager()
 		if slackBot != nil {
-			globalPresence.RegisterSetter("slack", slackBot)
+			app.Presence.RegisterSetter("slack", slackBot)
 		}
 		if discordBot != nil {
-			globalPresence.RegisterSetter("discord", discordBot)
+			app.Presence.RegisterSetter("discord", discordBot)
 		}
 		if whatsappBot != nil {
-			globalPresence.RegisterSetter("whatsapp", whatsappBot)
+			app.Presence.RegisterSetter("whatsapp", whatsappBot)
 		}
 		if lineBot != nil {
-			globalPresence.RegisterSetter("line", lineBot)
+			app.Presence.RegisterSetter("line", lineBot)
 		}
 		if teamsBot != nil {
-			globalPresence.RegisterSetter("teams", teamsBot)
+			app.Presence.RegisterSetter("teams", teamsBot)
 		}
 		if signalBot != nil {
-			globalPresence.RegisterSetter("signal", signalBot)
+			app.Presence.RegisterSetter("signal", signalBot)
 		}
 		if gchatBot != nil {
-			globalPresence.RegisterSetter("gchat", gchatBot)
+			app.Presence.RegisterSetter("gchat", gchatBot)
 		}
-		logInfo("presence manager initialized", "setters", len(globalPresence.setters))
+		logInfo("presence manager initialized", "setters", len(app.Presence.setters))
 
 		// --- P20.1: Home Assistant --- Initialize HA service.
 		if cfg.HomeAssistant.Enabled && cfg.HomeAssistant.BaseURL != "" {
-			globalHAService = newHAService(cfg.HomeAssistant)
+			app.HA = newHAService(cfg.HomeAssistant)
 			if cfg.HomeAssistant.WebSocket {
-				go globalHAService.StartEventListener(ctx, state.broker)
+				go app.HA.StartEventListener(ctx, state.broker)
 			}
 			logInfo("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
 		}
@@ -923,27 +926,27 @@ func main() {
 
 		// --- P19.1: Gmail Integration ---
 		if cfg.Gmail.Enabled {
-			globalGmailService = &GmailService{cfg: cfg}
+			app.Gmail = &GmailService{cfg: cfg}
 			logInfo("gmail integration enabled")
 		}
 
 		// --- P19.2: Google Calendar Integration ---
 		if cfg.Calendar.Enabled {
-			globalCalendarService = newCalendarService(cfg)
+			app.Calendar = newCalendarService(cfg)
 			logInfo("calendar integration enabled")
 		}
 
 		// --- P20.3: Twitter/X Integration ---
 		if cfg.Twitter.Enabled {
-			globalTwitterService = newTwitterService(cfg)
+			app.Twitter = newTwitterService(cfg)
 			logInfo("twitter integration enabled")
 		}
 
 		// --- P21.6: Chrome Extension Relay ---
 		if cfg.BrowserRelay.Enabled {
-			globalBrowserRelay = newBrowserRelay(&cfg.BrowserRelay)
+			app.Browser = newBrowserRelay(&cfg.BrowserRelay)
 			go func() {
-				if err := globalBrowserRelay.Start(ctx); err != nil && err != http.ErrServerClosed {
+				if err := app.Browser.Start(ctx); err != nil && err != http.ErrServerClosed {
 					logWarn("browser relay stopped", "error", err)
 				}
 			}()
@@ -954,49 +957,18 @@ func main() {
 		var imessageBot *IMessageBot
 		if cfg.IMessage.Enabled && cfg.IMessage.ServerURL != "" {
 			imessageBot = newIMessageBot(cfg, state, sem, childSem)
-			globalIMessageBot = imessageBot
+			app.IMessage = imessageBot
 			logInfo("imessage bot enabled", "endpoint", cfg.IMessage.webhookPathOrDefault())
-			if globalPresence != nil {
-				globalPresence.RegisterSetter("imessage", imessageBot)
+			if app.Presence != nil {
+				app.Presence.RegisterSetter("imessage", imessageBot)
 			}
 		}
 
 		// Initialize callback manager for external workflow steps.
 		callbackMgr = NewCallbackManager(cfg.HistoryDB)
 
-		// P28.1: Collect all services into App container.
-		app := &App{
-			Cfg:         cfg,
-			UserProfile: globalUserProfileService,
-			Finance:     globalFinanceService,
-			TaskManager: globalTaskManager,
-			FileManager: globalFileManager,
-			Spotify:     globalSpotifyService,
-			Podcast:     globalPodcastService,
-			Family:      globalFamilyService,
-			Contacts:    globalContactsService,
-			Insights:    globalInsightsEngine,
-			Scheduling:  globalSchedulingService,
-			Habits:      globalHabitsService,
-			Goals:       globalGoalsService,
-			Briefing:    globalBriefingService,
-			Lifecycle:   globalLifecycleEngine,
-			TimeTracking: globalTimeTracking,
-			OAuth:       globalOAuthManager,
-			Gmail:       globalGmailService,
-			Calendar:    globalCalendarService,
-			Twitter:     globalTwitterService,
-			HA:          globalHAService,
-			Drive:       globalDriveService,
-			Dropbox:     globalDropboxService,
-			Browser:     globalBrowserRelay,
-			IMessage:    globalIMessageBot,
-			SpawnTracker:        globalSpawnTracker,
-			JudgeCache:          globalJudgeCache,
-			ImageGenLimiter:     globalImageGenLimiter,
-			Presence:    globalPresence,
-			Reminder:    reminderEngine,
-		}
+		// Backfill global vars from App for callers that haven't migrated yet.
+		app.SyncToGlobals()
 
 		// HTTP server.
 		drainCh := make(chan struct{}, 1)
@@ -1073,8 +1045,8 @@ func main() {
 				bot.replyWithKeyboard(bot.chatID, text, keyboard)
 			}
 			// Register Telegram bot for presence/typing indicators.
-			if globalPresence != nil {
-				globalPresence.RegisterSetter("telegram", bot)
+			if app.Presence != nil {
+				app.Presence.RegisterSetter("telegram", bot)
 			}
 			go bot.pollLoop(ctx)
 		} else {
@@ -1163,8 +1135,8 @@ func main() {
 		}
 
 		// --- P19.3: Smart Reminders --- Stop reminder engine.
-		if reminderEngine != nil {
-			reminderEngine.Stop()
+		if app.Reminder != nil {
+			app.Reminder.Stop()
 		}
 
 		// Stop cron scheduler (waits for running jobs up to 30s).

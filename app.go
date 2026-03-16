@@ -1,9 +1,9 @@
 package main
 
-// App is the top-level application container holding all services.
-// Phase 1: Created in main.go, globals set from its fields via SyncToGlobals.
-// Phase 2 (future): Server.app provides access, HTTP handlers migrate.
-// Phase 3 (future): Tool handlers receive App via context.
+// App is the top-level application container and single source of truth for all services.
+// Services are initialized into App fields in main.go, then SyncToGlobals() backfills
+// global vars for callers that haven't migrated yet. As callers migrate to appFromCtx(),
+// globals and SyncToGlobals() will be removed.
 type App struct {
 	Cfg *Config
 
