@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Discord Config ---
@@ -824,7 +826,7 @@ func (db *DiscordBot) cmdCancel(msg discordMessage) {
 func (db *DiscordBot) cmdAsk(msg discordMessage, prompt string) {
 	db.sendTyping(msg.ChannelID)
 
-	ctx := withTraceID(context.Background(), newTraceID("discord"))
+	ctx := trace.WithID(context.Background(), trace.NewID("discord"))
 
 	task := Task{Prompt: prompt, Source: "ask:discord"}
 	fillDefaults(db.cfg, &task)
@@ -952,7 +954,7 @@ func (db *DiscordBot) handleDirectRoute(msg discordMessage, prompt string, agent
 // --- Smart Dispatch ---
 
 func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
-	ctx := withTraceID(context.Background(), newTraceID("discord"))
+	ctx := trace.WithID(context.Background(), trace.NewID("discord"))
 	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
 	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
 	db.executeRoute(msg, prompt, *route)
@@ -970,7 +972,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	defer baseCancel()
-	ctx := withTraceID(baseCtx, newTraceID("discord"))
+	ctx := trace.WithID(baseCtx, trace.NewID("discord"))
 	dbPath := db.cfg.HistoryDB
 
 	// Generate a task ID early for Discord activity tracking.

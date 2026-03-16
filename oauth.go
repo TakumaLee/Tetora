@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	tcrypto "tetora/internal/crypto"
 )
 
 // --- P18.2: OAuth 2.0 Generic Framework ---
@@ -123,12 +125,12 @@ func initOAuthTable(dbPath string) error {
 
 // encryptOAuthToken encrypts plaintext using AES-256-GCM.
 func encryptOAuthToken(plaintext, key string) (string, error) {
-	return encrypt(plaintext, key)
+	return tcrypto.Encrypt(plaintext, key)
 }
 
 // decryptOAuthToken decrypts a hex-encoded AES-256-GCM ciphertext.
 func decryptOAuthToken(ciphertextHex, key string) (string, error) {
-	return decrypt(ciphertextHex, key)
+	return tcrypto.Decrypt(ciphertextHex, key)
 }
 
 // --- Token Storage ---

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"tetora/internal/quiet"
 )
 
 func cmdStatus(args []string) {
@@ -160,7 +162,7 @@ func cmdStatus(args []string) {
 
 	// 6. Quiet hours.
 	if cfg.QuietHours.Enabled {
-		if isQuietHours(cfg) {
+		if quiet.IsQuietHours(toQuietCfg(cfg)) {
 			queued := quietGlobal.QueuedCount()
 			fmt.Printf("  Quiet:    \033[33mactive\033[0m (%s - %s)", cfg.QuietHours.Start, cfg.QuietHours.End)
 			if queued > 0 {
@@ -255,7 +257,7 @@ func cmdStatusJSON(cfg *Config, api *apiClient) {
 	// Quiet hours.
 	if cfg.QuietHours.Enabled {
 		result["quietHours"] = map[string]any{
-			"active":  isQuietHours(cfg),
+			"active":  quiet.IsQuietHours(toQuietCfg(cfg)),
 			"start":   cfg.QuietHours.Start,
 			"end":     cfg.QuietHours.End,
 			"queued":  quietGlobal.QueuedCount(),

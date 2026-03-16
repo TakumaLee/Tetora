@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"tetora/internal/export"
 	"testing"
 )
 
@@ -43,9 +44,9 @@ INSERT INTO history (job_id, name, status, started_at, finished_at) VALUES ('abc
 		},
 	}
 
-	result, err := exportUserData(cfg, "")
+	result, err := export.UserData(cfg.HistoryDB, cfg.baseDir, "")
 	if err != nil {
-		t.Fatalf("exportUserData failed: %v", err)
+		t.Fatalf("export.UserData failed: %v", err)
 	}
 
 	// Check result fields.
@@ -135,9 +136,9 @@ INSERT INTO reminders VALUES ('r3', 'alice', 'meeting', '2026-01-02T00:00:00Z', 
 		Ops:       OpsConfig{ExportEnabled: true},
 	}
 
-	result, err := exportUserData(cfg, "alice")
+	result, err := export.UserData(cfg.HistoryDB, cfg.baseDir, "alice")
 	if err != nil {
-		t.Fatalf("exportUserData failed: %v", err)
+		t.Fatalf("export.UserData failed: %v", err)
 	}
 
 	// Open zip and check reminders.
@@ -165,7 +166,7 @@ INSERT INTO reminders VALUES ('r3', 'alice', 'meeting', '2026-01-02T00:00:00Z', 
 
 func TestExportUserData_NoHistoryDB(t *testing.T) {
 	cfg := &Config{HistoryDB: ""}
-	_, err := exportUserData(cfg, "")
+	_, err := export.UserData(cfg.HistoryDB, cfg.baseDir, "")
 	if err == nil {
 		t.Error("expected error for empty historyDB")
 	}
@@ -185,9 +186,9 @@ func TestExportUserData_MissingTables(t *testing.T) {
 		Ops:       OpsConfig{ExportEnabled: true},
 	}
 
-	result, err := exportUserData(cfg, "")
+	result, err := export.UserData(cfg.HistoryDB, cfg.baseDir, "")
 	if err != nil {
-		t.Fatalf("exportUserData failed even with missing tables: %v", err)
+		t.Fatalf("export.UserData failed even with missing tables: %v", err)
 	}
 
 	// Should still produce a zip with manifest.
@@ -221,9 +222,9 @@ func TestCreateZipFromDir(t *testing.T) {
 	os.WriteFile(filepath.Join(srcDir, "file2.txt"), []byte("world"), 0o644)
 
 	zipPath := filepath.Join(destDir, "test.zip")
-	err := createZipFromDir(srcDir, zipPath)
+	err := export.ZipFromDir(srcDir, zipPath)
 	if err != nil {
-		t.Fatalf("createZipFromDir failed: %v", err)
+		t.Fatalf("export.ZipFromDir failed: %v", err)
 	}
 
 	r, err := zip.OpenReader(zipPath)
@@ -252,9 +253,9 @@ func TestExportManifestContent(t *testing.T) {
 		Ops:       OpsConfig{ExportEnabled: true},
 	}
 
-	result, err := exportUserData(cfg, "test-user")
+	result, err := export.UserData(cfg.HistoryDB, cfg.baseDir, "test-user")
 	if err != nil {
-		t.Fatalf("exportUserData failed: %v", err)
+		t.Fatalf("export.UserData failed: %v", err)
 	}
 
 	r, err := zip.OpenReader(result.Filename)

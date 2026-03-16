@@ -13,20 +13,6 @@ type ModelPricing = estimate.ModelPricing
 type CostEstimate = estimate.CostEstimate
 type EstimateResult = estimate.EstimateResult
 
-// --- Default Pricing ---
-
-func defaultPricing() map[string]ModelPricing {
-	return estimate.DefaultPricing()
-}
-
-// --- Token Estimation ---
-
-// estimateInputTokens estimates input tokens using the len/4 heuristic.
-// For mixed content (English, CJK, code), this is accurate within ~20%.
-func estimateInputTokens(prompt, systemPrompt string) int {
-	return estimate.InputTokens(prompt, systemPrompt)
-}
-
 // estimateRequestTokens estimates the total input tokens for a provider request.
 // Uses the len/4 heuristic for all text components.
 func estimateRequestTokens(req ProviderRequest) int {
@@ -41,11 +27,6 @@ func estimateRequestTokens(req ProviderRequest) int {
 		total = 10
 	}
 	return total
-}
-
-// contextWindowForModel returns the context window size (in tokens) for known models.
-func contextWindowForModel(model string) int {
-	return estimate.ContextWindow(model)
 }
 
 // compressMessages truncates old messages to reduce context window usage.
@@ -69,19 +50,6 @@ func compressMessages(messages []Message, keepRecent int) []Message {
 		}
 	}
 	return result
-}
-
-// queryModelAvgOutput returns the average output tokens for a model from history DB.
-func queryModelAvgOutput(dbPath, model string) int {
-	return estimate.QueryModelAvgOutput(dbPath, model)
-}
-
-// --- Pricing Resolution ---
-
-// resolvePricing looks up pricing for a model.
-// Chain: cfg.Pricing[exact] → cfg.Pricing[prefix] → defaults[exact] → defaults[prefix] → fallback.
-func resolvePricing(cfg *Config, model string) ModelPricing {
-	return estimate.ResolvePricing(cfg.Pricing, model)
 }
 
 // --- Cost Estimation ---
@@ -110,15 +78,15 @@ func estimateTaskCost(cfg *Config, task Task, agentName string) CostEstimate {
 	}
 
 	// Estimate input tokens.
-	tokensIn := estimateInputTokens(task.Prompt, task.SystemPrompt)
+	tokensIn := estimate.InputTokens(task.Prompt, task.SystemPrompt)
 
 	// Estimate output tokens from history, fallback to config default.
-	tokensOut := queryModelAvgOutput(cfg.HistoryDB, model)
+	tokensOut := estimate.QueryModelAvgOutput(cfg.HistoryDB, model)
 	if tokensOut == 0 {
 		tokensOut = cfg.Estimate.defaultOutputTokensOrDefault()
 	}
 
-	pricing := resolvePricing(cfg, model)
+	pricing := estimate.ResolvePricing(cfg.Pricing, model)
 
 	costUSD := float64(tokensIn)*pricing.InputPer1M/1_000_000 +
 		float64(tokensOut)*pricing.OutputPer1M/1_000_000
@@ -151,7 +119,7 @@ func estimateTasks(cfg *Config, tasks []Task) *EstimateResult {
 			if rc, ok := cfg.Agents[cfg.SmartDispatch.Coordinator]; ok && rc.Model != "" {
 				classifyModel = rc.Model
 			}
-			classifyPricing := resolvePricing(cfg, classifyModel)
+			classifyPricing := estimate.ResolvePricing(cfg.Pricing, classifyModel)
 			// Classification prompt ~500 tokens in, ~50 tokens out.
 			classifyCost := float64(500)*classifyPricing.InputPer1M/1_000_000 +
 				float64(50)*classifyPricing.OutputPer1M/1_000_000

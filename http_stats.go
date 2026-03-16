@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"tetora/internal/cost"
+	"tetora/internal/sla"
 )
 
 func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
@@ -164,7 +167,16 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 
 		switch r.Method {
 		case http.MethodGet:
-			statuses, err := querySLAStatusAll(cfg)
+			window := cfg.SLA.WindowOrDefault()
+			windowHours := int(window.Hours())
+			if windowHours <= 0 {
+				windowHours = 24
+			}
+			names := make([]string, 0, len(cfg.Agents))
+			for name := range cfg.Agents {
+				names = append(names, name)
+			}
+			statuses, err := sla.QuerySLAStatusAll(cfg.HistoryDB, cfg.SLA.Agents, names, windowHours)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
@@ -181,7 +193,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 					limit = n
 				}
 			}
-			history, _ := querySLAHistory(cfg.HistoryDB, role, limit)
+			history, _ := sla.QuerySLAHistory(cfg.HistoryDB, role, limit)
 			if history == nil {
 				history = []SLACheckResult{}
 			}
@@ -199,7 +211,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 	// --- Budget ---
 	mux.HandleFunc("/budget", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		status := queryBudgetStatus(cfg)
+		status := cost.QueryBudgetStatus(cfg.Budgets, cfg.HistoryDB)
 		json.NewEncoder(w).Encode(status)
 	})
 

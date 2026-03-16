@@ -15,5 +15,3 @@ func toQuietCfg(cfg *Config) quiet.Config {
 	}
 }
 
-func isQuietHours(cfg *Config) bool                { return quiet.IsQuietHours(toQuietCfg(cfg)) }
-func parseHHMM(s string) (int, int)                { return quiet.ParseHHMM(s) }

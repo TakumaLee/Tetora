@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Slack Config ---
@@ -284,7 +286,7 @@ func (sb *SlackBot) handleSlackRoute(event slackEvent, prompt string) {
 	// Send initial "thinking" message.
 	thinkingTS := sb.slackPostMessage(event.Channel, ts, "Routing...")
 
-	ctx := withTraceID(context.Background(), newTraceID("slack"))
+	ctx := trace.WithID(context.Background(), trace.NewID("slack"))
 	dbPath := sb.cfg.HistoryDB
 
 	// Step 1: Route to determine agent.

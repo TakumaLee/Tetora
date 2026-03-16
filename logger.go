@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"tetora/internal/log"
+	"tetora/internal/trace"
 )
 
 // --- Log Levels ---
@@ -50,7 +51,7 @@ func initLogger(cfg LoggingConfig, baseDir string) *Logger {
 		MaxSizeMB: cfg.maxSizeMBOrDefault(),
 		MaxFiles:  cfg.maxFilesOrDefault(),
 	}, baseDir)
-	l.SetTraceExtractor(traceIDFromContext)
+	l.SetTraceExtractor(trace.IDFromContext)
 	log.SetDefault(l)
 	return l
 }

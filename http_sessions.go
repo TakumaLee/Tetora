@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
@@ -224,10 +226,10 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 			if body.Async {
 				// Async mode: return task ID immediately, stream via SSE.
 				taskID := task.ID
-				traceID := traceIDFromContext(r.Context())
+				traceID := trace.IDFromContext(r.Context())
 
 				go func() {
-					asyncCtx := withTraceID(context.Background(), traceID)
+					asyncCtx := trace.WithID(context.Background(), traceID)
 					result := runTask(asyncCtx, cfg, task, state)
 
 					// Record assistant message to session.

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- iMessage Config ---
@@ -195,7 +197,7 @@ func (ib *IMessageBot) handleMessage(msg BlueBubblesMessage) {
 
 // dispatchToAgent dispatches a message to the agent system and replies via iMessage.
 func (ib *IMessageBot) dispatchToAgent(text string, msg BlueBubblesMessage) {
-	ctx := withTraceID(context.Background(), newTraceID("imessage"))
+	ctx := trace.WithID(context.Background(), trace.NewID("imessage"))
 	dbPath := ib.cfg.HistoryDB
 
 	// Route to determine agent.

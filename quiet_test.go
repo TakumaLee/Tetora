@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"tetora/internal/quiet"
+)
 
 func TestIsQuietHours_Disabled(t *testing.T) {
 	cfg := &Config{
@@ -10,7 +14,7 @@ func TestIsQuietHours_Disabled(t *testing.T) {
 			End:     "08:00",
 		},
 	}
-	if isQuietHours(cfg) {
+	if quiet.IsQuietHours(toQuietCfg(cfg)) {
 		t.Error("isQuietHours should return false when disabled")
 	}
 }
@@ -23,7 +27,7 @@ func TestIsQuietHours_EmptyStart(t *testing.T) {
 			End:     "08:00",
 		},
 	}
-	if isQuietHours(cfg) {
+	if quiet.IsQuietHours(toQuietCfg(cfg)) {
 		t.Error("isQuietHours should return false when start is empty")
 	}
 }

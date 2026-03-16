@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // mutateTriggerConfig updates workflowTriggers in config.json and sends SIGHUP to reload.
@@ -214,8 +216,8 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				fmt.Sprintf("name=%s", name), clientIP(r))
 
 			// Run asynchronously.
-			wfTraceID := traceIDFromContext(r.Context())
-			go executeWorkflow(withTraceID(context.Background(), wfTraceID), cfg, wf, body.Variables, state, sem, childSem)
+			wfTraceID := trace.IDFromContext(r.Context())
+			go executeWorkflow(trace.WithID(context.Background(), wfTraceID), cfg, wf, body.Variables, state, sem, childSem)
 
 			// Return immediately with run acknowledgment.
 			w.WriteHeader(http.StatusAccepted)
@@ -357,9 +359,9 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			auditLog(cfg.HistoryDB, "workflow.resume", "http",
 				fmt.Sprintf("originalRunID=%s", runID), clientIP(r))
 
-			wfTraceID := traceIDFromContext(r.Context())
+			wfTraceID := trace.IDFromContext(r.Context())
 			go func() {
-				run, err := resumeWorkflow(withTraceID(context.Background(), wfTraceID), cfg, runID, state, sem, childSem)
+				run, err := resumeWorkflow(trace.WithID(context.Background(), wfTraceID), cfg, runID, state, sem, childSem)
 				if err != nil {
 					logWarn("workflow resume failed", "originalRunID", runID, "error", err)
 				} else {

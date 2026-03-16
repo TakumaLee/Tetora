@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/history"
+	"tetora/internal/quiet"
 )
 
 // --- Cron Job Types ---
@@ -328,7 +331,7 @@ func (ce *CronEngine) checkBudget() (exceeded bool, reason string) {
 		return ce.budgetCacheOver, ce.budgetCacheMsg
 	}
 
-	stats, err := queryCostStats(ce.cfg.HistoryDB)
+	stats, err := history.QueryCostStats(ce.cfg.HistoryDB)
 	if err != nil {
 		return false, ""
 	}
@@ -405,7 +408,7 @@ func (ce *CronEngine) checkDigest() {
 	if digestTime == "" {
 		digestTime = "08:00"
 	}
-	dh, dm := parseHHMM(digestTime)
+	dh, dm := quiet.ParseHHMM(digestTime)
 	if dh < 0 {
 		return
 	}
@@ -439,7 +442,7 @@ func (ce *CronEngine) checkDigest() {
 	from := yesterday.Format("2006-01-02") + "T00:00:00"
 	to := today + "T00:00:00"
 
-	total, success, fail, cost, failures, err := queryDigestStats(ce.cfg.HistoryDB, from, to)
+	total, success, fail, cost, failures, err := history.QueryDigestStats(ce.cfg.HistoryDB, from, to)
 	if err != nil {
 		logError("digest query error", "error", err)
 		return
@@ -475,7 +478,7 @@ func (ce *CronEngine) cachedLastFinished() time.Time {
 	if time.Since(ce.idleCacheTime) < 30*time.Second {
 		return ce.idleCacheLast
 	}
-	ce.idleCacheLast = queryLastFinished(ce.cfg.HistoryDB)
+	ce.idleCacheLast = history.QueryLastFinished(ce.cfg.HistoryDB)
 	ce.idleCacheTime = time.Now()
 	return ce.idleCacheLast
 }
@@ -607,7 +610,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 						histDB := ce.cfg.HistoryDB
 						go func() {
 							ts := time.Now().UTC().Format(time.RFC3339)
-							_ = insertJobRun(histDB, JobRun{
+							_ = history.InsertRun(histDB, JobRun{
 								JobID:      jID,
 								Name:       jName,
 								Source:     "cron",
@@ -753,7 +756,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		}
 		if ce.cfg.HistoryDB != "" {
 			now := time.Now().UTC().Format(time.RFC3339)
-			_ = insertJobRun(ce.cfg.HistoryDB, JobRun{
+			_ = history.InsertRun(ce.cfg.HistoryDB, JobRun{
 				JobID:      j.ID,
 				Name:       j.Name,
 				Source:     "cron",
@@ -903,7 +906,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		if scheduledAt.IsZero() {
 			scheduledAt = jobStart
 		}
-		insertCronExecLog(ce.cfg.HistoryDB, j.ID,
+		history.InsertCronExecLog(ce.cfg.HistoryDB, j.ID,
 			scheduledAt.UTC().Format(time.RFC3339),
 			jobStart.UTC().Format(time.RFC3339),
 			j.replayed)
@@ -1043,7 +1046,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 					j.Name, result.Status, dur.Round(time.Second), truncate(result.Error, 300))
 			}
 
-			if isQuietHours(ce.cfg) {
+			if quiet.IsQuietHours(toQuietCfg(ce.cfg)) {
 				if ce.cfg.QuietHours.Digest {
 					quietGlobal.Enqueue(msg)
 				}
@@ -1288,7 +1291,7 @@ func (ce *CronEngine) ListJobs() []CronJobInfo {
 			LastRun:           j.lastRun,
 			LastErr:           j.lastErr,
 			LastCost:          j.lastCost,
-			AvgCost:           queryJobAvgCost(ce.cfg.HistoryDB, j.ID),
+			AvgCost:           history.QueryJobAvgCost(ce.cfg.HistoryDB, j.ID),
 			Errors:            j.errors,
 			OnSuccess:         j.OnSuccess,
 			OnFailure:         j.OnFailure,

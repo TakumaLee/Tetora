@@ -6,7 +6,36 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"tetora/internal/sla"
 )
+
+// checkSLAViolationsTest is a test helper that mimics the old checkSLAViolations wrapper.
+func checkSLAViolationsTest(c *Config, notifyFn func(string)) {
+	if !c.SLA.Enabled || c.HistoryDB == "" {
+		return
+	}
+	window := c.SLA.WindowOrDefault()
+	windowHours := int(window.Hours())
+	if windowHours <= 0 {
+		windowHours = 24
+	}
+	sla.CheckSLAViolations(c.HistoryDB, c.SLA.Agents, windowHours, notifyFn)
+}
+
+// querySLAStatusAllTest is a test helper that mimics the old querySLAStatusAll wrapper.
+func querySLAStatusAllTest(c *Config) ([]SLAStatus, error) {
+	window := c.SLA.WindowOrDefault()
+	windowHours := int(window.Hours())
+	if windowHours <= 0 {
+		windowHours = 24
+	}
+	names := make([]string, 0, len(c.Agents))
+	for name := range c.Agents {
+		names = append(names, name)
+	}
+	return sla.QuerySLAStatusAll(c.HistoryDB, c.SLA.Agents, names, windowHours)
+}
 
 func setupSLATestDB(t *testing.T) string {
 	t.Helper()
@@ -15,7 +44,7 @@ func setupSLATestDB(t *testing.T) string {
 	if err := initHistoryDB(dbPath); err != nil {
 		t.Fatalf("initHistoryDB: %v", err)
 	}
-	initSLADB(dbPath)
+	sla.InitSLADB(dbPath)
 	return dbPath
 }
 
@@ -44,7 +73,7 @@ func TestInitSLADB(t *testing.T) {
 	if err := initHistoryDB(dbPath); err != nil {
 		t.Fatalf("initHistoryDB: %v", err)
 	}
-	initSLADB(dbPath)
+	sla.InitSLADB(dbPath)
 
 	// Verify sla_checks table exists.
 	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='sla_checks'")
@@ -65,7 +94,7 @@ func TestInitSLADB(t *testing.T) {
 func TestQuerySLAMetricsEmpty(t *testing.T) {
 	dbPath := setupSLATestDB(t)
 
-	m, err := querySLAMetrics(dbPath, "翡翠", 24)
+	m, err := sla.QuerySLAMetrics(dbPath, "翡翠", 24)
 	if err != nil {
 		t.Fatalf("querySLAMetrics: %v", err)
 	}
@@ -95,7 +124,7 @@ func TestQuerySLAMetricsWithData(t *testing.T) {
 			start.Format(time.RFC3339), end.Format(time.RFC3339), 0.05)
 	}
 
-	m, err := querySLAMetrics(dbPath, "翡翠", 24)
+	m, err := sla.QuerySLAMetrics(dbPath, "翡翠", 24)
 	if err != nil {
 		t.Fatalf("querySLAMetrics: %v", err)
 	}
@@ -135,7 +164,7 @@ func TestQuerySLAMetricsMultipleRoles(t *testing.T) {
 	insertTestRun(t, dbPath, "黒曜", "success", startStr, endStr, 0.20)
 	insertTestRun(t, dbPath, "黒曜", "error", startStr, endStr, 0.15)
 
-	m1, err := querySLAMetrics(dbPath, "翡翠", 24)
+	m1, err := sla.QuerySLAMetrics(dbPath, "翡翠", 24)
 	if err != nil {
 		t.Fatalf("querySLAMetrics 翡翠: %v", err)
 	}
@@ -143,7 +172,7 @@ func TestQuerySLAMetricsMultipleRoles(t *testing.T) {
 		t.Errorf("翡翠: total=%d success=%d, want 2/2", m1.Total, m1.Success)
 	}
 
-	m2, err := querySLAMetrics(dbPath, "黒曜", 24)
+	m2, err := sla.QuerySLAMetrics(dbPath, "黒曜", 24)
 	if err != nil {
 		t.Fatalf("querySLAMetrics 黒曜: %v", err)
 	}
@@ -164,7 +193,7 @@ func TestQueryP95Latency(t *testing.T) {
 			start.Format(time.RFC3339), end.Format(time.RFC3339), 0.01)
 	}
 
-	p95 := queryP95Latency(dbPath, "翡翠", 24)
+	p95 := sla.QueryP95Latency(dbPath, "翡翠", 24)
 	if p95 <= 0 {
 		t.Errorf("p95 = %d, want > 0", p95)
 	}
@@ -205,7 +234,7 @@ func TestSLAStatusViolation(t *testing.T) {
 		},
 	}
 
-	statuses, err := querySLAStatusAll(cfg)
+	statuses, err := querySLAStatusAllTest(cfg)
 	if err != nil {
 		t.Fatalf("querySLAStatusAll: %v", err)
 	}
@@ -245,7 +274,7 @@ func TestSLAStatusOK(t *testing.T) {
 		},
 	}
 
-	statuses, err := querySLAStatusAll(cfg)
+	statuses, err := querySLAStatusAllTest(cfg)
 	if err != nil {
 		t.Fatalf("querySLAStatusAll: %v", err)
 	}
@@ -260,7 +289,7 @@ func TestSLAStatusOK(t *testing.T) {
 func TestRecordSLACheck(t *testing.T) {
 	dbPath := setupSLATestDB(t)
 
-	recordSLACheck(dbPath, SLACheckResult{
+	sla.RecordSLACheck(dbPath, SLACheckResult{
 		Agent:        "翡翠",
 		Timestamp:   time.Now().Format(time.RFC3339),
 		SuccessRate: 0.85,
@@ -269,7 +298,7 @@ func TestRecordSLACheck(t *testing.T) {
 		Detail:      "success rate 85% < 95%",
 	})
 
-	results, err := querySLAHistory(dbPath, "翡翠", 10)
+	results, err := sla.QuerySLAHistory(dbPath, "翡翠", 10)
 	if err != nil {
 		t.Fatalf("querySLAHistory: %v", err)
 	}
@@ -322,7 +351,7 @@ func TestCheckSLAViolationsNotifies(t *testing.T) {
 		notifications = append(notifications, msg)
 	}
 
-	checkSLAViolations(cfg, notifyFn)
+	checkSLAViolationsTest(cfg, notifyFn)
 
 	if len(notifications) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(notifications))
@@ -332,7 +361,7 @@ func TestCheckSLAViolationsNotifies(t *testing.T) {
 	}
 
 	// Check that it was recorded.
-	results, err := querySLAHistory(dbPath, "黒曜", 10)
+	results, err := sla.QuerySLAHistory(dbPath, "黒曜", 10)
 	if err != nil {
 		t.Fatalf("querySLAHistory: %v", err)
 	}
@@ -358,7 +387,7 @@ func TestCheckSLAViolationsNoData(t *testing.T) {
 	}
 
 	var notifications []string
-	checkSLAViolations(cfg, func(msg string) {
+	checkSLAViolationsTest(cfg, func(msg string) {
 		notifications = append(notifications, msg)
 	})
 
@@ -440,7 +469,7 @@ func TestJobRunRoleField(t *testing.T) {
 }
 
 func TestSLAMetricsEmptyDB(t *testing.T) {
-	m, err := querySLAMetrics("", "test", 24)
+	m, err := sla.QuerySLAMetrics("", "test", 24)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -474,7 +503,7 @@ func TestSLALatencyThreshold(t *testing.T) {
 		},
 	}
 
-	statuses, err := querySLAStatusAll(cfg)
+	statuses, err := querySLAStatusAllTest(cfg)
 	if err != nil {
 		t.Fatalf("querySLAStatusAll: %v", err)
 	}
@@ -495,24 +524,24 @@ func TestSLADisabledNoOp(t *testing.T) {
 		SLA: SLAConfig{Enabled: false},
 	}
 	// Should not panic.
-	checkSLAViolations(cfg, nil)
+	checkSLAViolationsTest(cfg, nil)
 }
 
 // TestSLACheckHistoryQuery verifies querySLAHistory with and without role filter.
 func TestSLACheckHistoryQuery(t *testing.T) {
 	dbPath := setupSLATestDB(t)
 
-	recordSLACheck(dbPath, SLACheckResult{
+	sla.RecordSLACheck(dbPath, SLACheckResult{
 		Agent: "翡翠", Timestamp: time.Now().Format(time.RFC3339),
 		SuccessRate: 0.95, P95Latency: 10000, Violation: false,
 	})
-	recordSLACheck(dbPath, SLACheckResult{
+	sla.RecordSLACheck(dbPath, SLACheckResult{
 		Agent: "黒曜", Timestamp: time.Now().Format(time.RFC3339),
 		SuccessRate: 0.80, P95Latency: 50000, Violation: true, Detail: "low success rate",
 	})
 
 	// Query all.
-	all, err := querySLAHistory(dbPath, "", 10)
+	all, err := sla.QuerySLAHistory(dbPath, "", 10)
 	if err != nil {
 		t.Fatalf("querySLAHistory all: %v", err)
 	}
@@ -521,7 +550,7 @@ func TestSLACheckHistoryQuery(t *testing.T) {
 	}
 
 	// Query filtered.
-	filtered, err := querySLAHistory(dbPath, "黒曜", 10)
+	filtered, err := sla.QuerySLAHistory(dbPath, "黒曜", 10)
 	if err != nil {
 		t.Fatalf("querySLAHistory filtered: %v", err)
 	}

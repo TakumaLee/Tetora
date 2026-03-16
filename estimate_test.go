@@ -2,11 +2,13 @@ package main
 
 import (
 	"testing"
+
+	"tetora/internal/estimate"
 )
 
 func TestEstimateInputTokens(t *testing.T) {
 	// ~25 chars => ~6 tokens (with min 10)
-	tokens := estimateInputTokens("Hello, how are you today?", "")
+	tokens := estimate.InputTokens("Hello, how are you today?", "")
 	if tokens < 5 {
 		t.Errorf("expected >=5, got %d", tokens)
 	}
@@ -15,15 +17,15 @@ func TestEstimateInputTokens(t *testing.T) {
 func TestEstimateInputTokensWithSystem(t *testing.T) {
 	// Use longer strings to avoid the minimum threshold.
 	prompt := "Please explain the theory of relativity in detail with examples"
-	tokensNoSys := estimateInputTokens(prompt, "")
-	tokensWithSys := estimateInputTokens(prompt, "You are a physics professor with 20 years of experience in theoretical physics.")
+	tokensNoSys := estimate.InputTokens(prompt, "")
+	tokensWithSys := estimate.InputTokens(prompt, "You are a physics professor with 20 years of experience in theoretical physics.")
 	if tokensWithSys <= tokensNoSys {
 		t.Error("system prompt should increase token count")
 	}
 }
 
 func TestEstimateInputTokensMinimum(t *testing.T) {
-	tokens := estimateInputTokens("Hi", "")
+	tokens := estimate.InputTokens("Hi", "")
 	if tokens < 10 {
 		t.Errorf("minimum should be 10, got %d", tokens)
 	}
@@ -34,7 +36,7 @@ func TestEstimateInputTokensLong(t *testing.T) {
 	for i := range long {
 		long[i] = 'a'
 	}
-	tokens := estimateInputTokens(string(long), "")
+	tokens := estimate.InputTokens(string(long), "")
 	if tokens < 900 || tokens > 1100 {
 		t.Errorf("expected ~1000 tokens for 4000 chars, got %d", tokens)
 	}
@@ -46,7 +48,7 @@ func TestResolvePricingExact(t *testing.T) {
 			"sonnet": {Model: "sonnet", InputPer1M: 3.0, OutputPer1M: 15.0},
 		},
 	}
-	p := resolvePricing(cfg, "sonnet")
+	p := estimate.ResolvePricing(cfg.Pricing,"sonnet")
 	if p.InputPer1M != 3.0 {
 		t.Errorf("expected 3.0, got %f", p.InputPer1M)
 	}
@@ -54,7 +56,7 @@ func TestResolvePricingExact(t *testing.T) {
 
 func TestResolvePricingDefault(t *testing.T) {
 	cfg := &Config{}
-	p := resolvePricing(cfg, "sonnet")
+	p := estimate.ResolvePricing(cfg.Pricing,"sonnet")
 	if p.InputPer1M != 3.0 {
 		t.Errorf("expected default 3.0, got %f", p.InputPer1M)
 	}
@@ -62,7 +64,7 @@ func TestResolvePricingDefault(t *testing.T) {
 
 func TestResolvePricingFallback(t *testing.T) {
 	cfg := &Config{}
-	p := resolvePricing(cfg, "unknown-model-xyz")
+	p := estimate.ResolvePricing(cfg.Pricing,"unknown-model-xyz")
 	if p.InputPer1M != 2.50 {
 		t.Errorf("expected fallback 2.50, got %f", p.InputPer1M)
 	}
@@ -70,7 +72,7 @@ func TestResolvePricingFallback(t *testing.T) {
 
 func TestResolvePricingPrefixMatch(t *testing.T) {
 	cfg := &Config{}
-	p := resolvePricing(cfg, "claude-3-5-sonnet-20241022")
+	p := estimate.ResolvePricing(cfg.Pricing,"claude-3-5-sonnet-20241022")
 	if p.InputPer1M != 3.0 {
 		t.Errorf("expected sonnet pricing 3.0, got %f", p.InputPer1M)
 	}
@@ -82,7 +84,7 @@ func TestResolvePricingConfigOverride(t *testing.T) {
 			"sonnet": {Model: "sonnet", InputPer1M: 5.0, OutputPer1M: 25.0},
 		},
 	}
-	p := resolvePricing(cfg, "sonnet")
+	p := estimate.ResolvePricing(cfg.Pricing,"sonnet")
 	if p.InputPer1M != 5.0 {
 		t.Errorf("expected config override 5.0, got %f", p.InputPer1M)
 	}
@@ -219,7 +221,7 @@ func TestEstimateMultipleTasks(t *testing.T) {
 }
 
 func TestDefaultPricing(t *testing.T) {
-	dp := defaultPricing()
+	dp := estimate.DefaultPricing()
 	models := []string{"opus", "sonnet", "haiku", "gpt-4o", "gpt-4o-mini"}
 	for _, m := range models {
 		p, ok := dp[m]

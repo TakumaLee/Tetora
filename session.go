@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"tetora/internal/crypto"
 )
 
 // sessionAgentCol is the actual column name for the agent field in the sessions table.
@@ -249,7 +251,7 @@ func addSessionMessage(dbPath string, msg SessionMessage) error {
 	// P27.2: Encrypt message content if encryption key is configured.
 	content := msg.Content
 	if k := globalEncryptionKey(); k != "" {
-		if enc, err := encrypt(content, k); err == nil {
+		if enc, err := crypto.Encrypt(content, k); err == nil {
 			content = enc
 		}
 	}
@@ -657,7 +659,7 @@ func sessionMessageFromRow(row map[string]any) SessionMessage {
 	content := jsonStr(row["content"])
 	// P27.2: Decrypt message content if encryption key is configured.
 	if k := globalEncryptionKey(); k != "" {
-		if dec, err := decrypt(content, k); err == nil {
+		if dec, err := crypto.Decrypt(content, k); err == nil {
 			content = dec
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"tetora/internal/messaging"
+	"tetora/internal/trace"
 )
 
 // messagingRuntime implements messaging.BotRuntime using root package functions.
@@ -152,11 +153,11 @@ func (r *messagingRuntime) Truncate(s string, maxLen int) string {
 }
 
 func (r *messagingRuntime) NewTraceID(source string) string {
-	return newTraceID(source)
+	return trace.NewID(source)
 }
 
 func (r *messagingRuntime) WithTraceID(ctx context.Context, traceID string) context.Context {
-	return withTraceID(ctx, traceID)
+	return trace.WithID(ctx, traceID)
 }
 
 func (r *messagingRuntime) LogInfo(msg string, args ...interface{}) {

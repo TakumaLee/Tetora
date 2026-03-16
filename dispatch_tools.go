@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"tetora/internal/cost"
+	"tetora/internal/estimate"
 )
 
 // safeToolExec wraps tool execution with panic recovery.
@@ -375,7 +378,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		}
 
 		// Global budget check.
-		if br := checkBudget(cfg, agentName, "", 0); br != nil && !br.Allowed {
+		if br := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); br != nil && !br.Allowed {
 			logWarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
 			finalResult = &ProviderResult{
 				Output:  result.Output + "\n[stopped: global budget exceeded]",
@@ -386,7 +389,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		}
 
 		// Pre-send token estimation: compress old messages if nearing context window.
-		ctxWindow := contextWindowForModel(req.Model)
+		ctxWindow := estimate.ContextWindow(req.Model)
 		threshold := ctxWindow * 80 / 100
 		req.Messages = messages // update for estimation
 		estTokens := estimateRequestTokens(req)

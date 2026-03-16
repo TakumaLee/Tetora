@@ -7,6 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"tetora/internal/history"
 )
 
 func cmdHistory(args []string) {
@@ -74,7 +76,7 @@ func historyList(args []string) {
 		From:   from,
 		Limit:  limit,
 	}
-	runs, total, err := queryHistoryFiltered(cfg.HistoryDB, q)
+	runs, total, err := history.QueryFiltered(cfg.HistoryDB, q)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -113,7 +115,7 @@ func historyShow(idStr string) {
 		os.Exit(1)
 	}
 
-	run, err := queryHistoryByID(cfg.HistoryDB, id)
+	run, err := history.QueryByID(cfg.HistoryDB, id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -148,7 +150,7 @@ func historyCost() {
 		os.Exit(1)
 	}
 
-	stats, err := queryCostStats(cfg.HistoryDB)
+	stats, err := history.QueryCostStats(cfg.HistoryDB)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

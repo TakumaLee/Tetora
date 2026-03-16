@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tetora/internal/cron"
+	"tetora/internal/history"
 )
 
 // cronExpr is an alias for cron.Expr for backward compatibility.
@@ -163,11 +164,11 @@ func (ce *CronEngine) startupReplay(ctx context.Context) {
 		}
 
 		// Check cron_execution_log first (authoritative from this version onwards).
-		if cronExecLogExists(ce.cfg.HistoryDB, j.ID, scheduledAt) {
+		if history.CronExecLogExists(ce.cfg.HistoryDB, j.ID, scheduledAt) {
 			continue // job ran or was a zombie — skip
 		}
 		// Fallback: check job_runs for DBs upgraded before cron_execution_log existed.
-		if jobRunExistsNear(ce.cfg.HistoryDB, j.ID, scheduledAt) {
+		if history.JobRunExistsNear(ce.cfg.HistoryDB, j.ID, scheduledAt) {
 			continue
 		}
 

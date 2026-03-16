@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"tetora/internal/sla"
 	"time"
 )
 
@@ -18,7 +20,7 @@ func setupTrustTestDB(t *testing.T) string {
 	if err := initHistoryDB(dbPath); err != nil {
 		t.Fatalf("initHistoryDB: %v", err)
 	}
-	initSLADB(dbPath)
+	sla.InitSLADB(dbPath)
 	initTrustDB(dbPath)
 	return dbPath
 }

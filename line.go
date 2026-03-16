@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- LINE Config ---
@@ -306,7 +308,7 @@ func (lb *LINEBot) handleJoinEvent(event lineEvent) {
 
 // dispatchToAgent dispatches a message to the agent system and replies.
 func (lb *LINEBot) dispatchToAgent(text, userID, targetID, replyToken string) {
-	ctx := withTraceID(context.Background(), newTraceID("line"))
+	ctx := trace.WithID(context.Background(), trace.NewID("line"))
 	dbPath := lb.cfg.HistoryDB
 
 	// Route to determine agent.

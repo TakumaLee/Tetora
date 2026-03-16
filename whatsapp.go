@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- WhatsApp Config ---
@@ -219,7 +221,7 @@ func (wb *WhatsAppBot) handleMessage(from, msgID string, textPtr *whatsAppMessag
 	logInfo("whatsapp: received message", "from", from, "text", truncate(text, 100))
 
 	// Determine agent via smart dispatch.
-	ctx := withTraceID(context.Background(), newTraceID("whatsapp"))
+	ctx := trace.WithID(context.Background(), trace.NewID("whatsapp"))
 	dbPath := wb.cfg.HistoryDB
 
 	// Route to determine agent.

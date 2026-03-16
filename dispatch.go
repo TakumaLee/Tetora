@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/cost"
+	"tetora/internal/trace"
 )
 
 // --- P27.3: Channel Notifier Interface ---
@@ -513,7 +516,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	}
 
 	// Budget check before execution.
-	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -690,7 +693,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) TaskResult {
 	// Propagate trace ID from context to task.
 	if task.TraceID == "" {
-		task.TraceID = traceIDFromContext(ctx)
+		task.TraceID = trace.IDFromContext(ctx)
 	}
 
 	agentName := task.Agent
@@ -778,7 +781,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	state.mu.Unlock()
 
 	// Budget check before execution.
-	if budgetResult := checkBudget(cfg, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -1008,7 +1011,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	if shouldReflect(cfg, task, result) {
 		go func() {
 			reflCtx, reflCancel := context.WithTimeout(
-				withTraceID(context.Background(), traceIDFromContext(ctx)),
+				trace.WithID(context.Background(), trace.IDFromContext(ctx)),
 				2*time.Minute,
 			)
 			defer reflCancel()

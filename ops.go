@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"tetora/internal/export"
 	"time"
 )
 
@@ -433,7 +434,7 @@ func toolExportData(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("data export is not enabled in config (ops.exportEnabled)")
 	}
 
-	result, err := exportUserData(cfg, args.UserID)
+	result, err := export.UserData(cfg.HistoryDB, cfg.baseDir, args.UserID)
 	if err != nil {
 		return "", fmt.Errorf("export failed: %w", err)
 	}

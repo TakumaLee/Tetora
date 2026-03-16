@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Teams Config ---
@@ -336,7 +338,7 @@ func (tb *TeamsBot) handleInvokeActivity(activity teamsActivity) {
 
 // dispatchToAgent dispatches a message to the agent system and replies via Teams.
 func (tb *TeamsBot) dispatchToAgent(text string, activity teamsActivity) {
-	ctx := withTraceID(context.Background(), newTraceID("teams"))
+	ctx := trace.WithID(context.Background(), trace.NewID("teams"))
 	dbPath := tb.cfg.HistoryDB
 
 	// Route to determine agent.

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"tetora/internal/estimate"
 )
 
 func TestEstimateRequestTokens(t *testing.T) {
@@ -68,9 +70,9 @@ func TestContextWindowForModel(t *testing.T) {
 		{"unknown-model", 200000},
 	}
 	for _, tt := range tests {
-		got := contextWindowForModel(tt.model)
+		got := estimate.ContextWindow(tt.model)
 		if got != tt.want {
-			t.Errorf("contextWindowForModel(%q) = %d, want %d", tt.model, got, tt.want)
+			t.Errorf("estimate.ContextWindow(%q) = %d, want %d", tt.model, got, tt.want)
 		}
 	}
 }

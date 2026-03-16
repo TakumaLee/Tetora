@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"tetora/internal/cost"
 )
 
 func cmdBudget(args []string) {
@@ -44,7 +46,7 @@ func cmdBudgetShow() {
 	}
 
 	// Fallback: query DB directly.
-	status := queryBudgetStatus(cfg)
+	status := cost.QueryBudgetStatus(cfg.Budgets, cfg.HistoryDB)
 	printBudgetStatus(status)
 }
 

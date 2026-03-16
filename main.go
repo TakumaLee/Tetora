@@ -10,9 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+
+	"tetora/internal/sla"
 	"strings"
 	"syscall"
 	"time"
+
+	"tetora/internal/cost"
+	"tetora/internal/trace"
 )
 
 func main() {
@@ -307,7 +312,7 @@ func main() {
 				logWarn("init sessions failed", "error", err)
 			}
 			// Init SLA tables.
-			initSLADB(cfg.HistoryDB)
+			sla.InitSLADB(cfg.HistoryDB)
 			// Init offline queue table.
 			if err := initQueueDB(cfg.HistoryDB); err != nil {
 				logWarn("init offline_queue failed", "error", err)
@@ -596,7 +601,7 @@ func main() {
 		}
 
 		// Budget alert tracker.
-		budgetTracker := newBudgetAlertTracker()
+		budgetTracker := cost.NewBudgetAlertTracker()
 
 		// SLA monitor.
 		slaCheck := newSLAChecker(cfg, notifyFn)
@@ -707,7 +712,7 @@ func main() {
 					case <-ctx.Done():
 						return
 					case <-ticker.C:
-						checkAndNotifyBudgetAlerts(cfg, notifyFn, budgetTracker)
+						cost.CheckAndNotifyBudgetAlerts(cfg.Budgets, cfg.HistoryDB, notifyFn, budgetTracker)
 					}
 				}
 			}()
@@ -1210,7 +1215,7 @@ func main() {
 			state.mu.Unlock()
 		}()
 
-		dispatchCtx := withTraceID(context.Background(), newTraceID("cli"))
+		dispatchCtx := trace.WithID(context.Background(), trace.NewID("cli"))
 		result := dispatch(dispatchCtx, cfg, tasks, state, sem, childSem)
 
 		// Shut down HTTP server.

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Signal Config ---
@@ -357,7 +359,7 @@ func (sb *SignalBot) processEnvelope(envelope signalEnvelope) {
 
 // dispatchToAgent dispatches a message to the agent system and replies via Signal.
 func (sb *SignalBot) dispatchToAgent(text string, envelope signalEnvelope, targetID string, isGroup bool) {
-	ctx := withTraceID(context.Background(), newTraceID("signal"))
+	ctx := trace.WithID(context.Background(), trace.NewID("signal"))
 	dbPath := sb.cfg.HistoryDB
 
 	// Route to determine agent.

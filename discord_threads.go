@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Thread Parent Cache ---
@@ -443,7 +445,7 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 
 	db.sendTyping(msg.ChannelID)
 
-	ctx := withTraceID(context.Background(), newTraceID("discord-thread"))
+	ctx := trace.WithID(context.Background(), trace.NewID("discord-thread"))
 	dbPath := db.cfg.HistoryDB
 	role := binding.Agent
 	sessionID := binding.SessionID

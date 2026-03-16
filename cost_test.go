@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"tetora/internal/cost"
 )
 
 func TestResolveDowngradeModel(t *testing.T) {
@@ -30,7 +32,7 @@ func TestResolveDowngradeModel(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := resolveDowngradeModel(ad, tt.utilization)
+		got := cost.ResolveDowngradeModel(ad, tt.utilization)
 		if got != tt.want {
 			t.Errorf("resolveDowngradeModel(%.2f) = %q, want %q", tt.utilization, got, tt.want)
 		}
@@ -41,7 +43,7 @@ func TestCheckBudgetPaused(t *testing.T) {
 	cfg := &Config{
 		Budgets: BudgetConfig{Paused: true},
 	}
-	result := checkBudget(cfg, "", "", 0)
+	result := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if result.Allowed {
 		t.Error("expected not allowed when paused")
 	}
@@ -55,7 +57,7 @@ func TestCheckBudgetPaused(t *testing.T) {
 
 func TestCheckBudgetNoBudgets(t *testing.T) {
 	cfg := &Config{}
-	result := checkBudget(cfg, "", "", 0)
+	result := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed when no budgets configured")
 	}
@@ -102,7 +104,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 			Global: GlobalBudget{Daily: 5.0}, // $5 limit, $8 spent
 		},
 	}
-	result := checkBudget(cfg, "", "", 0)
+	result := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if result.Allowed {
 		t.Error("expected not allowed when budget exceeded")
 	}
@@ -115,7 +117,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 
 	// Test global budget within limits.
 	cfg.Budgets.Global.Daily = 20.0
-	result = checkBudget(cfg, "", "", 0)
+	result = cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed when within budget")
 	}
@@ -125,7 +127,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 
 	// Test global budget at warning level (70%).
 	cfg.Budgets.Global.Daily = 10.0 // $8/$10 = 80% → warning
-	result = checkBudget(cfg, "", "", 0)
+	result = cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed at warning level")
 	}
@@ -135,7 +137,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 
 	// Test global budget at critical level (90%).
 	cfg.Budgets.Global.Daily = 8.5 // $8/$8.5 = 94% → critical
-	result = checkBudget(cfg, "", "", 0)
+	result = cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed at critical level")
 	}
@@ -148,7 +150,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 	cfg.Budgets.Agents = map[string]AgentBudget{
 		"翡翠": {Daily: 3.0}, // $5 spent by 翡翠, limit $3
 	}
-	result = checkBudget(cfg, "翡翠", "", 0)
+	result = cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "翡翠", "", 0)
 	if result.Allowed {
 		t.Error("expected not allowed when role budget exceeded")
 	}
@@ -157,7 +159,7 @@ func TestCheckBudgetWithDB(t *testing.T) {
 	}
 
 	// Test per-role budget OK for different role.
-	result = checkBudget(cfg, "黒曜", "", 0)
+	result = cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "黒曜", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed for role without budget config")
 	}
@@ -195,7 +197,7 @@ func TestCheckBudgetAutoDowngrade(t *testing.T) {
 		},
 	}
 
-	result := checkBudget(cfg, "", "", 0)
+	result := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, "", "", 0)
 	if !result.Allowed {
 		t.Error("expected allowed with auto-downgrade")
 	}
@@ -234,7 +236,7 @@ func TestQuerySpend(t *testing.T) {
 	})
 
 	// Total spend.
-	daily, weekly, monthly := querySpend(dbPath, "")
+	daily, weekly, monthly := cost.QuerySpend(dbPath, "")
 	if daily < 3.9 || daily > 4.1 {
 		t.Errorf("expected daily ~4.0, got %.2f", daily)
 	}

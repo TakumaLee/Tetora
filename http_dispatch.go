@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
@@ -123,7 +125,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			auditLog(cfg.HistoryDB, "queue.retry", "http", fmt.Sprintf("queueId=%d", id), clientIP(r))
 
 			go func() {
-				ctx := withTraceID(context.Background(), newTraceID("queue"))
+				ctx := trace.WithID(context.Background(), trace.NewID("queue"))
 				result := runSingleTask(ctx, cfg, task, sem, childSem, item.AgentName)
 				if result.Status == "success" {
 					updateQueueStatus(cfg.HistoryDB, id, "completed", "")
@@ -774,9 +776,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			}
 			routeResultsMu.Unlock()
 
-			routeTraceID := traceIDFromContext(r.Context())
+			routeTraceID := trace.IDFromContext(r.Context())
 			go func() {
-				routeCtx := withTraceID(context.Background(), routeTraceID)
+				routeCtx := trace.WithID(context.Background(), routeTraceID)
 				result := smartDispatch(routeCtx, cfg, body.Prompt, "http", state, sem, childSem)
 				routeResultsMu.Lock()
 				entry := routeResults[id]

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Tool Profiles ---
@@ -453,7 +455,7 @@ func requestToolApproval(ctx context.Context, cfg *Config, task Task, tc ToolCal
 	defer cancel()
 
 	req := ApprovalRequest{
-		ID:      newTraceID("gate"),
+		ID:      trace.NewID("gate"),
 		Tool:    tc.Name,
 		Input:   tc.Input,
 		Summary: summarizeToolCall(tc),

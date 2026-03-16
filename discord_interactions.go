@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Minimal WebSocket Client (RFC 6455, no external deps) ---
@@ -294,7 +296,7 @@ func (db *DiscordBot) sendHeartbeatWS(ws *wsConn) error {
 // handleGatewayInteraction processes Discord interactions received via the Gateway
 // (as opposed to the HTTP webhook endpoint). Responds via REST API callback.
 func (db *DiscordBot) handleGatewayInteraction(interaction *discordInteraction) {
-	ctx := withTraceID(context.Background(), newTraceID("discord-interaction"))
+	ctx := trace.WithID(context.Background(), trace.NewID("discord-interaction"))
 
 	switch interaction.Type {
 	case interactionTypePing:

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Interaction Types ---
@@ -413,7 +415,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	ctx := withTraceID(context.Background(), newTraceID("discord-interaction"))
+	ctx := trace.WithID(context.Background(), trace.NewID("discord-interaction"))
 
 	// Route by interaction type.
 	switch interaction.Type {

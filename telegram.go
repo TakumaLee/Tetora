@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Telegram Types ---
@@ -438,7 +440,7 @@ func (b *Bot) cmdDispatch(ctx context.Context, msg *tgMessage, payload string) {
 	b.reply(msg.Chat.ID, strings.Join(lines, "\n"))
 
 	go func() {
-		dispatchCtx := withTraceID(context.Background(), newTraceID("tg"))
+		dispatchCtx := trace.WithID(context.Background(), trace.NewID("tg"))
 		result := dispatch(dispatchCtx, b.cfg, tasks, b.state, b.sem, b.childSem)
 		b.reply(msg.Chat.ID, formatTelegramResult(result))
 	}()

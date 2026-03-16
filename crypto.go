@@ -30,12 +30,6 @@ func globalEncryptionKey() string {
 	return globalEncKeyVal
 }
 
-// encrypt/decrypt forward to internal/crypto.
-func encrypt(plaintext, key string) (string, error) { return crypto.Encrypt(plaintext, key) }
-func decrypt(ciphertextHex, key string) (string, error) {
-	return crypto.Decrypt(ciphertextHex, key)
-}
-
 // encryptField encrypts a value using the config's encryption key.
 // No-op if no encryption key is configured.
 func encryptField(cfg *Config, value string) string {
@@ -43,7 +37,7 @@ func encryptField(cfg *Config, value string) string {
 	if key == "" || value == "" {
 		return value
 	}
-	enc, err := encrypt(value, key)
+	enc, err := crypto.Encrypt(value, key)
 	if err != nil {
 		return value // fallback to plaintext on error
 	}
@@ -57,7 +51,7 @@ func decryptField(cfg *Config, value string) string {
 	if key == "" || value == "" {
 		return value
 	}
-	dec, err := decrypt(value, key)
+	dec, err := crypto.Decrypt(value, key)
 	if err != nil {
 		return value // fallback to original on error
 	}
@@ -104,7 +98,7 @@ func cmdMigrateEncrypt() {
 			if _, decErr := hex.DecodeString(content); decErr == nil {
 				continue // likely already encrypted
 			}
-			enc, err := encrypt(content, key)
+			enc, err := crypto.Encrypt(content, key)
 			if err != nil {
 				continue
 			}
@@ -130,21 +124,21 @@ func cmdMigrateEncrypt() {
 			updates := []string{}
 			if email != "" {
 				if _, decErr := hex.DecodeString(email); decErr != nil {
-					if enc, err := encrypt(email, key); err == nil {
+					if enc, err := crypto.Encrypt(email, key); err == nil {
 						updates = append(updates, fmt.Sprintf("email = '%s'", escapeSQLite(enc)))
 					}
 				}
 			}
 			if phone != "" {
 				if _, decErr := hex.DecodeString(phone); decErr != nil {
-					if enc, err := encrypt(phone, key); err == nil {
+					if enc, err := crypto.Encrypt(phone, key); err == nil {
 						updates = append(updates, fmt.Sprintf("phone = '%s'", escapeSQLite(enc)))
 					}
 				}
 			}
 			if notes != "" {
 				if _, decErr := hex.DecodeString(notes); decErr != nil {
-					if enc, err := encrypt(notes, key); err == nil {
+					if enc, err := crypto.Encrypt(notes, key); err == nil {
 						updates = append(updates, fmt.Sprintf("notes = '%s'", escapeSQLite(enc)))
 					}
 				}
@@ -171,7 +165,7 @@ func cmdMigrateEncrypt() {
 			if _, decErr := hex.DecodeString(desc); decErr == nil {
 				continue
 			}
-			enc, err := encrypt(desc, key)
+			enc, err := crypto.Encrypt(desc, key)
 			if err != nil {
 				continue
 			}
@@ -196,7 +190,7 @@ func cmdMigrateEncrypt() {
 			if _, decErr := hex.DecodeString(note); decErr == nil {
 				continue
 			}
-			enc, err := encrypt(note, key)
+			enc, err := crypto.Encrypt(note, key)
 			if err != nil {
 				continue
 			}

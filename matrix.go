@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // --- Matrix Config ---
@@ -242,7 +244,7 @@ func (mb *MatrixBot) handleRoomEvent(roomID string, event matrixEvent) {
 
 // dispatchToAgent dispatches a message to the agent system and sends a reply.
 func (mb *MatrixBot) dispatchToAgent(text, sender, roomID string) {
-	ctx := withTraceID(context.Background(), newTraceID("matrix"))
+	ctx := trace.WithID(context.Background(), trace.NewID("matrix"))
 	dbPath := mb.cfg.HistoryDB
 
 	// Route to determine agent.

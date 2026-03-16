@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/trace"
 )
 
 // isValidOutputFilename checks that a filename contains only safe characters.
@@ -532,7 +534,7 @@ func startHTTPServer(s *Server) *http.Server {
 	mux.HandleFunc("/dashboard", handleDashboard)
 
 	// Middleware chain: recovery → trace → body size → rate limit → dashboard auth → IP allowlist → API auth → mux
-	handler := recoveryMiddleware(traceMiddleware(bodySizeMiddleware(rateLimitMiddleware(cfg, s.apiLimiter,
+	handler := recoveryMiddleware(trace.Middleware(bodySizeMiddleware(rateLimitMiddleware(cfg, s.apiLimiter,
 		dashboardAuthMiddleware(cfg,
 			ipAllowlistMiddleware(allowlist, cfg.HistoryDB,
 				authMiddleware(cfg, s.secMon, mux)))))))
