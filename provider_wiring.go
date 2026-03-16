@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tetora/internal/provider"
+	"tetora/internal/tmux"
 )
 
 // --- Type Aliases (backward compatibility) ---
@@ -154,7 +155,7 @@ func initProviders(cfg *Config) *provider.Registry {
 			reg.Register(name, &provider.TerminalProvider{
 				BinaryPath:     path,
 				DefaultWorkdir: cfg.DefaultWorkdir,
-				Profile:        newProfileAdapter(&claudeTmuxProfile{}),
+				Profile:        newProfileAdapter(tmux.NewClaudeProfile()),
 				Tmux:           tmuxOpsAdapter{},
 				Workers:        newWorkerTrackerAdapter(newTmuxSupervisor()),
 			})
@@ -167,7 +168,7 @@ func initProviders(cfg *Config) *provider.Registry {
 			reg.Register(name, &provider.TerminalProvider{
 				BinaryPath:     path,
 				DefaultWorkdir: cfg.DefaultWorkdir,
-				Profile:        newProfileAdapter(&codexTmuxProfile{}),
+				Profile:        newProfileAdapter(tmux.NewCodexProfile()),
 				Tmux:           tmuxOpsAdapter{},
 				Workers:        newWorkerTrackerAdapter(newTmuxSupervisor()),
 			})
@@ -493,63 +494,63 @@ func (t tmuxOpsAdapter) CaptureHistory(session string) (string, error) {
 
 // --- Worker Tracker Adapter ---
 
-// workerTrackerAdapter wraps *tmuxSupervisor to implement provider.WorkerTracker.
+// workerTrackerAdapter wraps *tmux.Supervisor to implement provider.WorkerTracker.
 type workerTrackerAdapter struct {
-	sup *tmuxSupervisor
+	sup *tmux.Supervisor
 }
 
-func newWorkerTrackerAdapter(sup *tmuxSupervisor) provider.WorkerTracker {
+func newWorkerTrackerAdapter(sup *tmux.Supervisor) provider.WorkerTracker {
 	return &workerTrackerAdapter{sup: sup}
 }
 
 func (w *workerTrackerAdapter) Register(sessionName string, info provider.WorkerInfo) {
-	worker := &tmuxWorker{
+	worker := &tmux.Worker{
 		TmuxName:    info.TmuxName,
 		TaskID:      info.TaskID,
 		Agent:       info.Agent,
 		Prompt:      info.Prompt,
 		Workdir:     info.Workdir,
-		State:       tmuxScreenState(info.State),
+		State:       tmux.ScreenState(info.State),
 		CreatedAt:   info.CreatedAt,
 		LastChanged: info.LastChanged,
 	}
-	w.sup.register(sessionName, worker)
+	w.sup.Register(sessionName, worker)
 }
 
 func (w *workerTrackerAdapter) Unregister(sessionName string) {
-	w.sup.unregister(sessionName)
+	w.sup.Unregister(sessionName)
 }
 
 func (w *workerTrackerAdapter) UpdateWorker(sessionName string, state provider.ScreenState, capture string, changed bool) {
-	worker := w.sup.getWorker(sessionName)
-	if worker == nil {
-		return
-	}
-	w.sup.mu.Lock()
-	worker.State = tmuxScreenState(state)
-	worker.LastCapture = capture
+	lastCapture := capture
 	if changed {
-		worker.LastChanged = time.Now()
+		lastCapture = "" // force LastChanged update by making captures differ
 	}
-	w.sup.mu.Unlock()
+	w.sup.UpdateWorkerState(sessionName, tmux.ScreenState(state), capture, lastCapture)
 }
 
 // --- Tmux Profile Adapter ---
 
-// profileAdapter wraps a root-level tmuxCLIProfile to implement provider.TmuxProfile.
-// This bridges the type mismatch between tmuxScreenState and provider.ScreenState.
+// profileAdapter wraps a tmux.CLIProfile to implement provider.TmuxProfile.
+// This bridges the type mismatch between tmux.ProfileRequest and provider.Request.
 type profileAdapter struct {
-	inner tmuxCLIProfile
+	inner tmux.CLIProfile
 }
 
-func newProfileAdapter(p tmuxCLIProfile) provider.TmuxProfile {
+func newProfileAdapter(p tmux.CLIProfile) provider.TmuxProfile {
 	return &profileAdapter{inner: p}
 }
 
 func (a *profileAdapter) Name() string { return a.inner.Name() }
 
 func (a *profileAdapter) BuildCommand(binaryPath string, req provider.Request) string {
-	return a.inner.BuildCommand(binaryPath, req)
+	return a.inner.BuildCommand(binaryPath, tmux.ProfileRequest{
+		Model:          req.Model,
+		PermissionMode: req.PermissionMode,
+		SystemPrompt:   req.SystemPrompt,
+		AddDirs:        req.AddDirs,
+		MCPPath:        req.MCPPath,
+	})
 }
 
 func (a *profileAdapter) DetectState(capture string) provider.ScreenState {

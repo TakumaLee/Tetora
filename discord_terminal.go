@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/tmux"
 )
 
 // --- Discord Terminal Bridge ---
@@ -108,11 +110,11 @@ func (tb *terminalBridge) startSession(channelID, userID, workdir, tool string) 
 	}
 
 	// Build the command.
-	req := ProviderRequest{
+	tmuxReq := tmux.ProfileRequest{
 		Model:          "sonnet",
 		PermissionMode: "acceptEdits",
 	}
-	command := profile.BuildCommand(binaryPath, req)
+	command := profile.BuildCommand(binaryPath, tmuxReq)
 
 	// Generate session ID.
 	sessionID := fmt.Sprintf("%d", time.Now().UnixNano()%1000000)
@@ -601,12 +603,12 @@ func (tb *terminalBridge) resolveBinaryPath(tool string) string {
 	}
 }
 
-func (tb *terminalBridge) resolveProfile(tool string) tmuxCLIProfile {
+func (tb *terminalBridge) resolveProfile(tool string) tmux.CLIProfile {
 	switch tool {
 	case "codex":
-		return &codexTmuxProfile{}
+		return tmux.NewCodexProfile()
 	default:
-		return &claudeTmuxProfile{}
+		return tmux.NewClaudeProfile()
 	}
 }
 
