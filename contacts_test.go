@@ -604,12 +604,10 @@ func TestGetInactiveContacts_AllActive(t *testing.T) {
 
 func TestToolContactAdd(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	input := `{"name":"Oscar","email":"oscar@test.com","relationship":"colleague","tags":["dev"]}`
-	result, err := toolContactAdd(context.Background(), &Config{}, json.RawMessage(input))
+	result, err := toolContactAdd(ctx, &Config{}, json.RawMessage(input))
 	if err != nil {
 		t.Fatalf("toolContactAdd: %v", err)
 	}
@@ -632,12 +630,10 @@ func TestToolContactAdd(t *testing.T) {
 
 func TestToolContactAdd_EmptyName(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	input := `{"name":""}`
-	_, err := toolContactAdd(context.Background(), &Config{}, json.RawMessage(input))
+	_, err := toolContactAdd(ctx, &Config{}, json.RawMessage(input))
 	if err == nil {
 		t.Fatal("expected error for empty name")
 	}
@@ -645,15 +641,13 @@ func TestToolContactAdd_EmptyName(t *testing.T) {
 
 func TestToolContactSearch(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	testAddContact(t, cs, "Patricia", map[string]any{"email": "pat@test.com"})
 	testAddContact(t, cs, "Paul", map[string]any{"email": "paul@test.com"})
 
 	input := `{"query":"Pa","limit":10}`
-	result, err := toolContactSearch(context.Background(), &Config{}, json.RawMessage(input))
+	result, err := toolContactSearch(ctx, &Config{}, json.RawMessage(input))
 	if err != nil {
 		t.Fatalf("toolContactSearch: %v", err)
 	}
@@ -668,12 +662,10 @@ func TestToolContactSearch(t *testing.T) {
 
 func TestToolContactSearch_NoQuery(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	input := `{"query":""}`
-	_, err := toolContactSearch(context.Background(), &Config{}, json.RawMessage(input))
+	_, err := toolContactSearch(ctx, &Config{}, json.RawMessage(input))
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -681,14 +673,12 @@ func TestToolContactSearch_NoQuery(t *testing.T) {
 
 func TestToolContactLog(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	c, _ := testAddContact(t, cs, "Quinn", nil)
 
 	input := `{"contact_id":"` + c.ID + `","type":"message","summary":"had lunch","sentiment":"positive"}`
-	result, err := toolContactLog(context.Background(), &Config{}, json.RawMessage(input))
+	result, err := toolContactLog(ctx, &Config{}, json.RawMessage(input))
 	if err != nil {
 		t.Fatalf("toolContactLog: %v", err)
 	}
@@ -711,12 +701,10 @@ func TestToolContactLog(t *testing.T) {
 
 func TestToolContactLog_NoContactID(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	input := `{"contact_id":"","type":"message"}`
-	_, err := toolContactLog(context.Background(), &Config{}, json.RawMessage(input))
+	_, err := toolContactLog(ctx, &Config{}, json.RawMessage(input))
 	if err == nil {
 		t.Fatal("expected error for empty contact_id")
 	}
@@ -724,15 +712,13 @@ func TestToolContactLog_NoContactID(t *testing.T) {
 
 func TestToolContactList(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	testAddContact(t, cs, "Ruth", map[string]any{"relationship": "family"})
 	testAddContact(t, cs, "Sam", map[string]any{"relationship": "friend"})
 
 	input := `{"relationship":"family","limit":10}`
-	result, err := toolContactList(context.Background(), &Config{}, json.RawMessage(input))
+	result, err := toolContactList(ctx, &Config{}, json.RawMessage(input))
 	if err != nil {
 		t.Fatalf("toolContactList: %v", err)
 	}
@@ -747,16 +733,14 @@ func TestToolContactList(t *testing.T) {
 
 func TestToolContactUpcoming(t *testing.T) {
 	cs := newTestContactsService(t)
-	oldGlobal := globalContactsService
-	globalContactsService = cs
-	defer func() { globalContactsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Contacts: cs})
 
 	upcoming := time.Now().UTC().Add(3 * 24 * time.Hour).Format("2006-01-02")
 	bdayPast := "1992" + upcoming[4:]
 	testAddContact(t, cs, "Tina", map[string]any{"birthday": bdayPast})
 
 	input := `{"days":7}`
-	result, err := toolContactUpcoming(context.Background(), &Config{}, json.RawMessage(input))
+	result, err := toolContactUpcoming(ctx, &Config{}, json.RawMessage(input))
 	if err != nil {
 		t.Fatalf("toolContactUpcoming: %v", err)
 	}
@@ -770,10 +754,6 @@ func TestToolContactUpcoming(t *testing.T) {
 }
 
 func TestToolContactServiceNil(t *testing.T) {
-	oldGlobal := globalContactsService
-	globalContactsService = nil
-	defer func() { globalContactsService = oldGlobal }()
-
 	_, err := toolContactAdd(context.Background(), &Config{}, json.RawMessage(`{"name":"test"}`))
 	if err == nil {
 		t.Fatal("expected error when service is nil")

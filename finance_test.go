@@ -492,9 +492,7 @@ func TestCheckBudgets_NoBudgets(t *testing.T) {
 
 func TestToolExpenseAdd(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
@@ -502,7 +500,7 @@ func TestToolExpenseAdd(t *testing.T) {
 		"userId": "tester",
 	})
 
-	result, err := toolExpenseAdd(context.Background(), cfg, input)
+	result, err := toolExpenseAdd(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseAdd: %v", err)
 	}
@@ -516,9 +514,7 @@ func TestToolExpenseAdd(t *testing.T) {
 
 func TestToolExpenseAdd_ExplicitFields(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
@@ -529,7 +525,7 @@ func TestToolExpenseAdd_ExplicitFields(t *testing.T) {
 		"userId":      "tester",
 	})
 
-	result, err := toolExpenseAdd(context.Background(), cfg, input)
+	result, err := toolExpenseAdd(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseAdd: %v", err)
 	}
@@ -543,16 +539,14 @@ func TestToolExpenseAdd_ExplicitFields(t *testing.T) {
 
 func TestToolExpenseAdd_NoAmount(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
 		"text": "something without number",
 	})
 
-	_, err := toolExpenseAdd(context.Background(), cfg, input)
+	_, err := toolExpenseAdd(ctx, cfg, input)
 	if err == nil {
 		t.Fatal("expected error when no amount can be determined")
 	}
@@ -560,9 +554,7 @@ func TestToolExpenseAdd_NoAmount(t *testing.T) {
 
 func TestToolExpenseReport(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	svc.AddExpense("tester", 500, "TWD", "food", "dinner", nil)
 
@@ -572,7 +564,7 @@ func TestToolExpenseReport(t *testing.T) {
 		"userId": "tester",
 	})
 
-	result, err := toolExpenseReport(context.Background(), cfg, input)
+	result, err := toolExpenseReport(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseReport: %v", err)
 	}
@@ -586,9 +578,7 @@ func TestToolExpenseReport(t *testing.T) {
 
 func TestToolExpenseBudget_Set(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
@@ -598,7 +588,7 @@ func TestToolExpenseBudget_Set(t *testing.T) {
 		"userId":   "tester",
 	})
 
-	result, err := toolExpenseBudget(context.Background(), cfg, input)
+	result, err := toolExpenseBudget(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseBudget set: %v", err)
 	}
@@ -609,9 +599,7 @@ func TestToolExpenseBudget_Set(t *testing.T) {
 
 func TestToolExpenseBudget_List(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	svc.SetBudget("tester", "food", 5000, "TWD")
 
@@ -621,7 +609,7 @@ func TestToolExpenseBudget_List(t *testing.T) {
 		"userId": "tester",
 	})
 
-	result, err := toolExpenseBudget(context.Background(), cfg, input)
+	result, err := toolExpenseBudget(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseBudget list: %v", err)
 	}
@@ -632,9 +620,7 @@ func TestToolExpenseBudget_List(t *testing.T) {
 
 func TestToolExpenseBudget_Check(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	svc.SetBudget("tester", "food", 5000, "TWD")
 	svc.AddExpense("tester", 2000, "TWD", "food", "groceries", nil)
@@ -645,7 +631,7 @@ func TestToolExpenseBudget_Check(t *testing.T) {
 		"userId": "tester",
 	})
 
-	result, err := toolExpenseBudget(context.Background(), cfg, input)
+	result, err := toolExpenseBudget(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolExpenseBudget check: %v", err)
 	}
@@ -659,26 +645,20 @@ func TestToolExpenseBudget_Check(t *testing.T) {
 
 func TestToolExpenseBudget_InvalidAction(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
 		"action": "invalid",
 	})
 
-	_, err := toolExpenseBudget(context.Background(), cfg, input)
+	_, err := toolExpenseBudget(ctx, cfg, input)
 	if err == nil {
 		t.Fatal("expected error for invalid action")
 	}
 }
 
 func TestToolExpenseAdd_NotInitialized(t *testing.T) {
-	oldSvc := globalFinanceService
-	globalFinanceService = nil
-	defer func() { globalFinanceService = oldSvc }()
-
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"text": "lunch 100"})
 	_, err := toolExpenseAdd(context.Background(), cfg, input)

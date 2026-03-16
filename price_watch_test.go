@@ -230,9 +230,7 @@ func TestCheckWatches_LessThan(t *testing.T) {
 
 func TestToolPriceWatch_Add(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
@@ -244,7 +242,7 @@ func TestToolPriceWatch_Add(t *testing.T) {
 		"userId":    "tester",
 	})
 
-	result, err := toolPriceWatch(context.Background(), cfg, input)
+	result, err := toolPriceWatch(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolPriceWatch add: %v", err)
 	}
@@ -255,9 +253,7 @@ func TestToolPriceWatch_Add(t *testing.T) {
 
 func TestToolPriceWatch_List(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{HistoryDB: svc.DBPath()}
 
@@ -270,7 +266,7 @@ func TestToolPriceWatch_List(t *testing.T) {
 		"userId": "tester",
 	})
 
-	result, err := toolPriceWatch(context.Background(), cfg, input)
+	result, err := toolPriceWatch(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolPriceWatch list: %v", err)
 	}
@@ -281,9 +277,7 @@ func TestToolPriceWatch_List(t *testing.T) {
 
 func TestToolPriceWatch_Cancel(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{HistoryDB: svc.DBPath()}
 	engine := newPriceWatchEngine(cfg)
@@ -299,7 +293,7 @@ func TestToolPriceWatch_Cancel(t *testing.T) {
 		"id":     watches[0].ID,
 	})
 
-	result, err := toolPriceWatch(context.Background(), cfg, input)
+	result, err := toolPriceWatch(ctx, cfg, input)
 	if err != nil {
 		t.Fatalf("toolPriceWatch cancel: %v", err)
 	}
@@ -310,26 +304,20 @@ func TestToolPriceWatch_Cancel(t *testing.T) {
 
 func TestToolPriceWatch_InvalidAction(t *testing.T) {
 	_, svc := setupFinanceTestDB(t)
-	oldSvc := globalFinanceService
-	globalFinanceService = svc
-	defer func() { globalFinanceService = oldSvc }()
+	ctx := withApp(context.Background(), &App{Finance: svc})
 
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{
 		"action": "invalid",
 	})
 
-	_, err := toolPriceWatch(context.Background(), cfg, input)
+	_, err := toolPriceWatch(ctx, cfg, input)
 	if err == nil {
 		t.Fatal("expected error for invalid action")
 	}
 }
 
 func TestToolPriceWatch_NotInitialized(t *testing.T) {
-	oldSvc := globalFinanceService
-	globalFinanceService = nil
-	defer func() { globalFinanceService = oldSvc }()
-
 	cfg := &Config{}
 	input, _ := json.Marshal(map[string]any{"action": "list"})
 	_, err := toolPriceWatch(context.Background(), cfg, input)

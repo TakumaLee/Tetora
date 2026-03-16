@@ -627,12 +627,10 @@ func TestGoalSummary_Empty(t *testing.T) {
 
 func TestToolGoalCreate(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	input := json.RawMessage(`{"title":"Pass JLPT N2","description":"Study Japanese","category":"learning","target_date":"2026-07-01"}`)
-	result, err := toolGoalCreate(context.Background(), &Config{}, input)
+	result, err := toolGoalCreate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalCreate: %v", err)
 	}
@@ -651,22 +649,16 @@ func TestToolGoalCreate(t *testing.T) {
 
 func TestToolGoalCreate_EmptyTitle(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	input := json.RawMessage(`{"title":"","category":"learning"}`)
-	_, err := toolGoalCreate(context.Background(), &Config{}, input)
+	_, err := toolGoalCreate(ctx, &Config{}, input)
 	if err == nil {
 		t.Fatal("expected error for empty title")
 	}
 }
 
 func TestToolGoalCreate_NilService(t *testing.T) {
-	old := globalGoalsService
-	globalGoalsService = nil
-	defer func() { globalGoalsService = old }()
-
 	input := json.RawMessage(`{"title":"test"}`)
 	_, err := toolGoalCreate(context.Background(), &Config{}, input)
 	if err == nil {
@@ -676,16 +668,14 @@ func TestToolGoalCreate_NilService(t *testing.T) {
 
 func TestToolGoalList(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	// Create some goals.
 	svc.CreateGoal(newUUID(), "default", "Goal A", "", "", "", newUUID)
 	svc.CreateGoal(newUUID(), "default", "Goal B", "", "", "", newUUID)
 
 	input := json.RawMessage(`{"user_id":"default","status":"active","limit":10}`)
-	result, err := toolGoalList(context.Background(), &Config{}, input)
+	result, err := toolGoalList(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalList: %v", err)
 	}
@@ -701,15 +691,13 @@ func TestToolGoalList(t *testing.T) {
 
 func TestToolGoalUpdate(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	goal, _ := svc.CreateGoal(newUUID(), "default", "Goal", "", "", "", newUUID)
 
 	// Test update action.
 	input := json.RawMessage(`{"id":"` + goal.ID + `","action":"update","status":"paused"}`)
-	result, err := toolGoalUpdate(context.Background(), &Config{}, input)
+	result, err := toolGoalUpdate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalUpdate: %v", err)
 	}
@@ -725,15 +713,13 @@ func TestToolGoalUpdate(t *testing.T) {
 
 func TestToolGoalUpdate_CompleteMilestone(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	goal, _ := svc.CreateGoal(newUUID(), "default", "Goal", "", "", "", newUUID)
 	msID := goal.Milestones[0].ID
 
 	input := json.RawMessage(`{"id":"` + goal.ID + `","action":"complete_milestone","milestone_id":"` + msID + `"}`)
-	result, err := toolGoalUpdate(context.Background(), &Config{}, input)
+	result, err := toolGoalUpdate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalUpdate complete_milestone: %v", err)
 	}
@@ -749,15 +735,13 @@ func TestToolGoalUpdate_CompleteMilestone(t *testing.T) {
 
 func TestToolGoalUpdate_AddMilestone(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	goal, _ := svc.CreateGoal(newUUID(), "default", "Goal", "", "", "", newUUID)
 	initialCount := len(goal.Milestones)
 
 	input := json.RawMessage(`{"id":"` + goal.ID + `","action":"add_milestone","title":"Extra step","due_date":"2026-06-01"}`)
-	_, err := toolGoalUpdate(context.Background(), &Config{}, input)
+	_, err := toolGoalUpdate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalUpdate add_milestone: %v", err)
 	}
@@ -770,14 +754,12 @@ func TestToolGoalUpdate_AddMilestone(t *testing.T) {
 
 func TestToolGoalUpdate_Review(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	goal, _ := svc.CreateGoal(newUUID(), "default", "Goal", "", "", "", newUUID)
 
 	input := json.RawMessage(`{"id":"` + goal.ID + `","action":"review","note":"Going well"}`)
-	_, err := toolGoalUpdate(context.Background(), &Config{}, input)
+	_, err := toolGoalUpdate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalUpdate review: %v", err)
 	}
@@ -790,12 +772,10 @@ func TestToolGoalUpdate_Review(t *testing.T) {
 
 func TestToolGoalUpdate_MissingID(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	input := json.RawMessage(`{"action":"update","status":"paused"}`)
-	_, err := toolGoalUpdate(context.Background(), &Config{}, input)
+	_, err := toolGoalUpdate(ctx, &Config{}, input)
 	if err == nil {
 		t.Fatal("expected error for missing id")
 	}
@@ -803,14 +783,12 @@ func TestToolGoalUpdate_MissingID(t *testing.T) {
 
 func TestToolGoalReview(t *testing.T) {
 	_, svc := setupGoalsTestDB(t)
-	old := globalGoalsService
-	globalGoalsService = svc
-	defer func() { globalGoalsService = old }()
+	ctx := withApp(context.Background(), &App{Goals: svc})
 
 	svc.CreateGoal(newUUID(), "default", "Active goal", "", "career", "", newUUID)
 
 	input := json.RawMessage(`{"user_id":"default"}`)
-	result, err := toolGoalReview(context.Background(), &Config{}, input)
+	result, err := toolGoalReview(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolGoalReview: %v", err)
 	}
@@ -828,10 +806,6 @@ func TestToolGoalReview(t *testing.T) {
 }
 
 func TestToolGoalReview_NilService(t *testing.T) {
-	old := globalGoalsService
-	globalGoalsService = nil
-	defer func() { globalGoalsService = old }()
-
 	input := json.RawMessage(`{"user_id":"default"}`)
 	_, err := toolGoalReview(context.Background(), &Config{}, input)
 	if err == nil {

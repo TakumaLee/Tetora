@@ -504,12 +504,10 @@ func TestCheckStreakAlerts_NoAlert(t *testing.T) {
 
 func TestToolHabitCreate(t *testing.T) {
 	_, svc := setupHabitsTestDB(t)
-	oldGlobal := globalHabitsService
-	globalHabitsService = svc
-	defer func() { globalHabitsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Habits: svc})
 
 	input := json.RawMessage(`{"name":"Push-ups","frequency":"daily","targetCount":3,"category":"fitness"}`)
-	result, err := toolHabitCreate(context.Background(), &Config{}, input)
+	result, err := toolHabitCreate(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolHabitCreate: %v", err)
 	}
@@ -527,10 +525,6 @@ func TestToolHabitCreate(t *testing.T) {
 }
 
 func TestToolHabitCreate_NotInitialized(t *testing.T) {
-	oldGlobal := globalHabitsService
-	globalHabitsService = nil
-	defer func() { globalHabitsService = oldGlobal }()
-
 	input := json.RawMessage(`{"name":"Test"}`)
 	_, err := toolHabitCreate(context.Background(), &Config{}, input)
 	if err == nil {
@@ -540,9 +534,7 @@ func TestToolHabitCreate_NotInitialized(t *testing.T) {
 
 func TestToolHabitLog(t *testing.T) {
 	_, svc := setupHabitsTestDB(t)
-	oldGlobal := globalHabitsService
-	globalHabitsService = svc
-	defer func() { globalHabitsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Habits: svc})
 
 	// Create a habit first.
 	id := newUUID()
@@ -552,7 +544,7 @@ func TestToolHabitLog(t *testing.T) {
 	}
 
 	input := json.RawMessage(`{"habitId":"` + id + `","note":"glass 1","value":1}`)
-	result, err := toolHabitLog(context.Background(), &Config{}, input)
+	result, err := toolHabitLog(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolHabitLog: %v", err)
 	}
@@ -568,15 +560,13 @@ func TestToolHabitLog(t *testing.T) {
 
 func TestToolHabitStatus(t *testing.T) {
 	_, svc := setupHabitsTestDB(t)
-	oldGlobal := globalHabitsService
-	globalHabitsService = svc
-	defer func() { globalHabitsService = oldGlobal }()
+	ctx := withApp(context.Background(), &App{Habits: svc})
 
 	svc.CreateHabit(newUUID(), "A", "", "daily", "", "", 1)
 	svc.CreateHabit(newUUID(), "B", "", "daily", "", "", 1)
 
 	input := json.RawMessage(`{}`)
-	result, err := toolHabitStatus(context.Background(), &Config{}, input)
+	result, err := toolHabitStatus(ctx, &Config{}, input)
 	if err != nil {
 		t.Fatalf("toolHabitStatus: %v", err)
 	}
