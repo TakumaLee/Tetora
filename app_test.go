@@ -20,7 +20,7 @@ func TestAppSyncToGlobals(t *testing.T) {
 
 	// Create App with mock services.
 	cfg := &Config{}
-	sched := &SchedulingService{cfg: cfg}
+	sched := newSchedulingService(cfg)
 
 	app := &App{
 		Cfg:        cfg,
