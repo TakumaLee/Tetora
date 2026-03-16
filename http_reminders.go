@@ -13,7 +13,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/reminders", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if globalReminderEngine == nil {
+		if s.app == nil || s.app.Reminder == nil {
 			json.NewEncoder(w).Encode(map[string]any{"reminders": []any{}, "count": 0, "note": "reminder engine not enabled"})
 			return
 		}
@@ -22,7 +22,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 		case http.MethodGet:
 			// GET /api/reminders?user_id=...
 			userID := r.URL.Query().Get("user_id")
-			reminders, err := globalReminderEngine.List(userID)
+			reminders, err := s.app.Reminder.List(userID)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
@@ -63,7 +63,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 					return
 				}
 			}
-			rem, err := globalReminderEngine.Add(req.Text, dueAt, req.Recurring, req.Channel, req.UserID)
+			rem, err := s.app.Reminder.Add(req.Text, dueAt, req.Recurring, req.Channel, req.UserID)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
@@ -79,7 +79,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/reminders/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if globalReminderEngine == nil {
+		if s.app == nil || s.app.Reminder == nil {
 			http.Error(w, `{"error":"reminder engine not enabled"}`, http.StatusServiceUnavailable)
 			return
 		}
@@ -101,7 +101,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 		case r.Method == http.MethodDelete && action == "":
 			// DELETE /api/reminders/{id}
 			userID := r.URL.Query().Get("user_id")
-			if err := globalReminderEngine.Cancel(id, userID); err != nil {
+			if err := s.app.Reminder.Cancel(id, userID); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}
@@ -118,7 +118,7 @@ func (s *Server) registerReminderRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"invalid duration: %v"}`, err), http.StatusBadRequest)
 				return
 			}
-			if err := globalReminderEngine.Snooze(id, dur); err != nil {
+			if err := s.app.Reminder.Snooze(id, dur); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}

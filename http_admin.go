@@ -732,7 +732,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		// Browser relay status.
 		if !cfg.BrowserRelay.Enabled {
 			status.BrowserRelay = "not_configured"
-		} else if globalBrowserRelay != nil && globalBrowserRelay.Connected() {
+		} else if s.app != nil && s.app.Browser != nil && s.app.Browser.Connected() {
 			status.BrowserRelay = "connected"
 		} else {
 			status.BrowserRelay = "no_clients"
@@ -741,7 +741,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		// Home Assistant status.
 		if !cfg.HomeAssistant.Enabled {
 			status.HomeAssistant = "not_configured"
-		} else if globalHAService != nil {
+		} else if s.app != nil && s.app.HA != nil {
 			status.HomeAssistant = "connected"
 		} else {
 			status.HomeAssistant = "not_configured"

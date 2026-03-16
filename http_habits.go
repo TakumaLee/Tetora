@@ -19,7 +19,7 @@ func (s *Server) registerHabitsRoutes(mux *http.ServeMux) {
 func (s *Server) handleHabits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalHabitsService == nil {
+	if s.app == nil || s.app.Habits == nil {
 		http.Error(w, `{"error":"habits service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -27,7 +27,7 @@ func (s *Server) handleHabits(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		scope := r.URL.Query().Get("scope")
-		habits, err := globalHabitsService.HabitStatus(scope, logWarn)
+		habits, err := s.app.Habits.HabitStatus(scope, logWarn)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -52,7 +52,7 @@ func (s *Server) handleHabits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		id := newUUID()
-		if err := globalHabitsService.CreateHabit(
+		if err := s.app.Habits.CreateHabit(
 			id, body.Name, body.Description, body.Frequency, body.Category, body.Scope, body.TargetCount); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -68,7 +68,7 @@ func (s *Server) handleHabits(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHabitsLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalHabitsService == nil {
+	if s.app == nil || s.app.Habits == nil {
 		http.Error(w, `{"error":"habits service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -93,12 +93,12 @@ func (s *Server) handleHabitsLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := globalHabitsService.LogHabit(newUUID(), body.HabitID, body.Note, body.Scope, body.Value); err != nil {
+	if err := s.app.Habits.LogHabit(newUUID(), body.HabitID, body.Note, body.Scope, body.Value); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusBadRequest)
 		return
 	}
 
-	current, longest, _ := globalHabitsService.GetStreak(body.HabitID, body.Scope)
+	current, longest, _ := s.app.Habits.GetStreak(body.HabitID, body.Scope)
 	json.NewEncoder(w).Encode(map[string]any{
 		"status":         "logged",
 		"habit_id":       body.HabitID,
@@ -111,7 +111,7 @@ func (s *Server) handleHabitsLog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHabitsReport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalHabitsService == nil {
+	if s.app == nil || s.app.Habits == nil {
 		http.Error(w, `{"error":"habits service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -125,7 +125,7 @@ func (s *Server) handleHabitsReport(w http.ResponseWriter, r *http.Request) {
 	period := r.URL.Query().Get("period")
 	scope := r.URL.Query().Get("scope")
 
-	report, err := globalHabitsService.HabitReport(habitID, period, scope)
+	report, err := s.app.Habits.HabitReport(habitID, period, scope)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
@@ -137,7 +137,7 @@ func (s *Server) handleHabitsReport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalHabitsService == nil {
+	if s.app == nil || s.app.Habits == nil {
 		http.Error(w, `{"error":"habits service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -163,7 +163,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := globalHabitsService.LogHealth(newUUID(), body.Metric, body.Value, body.Unit, body.Source, body.Scope); err != nil {
+	if err := s.app.Habits.LogHealth(newUUID(), body.Metric, body.Value, body.Unit, body.Source, body.Scope); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +179,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealthSummary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalHabitsService == nil {
+	if s.app == nil || s.app.Habits == nil {
 		http.Error(w, `{"error":"habits service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -198,7 +198,7 @@ func (s *Server) handleHealthSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := globalHabitsService.GetHealthSummary(metric, period, scope)
+	summary, err := s.app.Habits.GetHealthSummary(metric, period, scope)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return

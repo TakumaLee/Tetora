@@ -21,7 +21,7 @@ func (s *Server) registerContactsRoutes(mux *http.ServeMux) {
 func (s *Server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalContactsService == nil {
+	if s.app == nil || s.app.Contacts == nil {
 		http.Error(w, `{"error":"contacts service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -35,7 +35,7 @@ func (s *Server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	contacts, err := globalContactsService.ListContacts(relationship, limit)
+	contacts, err := s.app.Contacts.ListContacts(relationship, limit)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
@@ -47,7 +47,7 @@ func (s *Server) handleContactsList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContactsAdd(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalContactsService == nil {
+	if s.app == nil || s.app.Contacts == nil {
 		http.Error(w, `{"error":"contacts service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -89,7 +89,7 @@ func (s *Server) handleContactsAdd(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := globalContactsService.AddContact(contact); err != nil {
+	if err := s.app.Contacts.AddContact(contact); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
 	}
@@ -106,7 +106,7 @@ func (s *Server) handleContactsAdd(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContactsSearch(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalContactsService == nil {
+	if s.app == nil || s.app.Contacts == nil {
 		http.Error(w, `{"error":"contacts service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -125,7 +125,7 @@ func (s *Server) handleContactsSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	contacts, err := globalContactsService.SearchContacts(query, limit)
+	contacts, err := s.app.Contacts.SearchContacts(query, limit)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
@@ -137,7 +137,7 @@ func (s *Server) handleContactsSearch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContactsUpcoming(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalContactsService == nil {
+	if s.app == nil || s.app.Contacts == nil {
 		http.Error(w, `{"error":"contacts service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -150,7 +150,7 @@ func (s *Server) handleContactsUpcoming(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	events, err := globalContactsService.GetUpcomingEvents(days)
+	events, err := s.app.Contacts.GetUpcomingEvents(days)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
@@ -162,7 +162,7 @@ func (s *Server) handleContactsUpcoming(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleContactsLogInteraction(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalContactsService == nil {
+	if s.app == nil || s.app.Contacts == nil {
 		http.Error(w, `{"error":"contacts service not initialized"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -186,7 +186,7 @@ func (s *Server) handleContactsLogInteraction(w http.ResponseWriter, r *http.Req
 		body.Type = "message"
 	}
 
-	if err := globalContactsService.LogInteraction(newUUID(), body.ContactID, body.Channel, body.Type, body.Summary, body.Sentiment); err != nil {
+	if err := s.app.Contacts.LogInteraction(newUUID(), body.ContactID, body.Channel, body.Type, body.Summary, body.Sentiment); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 		return
 	}

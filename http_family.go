@@ -18,14 +18,14 @@ func (s *Server) registerFamilyRoutes(mux *http.ServeMux) {
 func (s *Server) handleFamilyUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalFamilyService == nil {
+	if s.app == nil || s.app.Family == nil {
 		http.Error(w, `{"error":"family mode not enabled"}`, http.StatusServiceUnavailable)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		users, err := globalFamilyService.ListUsers()
+		users, err := s.app.Family.ListUsers()
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -49,11 +49,11 @@ func (s *Server) handleFamilyUsers(w http.ResponseWriter, r *http.Request) {
 		if body.Role == "" {
 			body.Role = "member"
 		}
-		if err := globalFamilyService.AddUser(body.UserID, body.DisplayName, body.Role); err != nil {
+		if err := s.app.Family.AddUser(body.UserID, body.DisplayName, body.Role); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusBadRequest)
 			return
 		}
-		user, _ := globalFamilyService.GetUser(body.UserID)
+		user, _ := s.app.Family.GetUser(body.UserID)
 		s.cfgMu.RLock()
 		cfg := s.cfg
 		s.cfgMu.RUnlock()
@@ -66,7 +66,7 @@ func (s *Server) handleFamilyUsers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"userId query parameter required"}`, http.StatusBadRequest)
 			return
 		}
-		if err := globalFamilyService.RemoveUser(userID); err != nil {
+		if err := s.app.Family.RemoveUser(userID); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusBadRequest)
 			return
 		}
@@ -85,14 +85,14 @@ func (s *Server) handleFamilyUsers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFamilyLists(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalFamilyService == nil {
+	if s.app == nil || s.app.Family == nil {
 		http.Error(w, `{"error":"family mode not enabled"}`, http.StatusServiceUnavailable)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		lists, err := globalFamilyService.ListLists()
+		lists, err := s.app.Family.ListLists()
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -113,7 +113,7 @@ func (s *Server) handleFamilyLists(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
 			return
 		}
-		list, err := globalFamilyService.CreateList(body.Name, body.ListType, body.CreatedBy, newUUID)
+		list, err := s.app.Family.CreateList(body.Name, body.ListType, body.CreatedBy, newUUID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -130,7 +130,7 @@ func (s *Server) handleFamilyLists(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"listId query parameter required"}`, http.StatusBadRequest)
 			return
 		}
-		if err := globalFamilyService.DeleteList(listID); err != nil {
+		if err := s.app.Family.DeleteList(listID); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusBadRequest)
 			return
 		}
@@ -149,7 +149,7 @@ func (s *Server) handleFamilyLists(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFamilyListItems(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if globalFamilyService == nil {
+	if s.app == nil || s.app.Family == nil {
 		http.Error(w, `{"error":"family mode not enabled"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -161,7 +161,7 @@ func (s *Server) handleFamilyListItems(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"listId query parameter required"}`, http.StatusBadRequest)
 			return
 		}
-		items, err := globalFamilyService.GetListItems(listID)
+		items, err := s.app.Family.GetListItems(listID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -183,7 +183,7 @@ func (s *Server) handleFamilyListItems(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"listId and text are required"}`, http.StatusBadRequest)
 			return
 		}
-		item, err := globalFamilyService.AddListItem(body.ListID, body.Text, body.Quantity, body.AddedBy)
+		item, err := s.app.Family.AddListItem(body.ListID, body.Text, body.Quantity, body.AddedBy)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
@@ -203,7 +203,7 @@ func (s *Server) handleFamilyListItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		checked := checkedStr == "true" || checkedStr == "1"
-		if err := globalFamilyService.CheckItem(itemID, checked); err != nil {
+		if err := s.app.Family.CheckItem(itemID, checked); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -220,7 +220,7 @@ func (s *Server) handleFamilyListItems(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"invalid itemId"}`, http.StatusBadRequest)
 			return
 		}
-		if err := globalFamilyService.RemoveListItem(itemID); err != nil {
+		if err := s.app.Family.RemoveListItem(itemID); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return
 		}
