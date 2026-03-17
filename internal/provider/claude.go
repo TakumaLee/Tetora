@@ -337,6 +337,13 @@ func BuildClaudeArgs(req Request, streaming bool) []string {
 		args = append(args, "--mcp-config", req.MCPPath)
 	}
 
+	// Additional directories for file access (e.g. uploads, workspace).
+	for _, dir := range req.AddDirs {
+		if dir != "" {
+			args = append(args, "--add-dir", dir)
+		}
+	}
+
 	// Prompt is NOT appended as a positional arg; it is piped via stdin
 	// in Execute() to avoid OS ARG_MAX limits and shell escaping issues.
 	return args
