@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- MCP Host Types ---
@@ -151,7 +153,7 @@ func (h *MCPHost) Start(ctx context.Context) error {
 	for name, serverCfg := range h.cfg.MCPServers {
 		// Check if explicitly disabled.
 		if serverCfg.Enabled != nil && !*serverCfg.Enabled {
-			logInfo("MCP server %s disabled, skipping", name)
+			log.Info("MCP server %s disabled, skipping", name)
 			continue
 		}
 
@@ -176,7 +178,7 @@ func (h *MCPHost) Start(ctx context.Context) error {
 				s.status = "error"
 				s.lastError = err.Error()
 				s.mu.Unlock()
-				logError("MCP server %s failed to start: %v", s.Name, err)
+				log.Error("MCP server %s failed to start: %v", s.Name, err)
 				return
 			}
 
@@ -233,7 +235,7 @@ func (h *MCPHost) RestartServer(name string) error {
 			server.status = "error"
 			server.lastError = err.Error()
 			server.mu.Unlock()
-			logError("MCP server %s restart failed: %v", server.Name, err)
+			log.Error("MCP server %s restart failed: %v", server.Name, err)
 			return
 		}
 		go server.monitorHealth()
@@ -309,7 +311,7 @@ func (s *MCPServer) start(ctx context.Context) error {
 		return fmt.Errorf("start process: %w", err)
 	}
 
-	logInfo("MCP server %s started (PID %d)", s.Name, cmd.Process.Pid)
+	log.Info("MCP server %s started (PID %d)", s.Name, cmd.Process.Pid)
 
 	// Initialize demux state and start reader goroutine before any requests.
 	s.pending = make(map[int]chan *jsonRPCResponse)
@@ -339,7 +341,7 @@ func (s *MCPServer) start(ctx context.Context) error {
 	s.status = "running"
 	s.mu.Unlock()
 
-	logInfo("MCP server %s running with %d tools", s.Name, len(tools))
+	log.Info("MCP server %s running with %d tools", s.Name, len(tools))
 
 	return nil
 }
@@ -388,7 +390,7 @@ func (s *MCPServer) stop() {
 		}
 	})
 
-	logInfo("MCP server %s stopped", s.Name)
+	log.Info("MCP server %s stopped", s.Name)
 }
 
 // initialize performs the MCP initialization handshake.
@@ -420,7 +422,7 @@ func (s *MCPServer) initialize() error {
 		return fmt.Errorf("parse initialize result: %w", err)
 	}
 
-	logDebug("MCP server %s initialized: %s %s", s.Name, result.ServerInfo.Name, result.ServerInfo.Version)
+	log.Debug("MCP server %s initialized: %s %s", s.Name, result.ServerInfo.Name, result.ServerInfo.Version)
 
 	// Send initialized notification.
 	initNotif := jsonRPCRequest{
@@ -467,7 +469,7 @@ func (s *MCPServer) discoverTools() ([]ToolDef, error) {
 		// Register in global registry.
 		if s.toolReg != nil {
 			s.toolReg.Register(&toolDef)
-			logDebug("registered MCP tool: %s", toolName)
+			log.Debug("registered MCP tool: %s", toolName)
 		}
 	}
 
@@ -609,20 +611,20 @@ func (s *MCPServer) runReader() {
 		line, err := s.Stdout.ReadBytes('\n')
 		if err != nil {
 			if err != io.EOF {
-				logDebug("MCP server %s reader: %v", s.Name, err)
+				log.Debug("MCP server %s reader: %v", s.Name, err)
 			}
 			return
 		}
 
 		var resp jsonRPCResponse
 		if err := json.Unmarshal(line, &resp); err != nil {
-			logWarn("MCP server %s: invalid JSON from stdout: %v", s.Name, err)
+			log.Warn("MCP server %s: invalid JSON from stdout: %v", s.Name, err)
 			continue
 		}
 
 		// Notifications (ID == 0) are server-initiated; log and discard.
 		if resp.ID == 0 {
-			logDebug("MCP server %s: notification received", s.Name)
+			log.Debug("MCP server %s: notification received", s.Name)
 			continue
 		}
 
@@ -636,7 +638,7 @@ func (s *MCPServer) runReader() {
 		if ok {
 			ch <- &resp
 		} else {
-			logWarn("MCP server %s: unexpected response ID %d", s.Name, resp.ID)
+			log.Warn("MCP server %s: unexpected response ID %d", s.Name, resp.ID)
 		}
 	}
 }
@@ -667,7 +669,7 @@ func (s *MCPServer) monitorHealth() {
 	if s.restarts < 3 && s.parentCtx.Err() == nil {
 		s.restarts++
 		restarts := s.restarts
-		logWarn("MCP server %s crashed (restart %d/3), restarting...", s.Name, restarts)
+		log.Warn("MCP server %s crashed (restart %d/3), restarting...", s.Name, restarts)
 
 		// Exponential backoff.
 		backoff := time.Duration(restarts) * 2 * time.Second
@@ -683,13 +685,13 @@ func (s *MCPServer) monitorHealth() {
 			s.status = "error"
 			s.lastError = err.Error()
 			s.mu.Unlock()
-			logError("MCP server %s restart failed: %v", s.Name, err)
+			log.Error("MCP server %s restart failed: %v", s.Name, err)
 			return
 		}
 		// start() already initialized new demux state; recurse to monitor.
 		s.monitorHealth()
 	} else {
-		logError("MCP server %s crashed, max restarts exceeded", s.Name)
+		log.Error("MCP server %s crashed, max restarts exceeded", s.Name)
 		s.mu.Unlock()
 	}
 }
@@ -702,6 +704,6 @@ type mcpStderrWriter struct {
 }
 
 func (w *mcpStderrWriter) Write(p []byte) (n int, err error) {
-	logWarn("MCP server %s stderr: %s", w.serverName, string(p))
+	log.Warn("MCP server %s stderr: %s", w.serverName, string(p))
 	return len(p), nil
 }

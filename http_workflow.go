@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/trace"
 )
@@ -336,7 +337,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				`UPDATE workflow_runs SET status='cancelled', finished_at=datetime('now') WHERE id='%s' AND status IN ('running','waiting')`,
 				db.Escape(runID),
 			)); err != nil {
-				logWarn("cancel workflow run failed", "runID", runID, "error", err)
+				log.Warn("cancel workflow run failed", "runID", runID, "error", err)
 			}
 			auditLog(cfg.HistoryDB, "workflow.cancel", "http",
 				fmt.Sprintf("runID=%s", runID), clientIP(r))
@@ -364,9 +365,9 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 			go func() {
 				run, err := resumeWorkflow(trace.WithID(context.Background(), wfTraceID), cfg, runID, state, sem, childSem)
 				if err != nil {
-					logWarn("workflow resume failed", "originalRunID", runID, "error", err)
+					log.Warn("workflow resume failed", "originalRunID", runID, "error", err)
 				} else {
-					logInfo("workflow resume dispatched", "originalRunID", runID, "newRunID", run.ID[:8])
+					log.Info("workflow resume dispatched", "originalRunID", runID, "newRunID", run.ID[:8])
 				}
 			}()
 

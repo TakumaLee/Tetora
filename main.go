@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"tetora/internal/cli"
+	"tetora/internal/log"
 	"tetora/internal/completion"
 	"tetora/internal/db"
 	"tetora/internal/sla"
@@ -35,6 +36,19 @@ import (
 	"tetora/internal/telemetry"
 	"tetora/internal/trace"
 )
+
+// initLogger creates the global logger from config.
+func initLogger(cfg LoggingConfig, baseDir string) {
+	l := log.Init(log.Config{
+		Level:     cfg.LevelOrDefault(),
+		Format:    cfg.FormatOrDefault(),
+		File:      cfg.File,
+		MaxSizeMB: cfg.MaxSizeMBOrDefault(),
+		MaxFiles:  cfg.MaxFilesOrDefault(),
+	}, baseDir)
+	l.SetTraceExtractor(trace.IDFromContext)
+	log.SetDefault(l)
+}
 
 func main() {
 	// Set CLI version before routing.
@@ -240,7 +254,7 @@ func main() {
 	if cfg.Log && cfg.Logging.Level == "" {
 		cfg.Logging.Level = "debug"
 	}
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Shared concurrency semaphore — limits total concurrent claude sessions.
 	sem := make(chan struct{}, cfg.MaxConcurrent)
@@ -257,7 +271,7 @@ func main() {
 			semCap: cfg.MaxConcurrent,
 		}
 		spg := cfg.Runtime.SlotPressureGuard.(*SlotPressureGuard)
-		logInfo("slot pressure guard enabled",
+		log.Info("slot pressure guard enabled",
 			"reserved", spg.reservedSlots(),
 			"warnThreshold", spg.warnThreshold())
 	}
@@ -280,7 +294,7 @@ func main() {
 
 	if *serve {
 		// --- Daemon mode ---
-		logInfo("tetora v2 starting", "maxConcurrent", cfg.MaxConcurrent, "childConcurrent", childSemConcurrentOrDefault(cfg))
+		log.Info("tetora v2 starting", "maxConcurrent", cfg.MaxConcurrent, "childConcurrent", childSemConcurrentOrDefault(cfg))
 
 		// Track degraded services for health reporting.
 		var degradedServices []string
@@ -288,87 +302,87 @@ func main() {
 		// Init history DB.
 		if cfg.HistoryDB != "" {
 			if err := initHistoryDB(cfg.HistoryDB); err != nil {
-				logWarn("init history db failed", "error", err)
+				log.Warn("init history db failed", "error", err)
 				degradedServices = append(degradedServices, "historyDB")
 			} else {
-				logInfo("history db initialized", "path", cfg.HistoryDB)
+				log.Info("history db initialized", "path", cfg.HistoryDB)
 
 				// Init plan reviews table.
 				if err := initPlanReviewDB(cfg.HistoryDB); err != nil {
-					logWarn("init plan_reviews table failed", "error", err)
+					log.Warn("init plan_reviews table failed", "error", err)
 				}
 
 				// Set SQLite pragmas for reliability.
 				if err := db.Pragma(cfg.HistoryDB); err != nil {
-					logWarn("set db pragmas failed", "error", err)
+					log.Warn("set db pragmas failed", "error", err)
 				} else {
-					logInfo("db pragmas set", "mode", "WAL")
+					log.Info("db pragmas set", "mode", "WAL")
 				}
 
 				// Init embedding DB if enabled.
 				if cfg.Embedding.Enabled {
 					if err := initEmbeddingDB(cfg.HistoryDB); err != nil {
-						logWarn("init embedding db failed", "error", err)
+						log.Warn("init embedding db failed", "error", err)
 						degradedServices = append(degradedServices, "embedding")
 					} else {
-						logInfo("embedding db initialized")
+						log.Info("embedding db initialized")
 					}
 				}
 
 				// Cleanup records using retention config.
 				if err := cleanupHistory(cfg.HistoryDB, retentionDays(cfg.Retention.History, 90)); err != nil {
-					logWarn("cleanup history failed", "error", err)
+					log.Warn("cleanup history failed", "error", err)
 				}
 			}
 			// Init audit log table and start batched writer.
 			if err := initAuditLog(cfg.HistoryDB); err != nil {
-				logWarn("init audit_log failed", "error", err)
+				log.Warn("init audit_log failed", "error", err)
 			}
 			startAuditWriter()
 			cleanupAuditLog(cfg.HistoryDB, retentionDays(cfg.Retention.AuditLog, 365))
 			// Init agent memory table.
 			if err := initMemoryDB(cfg.HistoryDB); err != nil {
-				logWarn("init agent_memory failed", "error", err)
+				log.Warn("init agent_memory failed", "error", err)
 			}
 			// Init session tables.
 			if err := initSessionDB(cfg.HistoryDB); err != nil {
-				logWarn("init sessions failed", "error", err)
+				log.Warn("init sessions failed", "error", err)
 			}
 			// Init SLA tables.
 			sla.InitSLADB(cfg.HistoryDB)
 			// Init offline queue table.
 			if err := initQueueDB(cfg.HistoryDB); err != nil {
-				logWarn("init offline_queue failed", "error", err)
+				log.Warn("init offline_queue failed", "error", err)
 			}
 			// Init reflections table.
 			if err := initReflectionDB(cfg.HistoryDB); err != nil {
-				logWarn("init reflections failed", "error", err)
+				log.Warn("init reflections failed", "error", err)
 			}
 			// Init trust events table.
 			initTrustDB(cfg.HistoryDB)
 			// Init config versioning table.
 			if err := initVersionDB(cfg.HistoryDB); err != nil {
-				logWarn("init config_versions failed", "error", err)
+				log.Warn("init config_versions failed", "error", err)
 			}
 			// Init agent communication table.
 			if err := initAgentCommDB(cfg.HistoryDB); err != nil {
-				logWarn("init agent_messages failed", "error", err)
+				log.Warn("init agent_messages failed", "error", err)
 			}
 			// --- P18.4: Self-Improving Skills --- Init skill usage table.
 			if err := initSkillUsageTable(cfg.HistoryDB); err != nil {
-				logWarn("init skill_usage failed", "error", err)
+				log.Warn("init skill_usage failed", "error", err)
 			}
 			// --- P18.2: OAuth 2.0 Framework --- Init OAuth tokens table.
 			if err := initOAuthTable(cfg.HistoryDB); err != nil {
-				logWarn("init oauth_tokens failed", "error", err)
+				log.Warn("init oauth_tokens failed", "error", err)
 			}
 			// Init token telemetry table.
 			if err := telemetry.Init(cfg.HistoryDB); err != nil {
-				logWarn("init token_telemetry failed", "error", err)
+				log.Warn("init token_telemetry failed", "error", err)
 			}
 			// Init projects table.
 			if err := initProjectsDB(cfg.HistoryDB); err != nil {
-				logWarn("init projects failed", "error", err)
+				log.Warn("init projects failed", "error", err)
 			}
 			// Init workflow callbacks table (external steps).
 			initCallbackTable(cfg.HistoryDB)
@@ -377,75 +391,75 @@ func main() {
 		// --- P23.1: User Profile & Emotional Memory ---
 		if cfg.UserProfile.Enabled && cfg.HistoryDB != "" {
 			if err := initUserProfileDB(cfg.HistoryDB); err != nil {
-				logWarn("init user_profiles failed", "error", err)
+				log.Warn("init user_profiles failed", "error", err)
 			} else {
 				app.UserProfile = newUserProfileService(cfg)
-				logInfo("user profile service initialized", "sentiment", cfg.UserProfile.SentimentEnabled)
+				log.Info("user profile service initialized", "sentiment", cfg.UserProfile.SentimentEnabled)
 			}
 		}
 
 		// --- P23.7: Reliability & Operations --- Init tables.
 		if cfg.HistoryDB != "" {
 			if err := initOpsDB(cfg.HistoryDB); err != nil {
-				logWarn("init ops tables failed", "error", err)
+				log.Warn("init ops tables failed", "error", err)
 			}
 		}
 
 		// --- P23.4: Financial Tracking ---
 		if cfg.Finance.Enabled && cfg.HistoryDB != "" {
 			if err := initFinanceDB(cfg.HistoryDB); err != nil {
-				logWarn("init finance tables failed", "error", err)
+				log.Warn("init finance tables failed", "error", err)
 			} else {
 				app.Finance = newFinanceService(cfg)
-				logInfo("finance service initialized", "defaultCurrency", cfg.Finance.DefaultCurrencyOrTWD())
+				log.Info("finance service initialized", "defaultCurrency", cfg.Finance.DefaultCurrencyOrTWD())
 			}
 		}
 
 		// --- P23.2: Task Management ---
 		if cfg.TaskManager.Enabled && cfg.HistoryDB != "" {
 			if err := initTaskManagerDB(cfg.HistoryDB); err != nil {
-				logWarn("init task_manager tables failed", "error", err)
+				log.Warn("init task_manager tables failed", "error", err)
 			} else {
 				app.TaskManager = newTaskManagerService(cfg)
-				logInfo("task manager initialized", "defaultProject", cfg.TaskManager.DefaultProjectOrInbox())
+				log.Info("task manager initialized", "defaultProject", cfg.TaskManager.DefaultProjectOrInbox())
 			}
 		}
 
 		// --- P23.3: File & Document Processing ---
 		if cfg.FileManager.Enabled && cfg.HistoryDB != "" {
 			if err := storage.InitDB(cfg.HistoryDB); err != nil {
-				logWarn("init file_manager tables failed", "error", err)
+				log.Warn("init file_manager tables failed", "error", err)
 			} else {
 				app.FileManager = newFileManagerService(cfg)
-				logInfo("file manager initialized", "storageDir", cfg.FileManager.StorageDirOrDefault(cfg.BaseDir))
+				log.Info("file manager initialized", "storageDir", cfg.FileManager.StorageDirOrDefault(cfg.BaseDir))
 			}
 		}
 
 		// --- P23.5: Media Control ---
 		if cfg.Spotify.Enabled {
 			app.Spotify = newSpotifyService(cfg)
-			logInfo("spotify service initialized", "market", cfg.Spotify.MarketOrDefault())
+			log.Info("spotify service initialized", "market", cfg.Spotify.MarketOrDefault())
 		}
 		if cfg.Podcast.Enabled && cfg.HistoryDB != "" {
 			if err := initPodcastDB(cfg.HistoryDB); err != nil {
-				logWarn("init podcast tables failed", "error", err)
+				log.Warn("init podcast tables failed", "error", err)
 			} else {
 				app.Podcast = newPodcastService(cfg.HistoryDB)
-				logInfo("podcast service initialized")
+				log.Info("podcast service initialized")
 			}
 		}
 
 		// --- P23.6: Multi-User / Family Mode ---
 		if cfg.Family.Enabled && cfg.HistoryDB != "" {
 			if err := initFamilyDB(cfg.HistoryDB); err != nil {
-				logWarn("init family tables failed", "error", err)
+				log.Warn("init family tables failed", "error", err)
 			} else {
 				svc, err := newFamilyService(cfg, cfg.Family)
 				if err != nil {
-					logWarn("init family service failed", "error", err)
+					log.Warn("init family service failed", "error", err)
 				} else {
 					app.Family = svc
-					logInfo("family mode initialized", "maxUsers", cfg.Family.MaxUsersOrDefault())
+					log.Info("family mode initialized", "maxUsers", cfg.Family.MaxUsersOrDefault())
 				}
 			}
 		}
@@ -453,61 +467,61 @@ func main() {
 		// --- P24.2: Contact & Social Graph ---
 		if cfg.HistoryDB != "" {
 			if err := initContactsDB(cfg.HistoryDB); err != nil {
-				logWarn("init contacts tables failed", "error", err)
+				log.Warn("init contacts tables failed", "error", err)
 			} else {
 				app.Contacts = newContactsService(cfg)
-				logInfo("contacts service initialized")
+				log.Info("contacts service initialized")
 			}
 		}
 
 		// --- P24.3: Life Insights Engine ---
 		if cfg.HistoryDB != "" {
 			if err := initInsightsDB(cfg.HistoryDB); err != nil {
-				logWarn("init insights tables failed", "error", err)
+				log.Warn("init insights tables failed", "error", err)
 			} else {
 				app.Insights = newInsightsEngine(cfg)
-				logInfo("insights engine initialized")
+				log.Info("insights engine initialized")
 			}
 		}
 
 		// --- P24.4: Smart Scheduling ---
 		app.Scheduling = newSchedulingService(cfg)
-		logInfo("scheduling service initialized")
+		log.Info("scheduling service initialized")
 
 		// --- P24.5: Habit & Wellness Tracking ---
 		if cfg.HistoryDB != "" {
 			if err := initHabitsDB(cfg.HistoryDB); err != nil {
-				logWarn("init habits tables failed", "error", err)
+				log.Warn("init habits tables failed", "error", err)
 			} else {
 				app.Habits = newHabitsService(cfg)
-				logInfo("habits service initialized")
+				log.Info("habits service initialized")
 			}
 		}
 
 		// --- P24.6: Goal Planning & Autonomy ---
 		if cfg.HistoryDB != "" {
 			if err := initGoalsDB(cfg.HistoryDB); err != nil {
-				logWarn("init goals tables failed", "error", err)
+				log.Warn("init goals tables failed", "error", err)
 			} else {
 				app.Goals = newGoalsService(cfg)
-				logInfo("goals service initialized")
+				log.Info("goals service initialized")
 			}
 		}
 
 		// --- P29.2: Time Tracking ---
 		if cfg.TimeTracking.Enabled && cfg.HistoryDB != "" {
 			if err := initTimeTrackingDB(cfg.HistoryDB); err != nil {
-				logWarn("init time_entries failed", "error", err)
+				log.Warn("init time_entries failed", "error", err)
 			} else {
 				app.TimeTracking = newTimeTrackingService(cfg)
-				logInfo("time tracking initialized")
+				log.Info("time tracking initialized")
 			}
 		}
 
 		// --- P29.0: Lifecycle Automation ---
 		if cfg.Lifecycle.Enabled {
 			app.Lifecycle = newLifecycleEngine(cfg)
-			logInfo("lifecycle engine initialized",
+			log.Info("lifecycle engine initialized",
 				"autoHabitSuggest", cfg.Lifecycle.AutoHabitSuggest,
 				"autoInsightAction", cfg.Lifecycle.AutoInsightAction,
 				"autoBirthdayRemind", cfg.Lifecycle.AutoBirthdayRemind)
@@ -516,13 +530,13 @@ func main() {
 		// --- P24.7: Morning Briefing & Evening Wrap ---
 		if cfg.HistoryDB != "" {
 			app.Briefing = newBriefingService(cfg)
-			logInfo("briefing service initialized")
+			log.Info("briefing service initialized")
 		}
 
 		// Warn about incoming webhooks without secrets.
 		for name, wh := range cfg.IncomingWebhooks {
 			if wh.Secret == "" {
-				logWarn("incoming webhook has no secret configured", "webhook", name)
+				log.Warn("incoming webhook has no secret configured", "webhook", name)
 			}
 		}
 
@@ -533,21 +547,21 @@ func main() {
 		// Init uploads directory + cleanup.
 		uploadDir := upload.InitDir(cfg.BaseDir)
 		upload.Cleanup(uploadDir, retentionDays(cfg.Retention.Uploads, 7))
-		logInfo("uploads dir initialized", "path", uploadDir)
+		log.Info("uploads dir initialized", "path", uploadDir)
 
 		// Init knowledge base directory.
 		knowledge.InitDir(cfg.BaseDir)
-		logInfo("knowledge base initialized", "path", cfg.KnowledgeDir)
+		log.Info("knowledge base initialized", "path", cfg.KnowledgeDir)
 
 		// Init tool registry.
 		cfg.Runtime.ToolRegistry = NewToolRegistry(cfg)
-		logInfo("tool registry initialized", "tools", len(cfg.Runtime.ToolRegistry.(*ToolRegistry).List()))
+		log.Info("tool registry initialized", "tools", len(cfg.Runtime.ToolRegistry.(*ToolRegistry).List()))
 
 		// Init directories for agents, workspace, and runtime.
 		if err := initDirectories(cfg); err != nil {
-			logWarn("init directories failed", "error", err)
+			log.Warn("init directories failed", "error", err)
 		} else {
-			logInfo("directories initialized", "agents", len(cfg.Agents))
+			log.Info("directories initialized", "agents", len(cfg.Agents))
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -558,12 +572,12 @@ func main() {
 		if cfg.Ops.MessageQueue.Enabled && cfg.HistoryDB != "" {
 			mqEngine := newMessageQueueEngine(cfg)
 			mqEngine.Start(ctx)
-			logInfo("message queue started")
+			log.Info("message queue started")
 		}
 		if cfg.Ops.BackupSchedule != "" && cfg.HistoryDB != "" {
 			bsched := newBackupScheduler(cfg)
 			bsched.Start(ctx)
-			logInfo("backup scheduler started", "schedule", cfg.Ops.BackupSchedule, "retain", cfg.Ops.BackupRetainOrDefault())
+			log.Info("backup scheduler started", "schedule", cfg.Ops.BackupSchedule, "retain", cfg.Ops.BackupRetainOrDefault())
 		}
 
 		// Periodic cleanup (daily): uses retention config for all tables.
@@ -578,7 +592,7 @@ func main() {
 					results := runRetention(cfg)
 					for _, r := range results {
 						if r.Error != "" {
-							logWarn("retention cleanup error", "table", r.Table, "error", r.Error)
+							log.Warn("retention cleanup error", "table", r.Table, "error", r.Error)
 						}
 					}
 					cleanupExpiredCallbacks(cfg.HistoryDB)
@@ -613,14 +627,14 @@ func main() {
 			for i, n := range extraNotifiers {
 				names[i] = n.Name()
 			}
-			logInfo("notifications configured", "notifiers", strings.Join(names, ", "),
+			log.Info("notifications configured", "notifiers", strings.Join(names, ", "),
 				"batchInterval", notifyEngine.batchInterval.String())
 		}
 
 		// Security monitor.
 		secMon := newSecurityMonitor(cfg, notifyFn)
 		if secMon != nil {
-			logInfo("security alerts enabled", "threshold", cfg.SecurityAlert.FailThreshold, "windowMin", cfg.SecurityAlert.FailWindowMin)
+			log.Info("security alerts enabled", "threshold", cfg.SecurityAlert.FailThreshold, "windowMin", cfg.SecurityAlert.FailWindowMin)
 		}
 
 		// Budget alert tracker.
@@ -632,7 +646,7 @@ func main() {
 		// Cron engine.
 		cron := newCronEngine(cfg, sem, childSem, notifyFn)
 		if err := cron.loadJobs(); err != nil {
-			logWarn("cron load error, continuing without cron", "error", err)
+			log.Warn("cron load error, continuing without cron", "error", err)
 		} else {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
@@ -649,9 +663,9 @@ func main() {
 			}
 			switch {
 			case freeGB < 0.5:
-				logWarn("startup disk critical: very low free space", "freeGB", fmt.Sprintf("%.2f", freeGB))
+				log.Warn("startup disk critical: very low free space", "freeGB", fmt.Sprintf("%.2f", freeGB))
 			case freeGB < budgetGB:
-				logWarn("startup disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "thresholdGB", budgetGB)
+				log.Warn("startup disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "thresholdGB", budgetGB)
 			}
 		}
 
@@ -662,7 +676,7 @@ func main() {
 			spg.broker = state.broker
 			if cfg.SlotPressure.MonitorEnabled {
 				go spg.RunMonitor(ctx)
-				logInfo("slot pressure monitor started", "interval", spg.monitorInterval().String())
+				log.Info("slot pressure monitor started", "interval", spg.monitorInterval().String())
 			}
 		}
 
@@ -699,14 +713,14 @@ func main() {
 		if cfg.Proactive.Enabled {
 			proactiveEngine = newProactiveEngine(cfg, state.broker, sem, childSem)
 			proactiveEngine.Start(ctx)
-			logInfo("proactive engine started", "rules", len(cfg.Proactive.Rules))
+			log.Info("proactive engine started", "rules", len(cfg.Proactive.Rules))
 		}
 
 		// Group chat engine.
 		var groupChatEngine *GroupChatEngine
 		if cfg.GroupChat.Activation != "" {
 			groupChatEngine = newGroupChatEngine(cfg)
-			logInfo("group chat engine started", "activation", cfg.GroupChat.Activation)
+			log.Info("group chat engine started", "activation", cfg.GroupChat.Activation)
 		}
 
 		// Start SLA monitor + budget alert goroutine.
@@ -723,7 +737,7 @@ func main() {
 					}
 				}
 			}()
-			logInfo("SLA monitor enabled", "interval", cfg.SLA.CheckIntervalOrDefault().String(), "window", cfg.SLA.WindowOrDefault().String())
+			log.Info("SLA monitor enabled", "interval", cfg.SLA.CheckIntervalOrDefault().String(), "window", cfg.SLA.WindowOrDefault().String())
 		}
 
 		// Start budget alert goroutine.
@@ -740,7 +754,7 @@ func main() {
 					}
 				}
 			}()
-			logInfo("budget governance enabled",
+			log.Info("budget governance enabled",
 				"daily", cfg.Budgets.Global.Daily,
 				"weekly", cfg.Budgets.Global.Weekly,
 				"monthly", cfg.Budgets.Global.Monthly,
@@ -759,7 +773,7 @@ func main() {
 				ttl:      cfg.OfflineQueue.TtlOrDefault(),
 			}
 			go drainer.run(ctx)
-			logInfo("offline queue enabled", "ttl", drainer.ttl.String(), "maxItems", cfg.OfflineQueue.MaxItemsOrDefault())
+			log.Info("offline queue enabled", "ttl", drainer.ttl.String(), "maxItems", cfg.OfflineQueue.MaxItemsOrDefault())
 		}
 
 		// Initialize Slack bot (uses HTTP push, no polling needed).
@@ -768,7 +782,7 @@ func main() {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			rt.cron = cron
 			slackBot = slackbot.NewBot(cfg.Slack, rt)
-			logInfo("slack bot enabled", "endpoint", "/slack/events")
+			log.Info("slack bot enabled", "endpoint", "/slack/events")
 
 			// Wire Slack into notification chain.
 			prevNotifyFn := notifyFn
@@ -786,7 +800,7 @@ func main() {
 			discordBot = newDiscordBot(cfg, state, sem, childSem, cron)
 			state.discordBot = discordBot       // P14.1: store for interaction handler
 			cfg.Runtime.DiscordBot = discordBot // provider approval routing
-			logInfo("discord bot enabled")
+			log.Info("discord bot enabled")
 
 			// Wire Discord into notification chain.
 			prevNotifyFn2 := notifyFn
@@ -803,9 +817,9 @@ func main() {
 		if len(cfg.MCPServers) > 0 {
 			mcpHost = newMCPHost(cfg, cfg.Runtime.ToolRegistry.(*ToolRegistry))
 			if err := mcpHost.Start(ctx); err != nil {
-				logError("MCP host start failed: %v", err)
+				log.Error("MCP host start failed: %v", err)
 			} else {
-				logInfo("MCP host started", "servers", len(cfg.MCPServers))
+				log.Info("MCP host started", "servers", len(cfg.MCPServers))
 			}
 		}
 
@@ -817,14 +831,14 @@ func main() {
 		if cfg.WhatsApp.Enabled && cfg.WhatsApp.PhoneNumberID != "" && cfg.WhatsApp.AccessToken != "" {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			whatsappBot = whatsapp.NewBot(cfg.WhatsApp, rt)
-			logInfo("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
+			log.Info("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
 		}
 
 		// Initialize voice engine.
 		var voiceEngine *VoiceEngine
 		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
 			voiceEngine = newVoiceEngine(cfg)
-			logInfo("voice engine initialized")
+			log.Info("voice engine initialized")
 		}
 
 		// Initialize agent communication DB.
@@ -835,7 +849,7 @@ func main() {
 		if len(cfg.Plugins) > 0 {
 			pluginHost = NewPluginHost(cfg)
 			pluginHost.AutoStart()
-			logInfo("plugin host initialized", "plugins", len(cfg.Plugins))
+			log.Info("plugin host initialized", "plugins", len(cfg.Plugins))
 		}
 
 		// --- P13.2: Sandbox Plugin --- Initialize sandbox manager.
@@ -843,7 +857,7 @@ func main() {
 			sm := NewSandboxManager(cfg, pluginHost)
 			if sm.PluginName() != "" {
 				state.sandboxMgr = sm
-				logInfo("sandbox manager initialized", "plugin", sm.PluginName())
+				log.Info("sandbox manager initialized", "plugin", sm.PluginName())
 			}
 		}
 
@@ -852,7 +866,7 @@ func main() {
 		if cfg.LINE.Enabled && cfg.LINE.ChannelSecret != "" && cfg.LINE.ChannelAccessToken != "" {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			lineBot = linebot.NewBot(cfg.LINE, rt)
-			logInfo("line bot enabled", "endpoint", cfg.LINE.WebhookPathOrDefault())
+			log.Info("line bot enabled", "endpoint", cfg.LINE.WebhookPathOrDefault())
 		}
 
 		// --- P15.2: Matrix Channel --- Initialize Matrix bot.
@@ -860,7 +874,7 @@ func main() {
 		if cfg.Matrix.Enabled && cfg.Matrix.Homeserver != "" && cfg.Matrix.AccessToken != "" {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			matrixBot = matrix.NewBot(cfg.Matrix, rt)
-			logInfo("matrix bot enabled", "homeserver", cfg.Matrix.Homeserver, "userId", cfg.Matrix.UserID)
+			log.Info("matrix bot enabled", "homeserver", cfg.Matrix.Homeserver, "userId", cfg.Matrix.UserID)
 		}
 
 		// --- P15.3: Teams Channel --- Initialize Teams bot.
@@ -868,7 +882,7 @@ func main() {
 		if cfg.Teams.Enabled && cfg.Teams.AppID != "" && cfg.Teams.AppPassword != "" {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			teamsBot = teamsbot.NewBot(cfg.Teams, rt)
-			logInfo("teams bot enabled", "endpoint", "/api/teams/webhook")
+			log.Info("teams bot enabled", "endpoint", "/api/teams/webhook")
 		}
 
 		// --- P15.4: Signal Channel --- Initialize Signal bot.
@@ -878,9 +892,9 @@ func main() {
 			signalBot = signalbot.NewBot(cfg.Signal, rt)
 			if cfg.Signal.PollingMode {
 				signalBot.Start()
-				logInfo("signal bot enabled (polling mode)", "interval", cfg.Signal.PollIntervalOrDefault())
+				log.Info("signal bot enabled (polling mode)", "interval", cfg.Signal.PollIntervalOrDefault())
 			} else {
-				logInfo("signal bot enabled", "endpoint", cfg.Signal.WebhookPathOrDefault())
+				log.Info("signal bot enabled", "endpoint", cfg.Signal.WebhookPathOrDefault())
 			}
 		}
 
@@ -891,9 +905,9 @@ func main() {
 			var err error
 			gchatBot, err = gchat.NewBot(cfg.GoogleChat, rt)
 			if err != nil {
-				logError("failed to initialize google chat bot", "error", err)
+				log.Error("failed to initialize google chat bot", "error", err)
 			} else {
-				logInfo("google chat bot enabled", "endpoint", cfg.GoogleChat.WebhookPathOrDefault())
+				log.Info("google chat bot enabled", "endpoint", cfg.GoogleChat.WebhookPathOrDefault())
 			}
 		}
 
@@ -907,11 +921,11 @@ func main() {
 		// --- P19.3: Smart Reminders --- Initialize reminder engine.
 		if cfg.Reminders.Enabled && cfg.HistoryDB != "" {
 			if err := initReminderDB(cfg.HistoryDB); err != nil {
-				logWarn("init reminders table failed", "error", err)
+				log.Warn("init reminders table failed", "error", err)
 			} else {
 				app.Reminder = newReminderEngine(cfg, notifyFn)
 				app.Reminder.Start()
-				logInfo("reminder engine started", "checkInterval", cfg.Reminders.CheckIntervalOrDefault().String(), "maxPerUser", cfg.Reminders.MaxPerUserOrDefault())
+				log.Info("reminder engine started", "checkInterval", cfg.Reminders.CheckIntervalOrDefault().String(), "maxPerUser", cfg.Reminders.MaxPerUserOrDefault())
 			}
 		}
 
@@ -919,7 +933,7 @@ func main() {
 		if cfg.Notes.Enabled {
 			notesSvc := newNotesService(cfg)
 			setGlobalNotesService(notesSvc)
-			logInfo("notes service initialized", "vault", cfg.Notes.VaultPathResolved(cfg.BaseDir))
+			log.Info("notes service initialized", "vault", cfg.Notes.VaultPathResolved(cfg.BaseDir))
 		}
 
 		// --- P19.5: Unified Presence/Typing Indicators --- Initialize presence manager.
@@ -946,7 +960,7 @@ func main() {
 		if gchatBot != nil {
 			app.Presence.RegisterSetter("gchat", gchatBot)
 		}
-		logInfo("presence manager initialized", "setters", len(app.Presence.setters))
+		log.Info("presence manager initialized", "setters", len(app.Presence.setters))
 
 		// --- P20.1: Home Assistant --- Initialize HA service.
 		if cfg.HomeAssistant.Enabled && cfg.HomeAssistant.BaseURL != "" {
@@ -954,7 +968,7 @@ func main() {
 			if cfg.HomeAssistant.WebSocket {
 				go app.HA.StartEventListener(ctx, &haEventPublisherAdapter{broker: state.broker})
 			}
-			logInfo("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
+			log.Info("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
 		}
 
 		// --- P20.4: Device Actions --- Ensure output dir exists.
@@ -965,19 +979,19 @@ func main() {
 		// --- P19.1: Gmail Integration ---
 		if cfg.Gmail.Enabled {
 			app.Gmail = newGmailService(cfg)
-			logInfo("gmail integration enabled")
+			log.Info("gmail integration enabled")
 		}
 
 		// --- P19.2: Google Calendar Integration ---
 		if cfg.Calendar.Enabled {
 			app.Calendar = newCalendarService(cfg)
-			logInfo("calendar integration enabled")
+			log.Info("calendar integration enabled")
 		}
 
 		// --- P20.3: Twitter/X Integration ---
 		if cfg.Twitter.Enabled {
 			app.Twitter = newTwitterService(cfg)
-			logInfo("twitter integration enabled")
+			log.Info("twitter integration enabled")
 		}
 
 		// --- P21.6: Chrome Extension Relay ---
@@ -985,10 +999,10 @@ func main() {
 			app.Browser = newBrowserRelay(&cfg.BrowserRelay)
 			go func() {
 				if err := app.Browser.Start(ctx); err != nil && err != http.ErrServerClosed {
-					logWarn("browser relay stopped", "error", err)
+					log.Warn("browser relay stopped", "error", err)
 				}
 			}()
-			logInfo("browser relay enabled", "port", cfg.BrowserRelay.Port)
+			log.Info("browser relay enabled", "port", cfg.BrowserRelay.Port)
 		}
 
 		// --- P20.2: iMessage via BlueBubbles --- Initialize iMessage bot.
@@ -997,7 +1011,7 @@ func main() {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			imessageBot = imessagebot.NewBot(cfg.IMessage, rt)
 			app.IMessage = imessageBot
-			logInfo("imessage bot enabled", "endpoint", cfg.IMessage.WebhookPathOrDefault())
+			log.Info("imessage bot enabled", "endpoint", cfg.IMessage.WebhookPathOrDefault())
 			if app.Presence != nil {
 				app.Presence.RegisterSetter("imessage", imessageBot)
 			}
@@ -1041,7 +1055,7 @@ func main() {
 
 		// Report degraded services.
 		if len(degradedServices) > 0 {
-			logWarn("starting in degraded mode", "failedServices", strings.Join(degradedServices, ", "))
+			log.Warn("starting in degraded mode", "failedServices", strings.Join(degradedServices, ", "))
 		}
 
 		// Config hot-reload on SIGHUP.
@@ -1049,10 +1063,10 @@ func main() {
 		signal.Notify(sighupCh, syscall.SIGHUP)
 		go func() {
 			for range sighupCh {
-				logInfo("received SIGHUP, reloading config")
+				log.Info("received SIGHUP, reloading config")
 				newCfg, err := tryLoadConfig(*configPath)
 				if err != nil {
-					logError("config reload failed", "error", err)
+					log.Error("config reload failed", "error", err)
 					continue
 				}
 				// Preserve runtime-only field not set by tryLoadConfig.
@@ -1072,7 +1086,7 @@ func main() {
 					srvInstance.triggerEngine.ReloadTriggers(newCfg.WorkflowTriggers)
 				}
 
-				logInfo("config reloaded successfully")
+				log.Info("config reloaded successfully")
 			}
 		}()
 
@@ -1090,7 +1104,7 @@ func main() {
 			}
 			go bot.PollLoop(ctx)
 		} else {
-			logInfo("telegram disabled or no bot token, HTTP-only mode")
+			log.Info("telegram disabled or no bot token, HTTP-only mode")
 		}
 
 		// Start Discord bot.
@@ -1103,14 +1117,14 @@ func main() {
 			go matrixBot.Run(ctx)
 		}
 
-		logInfo("tetora ready", "healthz", fmt.Sprintf("http://%s/healthz", cfg.ListenAddr))
+		log.Info("tetora ready", "healthz", fmt.Sprintf("http://%s/healthz", cfg.ListenAddr))
 
 		// Wait for shutdown signal or drain request.
 		select {
 		case <-sigCh:
-			logInfo("shutting down")
+			log.Info("shutting down")
 		case <-drainCh:
-			logInfo("drain requested: waiting for active agents to complete")
+			log.Info("drain requested: waiting for active agents to complete")
 			// Wait for all running tasks to finish (poll with ticker).
 			drainTicker := time.NewTicker(2 * time.Second)
 			drainDeadline := time.Now().Add(10 * time.Minute)
@@ -1119,7 +1133,7 @@ func main() {
 				select {
 				case <-sigCh:
 					// Force shutdown even during drain.
-					logInfo("force shutdown during drain")
+					log.Info("force shutdown during drain")
 					drainTicker.Stop()
 					break drainLoop
 				case <-drainTicker.C:
@@ -1127,19 +1141,19 @@ func main() {
 					active := len(state.running)
 					state.mu.Unlock()
 					if active == 0 {
-						logInfo("drain complete: all agents finished")
+						log.Info("drain complete: all agents finished")
 						drainTicker.Stop()
 						break drainLoop
 					}
 					if time.Now().After(drainDeadline) {
-						logWarn("drain timeout: forcing shutdown", "stillActive", active)
+						log.Warn("drain timeout: forcing shutdown", "stillActive", active)
 						drainTicker.Stop()
 						break drainLoop
 					}
-					logInfo("draining: waiting for agents", "active", active)
+					log.Info("draining: waiting for agents", "active", active)
 				}
 			}
-			logInfo("shutting down after drain")
+			log.Info("shutting down after drain")
 		}
 
 		// Stop TaskBoard dispatcher (wait for in-flight tasks).
@@ -1221,7 +1235,7 @@ func main() {
 			return true
 		})
 
-		logInfo("tetora stopped")
+		log.Info("tetora stopped")
 
 	} else {
 		// --- CLI mode ---
@@ -1232,7 +1246,7 @@ func main() {
 		}
 
 		if cfg.Log {
-			logInfo("tetora dispatching", "tasks", len(tasks), "maxConcurrent", cfg.MaxConcurrent)
+			log.Info("tetora dispatching", "tasks", len(tasks), "maxConcurrent", cfg.MaxConcurrent)
 		}
 
 		// Start HTTP monitor in background.
@@ -1241,7 +1255,7 @@ func main() {
 		// Handle signals — cancel dispatch.
 		go func() {
 			<-sigCh
-			logInfo("received signal, cancelling")
+			log.Info("received signal, cancelling")
 			state.mu.Lock()
 			if state.cancel != nil {
 				state.cancel()
@@ -1266,7 +1280,7 @@ func main() {
 		if *notify {
 			msg := formatTelegramResult(result)
 			if err := sendTelegramNotify(&cfg.Telegram, msg); err != nil {
-				logError("telegram notify failed", "error", err)
+				log.Error("telegram notify failed", "error", err)
 			}
 		}
 
@@ -1307,9 +1321,9 @@ func logConfigDiff(old, new *Config) {
 		changes = append(changes, fmt.Sprintf("injectionDefense.level: %s → %s", old.Security.InjectionDefense.Level, new.Security.InjectionDefense.Level))
 	}
 	if len(changes) > 0 {
-		logInfo("config changes detected", "changes", strings.Join(changes, "; "))
+		log.Info("config changes detected", "changes", strings.Join(changes, "; "))
 	} else {
-		logInfo("config reloaded, no significant changes detected")
+		log.Info("config reloaded, no significant changes detected")
 	}
 }
 
@@ -1322,7 +1336,7 @@ func readTaskInput(tasksFlag, fileFlag string) []Task {
 		var err error
 		data, err = os.ReadFile(fileFlag)
 		if err != nil {
-			logError("read task file failed", "error", err)
+			log.Error("read task file failed", "error", err)
 			os.Exit(1)
 		}
 	} else {
@@ -1332,20 +1346,20 @@ func readTaskInput(tasksFlag, fileFlag string) []Task {
 			var err error
 			data, err = io.ReadAll(os.Stdin)
 			if err != nil {
-				logError("read stdin failed", "error", err)
+				log.Error("read stdin failed", "error", err)
 				os.Exit(1)
 			}
 		}
 	}
 
 	if len(data) == 0 {
-		logError("no tasks provided, use --tasks, --file, or pipe JSON to stdin")
+		log.Error("no tasks provided, use --tasks, --file, or pipe JSON to stdin")
 		os.Exit(1)
 	}
 
 	var tasks []Task
 	if err := json.Unmarshal(data, &tasks); err != nil {
-		logError("parse tasks JSON failed", "error", err)
+		log.Error("parse tasks JSON failed", "error", err)
 		os.Exit(1)
 	}
 	return tasks

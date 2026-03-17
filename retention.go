@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/upload"
 )
@@ -426,7 +427,7 @@ func runRetention(cfg *Config) []RetentionResult {
 	csRemoved := cleanupClaudeSessions(days)
 	results = append(results, RetentionResult{Table: "claude_sessions", Deleted: csRemoved})
 
-	logInfo("retention cleanup completed", "tables", len(results))
+	log.Info("retention cleanup completed", "tables", len(results))
 	return results
 }
 
@@ -439,7 +440,7 @@ func compilePIIPatterns(patterns []string) []*regexp.Regexp {
 		if re, err := regexp.Compile(p); err == nil {
 			compiled = append(compiled, re)
 		} else {
-			logWarn("invalid PII pattern, skipping", "pattern", p, "error", err)
+			log.Warn("invalid PII pattern, skipping", "pattern", p, "error", err)
 		}
 	}
 	return compiled

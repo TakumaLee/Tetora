@@ -10,6 +10,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -170,12 +171,12 @@ func executeWorkflow(ctx context.Context, cfg *Config, w *Workflow, vars map[str
 
 	if runMode == WorkflowModeLive {
 		if run.Status == "success" {
-			logInfoCtx(ctx, "workflow completed", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
+			log.InfoCtx(ctx, "workflow completed", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
 		} else {
-			logWarnCtx(ctx, "workflow completed with error", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
+			log.WarnCtx(ctx, "workflow completed with error", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
 		}
 	} else {
-		logInfoCtx(ctx, "workflow completed", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "mode", string(runMode), "durationMs", run.DurationMs, "cost", run.TotalCost)
+		log.InfoCtx(ctx, "workflow completed", "workflow", w.Name, "runID", runID[:8], "status", run.Status, "mode", string(runMode), "durationMs", run.DurationMs, "cost", run.TotalCost)
 	}
 
 	return run
@@ -226,14 +227,14 @@ func (e *workflowExecutor) setupWorktree() {
 	wm := NewWorktreeManager(wtBaseDir)
 	wtDir, wtErr := wm.Create(repoDir, e.run.ID, branch)
 	if wtErr != nil {
-		logWarn("workflow worktree: creation failed, continuing without isolation",
+		log.Warn("workflow worktree: creation failed, continuing without isolation",
 			"workflow", w.Name, "error", wtErr)
 		return
 	}
 	e.worktreeDir = wtDir
 	e.repoDir = repoDir
 	e.worktreeMgr = wm
-	logInfo("workflow worktree: created",
+	log.Info("workflow worktree: created",
 		"workflow", w.Name, "runID", e.run.ID[:8], "path", wtDir, "branch", branch)
 }
 
@@ -292,16 +293,16 @@ func (e *workflowExecutor) finalizeRun(dagErr error, startTime time.Time, outerC
 		if run.Status == "success" {
 			diffSummary, mergeErr := e.worktreeMgr.MergeBranchOnly(e.repoDir, e.worktreeDir)
 			if mergeErr != nil {
-				logWarn("workflow worktree: merge failed, keeping for inspection",
+				log.Warn("workflow worktree: merge failed, keeping for inspection",
 					"workflow", e.workflow.Name, "path", e.worktreeDir, "error", mergeErr)
 			} else {
 				if diffSummary != "" {
-					logInfo("workflow worktree: merged", "workflow", e.workflow.Name, "diff", diffSummary)
+					log.Info("workflow worktree: merged", "workflow", e.workflow.Name, "diff", diffSummary)
 				}
 				e.worktreeMgr.Remove(e.repoDir, e.worktreeDir)
 			}
 		} else {
-			logInfo("workflow worktree: keeping for inspection (workflow failed)",
+			log.Info("workflow worktree: keeping for inspection (workflow failed)",
 				"workflow", e.workflow.Name, "path", e.worktreeDir, "status", run.Status)
 		}
 	}
@@ -418,7 +419,7 @@ func (e *workflowExecutor) executeDAG(ctx context.Context) error {
 			go func(id string) {
 				defer func() {
 					if r := recover(); r != nil {
-						logError("workflow step panic", "step", id, "recover", r)
+						log.Error("workflow step panic", "step", id, "recover", r)
 						doneCh <- stepDoneMsg{
 							id: id,
 							result: &StepRunResult{
@@ -670,7 +671,7 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 	}
 	for stepID := range originalRun.StepResults {
 		if !stepSet[stepID] {
-			logInfo("workflow resume: orphaned step (removed from definition)", "step", stepID, "workflow", w.Name)
+			log.Info("workflow resume: orphaned step (removed from definition)", "step", stepID, "workflow", w.Name)
 		}
 	}
 
@@ -709,10 +710,10 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 		`UPDATE workflow_runs SET status='resumed', error='resumed as %s' WHERE id='%s'`,
 		db.Escape(runID), db.Escape(originalRunID),
 	)); err != nil {
-		logWarn("resumeWorkflow: failed to mark original as resumed", "error", err)
+		log.Warn("resumeWorkflow: failed to mark original as resumed", "error", err)
 	}
 
-	logInfo("workflow resumed", "workflow", w.Name, "originalRunID", originalRunID[:8],
+	log.Info("workflow resumed", "workflow", w.Name, "originalRunID", originalRunID[:8],
 		"newRunID", runID[:8], "skippedSteps", skippedCount, "pendingSteps", pendingCount)
 
 	execCtx, execCancel := exec.setupExecContext(ctx)
@@ -749,10 +750,10 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 	recordWorkflowRun(cfg.HistoryDB, run)
 
 	if run.Status == "success" {
-		logInfo("workflow resume completed", "workflow", w.Name, "runID", runID[:8],
+		log.Info("workflow resume completed", "workflow", w.Name, "runID", runID[:8],
 			"status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
 	} else {
-		logWarn("workflow resume completed with error", "workflow", w.Name, "runID", runID[:8],
+		log.Warn("workflow resume completed with error", "workflow", w.Name, "runID", runID[:8],
 			"status", run.Status, "durationMs", run.DurationMs, "cost", run.TotalCost)
 	}
 
@@ -806,7 +807,7 @@ func (e *workflowExecutor) executeStep(ctx context.Context, step *WorkflowStep) 
 			case <-time.After(delay):
 			}
 			result.Retries = attempt
-			logDebugCtx(ctx, "step retry", "workflow", e.workflow.Name, "step", step.ID, "attempt", attempt+1, "maxRetries", maxRetries+1)
+			log.DebugCtx(ctx, "step retry", "workflow", e.workflow.Name, "step", step.ID, "attempt", attempt+1, "maxRetries", maxRetries+1)
 		}
 
 		e.runStepOnce(ctx, step, result)
@@ -1077,7 +1078,7 @@ func (e *workflowExecutor) runParallelStep(ctx context.Context, step *WorkflowSt
 		case <-done:
 			gracePeriod.Stop()
 		case <-gracePeriod.C:
-			logWarn("workflow parallel step: sub-steps did not finish within grace period", "step", step.ID)
+			log.Warn("workflow parallel step: sub-steps did not finish within grace period", "step", step.ID)
 		}
 	}
 
@@ -1274,7 +1275,7 @@ func (e *workflowExecutor) runHandoffStep(ctx context.Context, step *WorkflowSte
 		CreatedAt:     time.Now().Format(time.RFC3339),
 	})
 
-	logDebugCtx(ctx, "handoff completed", "from", fromAgent, "to", step.Agent, "workflow", e.workflow.Name, "step", step.ID, "status", result.Status)
+	log.DebugCtx(ctx, "handoff completed", "from", fromAgent, "to", step.Agent, "workflow", e.workflow.Name, "step", step.ID, "status", result.Status)
 }
 
 // --- P18.3: New Step Type Implementations ---
@@ -1341,7 +1342,7 @@ func (e *workflowExecutor) runNotifyStep(step *WorkflowStep,
 	msg := resolveTemplate(step.NotifyMsg, wCtx)
 
 	// Log the notification (fallback if no notification channel available).
-	logInfo("workflow notify", "workflow", e.workflow.Name, "step", step.ID,
+	log.Info("workflow notify", "workflow", e.workflow.Name, "step", step.ID,
 		"to", step.NotifyTo, "message", truncateStr(msg, 200))
 
 	// Publish as SSE event so external consumers can act on it.
@@ -1559,7 +1560,7 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem, chi
 
 	providerName := resolveProviderName(cfg, task, agentName)
 
-	logDebugCtx(ctx, "shadow task start",
+	log.DebugCtx(ctx, "shadow task start",
 		"taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName)
 
@@ -1604,7 +1605,7 @@ func runSingleTaskNoRecord(ctx context.Context, cfg *Config, task Task, sem, chi
 		result.Status = "success"
 	}
 
-	logDebugCtx(ctx, "shadow task done",
+	log.DebugCtx(ctx, "shadow task done",
 		"taskId", task.ID[:8], "name", task.Name,
 		"elapsed", elapsed.Round(time.Millisecond),
 		"cost", result.CostUSD,
@@ -1664,12 +1665,12 @@ func initWorkflowRunsTable(dbPath string) {
 		return
 	}
 	if _, err := db.Query(dbPath, workflowRunsTableSQL); err != nil {
-		logWarn("init workflow_runs table failed", "error", err)
+		log.Warn("init workflow_runs table failed", "error", err)
 	}
 	// Migration: add resumed_from column (no-op if column already exists).
 	if _, err := db.Query(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
-			logWarn("migration: add resumed_from column failed", "error", err)
+			log.Warn("migration: add resumed_from column failed", "error", err)
 		}
 	}
 }
@@ -1701,7 +1702,7 @@ func recordWorkflowRun(dbPath string, run *WorkflowRun) {
 	)
 
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("record workflow run failed", "error", err)
+		log.Warn("record workflow run failed", "error", err)
 	}
 }
 

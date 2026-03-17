@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- P21.5: Sitemap Ingest Pipeline ---
@@ -76,7 +78,7 @@ func toolWebCrawl(ctx context.Context, cfg *Config, input json.RawMessage) (stri
 		urls = urls[:args.MaxPages]
 	}
 
-	logInfoCtx(ctx, "web_crawl starting", "urls", len(urls), "prefix", args.Prefix)
+	log.InfoCtx(ctx, "web_crawl starting", "urls", len(urls), "prefix", args.Prefix)
 
 	// Fetch pages concurrently.
 	type pageResult struct {

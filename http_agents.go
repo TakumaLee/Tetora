@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/quickaction"
 )
 
@@ -90,7 +91,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 	if cfg.TaskBoard.Enabled {
 		taskBoardEngine = newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
 		if err := taskBoardEngine.initTaskBoardSchema(); err != nil {
-			logError("init task board schema failed", "error", err)
+			log.Error("init task board schema failed", "error", err)
 		}
 
 		// Start auto-dispatcher if enabled (singleton — one per server).
@@ -720,7 +721,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 			// Persist to config.json.
 			configPath := filepath.Join(cfg.BaseDir, "config.json")
 			if err := saveAgentTrustLevel(configPath, agentName, body.Level); err != nil {
-				logWarn("persist trust level failed", "agent", agentName, "error", err)
+				log.Warn("persist trust level failed", "agent", agentName, "error", err)
 			}
 
 			// Record trust event.

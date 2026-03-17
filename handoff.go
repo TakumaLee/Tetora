@@ -8,6 +8,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -114,7 +115,7 @@ func initHandoffTables(dbPath string) {
 	} {
 		if err := db.Exec(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
-				logWarn("handoff migration failed", "sql", col, "error", err)
+				log.Warn("handoff migration failed", "sql", col, "error", err)
 			}
 		}
 	}
@@ -127,12 +128,12 @@ func initHandoffTables(dbPath string) {
 	} {
 		if err := db.Exec(dbPath, stmt); err != nil {
 			if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
-				logWarn("handoff rename migration", "sql", stmt, "error", err)
+				log.Warn("handoff rename migration", "sql", stmt, "error", err)
 			}
 		}
 	}
 	if _, err := db.Query(dbPath, handoffTablesSQL); err != nil {
-		logWarn("init handoff tables failed", "error", err)
+		log.Warn("init handoff tables failed", "error", err)
 	}
 }
 
@@ -464,7 +465,7 @@ func executeHandoff(ctx context.Context, cfg *Config, h *Handoff,
 	}
 
 	if cfg.Log {
-		logInfo("handoff completed", "from", h.FromAgent, "to", h.ToAgent, "handoff", h.ID[:8], "status", result.Status)
+		log.Info("handoff completed", "from", h.FromAgent, "to", h.ToAgent, "handoff", h.ID[:8], "status", result.Status)
 	}
 
 	return result
@@ -500,7 +501,7 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 	for _, d := range delegations {
 		// Validate agent exists.
 		if _, ok := cfg.Agents[d.Agent]; !ok {
-			logWarn("auto-delegate agent not found, skipping", "agent", d.Agent)
+			log.Warn("auto-delegate agent not found, skipping", "agent", d.Agent)
 			continue
 		}
 
@@ -551,7 +552,7 @@ func processAutoDelegations(ctx context.Context, cfg *Config, delegations []Auto
 		}
 
 		if cfg.Log {
-			logInfo("auto-delegate executing", "from", fromAgent, "to", d.Agent, "task", truncate(d.Task, 60))
+			log.Info("auto-delegate executing", "from", fromAgent, "to", d.Agent, "task", truncate(d.Task, 60))
 		}
 
 		// Execute handoff.

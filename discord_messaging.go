@@ -11,6 +11,8 @@ import (
 	"sync"
 
 
+
+	"tetora/internal/log"
 )
 
 // formatDurationMs converts milliseconds to a human-readable string (e.g. "11.9s", "320ms").
@@ -162,7 +164,7 @@ func (db *DiscordBot) resolveThreadParent(threadID string) string {
 	// Fallback: GET /channels/{threadID} and parse parent_id.
 	body, err := db.discordRequestWithResponse("GET", fmt.Sprintf("/channels/%s", threadID), nil)
 	if err != nil {
-		logDebug("resolveThreadParent API failed", "thread", threadID, "error", err)
+		log.Debug("resolveThreadParent API failed", "thread", threadID, "error", err)
 		// Cache negative result to avoid repeated API calls on failure.
 		db.threadParents.set(threadID, "")
 		return ""
@@ -175,7 +177,7 @@ func (db *DiscordBot) resolveThreadParent(threadID string) string {
 		return ""
 	}
 	db.threadParents.set(threadID, ch.ParentID)
-	logDebug("resolved thread parent", "thread", threadID, "parent", ch.ParentID)
+	log.Debug("resolved thread parent", "thread", threadID, "parent", ch.ParentID)
 	return ch.ParentID
 }
 
@@ -215,20 +217,20 @@ func (db *DiscordBot) discordPost(path string, payload any) {
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest("POST", discordAPIBase+path, strings.NewReader(string(body)))
 	if err != nil {
-		logError("discord api request error", "error", err)
+		log.Error("discord api request error", "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bot "+db.cfg.Discord.BotToken)
 	resp, err := db.client.Do(req)
 	if err != nil {
-		logError("discord api send failed", "error", err)
+		log.Error("discord api send failed", "error", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		logWarn("discord api error", "status", resp.StatusCode, "body", string(b))
+		log.Warn("discord api error", "status", resp.StatusCode, "body", string(b))
 	}
 }
 
@@ -310,7 +312,7 @@ func (db *DiscordBot) deleteMessage(channelID, messageID string) {
 	_, err := db.discordRequestWithResponse("DELETE",
 		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID), nil)
 	if err != nil {
-		logWarn("discord delete message failed", "error", err)
+		log.Warn("discord delete message failed", "error", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/history"
 )
 
@@ -213,7 +214,7 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 	}
 	if err := insertJobRun(dbPath, run); err != nil {
 		// Log but don't fail the task.
-		logWarn("record history failed", "error", err)
+		log.Warn("record history failed", "error", err)
 	}
 
 	// Record skill completion events for all skills that were injected for this task.

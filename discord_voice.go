@@ -8,6 +8,8 @@ import (
 	"time"
 
 
+
+	"tetora/internal/log"
 )
 
 // --- P14.5: Discord Voice Channel ---
@@ -96,7 +98,7 @@ func (vm *discordVoiceManager) joinVoiceChannel(guildID, channelID string) error
 	vm.currentGuildID = guildID
 	vm.currentChannelID = channelID
 
-	logInfo("discord voice: requested join", "guild", guildID, "channel", channelID)
+	log.Info("discord voice: requested join", "guild", guildID, "channel", channelID)
 	return nil
 }
 
@@ -133,7 +135,7 @@ func (vm *discordVoiceManager) leaveVoiceChannel() error {
 	vm.currentChannelID = ""
 	vm.connected = false
 
-	logInfo("discord voice: requested leave", "guild", guildID, "channel", channelID)
+	log.Info("discord voice: requested leave", "guild", guildID, "channel", channelID)
 	return nil
 }
 
@@ -158,7 +160,7 @@ func (vm *discordVoiceManager) handleVoiceServerUpdate(data voiceServerUpdateDat
 	vm.voiceEndpoint = data.Endpoint
 	vm.currentGuildID = data.GuildID
 
-	logInfo("discord voice: server update received",
+	log.Info("discord voice: server update received",
 		"guild", data.GuildID,
 		"endpoint", data.Endpoint)
 
@@ -183,12 +185,12 @@ func (vm *discordVoiceManager) handleVoiceStateUpdate(data voiceStateUpdateData)
 	if data.ChannelID == "" {
 		vm.connected = false
 		vm.currentChannelID = ""
-		logInfo("discord voice: disconnected from voice channel")
+		log.Info("discord voice: disconnected from voice channel")
 		return
 	}
 
 	vm.currentChannelID = data.ChannelID
-	logInfo("discord voice: state updated", "channel", data.ChannelID, "session", data.SessionID)
+	log.Info("discord voice: state updated", "channel", data.ChannelID, "session", data.SessionID)
 }
 
 // sendGatewayPayload sends a payload to the Discord gateway.
@@ -216,10 +218,10 @@ func (vm *discordVoiceManager) autoJoinChannels() {
 		time.Sleep(2 * time.Second)
 
 		if err := vm.joinVoiceChannel(aj.GuildID, aj.ChannelID); err != nil {
-			logWarn("discord voice: auto-join failed", "guild", aj.GuildID,
+			log.Warn("discord voice: auto-join failed", "guild", aj.GuildID,
 				"channel", aj.ChannelID, "error", err)
 		} else {
-			logInfo("discord voice: auto-joined", "guild", aj.GuildID, "channel", aj.ChannelID)
+			log.Info("discord voice: auto-joined", "guild", aj.GuildID, "channel", aj.ChannelID)
 		}
 	}
 }
@@ -241,7 +243,7 @@ func (vm *discordVoiceManager) playTTS(ctx context.Context, text string) error {
 	// 4. Handle voice websocket protocol (opcode 0-13)
 
 	// For now, just log placeholder
-	logInfo("discord voice: TTS playback requested (placeholder)",
+	log.Info("discord voice: TTS playback requested (placeholder)",
 		"text_length", len(text),
 		"provider", vm.bot.cfg.Discord.Voice.TTS.Provider,
 		"voice", vm.bot.cfg.Discord.Voice.TTS.Voice)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/life/reminder"
 )
 
@@ -16,7 +17,7 @@ import (
 func nextCronTime(expr string, after time.Time) time.Time {
 	parsed, err := parseCronExpr(expr)
 	if err != nil {
-		logWarn("reminder bad cron expr", "expr", expr, "error", err)
+		log.Warn("reminder bad cron expr", "expr", expr, "error", err)
 		return time.Time{}
 	}
 	return nextRunAfter(parsed, time.UTC, after)

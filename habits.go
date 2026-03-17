@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"tetora/internal/log"
 	"tetora/internal/tool"
 )
 
@@ -38,7 +39,7 @@ func toolHabitStatus(ctx context.Context, cfg *Config, input json.RawMessage) (s
 	if app == nil || app.Habits == nil {
 		return "", fmt.Errorf("habits service not initialized")
 	}
-	return tool.HabitStatus(app.Habits, logWarn, input)
+	return tool.HabitStatus(app.Habits, log.Warn, input)
 }
 
 func toolHabitReport(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {

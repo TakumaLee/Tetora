@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/automation/insights"
 	"tetora/internal/db"
 )
@@ -20,7 +21,7 @@ func newInsightsEngine(cfg *Config) *insights.Engine {
 	deps := insights.Deps{
 		Query:   db.Query,
 		Escape:  db.Escape,
-		LogWarn: logWarn,
+		LogWarn: log.Warn,
 		UUID:    newUUID,
 	}
 	if globalFinanceService != nil {

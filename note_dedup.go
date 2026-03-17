@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"tetora/internal/log"
 )
 
 // toolNoteDedup scans the notes vault and reports/removes duplicate notes.
@@ -94,7 +96,7 @@ func toolNoteDedup(ctx context.Context, cfg *Config, input json.RawMessage) (str
 	}
 
 	b, _ := json.Marshal(result)
-	logInfoCtx(ctx, "note dedup scan complete", "total_files", len(files), "duplicate_groups", len(duplicates))
+	log.InfoCtx(ctx, "note dedup scan complete", "total_files", len(files), "duplicate_groups", len(duplicates))
 	return string(b), nil
 }
 
@@ -158,6 +160,6 @@ func toolSourceAudit(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		"extra":          extra,
 	}
 	b, _ := json.Marshal(result)
-	logInfoCtx(ctx, "source audit complete", "expected", len(args.Expected), "actual", len(actualSet))
+	log.InfoCtx(ctx, "source audit complete", "expected", len(args.Expected), "actual", len(actualSet))
 	return string(b), nil
 }

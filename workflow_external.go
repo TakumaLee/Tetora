@@ -17,6 +17,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -87,7 +88,7 @@ func (cm *CallbackManager) Register(key string, ctx context.Context, mode string
 
 	// Capacity guard.
 	if len(cm.channels) >= 1000 {
-		logWarn("callback manager at capacity", "count", len(cm.channels))
+		log.Warn("callback manager at capacity", "count", len(cm.channels))
 		return nil
 	}
 
@@ -234,7 +235,7 @@ func (cm *CallbackManager) ReplayAccumulated(key string, results []CallbackResul
 		select {
 		case entry.ch <- r:
 		default:
-			logWarn("replay: buffer full, skipping", "key", key)
+			log.Warn("replay: buffer full, skipping", "key", key)
 		}
 	}
 }
@@ -495,7 +496,7 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 	// external service knows the HMAC secret for signing its callback.
 	if authMode == "signature" {
 		if url != "" && !strings.HasPrefix(url, "https://") {
-			logWarn("HMAC callback secret sent over non-HTTPS connection", "step", step.ID, "url", url)
+			log.Warn("HMAC callback secret sent over non-HTTPS connection", "step", step.ID, "url", url)
 		}
 		cbSecret := callbackSignatureSecret(e.cfg.APIToken, callbackKey)
 		if headers == nil {
@@ -552,17 +553,17 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 				output = existingRecord.Body // fallback for legacy records
 			}
 			result.Output = output
-			logInfo("external step already delivered, skipping", "step", step.ID, "key", callbackKey)
+			log.Info("external step already delivered, skipping", "step", step.ID, "key", callbackKey)
 			return
 		case "completed", "timeout":
 			// Previous attempt finished (timeout/error) — reset for retry.
 			resetCallbackRecord(callbackMgr.dbPath, callbackKey)
-			logInfo("external step retrying (reset old record)", "step", step.ID, "key", callbackKey, "oldStatus", existingRecord.Status)
+			log.Info("external step retrying (reset old record)", "step", step.ID, "key", callbackKey, "oldStatus", existingRecord.Status)
 		default:
 			// "waiting" — check if POST was already sent (resume).
 			if existingRecord.PostSent {
 				isResume = true
-				logInfo("external step resuming (POST already sent)", "step", step.ID, "key", callbackKey)
+				log.Info("external step resuming (POST already sent)", "step", step.ID, "key", callbackKey)
 			}
 		}
 	}
@@ -597,7 +598,7 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 			callbackMgr.ReplayAccumulated(callbackKey, accumulated)
 			// Advance seq counter past existing DB records to prevent collisions.
 			callbackMgr.SetSeq(callbackKey, len(accumulated))
-			logInfo("replayed accumulated streaming callbacks", "step", step.ID, "key", callbackKey, "count", len(accumulated))
+			log.Info("replayed accumulated streaming callbacks", "step", step.ID, "key", callbackKey, "count", len(accumulated))
 		}
 	}
 
@@ -636,7 +637,7 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 		"timeout":     timeout.String(),
 	})
 
-	logInfo("external step waiting for callback", "step", step.ID, "key", callbackKey, "timeout", timeout.String())
+	log.Info("external step waiting for callback", "step", step.ID, "key", callbackKey, "timeout", timeout.String())
 
 	// Wait for callback(s).
 	if mode == "streaming" {
@@ -700,7 +701,7 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 			}
 		}
 		clearPendingCallback(callbackMgr.dbPath, callbackKey)
-		logInfo("external step completed (streaming)", "step", step.ID, "key", callbackKey, "callbacks", len(accumulated))
+		log.Info("external step completed (streaming)", "step", step.ID, "key", callbackKey, "callbacks", len(accumulated))
 	} else {
 		// Single mode.
 		cbResult := waitSingleCallback(ctx, ch, callbackKey, step, timeout)
@@ -719,7 +720,7 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 		result.Status = "success"
 		result.Output = output
 		clearPendingCallback(callbackMgr.dbPath, callbackKey)
-		logInfo("external step completed", "step", step.ID, "key", callbackKey)
+		log.Info("external step completed", "step", step.ID, "key", callbackKey)
 	}
 }
 
@@ -828,10 +829,10 @@ func initCallbackTable(dbPath string) {
 		return
 	}
 	if _, err := db.Query(dbPath, callbackTableSQL); err != nil {
-		logWarn("init workflow_callbacks table failed", "error", err)
+		log.Warn("init workflow_callbacks table failed", "error", err)
 	}
 	if _, err := db.Query(dbPath, callbackStreamTableSQL); err != nil {
-		logWarn("init workflow_callback_stream table failed", "error", err)
+		log.Warn("init workflow_callback_stream table failed", "error", err)
 	}
 }
 
@@ -847,7 +848,7 @@ func recordPendingCallback(dbPath, key, runID, stepID, mode, authMode, url, body
 		db.Escape(url), db.Escape(body), db.Escape(timeoutAt),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("record pending callback failed", "error", err, "key", key)
+		log.Warn("record pending callback failed", "error", err, "key", key)
 	}
 }
 
@@ -951,7 +952,7 @@ func markPostSent(dbPath, key string) {
 		db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("mark post sent failed", "error", err, "key", key)
+		log.Warn("mark post sent failed", "error", err, "key", key)
 	}
 }
 
@@ -966,7 +967,7 @@ func markCallbackDelivered(dbPath, key string, seq int, result CallbackResult) {
 		db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("mark callback delivered failed", "error", err, "key", key)
+		log.Warn("mark callback delivered failed", "error", err, "key", key)
 	}
 }
 
@@ -980,7 +981,7 @@ func updateCallbackRunID(dbPath, key, newRunID string) {
 		db.Escape(newRunID), db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("update callback run_id failed", "error", err, "key", key)
+		log.Warn("update callback run_id failed", "error", err, "key", key)
 	}
 }
 
@@ -993,7 +994,7 @@ func resetCallbackRecord(dbPath, key string) {
 		db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("reset callback record failed", "error", err, "key", key)
+		log.Warn("reset callback record failed", "error", err, "key", key)
 	}
 }
 
@@ -1021,7 +1022,7 @@ func clearPendingCallback(dbPath, key string) {
 		db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("clear pending callback failed", "error", err, "key", key)
+		log.Warn("clear pending callback failed", "error", err, "key", key)
 	}
 }
 
@@ -1037,7 +1038,7 @@ func appendStreamingCallback(dbPath, key string, seq int, result CallbackResult)
 		db.Escape(result.ContentType), db.Escape(result.RecvAt),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("append streaming callback failed", "error", err, "key", key, "seq", seq)
+		log.Warn("append streaming callback failed", "error", err, "key", key, "seq", seq)
 	}
 }
 
@@ -1074,7 +1075,7 @@ func cleanupExpiredCallbacks(dbPath string) {
 	sql := `UPDATE workflow_callbacks SET status='timeout'
 		WHERE status='waiting' AND timeout_at != '' AND timeout_at < datetime('now')`
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("cleanup expired callbacks failed", "error", err)
+		log.Warn("cleanup expired callbacks failed", "error", err)
 	}
 
 	// Clean streaming records older than 7 days for completed callbacks.
@@ -1083,7 +1084,7 @@ func cleanupExpiredCallbacks(dbPath string) {
 		AND created_at < datetime('now', '-7 days')
 	)`
 	if _, err := db.Query(dbPath, sql2); err != nil {
-		logWarn("cleanup old streaming records failed", "error", err)
+		log.Warn("cleanup old streaming records failed", "error", err)
 	}
 }
 
@@ -1115,18 +1116,18 @@ func recoverPendingWorkflows(cfg *Config, state *dispatchState, sem, childSem ch
 		// Load the workflow run.
 		run, err := queryWorkflowRunByID(cfg.HistoryDB, runID)
 		if err != nil || run == nil {
-			logWarn("recovery: cannot load workflow run", "runID", runID, "error", err)
+			log.Warn("recovery: cannot load workflow run", "runID", runID, "error", err)
 			continue
 		}
 
 		// Load the workflow definition.
 		wf, err := loadWorkflowByName(cfg, run.WorkflowName)
 		if err != nil {
-			logWarn("recovery: cannot load workflow", "workflow", run.WorkflowName, "error", err)
+			log.Warn("recovery: cannot load workflow", "workflow", run.WorkflowName, "error", err)
 			continue
 		}
 
-		logInfo("recovering pending workflow", "workflow", run.WorkflowName, "runID", runID[:8])
+		log.Info("recovering pending workflow", "workflow", run.WorkflowName, "runID", runID[:8])
 
 		// Collect pending callback keys for this run so the new execution can reuse them.
 		pendingCallbacks := queryPendingCallbacksByRun(cfg.HistoryDB, runID)

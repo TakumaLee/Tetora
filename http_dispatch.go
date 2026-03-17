@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
@@ -231,7 +232,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		// Log dispatch payload for audit trail.
 		for _, t := range tasks {
-			logInfo("dispatch: received task", "name", t.Name, "agent", t.Agent,
+			log.Info("dispatch: received task", "name", t.Name, "agent", t.Agent,
 				"source", "http", "prompt_len", len(t.Prompt), "model", t.Model)
 		}
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	imessagebot "tetora/internal/messaging/imessage"
 	"tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
@@ -86,7 +87,7 @@ type MultiNotifier struct {
 func (m *MultiNotifier) Send(text string) {
 	for _, n := range m.notifiers {
 		if err := n.Send(text); err != nil {
-			logError("notification send failed", "channel", n.Name(), "error", err)
+			log.Error("notification send failed", "channel", n.Name(), "error", err)
 		}
 	}
 }
@@ -175,7 +176,7 @@ func buildNotifiers(cfg *Config) []Notifier {
 			if ch.WebhookURL != "" && cfg.GoogleChat.Enabled {
 				// Note: GoogleChatNotifier requires a bot instance which is created in main.go
 				// This is a placeholder - actual initialization happens in main.go
-				logWarn("gchat notifier requires bot initialization in main.go", "space", ch.WebhookURL)
+				log.Warn("gchat notifier requires bot initialization in main.go", "space", ch.WebhookURL)
 			}
 		case "imessage": // --- P20.2: iMessage via BlueBubbles ---
 			// For iMessage, WebhookURL field holds the target chat GUID.
@@ -186,7 +187,7 @@ func buildNotifiers(cfg *Config) []Notifier {
 				})
 			}
 		default:
-			logWarn("unknown notification type", "type", ch.Type)
+			log.Warn("unknown notification type", "type", ch.Type)
 		}
 	}
 	return notifiers

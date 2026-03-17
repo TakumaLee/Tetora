@@ -11,6 +11,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -961,7 +962,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		state.mu.Unlock()
 
 		auditLog(cfg.HistoryDB, "admin.drain", "http", fmt.Sprintf("active=%d", active), clientIP(r))
-		logInfo("drain requested via API", "activeAgents", active)
+		log.Info("drain requested via API", "activeAgents", active)
 
 		// Signal the main loop to begin draining (if channel is wired up).
 		if s.drainCh != nil && !alreadyDraining {

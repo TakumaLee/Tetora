@@ -17,6 +17,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -63,12 +64,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, sou
 	// Migration: add content_hash column if missing (tolerate "duplicate column" error).
 	if _, err := db.Query(dbPath, `ALTER TABLE embeddings ADD COLUMN content_hash TEXT DEFAULT ''`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
-			logWarn("embedding migration: add content_hash", "error", err)
+			log.Warn("embedding migration: add content_hash", "error", err)
 		}
 	}
 	// Migration: add dedup index if missing.
 	if _, err := db.Query(dbPath, `CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash)`); err != nil {
-		logWarn("embedding migration: add dedup index", "error", err)
+		log.Warn("embedding migration: add dedup index", "error", err)
 	}
 	return nil
 }
@@ -435,13 +436,13 @@ func hybridSearch(ctx context.Context, cfg *Config, query string, source string,
 	// 3. Vector search.
 	queryVec, err := getEmbedding(ctx, cfg, query)
 	if err != nil {
-		logWarn("embedding search failed", "error", err)
+		log.Warn("embedding search failed", "error", err)
 		return tfidfResults, nil
 	}
 
 	vecResults, err := vectorSearch(dbPath, queryVec, source, topK*2)
 	if err != nil {
-		logWarn("vector search failed", "error", err)
+		log.Warn("vector search failed", "error", err)
 		return tfidfResults, nil
 	}
 
@@ -726,7 +727,7 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 	if knowledgeDir != "" {
 		dirEntries, rErr := os.ReadDir(knowledgeDir)
 		if rErr != nil && !os.IsNotExist(rErr) {
-			logWarn("reindex: failed to read knowledge dir", "error", rErr)
+			log.Warn("reindex: failed to read knowledge dir", "error", rErr)
 		} else if rErr == nil {
 			var batch []string
 			var batchMeta []struct{ source, sourceID string }
@@ -737,7 +738,7 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 				fPath := filepath.Join(knowledgeDir, de.Name())
 				data, fErr := os.ReadFile(fPath)
 				if fErr != nil {
-					logWarn("reindex: failed to read knowledge file", "file", de.Name(), "error", fErr)
+					log.Warn("reindex: failed to read knowledge file", "file", de.Name(), "error", fErr)
 					continue
 				}
 				content := string(data)
@@ -753,14 +754,14 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 					if len(batch) >= batchSize {
 						vecs, bErr := getEmbeddings(ctx, cfg, batch)
 						if bErr != nil {
-							logWarn("reindex knowledge batch failed", "error", bErr)
+							log.Warn("reindex knowledge batch failed", "error", bErr)
 							batch = batch[:0]
 							batchMeta = batchMeta[:0]
 							continue
 						}
 						for i, vec := range vecs {
 							if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
-								logWarn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+								log.Warn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
 							} else {
 								totalIndexed++
 							}
@@ -776,20 +777,20 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 				if bErr == nil {
 					for i, vec := range vecs {
 						if sErr := storeEmbedding(dbPath, batchMeta[i].source, batchMeta[i].sourceID, batch[i], vec, nil); sErr != nil {
-							logWarn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
+							log.Warn("reindex knowledge store failed", "sourceID", batchMeta[i].sourceID, "error", sErr)
 						} else {
 							totalIndexed++
 						}
 					}
 				} else {
-					logWarn("reindex knowledge flush batch failed", "error", bErr)
+					log.Warn("reindex knowledge flush batch failed", "error", bErr)
 				}
 			}
-			logInfo("reindex: knowledge files complete", "fileCount", len(dirEntries))
+			log.Info("reindex: knowledge files complete", "fileCount", len(dirEntries))
 		}
 	}
 
-	logInfo("embedding reindex complete", "totalIndexed", totalIndexed)
+	log.Info("embedding reindex complete", "totalIndexed", totalIndexed)
 	return nil
 }
 

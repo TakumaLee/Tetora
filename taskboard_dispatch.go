@@ -14,6 +14,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -83,7 +84,7 @@ func (d *TaskBoardDispatcher) Start() {
 	d.resetOrphanedDoing()
 
 	interval := d.parseInterval()
-	logInfo("taskboard auto-dispatch started", "interval", interval.String())
+	log.Info("taskboard auto-dispatch started", "interval", interval.String())
 
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -92,14 +93,14 @@ func (d *TaskBoardDispatcher) Start() {
 		for {
 			select {
 			case <-d.stopCh:
-				logInfo("taskboard auto-dispatch stopped")
+				log.Info("taskboard auto-dispatch stopped")
 				return
 			case <-ticker.C:
 				d.scan()
 			case <-d.doneCh:
 				// All tasks from the previous cycle finished — re-scan immediately
 				// instead of waiting for the next ticker tick.
-				logInfo("taskboard auto-dispatch: all tasks done, re-scanning immediately")
+				log.Info("taskboard auto-dispatch: all tasks done, re-scanning immediately")
 				d.scan()
 			}
 		}
@@ -120,7 +121,7 @@ func (d *TaskBoardDispatcher) Stop() {
 	// Signal all in-flight tasks to cancel, then wait.
 	d.cancel()
 	d.wg.Wait()
-	logInfo("taskboard dispatch: all in-flight tasks finished")
+	log.Info("taskboard dispatch: all in-flight tasks finished")
 }
 
 func (d *TaskBoardDispatcher) parseInterval() time.Duration {
@@ -130,7 +131,7 @@ func (d *TaskBoardDispatcher) parseInterval() time.Duration {
 	}
 	dur, err := time.ParseDuration(raw)
 	if err != nil {
-		logWarn("invalid dispatch interval, using 5m", "raw", raw, "error", err)
+		log.Warn("invalid dispatch interval, using 5m", "raw", raw, "error", err)
 		return 5 * time.Minute
 	}
 	return dur
@@ -143,7 +144,7 @@ func (d *TaskBoardDispatcher) parseStuckThreshold() time.Duration {
 	}
 	dur, err := time.ParseDuration(raw)
 	if err != nil {
-		logWarn("invalid stuck threshold, using 2h", "raw", raw, "error", err)
+		log.Warn("invalid stuck threshold, using 2h", "raw", raw, "error", err)
 		return 2 * time.Hour
 	}
 	return dur
@@ -157,7 +158,7 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 	sql := `SELECT id, title, completed_at, cost_usd, duration_ms, session_id, updated_at FROM tasks WHERE status = 'doing'`
 	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
-		logWarn("taskboard dispatch: resetOrphanedDoing query failed", "error", err)
+		log.Warn("taskboard dispatch: resetOrphanedDoing query failed", "error", err)
 		return
 	}
 	if len(rows) == 0 {
@@ -190,15 +191,15 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 				nowISO, nowISO, db.Escape(id),
 			)
 			if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
-				logWarn("taskboard dispatch: failed to restore completed task", "id", id, "error", err)
+				log.Warn("taskboard dispatch: failed to restore completed task", "id", id, "error", err)
 				continue
 			}
 			comment := fmt.Sprintf("[auto-restore] Task had completion evidence (cost=$%.4f, duration=%dms, session=%s) but was in 'doing' at startup. Restored to 'done'.",
 				costUSD, int64(durationMs), sessionID)
 			if _, err := d.engine.AddComment(id, "system", comment); err != nil {
-				logWarn("taskboard dispatch: failed to add restore comment", "id", id, "error", err)
+				log.Warn("taskboard dispatch: failed to add restore comment", "id", id, "error", err)
 			}
-			logInfo("taskboard dispatch: restored completed task from doing", "id", id, "title", title)
+			log.Info("taskboard dispatch: restored completed task from doing", "id", id, "title", title)
 			continue
 		}
 
@@ -207,7 +208,7 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 		// resetStuckDoing() will catch them later if they're truly stuck.
 		if t, err := time.Parse(time.RFC3339, updatedAt); err == nil {
 			if now.Sub(t) < gracePeriod {
-				logInfo("taskboard dispatch: skipping recently-updated doing task (grace period)",
+				log.Info("taskboard dispatch: skipping recently-updated doing task (grace period)",
 					"id", id, "title", title, "updatedAt", updatedAt, "age", now.Sub(t).Round(time.Second))
 				continue
 			}
@@ -219,14 +220,14 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 			nowISO, db.Escape(id),
 		)
 		if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
-			logWarn("taskboard dispatch: failed to reset orphaned task", "id", id, "error", err)
+			log.Warn("taskboard dispatch: failed to reset orphaned task", "id", id, "error", err)
 			continue
 		}
 		comment := "[auto-reset] Orphaned in 'doing' at daemon startup (no completion evidence, past grace period). Reset to 'todo' for re-dispatch."
 		if _, err := d.engine.AddComment(id, "system", comment); err != nil {
-			logWarn("taskboard dispatch: failed to add orphan reset comment", "id", id, "error", err)
+			log.Warn("taskboard dispatch: failed to add orphan reset comment", "id", id, "error", err)
 		}
-		logInfo("taskboard dispatch: reset orphaned doing task", "id", id, "title", title)
+		log.Info("taskboard dispatch: reset orphaned doing task", "id", id, "title", title)
 	}
 }
 
@@ -256,7 +257,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, db.Escape(cutoff))
 	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
-		logWarn("taskboard dispatch: resetStuckDoing query failed", "error", err)
+		log.Warn("taskboard dispatch: resetStuckDoing query failed", "error", err)
 		return
 	}
 
@@ -280,7 +281,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 							db.Escape(time.Now().UTC().Format(time.RFC3339)),
 							db.Escape(id),
 						))
-						logInfo("taskboard dispatch: task workflow_run_id updated to active run",
+						log.Info("taskboard dispatch: task workflow_run_id updated to active run",
 							"id", id, "title", title, "oldRunId", wfRunID[:8], "newRunId", newRunID[:8])
 						continue
 					}
@@ -291,7 +292,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 					db.Escape(id),
 				)
 				db.Exec(d.engine.dbPath, touchSQL)
-				logInfo("taskboard dispatch: task has running workflow, refreshing timestamp",
+				log.Info("taskboard dispatch: task has running workflow, refreshing timestamp",
 					"id", id, "title", title, "workflowRunId", wfRunID[:8])
 				continue
 			}
@@ -304,7 +305,7 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 					db.Escape(time.Now().UTC().Format(time.RFC3339)),
 					db.Escape(id),
 				))
-				logInfo("taskboard dispatch: found active workflow for task, updating link",
+				log.Info("taskboard dispatch: found active workflow for task, updating link",
 					"id", id, "title", title, "activeRunId", activeRunID[:8])
 				continue
 			}
@@ -316,16 +317,16 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 			db.Escape(id),
 		)
 		if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
-			logWarn("taskboard dispatch: failed to reset stuck task", "id", id, "error", err)
+			log.Warn("taskboard dispatch: failed to reset stuck task", "id", id, "error", err)
 			continue
 		}
 
 		comment := fmt.Sprintf("[auto-reset] Stuck in 'doing' for >%s (likely daemon restart). Reset to 'todo' for re-dispatch.", threshold)
 		if _, err := d.engine.AddComment(id, "system", comment); err != nil {
-			logWarn("taskboard dispatch: failed to add reset comment", "id", id, "error", err)
+			log.Warn("taskboard dispatch: failed to add reset comment", "id", id, "error", err)
 		}
 
-		logInfo("taskboard dispatch: reset stuck doing task", "id", id, "title", title, "threshold", threshold)
+		log.Info("taskboard dispatch: reset stuck doing task", "id", id, "title", title, "threshold", threshold)
 
 		// Notify via Discord (best-effort).
 		d.notifyStaleReset(id, title, threshold)
@@ -378,18 +379,18 @@ func (d *TaskBoardDispatcher) scan() {
 
 	// Skip dispatch if already at capacity.
 	if n := int(d.activeCount.Load()); n >= maxTasks {
-		logInfo("taskboard dispatch: at capacity, skipping scan", "active", n, "max", maxTasks)
+		log.Info("taskboard dispatch: at capacity, skipping scan", "active", n, "max", maxTasks)
 		return
 	}
 
 	tasks, err := d.engine.ListTasks("todo", "", "")
 	if err != nil {
-		logWarn("taskboard dispatch scan error", "error", err)
+		log.Warn("taskboard dispatch scan error", "error", err)
 		return
 	}
 	d.triageBacklog() // always attempt (interval-gated internally)
 	if len(tasks) == 0 {
-		logDebug("taskboard dispatch: scan found no todo tasks")
+		log.Debug("taskboard dispatch: scan found no todo tasks")
 		d.idleAnalysis()
 		return
 	}
@@ -408,31 +409,31 @@ func (d *TaskBoardDispatcher) scan() {
 			}
 			d.engine.UpdateTask(t.ID, map[string]any{"assignee": defaultAgent})
 			t.Assignee = defaultAgent
-			logInfo("taskboard dispatch: assigned defaultAgent to unassigned task",
+			log.Info("taskboard dispatch: assigned defaultAgent to unassigned task",
 				"id", t.ID, "title", t.Title, "agent", defaultAgent)
 		}
 
 		// Skip tasks assigned to non-agent users (e.g. "takuma") — only dispatch to known agents.
 		if _, isAgent := d.cfg.Agents[t.Assignee]; !isAgent {
-			logDebug("taskboard dispatch: skipping non-agent assignee",
+			log.Debug("taskboard dispatch: skipping non-agent assignee",
 				"id", t.ID, "title", t.Title, "assignee", t.Assignee)
 			continue
 		}
 
 		// Skip tasks whose dependencies are not yet done.
 		if hasBlockingDeps(d.engine, t) {
-			logDebug("taskboard dispatch: skipping task with blocking deps",
+			log.Debug("taskboard dispatch: skipping task with blocking deps",
 				"id", t.ID, "title", t.Title, "dependsOn", t.DependsOn)
 			continue
 		}
 
 		if dispatched >= available {
-			logInfo("taskboard dispatch: maxConcurrentTasks reached, deferring remaining tasks",
+			log.Info("taskboard dispatch: maxConcurrentTasks reached, deferring remaining tasks",
 				"active", active, "dispatched", dispatched, "max", maxTasks)
 			break
 		}
 
-		logInfo("taskboard dispatch: picking up task", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
+		log.Info("taskboard dispatch: picking up task", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
 		dispatched++
 
 		// Dispatch in a goroutine with panic recovery.
@@ -450,9 +451,9 @@ func (d *TaskBoardDispatcher) scan() {
 			}()
 			defer func() {
 				if r := recover(); r != nil {
-					logError("taskboard dispatch: panic in dispatchTask", "id", task.ID, "recover", r)
+					log.Error("taskboard dispatch: panic in dispatchTask", "id", task.ID, "recover", r)
 					if _, err := d.engine.MoveTask(task.ID, "failed"); err != nil {
-						logWarn("taskboard dispatch: failed to move panicked task to failed", "id", task.ID, "error", err)
+						log.Warn("taskboard dispatch: failed to move panicked task to failed", "id", task.ID, "error", err)
 					}
 				}
 			}()
@@ -536,7 +537,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		Source: "taskboard",
 		OnStart: func() {
 			if _, err := d.engine.MoveTask(taskID, "doing"); err != nil {
-				logWarn("taskboard dispatch: failed to move task to doing on start", "id", taskID, "error", err)
+				log.Warn("taskboard dispatch: failed to move task to doing on start", "id", taskID, "error", err)
 			}
 		},
 	}
@@ -550,7 +551,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 	// LLM-based timeout estimation: replaces keyword heuristic with a quick
 	// haiku call that reads the actual task content to judge complexity.
 	if llmTimeout := estimateTimeoutLLM(ctx, d.cfg, prompt); llmTimeout != "" {
-		logInfo("taskboard dispatch: LLM timeout estimate", "id", t.ID, "keyword", task.Timeout, "llm", llmTimeout)
+		log.Info("taskboard dispatch: LLM timeout estimate", "id", t.ID, "keyword", task.Timeout, "llm", llmTimeout)
 		task.Timeout = llmTimeout
 	}
 
@@ -588,14 +589,14 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 			branch := buildBranchName(d.engine.config.GitWorkflow, t)
 			wtDir, err := d.worktreeMgr.Create(projectWorkdir, t.ID, branch)
 			if err != nil {
-				logWarn("worktree: creation failed, falling back to shared workdir",
+				log.Warn("worktree: creation failed, falling back to shared workdir",
 					"task", t.ID, "error", err)
 				d.engine.AddComment(t.ID, "system",
 					fmt.Sprintf("[worktree] Failed to create isolated worktree: %v. Using shared workdir.", err))
 			} else {
 				worktreeDir = wtDir
 				task.Workdir = wtDir
-				logInfo("worktree: task running in isolation", "task", t.ID, "path", wtDir)
+				log.Info("worktree: task running in isolation", "task", t.ID, "path", wtDir)
 				d.engine.AddComment(t.ID, "system",
 					fmt.Sprintf("[worktree] Running in isolated worktree: %s", wtDir))
 			}
@@ -622,7 +623,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		// Use accumulated cost from all attempts.
 		result.CostUSD = loopResult.TotalCost
 		if loopResult.Attempts > 1 {
-			logInfo("devQA loop summary", "task", t.ID, "attempts", loopResult.Attempts,
+			log.Info("devQA loop summary", "task", t.ID, "attempts", loopResult.Attempts,
 				"approved", qaApproved, "totalCost", loopResult.TotalCost)
 		}
 	} else {
@@ -644,7 +645,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 			db.Escape(result.SessionID), db.Escape(t.ID),
 		)
 		if err := db.Exec(d.engine.dbPath, evidenceSQL); err != nil {
-			logWarn("taskboard dispatch: failed to persist completion evidence", "id", t.ID, "error", err)
+			log.Warn("taskboard dispatch: failed to persist completion evidence", "id", t.ID, "error", err)
 		}
 	}
 
@@ -678,7 +679,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		if reviewer == "" {
 			reviewer = "ruri"
 		}
-		logInfo("taskboard dispatch: auto-review starting", "id", t.ID, "reviewer", reviewer)
+		log.Info("taskboard dispatch: auto-review starting", "id", t.ID, "reviewer", reviewer)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[auto-review] %s reviewing output...", reviewer))
 
 		rv := d.thoroughReview(ctx, prompt, result.Output, t.Assignee, reviewer)
@@ -686,12 +687,12 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 
 		switch rv.Verdict {
 		case reviewApprove:
-			logInfo("taskboard dispatch: auto-review approved", "id", t.ID, "comment", rv.Comment)
+			log.Info("taskboard dispatch: auto-review approved", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Approved: %s", rv.Comment))
 			// newStatus stays "done"
 
 		case reviewFix:
-			logInfo("taskboard dispatch: auto-review requests fix, retrying", "id", t.ID, "comment", rv.Comment)
+			log.Info("taskboard dispatch: auto-review requests fix, retrying", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
 
 			maxRetries := d.engine.config.MaxRetriesOrDefault()
@@ -741,7 +742,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 			}
 
 		case reviewEscalate:
-			logInfo("taskboard dispatch: auto-review escalating to user", "id", t.ID, "comment", rv.Comment)
+			log.Info("taskboard dispatch: auto-review escalating to user", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Needs human judgment: %s", rv.Comment))
 			newStatus = "review"
 			t.Assignee = d.resolveEscalateAssignee()
@@ -769,16 +770,16 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		db.Escape(t.ID),
 	)
 	if err := db.Exec(d.engine.dbPath, combinedSQL); err != nil {
-		logError("taskboard dispatch: failed to update task status+cost", "id", t.ID, "error", err)
+		log.Error("taskboard dispatch: failed to update task status+cost", "id", t.ID, "error", err)
 		// Retry once after a short delay — transient SQLite lock errors are common.
 		time.Sleep(100 * time.Millisecond)
 		if err2 := db.Exec(d.engine.dbPath, combinedSQL); err2 != nil {
-			logError("taskboard dispatch: SQL retry also failed", "id", t.ID, "error", err2)
+			log.Error("taskboard dispatch: SQL retry also failed", "id", t.ID, "error", err2)
 			// Fallback: move back to todo so the task is not stuck in doing.
 			if _, ferr := d.engine.MoveTask(t.ID, "todo"); ferr != nil {
-				logError("taskboard dispatch: fallback MoveTask to todo failed", "id", t.ID, "error", ferr)
+				log.Error("taskboard dispatch: fallback MoveTask to todo failed", "id", t.ID, "error", ferr)
 			} else {
-				logWarn("taskboard dispatch: task moved back to todo after persistent SQL failure", "id", t.ID)
+				log.Warn("taskboard dispatch: task moved back to todo after persistent SQL failure", "id", t.ID)
 			}
 		} else {
 			// Retry succeeded — fire webhook.
@@ -832,7 +833,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		}
 		comment := fmt.Sprintf("Task completed in %s (cost: $%.4f)\n\n%s", duration.Round(time.Second), result.CostUSD, output)
 		if _, err := d.engine.AddComment(t.ID, t.Assignee, comment); err != nil {
-			logWarn("taskboard dispatch: failed to add completion comment", "id", t.ID, "error", err)
+			log.Warn("taskboard dispatch: failed to add completion comment", "id", t.ID, "error", err)
 		}
 
 		// Check for auto-delegations in the output.
@@ -842,7 +843,7 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 				"", t.Assignee, "", d.state, d.sem, d.childSem, nil)
 		}
 
-		logInfo("taskboard dispatch: task completed", "id", t.ID, "cost", result.CostUSD, "duration", duration.Round(time.Second))
+		log.Info("taskboard dispatch: task completed", "id", t.ID, "cost", result.CostUSD, "duration", duration.Round(time.Second))
 	} else {
 		errMsg := result.Error
 		if errMsg == "" {
@@ -853,10 +854,10 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		}
 		comment := fmt.Sprintf("Task failed (exit code: %d, duration: %s)\n\n%s", result.ExitCode, duration.Round(time.Second), errMsg)
 		if _, err := d.engine.AddComment(t.ID, t.Assignee, comment); err != nil {
-			logWarn("taskboard dispatch: failed to add failure comment", "id", t.ID, "error", err)
+			log.Warn("taskboard dispatch: failed to add failure comment", "id", t.ID, "error", err)
 		}
 
-		logWarn("taskboard dispatch: task failed", "id", t.ID, "error", result.Error)
+		log.Warn("taskboard dispatch: task failed", "id", t.ID, "error", result.Error)
 
 		// Record failure to skill-specific failures.md for future context injection.
 		d.postTaskSkillFailures(t, task, result.Error)
@@ -872,11 +873,11 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 func (d *TaskBoardDispatcher) triageBacklog() {
 	backlog, err := d.engine.ListTasks("backlog", "", "")
 	if err != nil {
-		logWarn("taskboard dispatch: backlog triage query failed", "error", err)
+		log.Warn("taskboard dispatch: backlog triage query failed", "error", err)
 		return
 	}
 	if len(backlog) == 0 {
-		logDebug("taskboard dispatch: no backlog tasks to triage")
+		log.Debug("taskboard dispatch: no backlog tasks to triage")
 		return
 	}
 
@@ -885,7 +886,7 @@ func (d *TaskBoardDispatcher) triageBacklog() {
 	for _, t := range backlog {
 		if t.Assignee != "" && !hasBlockingDeps(d.engine, t) {
 			if _, err := d.engine.MoveTask(t.ID, "todo"); err == nil {
-				logInfo("taskboard dispatch: fast-path promote from backlog", "taskId", t.ID, "priority", t.Priority)
+				log.Info("taskboard dispatch: fast-path promote from backlog", "taskId", t.ID, "priority", t.Priority)
 				d.engine.AddComment(t.ID, "triage", "[triage] Fast-path: already assigned, no blocking deps → todo")
 				promoted++
 			}
@@ -965,7 +966,7 @@ func (d *TaskBoardDispatcher) triageBacklog() {
 		task.Budget = dispatchCfg.MaxBudget
 	}
 
-	logInfo("taskboard dispatch: starting backlog triage", "backlogCount", len(backlog), "agent", agent)
+	log.Info("taskboard dispatch: starting backlog triage", "backlogCount", len(backlog), "agent", agent)
 
 	d.wg.Add(1)
 	d.activeCount.Add(1)
@@ -981,15 +982,15 @@ func (d *TaskBoardDispatcher) triageBacklog() {
 		}()
 		defer func() {
 			if r := recover(); r != nil {
-				logError("taskboard dispatch: panic in backlog triage", "recover", r)
+				log.Error("taskboard dispatch: panic in backlog triage", "recover", r)
 			}
 		}()
 
 		result := runSingleTask(d.ctx, d.cfg, task, d.sem, d.childSem, agent)
 		if result.Status == "success" {
-			logInfo("taskboard dispatch: backlog triage completed", "cost", result.CostUSD)
+			log.Info("taskboard dispatch: backlog triage completed", "cost", result.CostUSD)
 		} else {
-			logWarn("taskboard dispatch: backlog triage failed", "error", result.Error)
+			log.Warn("taskboard dispatch: backlog triage failed", "error", result.Error)
 		}
 	}()
 }
@@ -1001,7 +1002,7 @@ func (d *TaskBoardDispatcher) parseTriageInterval() time.Duration {
 	}
 	dur, err := time.ParseDuration(raw)
 	if err != nil {
-		logWarn("invalid backlog triage interval, using 1h", "raw", raw, "error", err)
+		log.Warn("invalid backlog triage interval, using 1h", "raw", raw, "error", err)
 		return time.Hour
 	}
 	return dur
@@ -1035,7 +1036,7 @@ func (d *TaskBoardDispatcher) checkParentRollup(taskID string) {
 	// All children done — roll up parent.
 	parent, err := d.engine.GetTask(task.ParentID)
 	if err != nil {
-		logWarn("taskboard rollup: failed to get parent", "parentId", task.ParentID, "error", err)
+		log.Warn("taskboard rollup: failed to get parent", "parentId", task.ParentID, "error", err)
 		return
 	}
 
@@ -1050,16 +1051,16 @@ func (d *TaskBoardDispatcher) checkParentRollup(taskID string) {
 	}
 
 	if _, err := d.engine.MoveTask(task.ParentID, targetStatus); err != nil {
-		logWarn("taskboard rollup: failed to move parent", "parentId", task.ParentID, "target", targetStatus, "error", err)
+		log.Warn("taskboard rollup: failed to move parent", "parentId", task.ParentID, "target", targetStatus, "error", err)
 		return
 	}
 
 	comment := fmt.Sprintf("[auto-rollup] All %d child tasks completed. Parent moved to %s.", len(children), targetStatus)
 	if _, err := d.engine.AddComment(task.ParentID, "system", comment); err != nil {
-		logWarn("taskboard rollup: failed to add comment", "parentId", task.ParentID, "error", err)
+		log.Warn("taskboard rollup: failed to add comment", "parentId", task.ParentID, "error", err)
 	}
 
-	logInfo("taskboard rollup: parent rolled up", "parentId", task.ParentID, "children", len(children), "status", targetStatus)
+	log.Info("taskboard rollup: parent rolled up", "parentId", task.ParentID, "children", len(children), "status", targetStatus)
 }
 
 // runTaskWithWorkflow executes a task through a workflow pipeline instead of a single dispatch.
@@ -1068,7 +1069,7 @@ func (d *TaskBoardDispatcher) checkParentRollup(taskID string) {
 func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoard, task Task, workflowName string) TaskResult {
 	w, err := loadWorkflowByName(d.cfg, workflowName)
 	if err != nil {
-		logWarn("runTaskWithWorkflow: load failed, falling back to single dispatch",
+		log.Warn("runTaskWithWorkflow: load failed, falling back to single dispatch",
 			"task", t.ID, "workflow", workflowName, "error", err)
 		return runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, t.Assignee)
 	}
@@ -1081,7 +1082,7 @@ func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoa
 		"agent":           t.Assignee,
 	}
 
-	logInfo("runTaskWithWorkflow: starting workflow pipeline",
+	log.Info("runTaskWithWorkflow: starting workflow pipeline",
 		"task", t.ID, "workflow", workflowName, "steps", len(w.Steps))
 
 	// Fire onStart callback (moves task to "doing") — executeWorkflow creates its
@@ -1098,16 +1099,16 @@ func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoa
 	if t.WorkflowRunID != "" {
 		prevRun, prevErr := queryWorkflowRunByID(d.cfg.HistoryDB, t.WorkflowRunID)
 		if prevErr == nil && isResumableStatus(prevRun.Status) && prevRun.WorkflowName == workflowName {
-			logInfo("runTaskWithWorkflow: resuming previous run",
+			log.Info("runTaskWithWorkflow: resuming previous run",
 				"task", t.ID, "prevRunID", t.WorkflowRunID[:8])
 			resumedRun, resumeErr := resumeWorkflow(ctx, d.cfg, t.WorkflowRunID, d.state, d.sem, d.childSem)
 			if resumeErr == nil {
 				run = resumedRun
 			} else {
-				logWarn("runTaskWithWorkflow: resume failed, starting fresh", "error", resumeErr)
+				log.Warn("runTaskWithWorkflow: resume failed, starting fresh", "error", resumeErr)
 			}
 		} else if prevErr == nil && prevRun.WorkflowName != workflowName {
-			logInfo("runTaskWithWorkflow: workflow changed, starting fresh",
+			log.Info("runTaskWithWorkflow: workflow changed, starting fresh",
 				"task", t.ID, "prevWorkflow", prevRun.WorkflowName, "newWorkflow", workflowName)
 		}
 	}
@@ -1169,7 +1170,7 @@ func (d *TaskBoardDispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoa
 		}
 	}
 
-	logInfo("runTaskWithWorkflow: completed",
+	log.Info("runTaskWithWorkflow: completed",
 		"task", t.ID, "workflow", workflowName, "status", run.Status, "cost", run.TotalCost)
 	return result
 }
@@ -1184,7 +1185,7 @@ func (d *TaskBoardDispatcher) promoteUnblockedTasks(completedID string) {
 	)
 	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
-		logWarn("promoteUnblockedTasks: query failed", "error", err)
+		log.Warn("promoteUnblockedTasks: query failed", "error", err)
 		return
 	}
 
@@ -1210,17 +1211,17 @@ func (d *TaskBoardDispatcher) promoteUnblockedTasks(completedID string) {
 		}
 
 		if _, err := d.engine.MoveTask(id, "todo"); err != nil {
-			logWarn("promoteUnblockedTasks: move failed", "id", id, "error", err)
+			log.Warn("promoteUnblockedTasks: move failed", "id", id, "error", err)
 			continue
 		}
 		d.engine.AddComment(id, "system",
 			"[auto-promote] All dependencies resolved. Moved to todo.")
 		promoted++
-		logInfo("promoteUnblockedTasks: promoted", "id", id)
+		log.Info("promoteUnblockedTasks: promoted", "id", id)
 	}
 
 	if promoted > 0 {
-		logInfo("promoteUnblockedTasks: total promoted", "count", promoted, "trigger", completedID)
+		log.Info("promoteUnblockedTasks: total promoted", "count", promoted, "trigger", completedID)
 	}
 }
 
@@ -1250,7 +1251,7 @@ func (d *TaskBoardDispatcher) scanReviews() {
 			continue
 		}
 
-		logInfo("scanReviews: auto-reviewing", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
+		log.Info("scanReviews: auto-reviewing", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
 
 		// Extract original prompt (title + description) and output (last log comment).
 		originalPrompt := t.Title
@@ -1268,7 +1269,7 @@ func (d *TaskBoardDispatcher) scanReviews() {
 			}
 		}
 		if output == "" {
-			logDebug("scanReviews: no output found, skipping", "id", t.ID)
+			log.Debug("scanReviews: no output found, skipping", "id", t.ID)
 			continue
 		}
 
@@ -1278,7 +1279,7 @@ func (d *TaskBoardDispatcher) scanReviews() {
 
 		switch rv.Verdict {
 		case reviewApprove:
-			logInfo("scanReviews: approved", "id", t.ID, "comment", rv.Comment)
+			log.Info("scanReviews: approved", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Approved: %s", rv.Comment))
 			nowISO := time.Now().UTC().Format(time.RFC3339)
 			sql := fmt.Sprintf(
@@ -1290,7 +1291,7 @@ func (d *TaskBoardDispatcher) scanReviews() {
 			d.promoteUnblockedTasks(t.ID)
 
 		case reviewFix:
-			logInfo("scanReviews: fix required, sending back", "id", t.ID, "comment", rv.Comment)
+			log.Info("scanReviews: fix required, sending back", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
 			// Move back to todo with the original assignee — dispatcher will re-execute with feedback.
 			d.engine.AddComment(t.ID, "system",
@@ -1301,7 +1302,7 @@ func (d *TaskBoardDispatcher) scanReviews() {
 			})
 
 		case reviewEscalate:
-			logInfo("scanReviews: escalating to user", "id", t.ID, "comment", rv.Comment)
+			log.Info("scanReviews: escalating to user", "id", t.ID, "comment", rv.Comment)
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Needs human judgment: %s", rv.Comment))
 			d.engine.UpdateTask(t.ID, map[string]any{"assignee": escalateUser})
 		}

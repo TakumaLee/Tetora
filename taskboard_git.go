@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // postTaskWorkspaceGit commits workspace changes after a task completes (done or failed).
@@ -31,7 +33,7 @@ func (d *TaskBoardDispatcher) postTaskWorkspaceGit(t TaskBoard) {
 	// Check for uncommitted changes.
 	statusOut, err := exec.Command("git", "-C", wsDir, "status", "--porcelain").Output()
 	if err != nil {
-		logWarn("postTaskWorkspaceGit: git status failed", "task", t.ID, "error", err)
+		log.Warn("postTaskWorkspaceGit: git status failed", "task", t.ID, "error", err)
 		d.engine.AddComment(t.ID, "system", "[WARNING] workspace git status failed: "+err.Error())
 		return
 	}
@@ -41,10 +43,10 @@ func (d *TaskBoardDispatcher) postTaskWorkspaceGit(t TaskBoard) {
 
 	if out, err := exec.Command("git", "-C", wsDir, "add", "-A").CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[WARNING] workspace git add failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskWorkspaceGit: git add failed", "task", t.ID, "error", string(out))
+		log.Warn("postTaskWorkspaceGit: git add failed", "task", t.ID, "error", string(out))
 		d.engine.AddComment(t.ID, "system", msg)
 		if _, moveErr := d.engine.MoveTask(t.ID, "partial-done"); moveErr != nil {
-			logWarn("postTaskWorkspaceGit: failed to move to partial-done", "task", t.ID, "error", moveErr)
+			log.Warn("postTaskWorkspaceGit: failed to move to partial-done", "task", t.ID, "error", moveErr)
 		}
 		return
 	}
@@ -52,15 +54,15 @@ func (d *TaskBoardDispatcher) postTaskWorkspaceGit(t TaskBoard) {
 	commitMsg := fmt.Sprintf("[%s] %s", t.ID, t.Title)
 	if out, err := exec.Command("git", "-C", wsDir, "commit", "-m", commitMsg).CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[WARNING] workspace git commit failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskWorkspaceGit: git commit failed", "task", t.ID, "error", string(out))
+		log.Warn("postTaskWorkspaceGit: git commit failed", "task", t.ID, "error", string(out))
 		d.engine.AddComment(t.ID, "system", msg)
 		if _, moveErr := d.engine.MoveTask(t.ID, "partial-done"); moveErr != nil {
-			logWarn("postTaskWorkspaceGit: failed to move to partial-done", "task", t.ID, "error", moveErr)
+			log.Warn("postTaskWorkspaceGit: failed to move to partial-done", "task", t.ID, "error", moveErr)
 		}
 		return
 	}
 
-	logInfo("postTaskWorkspaceGit: committed workspace changes", "task", t.ID)
+	log.Info("postTaskWorkspaceGit: committed workspace changes", "task", t.ID)
 }
 
 // postTaskGit commits and optionally pushes changes after a task completes.
@@ -91,11 +93,11 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 	// Check for uncommitted changes.
 	statusOut, err := exec.Command("git", "-C", workdir, "status", "--porcelain").Output()
 	if err != nil {
-		logWarn("postTaskGit: git status failed", "task", t.ID, "error", err)
+		log.Warn("postTaskGit: git status failed", "task", t.ID, "error", err)
 		return
 	}
 	if len(bytes.TrimSpace(statusOut)) == 0 {
-		logInfo("postTaskGit: no changes to commit", "task", t.ID, "project", t.Project)
+		log.Info("postTaskGit: no changes to commit", "task", t.ID, "project", t.Project)
 		return
 	}
 
@@ -104,14 +106,14 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 
 	if out, err := exec.Command("git", "-C", workdir, "checkout", "-B", branch).CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[post-task-git] checkout -B %s failed: %s", branch, strings.TrimSpace(string(out)))
-		logWarn("postTaskGit: checkout failed", "task", t.ID, "error", msg)
+		log.Warn("postTaskGit: checkout failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
 
 	if out, err := exec.Command("git", "-C", workdir, "add", "-A").CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[post-task-git] add -A failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskGit: add failed", "task", t.ID, "error", msg)
+		log.Warn("postTaskGit: add failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
@@ -119,12 +121,12 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 	commitMsg := fmt.Sprintf("[%s] %s", t.ID, t.Title)
 	if out, err := exec.Command("git", "-C", workdir, "commit", "-m", commitMsg).CombinedOutput(); err != nil {
 		msg := fmt.Sprintf("[post-task-git] commit failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskGit: commit failed", "task", t.ID, "error", msg)
+		log.Warn("postTaskGit: commit failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
 
-	logInfo("postTaskGit: committed", "task", t.ID, "branch", branch)
+	log.Info("postTaskGit: committed", "task", t.ID, "branch", branch)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] Committed to branch %s", branch))
 
 	// Capture full diff for review panel.
@@ -141,11 +143,11 @@ func (d *TaskBoardDispatcher) postTaskGit(t TaskBoard) {
 	if d.engine.config.GitPush {
 		if out, err := exec.Command("git", "-C", workdir, "push", "-u", "origin", branch).CombinedOutput(); err != nil {
 			msg := fmt.Sprintf("[post-task-git] push failed: %s", strings.TrimSpace(string(out)))
-			logWarn("postTaskGit: push failed", "task", t.ID, "error", msg)
+			log.Warn("postTaskGit: push failed", "task", t.ID, "error", msg)
 			d.engine.AddComment(t.ID, "system", msg)
 			return
 		}
-		logInfo("postTaskGit: pushed", "task", t.ID, "branch", branch)
+		log.Info("postTaskGit: pushed", "task", t.ID, "branch", branch)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] Pushed to origin/%s", branch))
 
 		// Auto-create PR if enabled.
@@ -171,15 +173,15 @@ func (d *TaskBoardDispatcher) postTaskWorktree(t TaskBoard, projectWorkdir, work
 	defer func() {
 		if mergeOK {
 			if err := d.worktreeMgr.Remove(projectWorkdir, worktreeDir); err != nil {
-				logWarn("worktree: cleanup failed", "task", t.ID, "path", worktreeDir, "error", err)
+				log.Warn("worktree: cleanup failed", "task", t.ID, "path", worktreeDir, "error", err)
 				d.engine.AddComment(t.ID, "system",
 					fmt.Sprintf("[worktree] Cleanup failed: %v", err))
 			} else {
-				logInfo("worktree: cleaned up", "task", t.ID, "path", worktreeDir)
+				log.Info("worktree: cleaned up", "task", t.ID, "path", worktreeDir)
 			}
 		} else if newStatus == "done" || newStatus == "review" {
 			// Merge failed — preserve worktree for manual recovery.
-			logWarn("worktree: preserved for recovery", "task", t.ID, "path", worktreeDir)
+			log.Warn("worktree: preserved for recovery", "task", t.ID, "path", worktreeDir)
 		}
 	}()
 
@@ -202,13 +204,13 @@ func (d *TaskBoardDispatcher) postTaskWorktree(t TaskBoard, projectWorkdir, work
 		commitMsg := fmt.Sprintf("[%s] %s", t.ID, t.Title)
 		diffSummary, err := d.worktreeMgr.Merge(projectWorkdir, worktreeDir, commitMsg)
 		if err != nil {
-			logWarn("worktree: merge failed", "task", t.ID, "error", err)
+			log.Warn("worktree: merge failed", "task", t.ID, "error", err)
 			d.engine.AddComment(t.ID, "system",
 				fmt.Sprintf("[worktree] ⚠️ Merge failed: %v\nBranch preserved: task/%s\nWorktree preserved: %s\nRecover manually: git -C %s merge task/%s",
 					err, t.ID, worktreeDir, projectWorkdir, t.ID))
 			// Move task to partial-done so it's visible in triage.
 			if _, moveErr := d.engine.MoveTask(t.ID, "partial-done"); moveErr != nil {
-				logWarn("worktree: failed to move to partial-done", "task", t.ID, "error", moveErr)
+				log.Warn("worktree: failed to move to partial-done", "task", t.ID, "error", moveErr)
 			}
 			return // mergeOK stays false → worktree preserved
 		}
@@ -219,7 +221,7 @@ func (d *TaskBoardDispatcher) postTaskWorktree(t TaskBoard, projectWorkdir, work
 			comment += "\n```\n" + diffSummary + "\n```"
 		}
 		d.engine.AddComment(t.ID, "system", comment)
-		logInfo("worktree: merge complete", "task", t.ID)
+		log.Info("worktree: merge complete", "task", t.ID)
 
 	default: // failed, cancelled
 		mergeOK = true // discard worktree on failure (no data to preserve)
@@ -292,7 +294,7 @@ func (d *TaskBoardDispatcher) postTaskGitPR(t TaskBoard, workdir, branch string)
 	case "gitlab":
 		d.postTaskGitLabMR(t, workdir, branch)
 	default:
-		logWarn("postTaskGitPR: remote host not recognized, skipping PR/MR creation", "task", t.ID)
+		log.Warn("postTaskGitPR: remote host not recognized, skipping PR/MR creation", "task", t.ID)
 		d.engine.AddComment(t.ID, "system", "[post-task-git] Remote host not recognized (not GitHub or GitLab). Skipping PR/MR creation.")
 	}
 }
@@ -307,7 +309,7 @@ func (d *TaskBoardDispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch stri
 	prViewCmd.Dir = workdir
 	existingPR, _ := prViewCmd.Output()
 	if url := strings.TrimSpace(string(existingPR)); url != "" {
-		logInfo("postTaskGitHubPR: PR already exists", "task", t.ID, "url", url)
+		log.Info("postTaskGitHubPR: PR already exists", "task", t.ID, "url", url)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR already exists: %s", url))
 		return
 	}
@@ -315,7 +317,7 @@ func (d *TaskBoardDispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch stri
 	// Gather diff for LLM context.
 	diffOut, err := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch, "--stat").Output()
 	if err != nil {
-		logWarn("postTaskGitHubPR: diff stat failed", "task", t.ID, "error", err)
+		log.Warn("postTaskGitHubPR: diff stat failed", "task", t.ID, "error", err)
 	}
 	diffDetail, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
 
@@ -337,13 +339,13 @@ func (d *TaskBoardDispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch stri
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := fmt.Sprintf("[post-task-git] PR creation failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskGitHubPR: gh pr create failed", "task", t.ID, "error", msg)
+		log.Warn("postTaskGitHubPR: gh pr create failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
 
 	prURL := strings.TrimSpace(string(out))
-	logInfo("postTaskGitHubPR: PR created", "task", t.ID, "url", prURL)
+	log.Info("postTaskGitHubPR: PR created", "task", t.ID, "url", prURL)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] PR created: %s", prURL))
 }
 
@@ -370,7 +372,7 @@ func (d *TaskBoardDispatcher) postTaskGitLabMR(t TaskBoard, workdir, branch stri
 		if url != "" {
 			msg += ": " + url
 		}
-		logInfo("postTaskGitLabMR: MR already exists", "task", t.ID, "url", url)
+		log.Info("postTaskGitLabMR: MR already exists", "task", t.ID, "url", url)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
@@ -378,7 +380,7 @@ func (d *TaskBoardDispatcher) postTaskGitLabMR(t TaskBoard, workdir, branch stri
 	// Gather diff for LLM context.
 	diffOut, err := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch, "--stat").Output()
 	if err != nil {
-		logWarn("postTaskGitLabMR: diff stat failed", "task", t.ID, "error", err)
+		log.Warn("postTaskGitLabMR: diff stat failed", "task", t.ID, "error", err)
 	}
 	diffDetail, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
 
@@ -401,13 +403,13 @@ func (d *TaskBoardDispatcher) postTaskGitLabMR(t TaskBoard, workdir, branch stri
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := fmt.Sprintf("[post-task-git] MR creation failed: %s", strings.TrimSpace(string(out)))
-		logWarn("postTaskGitLabMR: glab mr create failed", "task", t.ID, "error", msg)
+		log.Warn("postTaskGitLabMR: glab mr create failed", "task", t.ID, "error", msg)
 		d.engine.AddComment(t.ID, "system", msg)
 		return
 	}
 
 	mrURL := strings.TrimSpace(string(out))
-	logInfo("postTaskGitLabMR: MR created", "task", t.ID, "url", mrURL)
+	log.Info("postTaskGitLabMR: MR created", "task", t.ID, "url", mrURL)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] MR created: %s", mrURL))
 }
 
@@ -516,7 +518,7 @@ func cleanStaleLock(repoDir, taskID string, engine *TaskBoardEngine) {
 
 	age := time.Since(info.ModTime())
 	if age < time.Hour {
-		logWarn("cleanStaleLock: index.lock exists but is recent, skipping",
+		log.Warn("cleanStaleLock: index.lock exists but is recent, skipping",
 			"task", taskID, "path", lockPath, "age", age.Round(time.Second))
 		if engine != nil {
 			engine.AddComment(taskID, "system",
@@ -526,11 +528,11 @@ func cleanStaleLock(repoDir, taskID string, engine *TaskBoardEngine) {
 	}
 
 	if err := os.Remove(lockPath); err != nil {
-		logWarn("cleanStaleLock: failed to remove stale lock", "task", taskID, "path", lockPath, "error", err)
+		log.Warn("cleanStaleLock: failed to remove stale lock", "task", taskID, "path", lockPath, "error", err)
 		return
 	}
 
-	logInfo("cleanStaleLock: removed stale index.lock", "task", taskID, "path", lockPath, "age", age.Round(time.Second))
+	log.Info("cleanStaleLock: removed stale index.lock", "task", taskID, "path", lockPath, "age", age.Round(time.Second))
 	if engine != nil {
 		engine.AddComment(taskID, "system",
 			fmt.Sprintf("[auto-fix] Removed stale git index.lock (age: %s)", age.Round(time.Second)))

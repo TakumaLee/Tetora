@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"tetora/internal/log"
 )
 
 // triageBacklog analyzes backlog tasks and decides whether to assign, decompose, or clarify.
@@ -17,24 +19,24 @@ func triageBacklog(ctx context.Context, cfg *Config, sem, childSem chan struct{}
 
 	tb := newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
 	if err := tb.initTaskBoardSchema(); err != nil {
-		logError("triage: init schema failed", "error", err)
+		log.Error("triage: init schema failed", "error", err)
 		return
 	}
 
 	tasks, err := tb.ListTasks("backlog", "", "")
 	if err != nil {
-		logError("triage: list backlog failed", "error", err)
+		log.Error("triage: list backlog failed", "error", err)
 		return
 	}
 
 	if len(tasks) == 0 {
-		logDebug("triage: no backlog tasks")
+		log.Debug("triage: no backlog tasks")
 		return
 	}
 
 	roster := buildAgentRoster(cfg)
 	if roster == "" {
-		logWarn("triage: no agents configured, skipping")
+		log.Warn("triage: no agents configured, skipping")
 		return
 	}
 
@@ -49,27 +51,27 @@ func triageBacklog(ctx context.Context, cfg *Config, sem, childSem chan struct{}
 	for _, t := range tasks {
 		if t.Assignee != "" && !hasBlockingDeps(tb, t) {
 			if _, err := tb.MoveTask(t.ID, "todo"); err == nil {
-				logInfo("triage: fast-path promote", "taskId", t.ID, "assignee", t.Assignee, "priority", t.Priority)
+				log.Info("triage: fast-path promote", "taskId", t.ID, "assignee", t.Assignee, "priority", t.Priority)
 				tb.AddComment(t.ID, "triage", "[triage] Fast-path: already assigned, no blocking deps → todo")
 				fastPromoted++
 			}
 		}
 	}
 	if fastPromoted > 0 {
-		logInfo("triage: fast-path promoted tasks", "count", fastPromoted)
+		log.Info("triage: fast-path promoted tasks", "count", fastPromoted)
 		// Re-fetch remaining backlog for LLM triage.
 		tasks, err = tb.ListTasks("backlog", "", "")
 		if err != nil {
-			logError("triage: re-list backlog failed", "error", err)
+			log.Error("triage: re-list backlog failed", "error", err)
 			return
 		}
 		if len(tasks) == 0 {
-			logDebug("triage: all backlog tasks promoted via fast-path")
+			log.Debug("triage: all backlog tasks promoted via fast-path")
 			return
 		}
 	}
 
-	logInfo("triage: processing backlog", "count", len(tasks))
+	log.Info("triage: processing backlog", "count", len(tasks))
 
 	for _, t := range tasks {
 		if ctx.Err() != nil {
@@ -78,11 +80,11 @@ func triageBacklog(ctx context.Context, cfg *Config, sem, childSem chan struct{}
 
 		comments, err := tb.GetThread(t.ID)
 		if err != nil {
-			logWarn("triage: failed to get thread", "taskId", t.ID, "error", err)
+			log.Warn("triage: failed to get thread", "taskId", t.ID, "error", err)
 			continue
 		}
 		if shouldSkipTriage(comments) {
-			logDebug("triage: skipping (already triaged, no new replies)", "taskId", t.ID)
+			log.Debug("triage: skipping (already triaged, no new replies)", "taskId", t.ID)
 			continue
 		}
 
@@ -161,7 +163,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
 	result := runSingleTask(ctx, cfg, task, sem, childSem, "")
 	if result.Status != "success" {
-		logWarn("triage: LLM call failed", "taskId", t.ID, "error", result.Error)
+		log.Warn("triage: LLM call failed", "taskId", t.ID, "error", result.Error)
 		return nil
 	}
 
@@ -171,12 +173,12 @@ Respond with ONLY valid JSON (no markdown fences):
 
 	var tr triageResult
 	if err := json.Unmarshal([]byte(output), &tr); err != nil {
-		logWarn("triage: failed to parse LLM response", "taskId", t.ID, "output", truncate(output, 200), "error", err)
+		log.Warn("triage: failed to parse LLM response", "taskId", t.ID, "output", truncate(output, 200), "error", err)
 		return nil
 	}
 
 	if tr.Action != "ready" && tr.Action != "decompose" && tr.Action != "clarify" {
-		logWarn("triage: unknown action", "taskId", t.ID, "action", tr.Action)
+		log.Warn("triage: unknown action", "taskId", t.ID, "action", tr.Action)
 		return nil
 	}
 
@@ -188,46 +190,46 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult, valid
 	switch tr.Action {
 	case "ready":
 		if tr.Assignee == "" {
-			logWarn("triage: ready but no assignee", "taskId", t.ID)
+			log.Warn("triage: ready but no assignee", "taskId", t.ID)
 			return
 		}
 		if !validAgents[tr.Assignee] {
-			logWarn("triage: assignee not a configured agent", "taskId", t.ID, "assignee", tr.Assignee)
+			log.Warn("triage: assignee not a configured agent", "taskId", t.ID, "assignee", tr.Assignee)
 			// Add as clarify instead.
 			comment := fmt.Sprintf("[triage] Could not assign: agent %q not found. Reason: %s", tr.Assignee, tr.Comment)
 			if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
-				logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+				log.Warn("triage: add comment failed", "taskId", t.ID, "error", err)
 			}
 			return
 		}
 		if _, err := tb.AssignTask(t.ID, tr.Assignee); err != nil {
-			logWarn("triage: assign failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: assign failed", "taskId", t.ID, "error", err)
 			return
 		}
 		if _, err := tb.MoveTask(t.ID, "todo"); err != nil {
-			logWarn("triage: move to todo failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: move to todo failed", "taskId", t.ID, "error", err)
 			return
 		}
 		comment := fmt.Sprintf("[triage] Assigned to %s. Reason: %s", tr.Assignee, tr.Comment)
 		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
-			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: add comment failed", "taskId", t.ID, "error", err)
 		}
-		logInfo("triage: task ready", "taskId", t.ID, "assignee", tr.Assignee)
+		log.Info("triage: task ready", "taskId", t.ID, "assignee", tr.Assignee)
 
 	case "decompose":
 		if len(tr.Subtasks) == 0 {
-			logWarn("triage: decompose but no subtasks", "taskId", t.ID)
+			log.Warn("triage: decompose but no subtasks", "taskId", t.ID)
 			return
 		}
 		var created []string
 		for _, sub := range tr.Subtasks {
 			if sub.Title == "" {
-				logWarn("triage: skipping subtask with empty title", "taskId", t.ID)
+				log.Warn("triage: skipping subtask with empty title", "taskId", t.ID)
 				continue
 			}
 			assignee := sub.Assignee
 			if !validAgents[assignee] {
-				logWarn("triage: subtask assignee not found, leaving unassigned", "taskId", t.ID, "assignee", assignee)
+				log.Warn("triage: subtask assignee not found, leaving unassigned", "taskId", t.ID, "assignee", assignee)
 				assignee = ""
 			}
 			newTask, err := tb.CreateTask(TaskBoard{
@@ -239,39 +241,39 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult, valid
 				ParentID: t.ID,
 			})
 			if err != nil {
-				logWarn("triage: create subtask failed", "taskId", t.ID, "title", sub.Title, "error", err)
+				log.Warn("triage: create subtask failed", "taskId", t.ID, "title", sub.Title, "error", err)
 				continue
 			}
 			created = append(created, fmt.Sprintf("- %s → %s (%s)", newTask.ID, sub.Title, assignee))
 		}
 		// Only move parent to done if at least one subtask was created.
 		if len(created) == 0 {
-			logWarn("triage: all subtasks failed to create, keeping in backlog", "taskId", t.ID)
+			log.Warn("triage: all subtasks failed to create, keeping in backlog", "taskId", t.ID)
 			if _, err := tb.AddComment(t.ID, "triage", "[triage] Decompose attempted but all subtasks failed to create."); err != nil {
-				logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+				log.Warn("triage: add comment failed", "taskId", t.ID, "error", err)
 			}
 			return
 		}
 		comment := fmt.Sprintf("[triage] Decomposed into %d subtasks:\n%s\n\nReason: %s",
 			len(created), strings.Join(created, "\n"), tr.Comment)
 		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
-			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: add comment failed", "taskId", t.ID, "error", err)
 		}
 		if _, err := tb.MoveTask(t.ID, "todo"); err != nil {
-			logWarn("triage: move decomposed task to todo failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: move decomposed task to todo failed", "taskId", t.ID, "error", err)
 		}
-		logInfo("triage: task decomposed", "taskId", t.ID, "subtasks", len(created))
+		log.Info("triage: task decomposed", "taskId", t.ID, "subtasks", len(created))
 
 	case "clarify":
 		if tr.Comment == "" {
-			logWarn("triage: clarify but no comment", "taskId", t.ID)
+			log.Warn("triage: clarify but no comment", "taskId", t.ID)
 			return
 		}
 		comment := fmt.Sprintf("[triage] Need clarification: %s", tr.Comment)
 		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
-			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
+			log.Warn("triage: add comment failed", "taskId", t.ID, "error", err)
 		}
-		logInfo("triage: asked for clarification", "taskId", t.ID)
+		log.Info("triage: asked for clarification", "taskId", t.ID)
 	}
 }
 

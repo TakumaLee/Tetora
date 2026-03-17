@@ -9,6 +9,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -69,7 +70,7 @@ func (e *WorkflowTriggerEngine) Start(ctx context.Context) {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 
 	if len(e.triggers) == 0 {
-		logInfo("workflow trigger engine: no triggers configured")
+		log.Info("workflow trigger engine: no triggers configured")
 		return
 	}
 
@@ -109,7 +110,7 @@ func (e *WorkflowTriggerEngine) Start(ctx context.Context) {
 			enabled++
 		}
 	}
-	logInfo("workflow trigger engine started", "total", len(e.triggers), "enabled", enabled, "cron", hasCron, "event", hasEvent)
+	log.Info("workflow trigger engine started", "total", len(e.triggers), "enabled", enabled, "cron", hasCron, "event", hasEvent)
 }
 
 // Stop gracefully shuts down the trigger engine.
@@ -119,7 +120,7 @@ func (e *WorkflowTriggerEngine) Stop() {
 		e.cancel()
 	}
 	e.wg.Wait()
-	logInfo("workflow trigger engine stopped")
+	log.Info("workflow trigger engine stopped")
 }
 
 // ReloadTriggers hot-swaps triggers: stops the current engine loops and restarts with new triggers.
@@ -144,7 +145,7 @@ func (e *WorkflowTriggerEngine) ReloadTriggers(triggers []WorkflowTriggerConfig)
 	if len(triggers) > 0 {
 		e.Start(parentCtx)
 	}
-	logInfo("workflow triggers reloaded", "count", len(triggers))
+	log.Info("workflow triggers reloaded", "count", len(triggers))
 }
 
 // cronLoop checks cron triggers every 30 seconds.
@@ -198,7 +199,7 @@ func (e *WorkflowTriggerEngine) checkCronTriggers(ctx context.Context) {
 
 		expr, err := parseCronExpr(t.Trigger.Cron)
 		if err != nil {
-			logWarn("workflow trigger bad cron", "trigger", t.Name, "cron", t.Trigger.Cron, "error", err)
+			log.Warn("workflow trigger bad cron", "trigger", t.Name, "cron", t.Trigger.Cron, "error", err)
 			continue
 		}
 
@@ -227,11 +228,11 @@ func (e *WorkflowTriggerEngine) checkCronTriggers(ctx context.Context) {
 
 		// Check cooldown.
 		if !e.checkCooldown(t.Name) {
-			logDebug("workflow trigger cooldown active", "trigger", t.Name)
+			log.Debug("workflow trigger cooldown active", "trigger", t.Name)
 			continue
 		}
 
-		logInfo("workflow trigger cron firing", "trigger", t.Name, "workflow", t.WorkflowName)
+		log.Info("workflow trigger cron firing", "trigger", t.Name, "workflow", t.WorkflowName)
 		go e.executeTrigger(ctx, t, nil)
 	}
 }
@@ -288,7 +289,7 @@ func (e *WorkflowTriggerEngine) matchEventTriggers(ctx context.Context, event SS
 			}
 		}
 
-		logInfo("workflow trigger event firing", "trigger", t.Name, "eventType", event.Type)
+		log.Info("workflow trigger event firing", "trigger", t.Name, "eventType", event.Type)
 		go e.executeTrigger(ctx, t, extraVars)
 	}
 }
@@ -339,14 +340,14 @@ func (e *WorkflowTriggerEngine) HandleWebhookTrigger(triggerName string, payload
 		if d, err := time.ParseDuration(found.Cooldown); err == nil {
 			e.cooldowns[triggerName] = time.Now().Add(d)
 		} else {
-			logWarn("webhook trigger cooldown parse failed", "trigger", triggerName, "cooldown", found.Cooldown, "error", err)
+			log.Warn("webhook trigger cooldown parse failed", "trigger", triggerName, "cooldown", found.Cooldown, "error", err)
 		}
 	}
 	e.lastFired[triggerName] = time.Now()
 	triggerCopy := *found
 	e.mu.Unlock()
 
-	logInfo("workflow trigger webhook firing", "trigger", triggerName, "workflow", triggerCopy.WorkflowName)
+	log.Info("workflow trigger webhook firing", "trigger", triggerName, "workflow", triggerCopy.WorkflowName)
 	go e.executeTrigger(e.ctx, triggerCopy, payload)
 	return nil
 }
@@ -369,7 +370,7 @@ func (e *WorkflowTriggerEngine) executeTrigger(ctx context.Context, trigger Work
 	wf, err := loadWorkflowByName(e.cfg, trigger.WorkflowName)
 	if err != nil {
 		errMsg := fmt.Sprintf("load workflow: %v", err)
-		logError("workflow trigger exec failed", "trigger", trigger.Name, "error", errMsg)
+		log.Error("workflow trigger exec failed", "trigger", trigger.Name, "error", errMsg)
 		recordTriggerRun(e.cfg.HistoryDB, trigger.Name, trigger.WorkflowName, "", "error",
 			startedAt.Format(time.RFC3339), time.Now().Format(time.RFC3339), errMsg)
 		return
@@ -378,7 +379,7 @@ func (e *WorkflowTriggerEngine) executeTrigger(ctx context.Context, trigger Work
 	// Validate workflow.
 	if errs := validateWorkflow(wf); len(errs) > 0 {
 		errMsg := fmt.Sprintf("validation: %s", strings.Join(errs, "; "))
-		logError("workflow trigger validation failed", "trigger", trigger.Name, "errors", errs)
+		log.Error("workflow trigger validation failed", "trigger", trigger.Name, "errors", errs)
 		recordTriggerRun(e.cfg.HistoryDB, trigger.Name, trigger.WorkflowName, "", "error",
 			startedAt.Format(time.RFC3339), time.Now().Format(time.RFC3339), errMsg)
 		return
@@ -511,7 +512,7 @@ func (e *WorkflowTriggerEngine) FireTrigger(name string) error {
 		return fmt.Errorf("trigger %q is disabled", name)
 	}
 
-	logInfo("workflow trigger manual fire", "trigger", name, "workflow", found.WorkflowName)
+	log.Info("workflow trigger manual fire", "trigger", name, "workflow", found.WorkflowName)
 	go e.executeTrigger(e.ctx, *found, map[string]string{
 		"_manual": "true",
 	})
@@ -538,11 +539,11 @@ func initTriggerRunsTable(dbPath string) {
 	// Migration: add workflow_run_id column if missing (for DBs created before this column existed).
 	if err := db.Exec(dbPath, `ALTER TABLE workflow_trigger_runs ADD COLUMN workflow_run_id TEXT DEFAULT '';`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
-			logWarn("workflow_trigger_runs migration failed", "error", err)
+			log.Warn("workflow_trigger_runs migration failed", "error", err)
 		}
 	}
 	if _, err := db.Query(dbPath, triggerRunsTableSQL); err != nil {
-		logWarn("init workflow_trigger_runs table failed", "error", err)
+		log.Warn("init workflow_trigger_runs table failed", "error", err)
 	}
 }
 
@@ -564,7 +565,7 @@ func recordTriggerRun(dbPath, triggerName, workflowName, runID, status, startedA
 	)
 
 	if _, err := db.Query(dbPath, sql); err != nil {
-		logWarn("record trigger run failed", "error", err)
+		log.Warn("record trigger run failed", "error", err)
 	}
 }
 

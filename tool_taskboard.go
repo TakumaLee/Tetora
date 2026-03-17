@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"tetora/internal/log"
 )
 
 // registerTaskboardTools registers taskboard CRUD + decompose tools for agents.
@@ -394,7 +396,7 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 				DependsOn:   sub.DependsOn,
 			})
 			if err != nil {
-				logWarn("taskboard_decompose: create subtask failed", "parent", args.ParentID, "title", sub.Title, "error", err)
+				log.Warn("taskboard_decompose: create subtask failed", "parent", args.ParentID, "title", sub.Title, "error", err)
 				continue
 			}
 
@@ -406,7 +408,7 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 		// Move parent to "todo" (ready, waiting for children) if it was in backlog.
 		if created > 0 && parent.Status == "backlog" {
 			if _, err := tb.MoveTask(args.ParentID, "todo"); err != nil {
-				logWarn("taskboard_decompose: failed to move parent to todo", "parentId", args.ParentID, "error", err)
+				log.Warn("taskboard_decompose: failed to move parent to todo", "parentId", args.ParentID, "error", err)
 			}
 		}
 
@@ -415,7 +417,7 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 			comment := fmt.Sprintf("[decompose] Created %d subtasks (skipped %d existing): %s",
 				created, skipped, strings.Join(subtaskIDs, ", "))
 			if _, err := tb.AddComment(args.ParentID, "system", comment); err != nil {
-				logWarn("taskboard_decompose: add comment failed", "parentId", args.ParentID, "error", err)
+				log.Warn("taskboard_decompose: add comment failed", "parentId", args.ParentID, "error", err)
 			}
 		}
 

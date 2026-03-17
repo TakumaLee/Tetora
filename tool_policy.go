@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dtypes "tetora/internal/dispatch"
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -184,7 +185,7 @@ func filterToolCall(cfg *Config, agentName string, call ToolCall) (*ToolResult, 
 	switch trustLevel {
 	case TrustObserve:
 		// Log but don't execute.
-		logInfo("tool call observed (not executed)", "tool", call.Name, "agent", agentName)
+		log.Info("tool call observed (not executed)", "tool", call.Name, "agent", agentName)
 		return &ToolResult{
 			ToolUseID: call.ID,
 			Content:   fmt.Sprintf("[OBSERVE MODE: tool %s would execute with input: %s]", call.Name, truncateJSON(call.Input, 100)),
@@ -193,7 +194,7 @@ func filterToolCall(cfg *Config, agentName string, call ToolCall) (*ToolResult, 
 
 	case TrustSuggest:
 		// Log and return approval-needed message.
-		logInfo("tool call requires approval", "tool", call.Name, "agent", agentName)
+		log.Info("tool call requires approval", "tool", call.Name, "agent", agentName)
 		return &ToolResult{
 			ToolUseID: call.ID,
 			Content:   fmt.Sprintf("[APPROVAL REQUIRED: tool %s with input: %s]", call.Name, truncateJSON(call.Input, 200)),
@@ -365,13 +366,13 @@ func validateToolPolicy(cfg *Config, policy AgentToolPolicy) error {
 
 	for _, toolName := range policy.Allow {
 		if !allTools[toolName] {
-			logWarn("tool policy references unknown tool", "tool", toolName)
+			log.Warn("tool policy references unknown tool", "tool", toolName)
 		}
 	}
 
 	for _, toolName := range policy.Deny {
 		if !allTools[toolName] {
-			logWarn("tool policy references unknown tool", "tool", toolName)
+			log.Warn("tool policy references unknown tool", "tool", toolName)
 		}
 	}
 

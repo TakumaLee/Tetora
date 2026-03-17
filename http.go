@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/httpapi"
 	"tetora/internal/pwa"
 	"tetora/internal/httputil"
@@ -445,7 +446,7 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 			if rv := recover(); rv != nil {
 				buf := make([]byte, 4096)
 				n := runtime.Stack(buf, false)
-				logError("http handler panic", "panic", fmt.Sprintf("%v", rv), "path", r.URL.Path, "stack", string(buf[:n]))
+				log.Error("http handler panic", "panic", fmt.Sprintf("%v", rv), "path", r.URL.Path, "stack", string(buf[:n]))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error":"internal server error"}`))
@@ -592,7 +593,7 @@ func startHTTPServer(s *Server) *http.Server {
 	// (Discord bot in one process, HTTP server in another).
 	ln, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
-		logError("http server bind failed (another instance running?)", "addr", cfg.ListenAddr, "error", err)
+		log.Error("http server bind failed (another instance running?)", "addr", cfg.ListenAddr, "error", err)
 		os.Exit(1)
 	}
 
@@ -604,19 +605,19 @@ func startHTTPServer(s *Server) *http.Server {
 		go func() {
 			ln.Close() // release pre-bound listener; TLS needs its own
 			if err := srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != http.ErrServerClosed {
-				logError("https server error", "error", err)
+				log.Error("https server error", "error", err)
 				os.Exit(1)
 			}
 		}()
-		logInfo("https server listening", "addr", cfg.ListenAddr)
+		log.Info("https server listening", "addr", cfg.ListenAddr)
 	} else {
 		go func() {
 			if err := srv.Serve(ln); err != http.ErrServerClosed {
-				logError("http server error", "error", err)
+				log.Error("http server error", "error", err)
 				os.Exit(1)
 			}
 		}()
-		logInfo("http server listening", "addr", cfg.ListenAddr)
+		log.Info("http server listening", "addr", cfg.ListenAddr)
 	}
 	return srv
 }

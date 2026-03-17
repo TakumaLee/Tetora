@@ -14,9 +14,8 @@ import (
 	"time"
 
 	tcrypto "tetora/internal/crypto"
-
-
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 // --- P18.2: OAuth 2.0 Generic Framework ---
@@ -250,7 +249,7 @@ func (m *OAuthManager) refreshTokenIfNeeded(serviceName string) (*OAuthToken, er
 
 	// No refresh token — return current token as-is.
 	if token.RefreshToken == "" {
-		logDebug("oauth token expired but no refresh_token", "service", serviceName)
+		log.Debug("oauth token expired but no refresh_token", "service", serviceName)
 		return token, nil
 	}
 
@@ -261,7 +260,7 @@ func (m *OAuthManager) refreshTokenIfNeeded(serviceName string) (*OAuthToken, er
 	}
 
 	// Exchange refresh token for new access token.
-	logInfo("oauth refreshing token", "service", serviceName)
+	log.Info("oauth refreshing token", "service", serviceName)
 	data := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {token.RefreshToken},
@@ -301,7 +300,7 @@ func (m *OAuthManager) refreshTokenIfNeeded(serviceName string) (*OAuthToken, er
 		return nil, fmt.Errorf("store refreshed token: %w", err)
 	}
 
-	logInfo("oauth token refreshed", "service", serviceName, "expiresAt", token.ExpiresAt)
+	log.Info("oauth token refreshed", "service", serviceName, "expiresAt", token.ExpiresAt)
 	return token, nil
 }
 
@@ -402,7 +401,7 @@ func (m *OAuthManager) handleAuthorize(w http.ResponseWriter, r *http.Request, s
 	}
 
 	authURL := svcCfg.AuthURL + "?" + params.Encode()
-	logInfo("oauth authorize redirect", "service", serviceName, "url", authURL)
+	log.Info("oauth authorize redirect", "service", serviceName, "url", authURL)
 
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
@@ -491,7 +490,7 @@ func (m *OAuthManager) handleCallback(w http.ResponseWriter, r *http.Request, se
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		logWarn("oauth token exchange failed", "service", serviceName, "status", resp.StatusCode, "body", string(body))
+		log.Warn("oauth token exchange failed", "service", serviceName, "status", resp.StatusCode, "body", string(body))
 		http.Error(w, fmt.Sprintf(`{"error":"token exchange failed (HTTP %d)"}`, resp.StatusCode), http.StatusBadGateway)
 		return
 	}
@@ -542,14 +541,14 @@ func (m *OAuthManager) handleCallback(w http.ResponseWriter, r *http.Request, se
 
 	// Store token.
 	if m.encryptionKey == "" {
-		logWarn("oauth storing token WITHOUT encryption — set oauth.encryptionKey for security", "service", serviceName)
+		log.Warn("oauth storing token WITHOUT encryption — set oauth.encryptionKey for security", "service", serviceName)
 	}
 	if err := storeOAuthToken(m.dbPath, token, m.encryptionKey); err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"store token: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
 
-	logInfo("oauth token stored", "service", serviceName, "expiresAt", token.ExpiresAt)
+	log.Info("oauth token stored", "service", serviceName, "expiresAt", token.ExpiresAt)
 
 	// Return success HTML.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -673,7 +672,7 @@ func (m *OAuthManager) handleOAuthServices(w http.ResponseWriter, r *http.Reques
 	// Get stored token statuses.
 	statuses, err := listOAuthTokenStatuses(m.dbPath, m.encryptionKey)
 	if err != nil {
-		logWarn("list oauth token statuses", "error", err)
+		log.Warn("list oauth token statuses", "error", err)
 	}
 
 	statusMap := make(map[string]OAuthTokenStatus)
@@ -730,7 +729,7 @@ func (m *OAuthManager) handleOAuthRoute(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, fmt.Sprintf(`{"error":"revoke: %v"}`, err), http.StatusInternalServerError)
 			return
 		}
-		logInfo("oauth token revoked", "service", service)
+		log.Info("oauth token revoked", "service", service)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "revoked", "service": service})
 	case "status":

@@ -11,6 +11,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -95,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_trust_events_time ON trust_events(created_at);`
 
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		logWarn("init trust_events table failed", "error", fmt.Sprintf("%s: %s", err, out))
+		log.Warn("init trust_events table failed", "error", fmt.Sprintf("%s: %s", err, out))
 	}
 }
 
@@ -170,7 +171,7 @@ func recordTrustEvent(dbPath, role, eventType, fromLevel, toLevel string, consec
 
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		logWarn("record trust event failed", "error", fmt.Sprintf("%s: %s", err, out))
+		log.Warn("record trust event failed", "error", fmt.Sprintf("%s: %s", err, out))
 	}
 }
 
@@ -309,12 +310,12 @@ func checkTrustPromotion(ctx context.Context, cfg *Config, agentName string) str
 	if cfg.Trust.AutoPromote {
 		// Auto-promote: update config and record.
 		if err := updateAgentTrustLevel(cfg, agentName, next); err != nil {
-			logWarnCtx(ctx, "auto-promote failed", "agent", agentName, "error", err)
+			log.WarnCtx(ctx, "auto-promote failed", "agent", agentName, "error", err)
 			return ""
 		}
 		recordTrustEvent(cfg.HistoryDB, agentName, "promote", level, next, consecutiveSuccess,
 			fmt.Sprintf("auto-promoted after %d consecutive successes", consecutiveSuccess))
-		logInfoCtx(ctx, "trust auto-promoted", "agent", agentName, "from", level, "to", next)
+		log.InfoCtx(ctx, "trust auto-promoted", "agent", agentName, "from", level, "to", next)
 		return fmt.Sprintf("Trust Auto-Promoted [%s]\n%s → %s (%d consecutive successes)",
 			agentName, level, next, consecutiveSuccess)
 	}

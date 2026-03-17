@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/integration/drive"
 	"tetora/internal/integration/dropbox"
@@ -204,13 +205,13 @@ func newPodcastService(dbPath string) *PodcastService {
 		Query:   db.Query,
 		Exec:    db.Exec,
 		Escape:  db.Escape,
-		LogInfo: logInfo,
-		LogWarn: logWarn,
+		LogInfo: log.Info,
+		LogWarn: log.Warn,
 	})
 }
 
 func newHAService(cfg HomeAssistantConfig) *HAService {
-	return homeassistant.New(cfg, logInfo, logWarn, logDebug)
+	return homeassistant.New(cfg, log.Info, log.Warn, log.Debug)
 }
 
 func newNotesService(cfg *Config) *NotesService {
@@ -228,7 +229,7 @@ func newNotesService(cfg *Config) *NotesService {
 			return storeEmbedding(cfg.HistoryDB, "notes", name, content, vec, meta)
 		}
 	}
-	return notes.New(cfg.Notes, cfg.BaseDir, cfg.Embedding.Enabled, embedFn, logInfo, logWarn, logDebug)
+	return notes.New(cfg.Notes, cfg.BaseDir, cfg.Embedding.Enabled, embedFn, log.Info, log.Warn, log.Debug)
 }
 
 // Global notes service with thread-safe access (matches original pattern).
@@ -680,7 +681,7 @@ func toolSpotifyPlay(ctx context.Context, cfg *Config, input json.RawMessage) (s
 				return "No tracks found for query: " + args.Query, nil
 			}
 			uri = results[0].URI
-			logInfo("spotify play search result", "query", args.Query, "track", results[0].Name, "artist", results[0].Artist)
+			log.Info("spotify play search result", "query", args.Query, "track", results[0].Name, "artist", results[0].Artist)
 		}
 		if err := svc.Play(uri, args.DeviceID); err != nil {
 			return "", fmt.Errorf("play failed: %w", err)

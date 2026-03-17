@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -316,12 +317,12 @@ func (db *DiscordBot) handleGatewayInteraction(interaction *discordInteraction) 
 func (db *DiscordBot) handleGatewayComponent(ctx context.Context, interaction *discordInteraction) discordInteractionResponse {
 	var data discordInteractionData
 	if err := json.Unmarshal(interaction.Data, &data); err != nil {
-		logWarnCtx(ctx, "discord gateway component: invalid data", "error", err)
+		log.WarnCtx(ctx, "discord gateway component: invalid data", "error", err)
 		return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
 	}
 
 	userID := interactionUserID(interaction)
-	logInfoCtx(ctx, "discord gateway component interaction",
+	log.InfoCtx(ctx, "discord gateway component interaction",
 		"customID", data.CustomID, "userID", userID)
 
 	// Check registered interaction callbacks.
@@ -360,12 +361,12 @@ func (db *DiscordBot) handleGatewayComponent(ctx context.Context, interaction *d
 func (db *DiscordBot) handleGatewayModal(ctx context.Context, interaction *discordInteraction) discordInteractionResponse {
 	var data discordInteractionData
 	if err := json.Unmarshal(interaction.Data, &data); err != nil {
-		logWarnCtx(ctx, "discord gateway modal: invalid data", "error", err)
+		log.WarnCtx(ctx, "discord gateway modal: invalid data", "error", err)
 		return discordInteractionResponse{Type: interactionResponseDeferredUpdate}
 	}
 
 	userID := interactionUserID(interaction)
-	logInfoCtx(ctx, "discord gateway modal submit", "customID", data.CustomID, "userID", userID)
+	log.InfoCtx(ctx, "discord gateway modal submit", "customID", data.CustomID, "userID", userID)
 
 	if db.interactions != nil {
 		if pi := db.interactions.lookup(data.CustomID); pi != nil {

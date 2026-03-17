@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Priority Levels ---
@@ -167,7 +169,7 @@ func (ne *NotificationEngine) Notify(msg NotifyMessage) {
 	key := msg.dedupKey()
 	if lastSeen, exists := ne.dedupSeen[key]; exists {
 		if time.Since(lastSeen) < ne.batchInterval {
-			logDebug("notification deduped", "key", key, "priority", msg.Priority)
+			log.Debug("notification deduped", "key", key, "priority", msg.Priority)
 			return
 		}
 	}
@@ -201,7 +203,7 @@ func (ne *NotificationEngine) deliverImmediate(msg NotifyMessage) {
 	for _, ch := range ne.channels {
 		if rank >= ch.minPriority {
 			if err := ch.notifier.Send(text); err != nil {
-				logError("notification send failed", "channel", ch.notifier.Name(),
+				log.Error("notification send failed", "channel", ch.notifier.Name(),
 					"priority", msg.Priority, "error", err)
 			}
 		}
@@ -249,12 +251,12 @@ func (ne *NotificationEngine) flushBatch() {
 	for _, ch := range ne.channels {
 		if priorityRank(PriorityNormal) >= ch.minPriority {
 			if err := ch.notifier.Send(digest); err != nil {
-				logError("batch notification send failed", "channel", ch.notifier.Name(), "error", err)
+				log.Error("batch notification send failed", "channel", ch.notifier.Name(), "error", err)
 			}
 		}
 	}
 
-	logInfo("notification batch flushed", "count", len(batch))
+	log.Info("notification batch flushed", "count", len(batch))
 }
 
 // cleanupDedup removes dedup entries older than 2x batch interval.

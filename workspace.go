@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+
+	"tetora/internal/log"
 )
 
 // --- Workspace Types ---
@@ -120,10 +122,10 @@ func initDirectories(cfg *Config) error {
 	}
 	// Write default sprite config if not present.
 	if err := initSpriteConfig(filepath.Join(cfg.BaseDir, "media", "sprites")); err != nil {
-		logWarn("sprite config init failed", "error", err)
+		log.Warn("sprite config init failed", "error", err)
 	}
 
-	logInfo("initialized directories", "agents", cfg.AgentsDir, "workspace", cfg.WorkspaceDir, "runtime", cfg.RuntimeDir)
+	log.Info("initialized directories", "agents", cfg.AgentsDir, "workspace", cfg.WorkspaceDir, "runtime", cfg.RuntimeDir)
 	return nil
 }
 
@@ -262,13 +264,13 @@ func loadSoulFile(cfg *Config, agentName string) string {
 	data, err := os.ReadFile(ws.SoulFile)
 	if err != nil {
 		// No soul file is OK, just log debug
-		logDebug("no soul file found",
+		log.Debug("no soul file found",
 			"agent", agentName,
 			"path", ws.SoulFile)
 		return ""
 	}
 
-	logInfo("loaded soul file",
+	log.Info("loaded soul file",
 		"agent", agentName,
 		"path", ws.SoulFile,
 		"size", len(data))

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Agent Heartbeat / Self-healing ---
@@ -49,7 +51,7 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	logInfo("heartbeat monitor started",
+	log.Info("heartbeat monitor started",
 		"interval", interval.String(),
 		"stallThreshold", h.cfg.StallThresholdOrDefault().String(),
 		"timeoutWarnRatio", fmt.Sprintf("%.0f%%", h.cfg.TimeoutWarnRatioOrDefault()*100),
@@ -58,7 +60,7 @@ func (h *HeartbeatMonitor) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logInfo("heartbeat monitor stopped")
+			log.Info("heartbeat monitor stopped")
 			return
 		case <-ticker.C:
 			h.check()
@@ -161,7 +163,7 @@ func (h *HeartbeatMonitor) check() {
 				}
 				h.state.mu.Unlock()
 
-				logWarn("heartbeat: task stalled",
+				log.Warn("heartbeat: task stalled",
 					"taskId", shortID,
 					"name", t.name,
 					"agent", t.agent,
@@ -190,7 +192,7 @@ func (h *HeartbeatMonitor) check() {
 
 			// Auto-cancel if stalled for 2x threshold.
 			if h.cfg.AutoCancel && silent > 2*stallThreshold {
-				logWarn("heartbeat: auto-cancelling stalled task",
+				log.Warn("heartbeat: auto-cancelling stalled task",
 					"taskId", shortID,
 					"name", t.name,
 					"silent", silent.Round(time.Second).String())
@@ -232,7 +234,7 @@ func (h *HeartbeatMonitor) check() {
 			h.stats.StallsRecovered++
 			h.mu.Unlock()
 
-			logInfo("heartbeat: task recovered",
+			log.Info("heartbeat: task recovered",
 				"taskId", shortID,
 				"name", t.name,
 				"agent", t.agent)
@@ -261,7 +263,7 @@ func (h *HeartbeatMonitor) check() {
 						h.mu.Unlock()
 
 						remaining := timeout - elapsed
-						logWarn("heartbeat: task approaching timeout",
+						log.Warn("heartbeat: task approaching timeout",
 							"taskId", shortID,
 							"name", t.name,
 							"elapsed", elapsed.Round(time.Second).String(),
@@ -293,11 +295,11 @@ func (h *HeartbeatMonitor) check() {
 		if idle {
 			if h.systemIdleSince.IsZero() {
 				h.systemIdleSince = time.Now()
-				logDebug("heartbeat: system entered idle state")
+				log.Debug("heartbeat: system entered idle state")
 			}
 		} else {
 			if !h.systemIdleSince.IsZero() {
-				logDebug("heartbeat: system left idle state",
+				log.Debug("heartbeat: system left idle state",
 					"idleDuration", time.Since(h.systemIdleSince).Round(time.Second).String())
 			}
 			h.systemIdleSince = time.Time{}

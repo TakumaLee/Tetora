@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"sync"
+
+	"tetora/internal/log"
 )
 
 // wsEventsHub manages WebSocket connections that mirror the SSE dashboard feed.
@@ -124,14 +126,14 @@ func (s *Server) registerWSEventsRoutes(mux *http.ServeMux) {
 		bufrw.Flush()
 
 		hub.add(conn)
-		logInfo("ws/events client connected", "remote", conn.RemoteAddr().String())
+		log.Info("ws/events client connected", "remote", conn.RemoteAddr().String())
 
 		// Read loop: drain incoming frames until client disconnects.
 		// This is a server-push only endpoint; client messages are discarded.
 		wsEventsReadLoop(conn)
 
 		hub.remove(conn)
-		logInfo("ws/events client disconnected")
+		log.Info("ws/events client disconnected")
 	})
 }
 

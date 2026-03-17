@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Canvas Engine ---
@@ -83,7 +85,7 @@ func (ce *CanvasEngine) discoverMCPCanvas(mcpServerName, resourceURI string) (*C
 	}
 
 	ce.sessions[session.ID] = session
-	logInfo("canvas.mcp.created", "id", session.ID, "server", mcpServerName, "uri", resourceURI)
+	log.Info("canvas.mcp.created", "id", session.ID, "server", mcpServerName, "uri", resourceURI)
 
 	return session, nil
 }
@@ -125,7 +127,7 @@ func (ce *CanvasEngine) renderCanvas(title, content, width, height string) (*Can
 	}
 
 	ce.sessions[session.ID] = session
-	logInfo("canvas.render", "id", session.ID, "title", title)
+	log.Info("canvas.render", "id", session.ID, "title", title)
 
 	return session, nil
 }
@@ -148,7 +150,7 @@ func (ce *CanvasEngine) updateCanvas(id, content string) error {
 	session.Content = content
 	session.UpdatedAt = time.Now()
 
-	logInfo("canvas.update", "id", id)
+	log.Info("canvas.update", "id", id)
 	return nil
 }
 
@@ -162,7 +164,7 @@ func (ce *CanvasEngine) closeCanvas(id string) error {
 	}
 
 	delete(ce.sessions, id)
-	logInfo("canvas.close", "id", id)
+	log.Info("canvas.close", "id", id)
 	return nil
 }
 
@@ -209,7 +211,7 @@ func (ce *CanvasEngine) handleCanvasMessage(sessionID string, message json.RawMe
 	// 1. Look up the agent session associated with this canvas
 	// 2. Inject the message into that session's context
 	// 3. Trigger the agent to process the message
-	logInfo("canvas.message", "sessionId", sessionID, "source", session.Source, "message", string(message))
+	log.Info("canvas.message", "sessionId", sessionID, "source", session.Source, "message", string(message))
 
 	return nil
 }

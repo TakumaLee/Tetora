@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -365,7 +366,7 @@ func runCallbackWithTimeout(cb func(discordInteractionData), data discordInterac
 		select {
 		case <-done:
 		case <-time.After(30 * time.Second):
-			logWarn("discord callback exceeded 30s timeout", "customID", data.CustomID)
+			log.Warn("discord callback exceeded 30s timeout", "customID", data.CustomID)
 		}
 	}()
 }
@@ -390,7 +391,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 	// Verify Ed25519 signature.
 	publicKey := db.cfg.Discord.PublicKey
 	if publicKey == "" {
-		logWarn("discord interactions: no public key configured")
+		log.Warn("discord interactions: no public key configured")
 		http.Error(w, `{"error":"interactions not configured"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -403,7 +404,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 	}
 
 	if !verifyDiscordSignature(publicKey, sig, ts, body) {
-		logWarn("discord interactions: invalid signature", "ip", clientIP(r))
+		log.Warn("discord interactions: invalid signature", "ip", clientIP(r))
 		http.Error(w, `{"error":"invalid signature"}`, http.StatusUnauthorized)
 		return
 	}
@@ -421,7 +422,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 	switch interaction.Type {
 	case interactionTypePing:
 		// Respond with PONG.
-		logInfoCtx(ctx, "discord interaction PING received")
+		log.InfoCtx(ctx, "discord interaction PING received")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(discordInteractionResponse{Type: interactionResponsePong})
 		return
@@ -436,7 +437,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 
 	case interactionTypeApplicationCmd:
 		// Application commands — respond with a basic message for now.
-		logInfoCtx(ctx, "discord application command received")
+		log.InfoCtx(ctx, "discord application command received")
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(discordInteractionResponse{
 			Type: interactionResponseMessage,
@@ -447,7 +448,7 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 		return
 
 	default:
-		logWarn("discord interactions: unknown type", "type", interaction.Type)
+		log.Warn("discord interactions: unknown type", "type", interaction.Type)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(discordInteractionResponse{
 			Type: interactionResponseMessage,
@@ -463,13 +464,13 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 func handleComponentInteraction(ctx context.Context, db *DiscordBot, w http.ResponseWriter, interaction *discordInteraction) {
 	var data discordInteractionData
 	if err := json.Unmarshal(interaction.Data, &data); err != nil {
-		logWarnCtx(ctx, "discord component: invalid data", "error", err)
+		log.WarnCtx(ctx, "discord component: invalid data", "error", err)
 		http.Error(w, `{"error":"invalid component data"}`, http.StatusBadRequest)
 		return
 	}
 
 	userID := interactionUserID(interaction)
-	logInfoCtx(ctx, "discord component interaction",
+	log.InfoCtx(ctx, "discord component interaction",
 		"customID", data.CustomID,
 		"userID", userID,
 		"values", fmt.Sprintf("%v", data.Values))
@@ -525,13 +526,13 @@ func handleComponentInteraction(ctx context.Context, db *DiscordBot, w http.Resp
 func handleModalSubmit(ctx context.Context, db *DiscordBot, w http.ResponseWriter, interaction *discordInteraction) {
 	var data discordInteractionData
 	if err := json.Unmarshal(interaction.Data, &data); err != nil {
-		logWarnCtx(ctx, "discord modal: invalid data", "error", err)
+		log.WarnCtx(ctx, "discord modal: invalid data", "error", err)
 		http.Error(w, `{"error":"invalid modal data"}`, http.StatusBadRequest)
 		return
 	}
 
 	userID := interactionUserID(interaction)
-	logInfoCtx(ctx, "discord modal submit",
+	log.InfoCtx(ctx, "discord modal submit",
 		"customID", data.CustomID,
 		"userID", userID)
 
@@ -571,7 +572,7 @@ func handleModalSubmit(ctx context.Context, db *DiscordBot, w http.ResponseWrite
 	}
 
 	// Default response for unhandled modals.
-	logInfoCtx(ctx, "discord modal unhandled", "customID", data.CustomID, "values", fmt.Sprintf("%v", values))
+	log.InfoCtx(ctx, "discord modal unhandled", "customID", data.CustomID, "values", fmt.Sprintf("%v", values))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(discordInteractionResponse{
 		Type: interactionResponseMessage,
@@ -634,7 +635,7 @@ func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInt
 	// Pattern: "approve:{taskID}" / "reject:{taskID}"
 	if strings.HasPrefix(customID, "approve:") {
 		taskID := strings.TrimPrefix(customID, "approve:")
-		logInfoCtx(ctx, "discord component: task approved", "taskID", taskID, "userID", userID)
+		log.InfoCtx(ctx, "discord component: task approved", "taskID", taskID, "userID", userID)
 		auditLog(db.cfg.HistoryDB, "discord.component.approve", "discord",
 			fmt.Sprintf("task=%s user=%s", taskID, userID), "")
 		return discordInteractionResponse{
@@ -647,7 +648,7 @@ func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInt
 
 	if strings.HasPrefix(customID, "reject:") {
 		taskID := strings.TrimPrefix(customID, "reject:")
-		logInfoCtx(ctx, "discord component: task rejected", "taskID", taskID, "userID", userID)
+		log.InfoCtx(ctx, "discord component: task rejected", "taskID", taskID, "userID", userID)
 		auditLog(db.cfg.HistoryDB, "discord.component.reject", "discord",
 			fmt.Sprintf("task=%s user=%s", taskID, userID), "")
 		return discordInteractionResponse{
@@ -661,7 +662,7 @@ func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInt
 	// Pattern: "agent_select" — route to selected agent.
 	if customID == "agent_select" && len(data.Values) > 0 {
 		agent := data.Values[0]
-		logInfoCtx(ctx, "discord component: agent selected", "agent", agent, "userID", userID)
+		log.InfoCtx(ctx, "discord component: agent selected", "agent", agent, "userID", userID)
 		return discordInteractionResponse{
 			Type: interactionResponseMessage,
 			Data: &discordInteractionResponseData{
@@ -671,7 +672,7 @@ func handleBuiltinComponent(ctx context.Context, db *DiscordBot, data discordInt
 	}
 
 	// Unknown component.
-	logInfoCtx(ctx, "discord component: unhandled", "customID", customID)
+	log.InfoCtx(ctx, "discord component: unhandled", "customID", customID)
 	return discordInteractionResponse{
 		Type: interactionResponseDeferredUpdate,
 	}

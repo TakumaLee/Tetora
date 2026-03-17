@@ -10,6 +10,7 @@ import (
 
 
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 // --- P17.3a: Daily Notes ---
@@ -159,7 +160,7 @@ func writeDailyNote(cfg *Config, date time.Time, content string) error {
 		return fmt.Errorf("write note: %w", err)
 	}
 
-	logInfo("daily note written", "date", date.Format("2006-01-02"), "path", filePath)
+	log.Info("daily note written", "date", date.Format("2006-01-02"), "path", filePath)
 	return nil
 }
 
@@ -173,7 +174,7 @@ func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEng
 	schedule := cfg.DailyNotes.ScheduleOrDefault()
 	expr, err := parseCronExpr(schedule)
 	if err != nil {
-		logWarn("daily notes schedule invalid", "schedule", schedule, "error", err)
+		log.Warn("daily notes schedule invalid", "schedule", schedule, "error", err)
 		return
 	}
 
@@ -194,7 +195,7 @@ func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEng
 	cronEngine.jobs = append(cronEngine.jobs, job)
 	cronEngine.mu.Unlock()
 
-	logInfo("daily notes job registered", "schedule", schedule)
+	log.Info("daily notes job registered", "schedule", schedule)
 }
 
 // runDailyNotesJob is the execution handler for the daily notes cron job.

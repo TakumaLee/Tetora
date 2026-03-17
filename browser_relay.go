@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // BrowserRelay manages WebSocket connections from Chrome extensions.
@@ -70,7 +72,7 @@ func (br *BrowserRelay) Start(ctx context.Context) error {
 		Handler: mux,
 	}
 
-	logInfo("browser relay starting", "port", port)
+	log.Info("browser relay starting", "port", port)
 	go func() {
 		<-ctx.Done()
 		br.server.Close()
@@ -146,7 +148,7 @@ func (br *BrowserRelay) handleWebSocket(w http.ResponseWriter, r *http.Request) 
 	br.conn = conn
 	br.mu.Unlock()
 
-	logInfo("browser extension connected", "remote", conn.RemoteAddr().String())
+	log.Info("browser extension connected", "remote", conn.RemoteAddr().String())
 
 	// Read loop: read responses from extension.
 	br.readLoop(conn)
@@ -156,7 +158,7 @@ func (br *BrowserRelay) handleWebSocket(w http.ResponseWriter, r *http.Request) 
 		br.conn = nil
 	}
 	br.mu.Unlock()
-	logInfo("browser extension disconnected")
+	log.Info("browser extension disconnected")
 }
 
 func computeWebSocketAccept(key string) string {

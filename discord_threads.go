@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -247,7 +248,7 @@ func startThreadCleanup(ctx context.Context, store *threadBindingStore, parentCa
 			if parentCache != nil {
 				parentCache.cleanup()
 			}
-			logDebug("discord thread cleanup complete", "bindings", store.count())
+			log.Debug("discord thread cleanup complete", "bindings", store.count())
 		}
 	}
 }
@@ -310,7 +311,7 @@ func (db *DiscordBot) handleFocusCommand(msg discordMessage, args string, channe
 	ttl := db.cfg.Discord.ThreadBindings.ThreadBindingsTTL()
 
 	sessionID := db.threads.bind(guildID, threadID, role, ttl)
-	logInfo("discord thread bound", "guild", guildID, "thread", threadID, "agent", role, "session", sessionID)
+	log.Info("discord thread bound", "guild", guildID, "thread", threadID, "agent", role, "session", sessionID)
 
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       fmt.Sprintf("Thread focused on %s", role),
@@ -338,7 +339,7 @@ func (db *DiscordBot) handleUnfocusCommand(msg discordMessage, channelType int) 
 	}
 
 	db.threads.unbind(guildID, threadID)
-	logInfo("discord thread unbound", "guild", guildID, "thread", threadID, "wasRole", existing.Agent)
+	log.Info("discord thread unbound", "guild", guildID, "thread", threadID, "wasRole", existing.Agent)
 
 	db.sendEmbed(msg.ChannelID, discordEmbed{
 		Title:       "Thread unfocused",
@@ -396,7 +397,7 @@ func (db *DiscordBot) handleThreadMessage(msg discordMessage, channelType int) b
 		}
 		ttl := db.cfg.Discord.ThreadBindings.ThreadBindingsTTL()
 		sessionID := db.threads.bind(msg.GuildID, msg.ChannelID, agent, ttl)
-		logInfo("discord thread auto-bound", "thread", msg.ChannelID, "agent", agent, "session", sessionID)
+		log.Info("discord thread auto-bound", "thread", msg.ChannelID, "agent", agent, "session", sessionID)
 		binding = db.threads.get(msg.GuildID, msg.ChannelID)
 		if binding == nil {
 			return false
@@ -434,13 +435,13 @@ func (db *DiscordBot) handleThreadRoute(msg discordMessage, prompt string, bindi
 	role := binding.Agent
 	sessionID := binding.SessionID
 
-	logInfoCtx(ctx, "discord thread dispatch",
+	log.InfoCtx(ctx, "discord thread dispatch",
 		"thread", msg.ChannelID, "agent", role, "session", sessionID, "prompt", truncate(prompt, 60))
 
 	// Get or create session using the thread binding's session ID as channel key.
 	sess, err := getOrCreateChannelSession(dbPath, "discord", sessionID, role, "")
 	if err != nil {
-		logErrorCtx(ctx, "discord thread session error", "error", err)
+		log.ErrorCtx(ctx, "discord thread session error", "error", err)
 	}
 
 	// Context-aware prompt.

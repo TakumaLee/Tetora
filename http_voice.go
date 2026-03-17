@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"tetora/internal/log"
 )
 
 func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
@@ -60,7 +62,7 @@ func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 		// Transcribe.
 		result, err := s.voiceEngine.Transcribe(r.Context(), file, opts)
 		if err != nil {
-			logErrorCtx(r.Context(), "voice transcribe failed", "error", err)
+			log.ErrorCtx(r.Context(), "voice transcribe failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -104,7 +106,7 @@ func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 		// Synthesize.
 		stream, err := s.voiceEngine.Synthesize(r.Context(), req.Text, opts)
 		if err != nil {
-			logErrorCtx(r.Context(), "voice synthesize failed", "error", err)
+			log.ErrorCtx(r.Context(), "voice synthesize failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}

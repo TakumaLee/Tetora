@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dtypes "tetora/internal/dispatch"
+	"tetora/internal/log"
 )
 
 // --- Smart Dispatch Types (aliases to internal/dispatch) ---
@@ -185,7 +186,7 @@ If no agent is clearly appropriate, use %q as the default.`,
 
 	// Step 2: If low confidence, escalate to sonnet.
 	if parsed.Confidence == "low" {
-		logInfo("route: haiku confidence low, escalating to sonnet", "reason", parsed.Reason)
+		log.Info("route: haiku confidence low, escalating to sonnet", "reason", parsed.Reason)
 		task.Model = "sonnet"
 		result2 := runSingleTask(ctx, cfg, task, routeSem, nil, coordinator)
 		if result2.Status == "success" {
@@ -242,7 +243,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 		if _, ok := cfg.Agents[result.Agent]; ok {
 			return result
 		}
-		logWarnCtx(ctx, "binding matched agent not in config, falling through", "agent", result.Agent)
+		log.WarnCtx(ctx, "binding matched agent not in config, falling through", "agent", result.Agent)
 	}
 
 	// Tier 2: Keyword matching.
@@ -250,7 +251,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 		if _, ok := cfg.Agents[result.Agent]; ok {
 			return result
 		}
-		logWarnCtx(ctx, "keyword matched agent not in config, falling through", "agent", result.Agent)
+		log.WarnCtx(ctx, "keyword matched agent not in config, falling through", "agent", result.Agent)
 	}
 
 	// Tier 3: Fallback mode.
@@ -272,7 +273,7 @@ func routeTask(ctx context.Context, cfg *Config, req RouteRequest) *RouteResult 
 	// Smart fallback: LLM classification.
 	result, err := classifyByLLM(ctx, cfg, req.Prompt)
 	if err != nil {
-		logWarnCtx(ctx, "LLM classify error, using default", "error", err)
+		log.WarnCtx(ctx, "LLM classify error, using default", "error", err)
 		return &RouteResult{
 			Agent:       cfg.SmartDispatch.DefaultAgent,
 			Method:     "default",
@@ -311,7 +312,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	// Step 1: Route.
 	route := routeTask(ctx, cfg, RouteRequest{Prompt: prompt, Source: source})
 
-	logInfoCtx(ctx, "route decision",
+	log.InfoCtx(ctx, "route decision",
 		"prompt", truncate(prompt, 60), "role", route.Agent,
 		"method", route.Method, "confidence", route.Confidence)
 
@@ -463,12 +464,12 @@ func routeDevQALoop(ctx context.Context, cfg *Config, task Task, originalPrompt,
 		// Step 2: QA review.
 		reviewOK, reviewComment := reviewOutput(ctx, cfg, originalPrompt, result.Output, agentName, sem, childSem)
 		if reviewOK {
-			logInfoCtx(ctx, "routeDevQA: review passed", "agent", agentName, "attempt", attempt+1)
+			log.InfoCtx(ctx, "routeDevQA: review passed", "agent", agentName, "attempt", attempt+1)
 			return devQALoopResult{Result: result, QAApproved: true, Attempts: attempt + 1, TotalCost: accumulated}
 		}
 
 		// QA failed.
-		logInfoCtx(ctx, "routeDevQA: review failed, injecting feedback",
+		log.InfoCtx(ctx, "routeDevQA: review failed, injecting feedback",
 			"agent", agentName, "attempt", attempt+1, "maxAttempts", maxRetries+1,
 			"comment", truncate(reviewComment, 200))
 
@@ -480,7 +481,7 @@ func routeDevQALoop(ctx context.Context, cfg *Config, task Task, originalPrompt,
 		}
 
 		if attempt == maxRetries {
-			logWarnCtx(ctx, "routeDevQA: max retries exhausted, escalating",
+			log.WarnCtx(ctx, "routeDevQA: max retries exhausted, escalating",
 				"agent", agentName, "attempts", maxRetries+1)
 			return devQALoopResult{Result: result, Attempts: attempt + 1, TotalCost: accumulated}
 		}

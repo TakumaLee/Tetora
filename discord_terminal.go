@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/tmux"
 )
 
@@ -156,7 +157,7 @@ func (tb *terminalBridge) startSession(channelID, userID, workdir, tool string) 
 	// Start capture loop.
 	go tb.runCaptureLoop(session)
 
-	logInfo("terminal session started",
+	log.Info("terminal session started",
 		"session", sessionID, "channel", channelID, "user", userID,
 		"tool", tool, "tmux", tmuxName)
 	return nil
@@ -185,7 +186,7 @@ func (tb *terminalBridge) stopSession(channelID string) error {
 		"```\n[Session ended]\n```")
 	tb.bot.deleteMessage(session.ChannelID, session.controlMsgID)
 
-	logInfo("terminal session stopped", "session", session.ID, "channel", channelID)
+	log.Info("terminal session stopped", "session", session.ID, "channel", channelID)
 	return nil
 }
 
@@ -269,7 +270,7 @@ func (tb *terminalBridge) runCaptureLoop(session *terminalSession) {
 		}
 
 		if !tmux.HasSession(session.TmuxName) {
-			logInfo("terminal tmux session gone, stopping", "session", session.ID)
+			log.Info("terminal tmux session gone, stopping", "session", session.ID)
 			tb.stopSession(session.ChannelID)
 			return
 		}
@@ -279,7 +280,7 @@ func (tb *terminalBridge) runCaptureLoop(session *terminalSession) {
 		lastActivity := session.LastActivity
 		session.mu.Unlock()
 		if time.Since(lastActivity) > idleTimeout {
-			logInfo("terminal session idle timeout", "session", session.ID)
+			log.Info("terminal session idle timeout", "session", session.ID)
 			tb.bot.sendMessage(session.ChannelID, "Terminal session timed out due to inactivity.")
 			tb.stopSession(session.ChannelID)
 			return
@@ -309,7 +310,7 @@ func (tb *terminalBridge) runCaptureLoop(session *terminalSession) {
 
 		content := "```\n" + screen + "\n```"
 		if err := tb.bot.editMessage(session.ChannelID, session.displayMsgID, content); err != nil {
-			logWarn("terminal display update failed", "session", session.ID, "error", err)
+			log.Warn("terminal display update failed", "session", session.ID, "error", err)
 		}
 		lastEdit = time.Now()
 	}

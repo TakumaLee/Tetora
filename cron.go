@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"tetora/internal/history"
+	"tetora/internal/log"
 	"tetora/internal/quiet"
 )
 
-var quietGlobal = quiet.NewState(logInfo)
+var quietGlobal = quiet.NewState(log.Info)
 
 func toQuietCfg(cfg *Config) quiet.Config {
 	return quiet.Config{
@@ -187,7 +188,7 @@ func (ce *CronEngine) checkJobsReload() {
 	ce.mu.RUnlock()
 
 	if err := ce.loadJobs(); err != nil {
-		logWarn("cron hot-reload failed", "error", err)
+		log.Warn("cron hot-reload failed", "error", err)
 		return
 	}
 
@@ -213,14 +214,14 @@ func (ce *CronEngine) checkJobsReload() {
 	}
 	ce.mu.Unlock()
 
-	logInfo("cron hot-reloaded jobs.json", "total", len(ce.jobs), "enabled", ce.countEnabled())
+	log.Info("cron hot-reloaded jobs.json", "total", len(ce.jobs), "enabled", ce.countEnabled())
 }
 
 func (ce *CronEngine) loadJobs() error {
 	data, err := os.ReadFile(ce.cfg.JobsFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logInfo("no jobs file, starting with 0 jobs", "path", ce.cfg.JobsFile)
+			log.Info("no jobs file, starting with 0 jobs", "path", ce.cfg.JobsFile)
 			return nil
 		}
 		return fmt.Errorf("read jobs: %w", err)
@@ -241,7 +242,7 @@ func (ce *CronEngine) loadJobs() error {
 			if l, err := time.LoadLocation(jc.TZ); err == nil {
 				loc = l
 			} else {
-				logWarn("cron job bad timezone, using local", "jobId", jc.ID, "tz", jc.TZ)
+				log.Warn("cron job bad timezone, using local", "jobId", jc.ID, "tz", jc.TZ)
 			}
 		}
 
@@ -257,7 +258,7 @@ func (ce *CronEngine) loadJobs() error {
 
 		expr, err := parseCronExpr(jc.Schedule)
 		if err != nil {
-			logWarn("cron skip job, bad schedule", "jobId", jc.ID, "schedule", jc.Schedule, "error", err)
+			log.Warn("cron skip job, bad schedule", "jobId", jc.ID, "schedule", jc.Schedule, "error", err)
 			continue
 		}
 
@@ -275,7 +276,7 @@ func (ce *CronEngine) loadJobs() error {
 		ce.jobsFileMtime = info.ModTime()
 	}
 
-	logInfo("cron loaded jobs", "total", len(ce.jobs), "enabled", ce.countEnabled())
+	log.Info("cron loaded jobs", "total", len(ce.jobs), "enabled", ce.countEnabled())
 	return nil
 }
 
@@ -297,7 +298,7 @@ func (ce *CronEngine) start(ctx context.Context) {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
-		logInfo("cron scheduler started", "tick", "30s")
+		log.Info("cron scheduler started", "tick", "30s")
 
 		for {
 			select {
@@ -324,9 +325,9 @@ func (ce *CronEngine) stop() {
 	}()
 	select {
 	case <-done:
-		logInfo("cron all jobs finished")
+		log.Info("cron all jobs finished")
 	case <-time.After(30 * time.Second):
-		logWarn("cron shutdown timeout, some jobs still running")
+		log.Warn("cron shutdown timeout, some jobs still running")
 	}
 }
 
@@ -456,7 +457,7 @@ func (ce *CronEngine) checkDigest() {
 
 	total, success, fail, cost, failures, err := history.QueryDigestStats(ce.cfg.HistoryDB, from, to)
 	if err != nil {
-		logError("digest query error", "error", err)
+		log.Error("digest query error", "error", err)
 		return
 	}
 
@@ -480,7 +481,7 @@ func (ce *CronEngine) checkDigest() {
 		}
 	}
 
-	logInfo("sending daily digest", "date", yesterday.Format("2006-01-02"))
+	log.Info("sending daily digest", "date", yesterday.Format("2006-01-02"))
 	ce.notifyFn(msg)
 }
 
@@ -519,12 +520,12 @@ func (ce *CronEngine) tick(ctx context.Context) {
 	exceeded, reason := ce.checkBudget()
 	if exceeded {
 		if ce.cfg.CostAlert.Action == "pause" {
-			logWarn("cron budget exceeded, pausing", "reason", reason)
+			log.Warn("cron budget exceeded, pausing", "reason", reason)
 			return
 		}
 		if !ce.budgetWarned {
 			ce.budgetWarned = true
-			logWarn("cron budget warning", "reason", reason)
+			log.Warn("cron budget warning", "reason", reason)
 			if ce.notifyFn != nil {
 				ce.notifyFn("Budget warning: " + reason)
 			}
@@ -538,7 +539,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 	case "critical":
 		if !ce.diskWarnLogged {
 			ce.diskWarnLogged = true
-			logWarn("cron disk critical: new jobs will be skipped", "freeGB", fmt.Sprintf("%.2f", freeGB), "blockMB", ce.diskBlockThresholdMB())
+			log.Warn("cron disk critical: new jobs will be skipped", "freeGB", fmt.Sprintf("%.2f", freeGB), "blockMB", ce.diskBlockThresholdMB())
 			if ce.notifyFn != nil {
 				ce.notifyFn(fmt.Sprintf("Disk critical: only %.2fGB free — new cron jobs will be skipped (block at %dMB)", freeGB, ce.diskBlockThresholdMB()))
 			}
@@ -546,7 +547,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 	case "warning":
 		if !ce.diskWarnLogged {
 			ce.diskWarnLogged = true
-			logWarn("cron disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "warnMB", ce.diskWarnThresholdMB())
+			log.Warn("cron disk warning: low free space", "freeGB", fmt.Sprintf("%.2f", freeGB), "warnMB", ce.diskWarnThresholdMB())
 			if ce.notifyFn != nil {
 				ce.notifyFn(fmt.Sprintf("Disk warning: only %.2fGB free (threshold %dMB)", freeGB, ce.diskWarnThresholdMB()))
 			}
@@ -590,7 +591,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 			if idleDur < time.Duration(minIdle)*time.Minute {
 				continue
 			}
-			logInfo("cron: idle trigger firing",
+			log.Info("cron: idle trigger firing",
 				"jobId", j.ID, "name", j.Name,
 				"idleMinutes", int(idleDur.Minutes()),
 				"threshold", minIdle)
@@ -613,7 +614,7 @@ func (ce *CronEngine) tick(ctx context.Context) {
 				// Only warn when the schedule would have fired (avoid noise on every tick).
 				nowLocal := now.In(j.loc)
 				if j.expr.Matches(nowLocal) {
-					logWarnCtx(ctx, "cron job skipped: already running max instances",
+					log.WarnCtx(ctx, "cron job skipped: already running max instances",
 						"jobId", j.ID, "name", j.Name,
 						"running", j.runCount, "maxConcurrentRuns", maxRuns)
 					// Record skip to history without blocking the ticker loop.
@@ -735,12 +736,12 @@ func (ce *CronEngine) tick(ctx context.Context) {
 // runDailyNotesJobAsync runs the daily notes job in background.
 func (ce *CronEngine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 	if err := runDailyNotesJob(ctx, ce.cfg); err != nil {
-		logError("daily notes job failed", "error", err)
+		log.Error("daily notes job failed", "error", err)
 		if ce.notifyFn != nil {
 			ce.notifyFn(fmt.Sprintf("Daily notes generation failed: %v", err))
 		}
 	} else {
-		logInfo("daily notes job completed")
+		log.Info("daily notes job completed")
 	}
 }
 
@@ -762,7 +763,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 
 	// Disk block check: skip job and record history if disk is critically low.
 	if diskStatus, diskFreeGB := ce.checkDisk(); diskStatus == "critical" {
-		logErrorCtx(ctx, "cron job skipped: disk full", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "blockMB", ce.diskBlockThresholdMB())
+		log.ErrorCtx(ctx, "cron job skipped: disk full", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "blockMB", ce.diskBlockThresholdMB())
 		if ce.notifyFn != nil {
 			ce.notifyFn(fmt.Sprintf("Job %q skipped: disk full (%.2fGB free, block at %dMB)", j.Name, diskFreeGB, ce.diskBlockThresholdMB()))
 		}
@@ -780,7 +781,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		}
 		return
 	} else if diskStatus == "warning" {
-		logWarnCtx(ctx, "cron job disk warning", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "warnMB", ce.diskWarnThresholdMB())
+		log.WarnCtx(ctx, "cron job disk warning", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "warnMB", ce.diskWarnThresholdMB())
 	}
 
 	// Build task from cron job config.
@@ -808,7 +809,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	if j.Agent != "" {
 		prompt, err := loadAgentPrompt(ce.cfg, j.Agent)
 		if err != nil {
-			logWarnCtx(ctx, "cron job agent load failed", "jobId", j.ID, "agent", j.Agent, "error", err)
+			log.WarnCtx(ctx, "cron job agent load failed", "jobId", j.ID, "agent", j.Agent, "error", err)
 		} else if prompt != "" {
 			task.SystemPrompt = prompt
 		}
@@ -831,7 +832,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	// Resolve promptFile if specified (overrides inline prompt).
 	if j.Task.PromptFile != "" {
 		if content, err := resolvePromptFile(ce.cfg, j.Task.PromptFile); err != nil {
-			logWarnCtx(ctx, "cron job promptFile error", "jobId", j.ID, "promptFile", j.Task.PromptFile, "error", err)
+			log.WarnCtx(ctx, "cron job promptFile error", "jobId", j.ID, "promptFile", j.Task.PromptFile, "error", err)
 		} else if content != "" {
 			task.Prompt = content
 		}
@@ -842,7 +843,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 
 	// Skip jobs with empty prompts (e.g. missing promptFile or blank inline prompt).
 	if strings.TrimSpace(task.Prompt) == "" {
-		logWarnCtx(ctx, "cron job skipped: empty prompt", "jobId", j.ID, "name", j.Name)
+		log.WarnCtx(ctx, "cron job skipped: empty prompt", "jobId", j.ID, "name", j.Name)
 		return
 	}
 
@@ -860,7 +861,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		j.pendingApproval = true
 		ce.mu.Unlock()
 
-		logInfoCtx(ctx, "cron job requires approval", "jobId", j.ID, "timeout", approvalTimeout)
+		log.InfoCtx(ctx, "cron job requires approval", "jobId", j.ID, "timeout", approvalTimeout)
 		if ce.notifyKeyboardFn != nil {
 			keyboard := [][]tgInlineButton{
 				{
@@ -880,9 +881,9 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		select {
 		case approved = <-j.approvalCh:
 		case <-time.After(approvalTimeout):
-			logWarnCtx(ctx, "cron job approval timed out", "jobId", j.ID)
+			log.WarnCtx(ctx, "cron job approval timed out", "jobId", j.ID)
 		case <-ctx.Done():
-			logWarnCtx(ctx, "cron job approval cancelled", "jobId", j.ID)
+			log.WarnCtx(ctx, "cron job approval cancelled", "jobId", j.ID)
 		}
 
 		ce.mu.Lock()
@@ -895,16 +896,16 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 			if ctx.Err() != nil {
 				reason = "cancelled"
 			}
-			logInfoCtx(ctx, "cron job skipped", "jobId", j.ID, "reason", reason)
+			log.InfoCtx(ctx, "cron job skipped", "jobId", j.ID, "reason", reason)
 			if ce.notifyFn != nil {
 				ce.notifyFn(fmt.Sprintf("Job %q skipped (%s).", j.Name, reason))
 			}
 			return
 		}
-		logInfoCtx(ctx, "cron job approved", "jobId", j.ID)
+		log.InfoCtx(ctx, "cron job approved", "jobId", j.ID)
 	}
 
-	logInfoCtx(ctx, "cron running job", "jobId", j.ID, "name", j.Name)
+	log.InfoCtx(ctx, "cron running job", "jobId", j.ID, "name", j.Name)
 	jobStart := time.Now()
 
 	// Record in cron_execution_log for crash-recovery / startup replay.
@@ -953,7 +954,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			// Wait before retry.
-			logInfoCtx(ctx, "cron job retry", "jobId", j.ID, "attempt", attempt, "maxRetries", j.MaxRetries, "delay", retryDelay)
+			log.InfoCtx(ctx, "cron job retry", "jobId", j.ID, "attempt", attempt, "maxRetries", j.MaxRetries, "delay", retryDelay)
 			select {
 			case <-ctx.Done():
 				result = TaskResult{
@@ -1033,7 +1034,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 		j.lastErr = result.Error
 		if j.errors >= 3 {
 			j.Enabled = false
-			logWarn("cron job auto-disabled", "jobId", j.ID, "consecutiveErrors", j.errors)
+			log.Warn("cron job auto-disabled", "jobId", j.ID, "consecutiveErrors", j.errors)
 			if ce.notifyFn != nil {
 				ce.notifyFn(fmt.Sprintf("Cron job %q auto-disabled after %d errors.\nLast error: %s",
 					j.Name, j.errors, truncate(j.lastErr, 200)))
@@ -1086,7 +1087,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 				channelID := strings.TrimPrefix(channelName, "id:")
 				if ce.cfg.Discord.Enabled && ce.cfg.Discord.BotToken != "" {
 					if err := cronDiscordSendBotChannel(ce.cfg.Discord.BotToken, channelID, msg); err != nil {
-						logWarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelID, "error", err)
+						log.WarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelID, "error", err)
 					}
 				}
 			} else {
@@ -1099,7 +1100,7 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 				for _, ch := range channels {
 					if ch.Name == channelName {
 						if err := cronDiscordSendWebhook(ch.WebhookURL, msg); err != nil {
-							logWarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelName, "error", err)
+							log.WarnCtx(ctx, "cron discord notify failed", "jobId", j.ID, "channel", channelName, "error", err)
 						}
 						break
 					}
@@ -1130,14 +1131,14 @@ func (ce *CronEngine) runJob(ctx context.Context, j *cronJob) {
 	}
 	if len(chainTargets) > 0 {
 		if j.chainDepth >= maxChainDepth {
-			logWarnCtx(ctx, "cron job chain depth max reached, skipping", "jobId", j.ID, "depth", j.chainDepth, "max", maxChainDepth)
+			log.WarnCtx(ctx, "cron job chain depth max reached, skipping", "jobId", j.ID, "depth", j.chainDepth, "max", maxChainDepth)
 		} else {
 			for _, targetID := range chainTargets {
-				logInfoCtx(ctx, "cron job chain trigger", "jobId", j.ID, "target", targetID, "depth", j.chainDepth+1)
+				log.InfoCtx(ctx, "cron job chain trigger", "jobId", j.ID, "target", targetID, "depth", j.chainDepth+1)
 				auditLog(ce.cfg.HistoryDB, "job.chain", "cron",
 					fmt.Sprintf("%s → %s (depth=%d, trigger=%s)", j.ID, targetID, j.chainDepth+1, result.Status), "")
 				if err := ce.runChainJob(ce.ctx, targetID, j.chainDepth+1); err != nil {
-					logErrorCtx(ctx, "cron chain trigger failed", "target", targetID, "error", err)
+					log.ErrorCtx(ctx, "cron chain trigger failed", "target", targetID, "error", err)
 				}
 			}
 		}
@@ -1411,7 +1412,7 @@ func (ce *CronEngine) AddJob(jc CronJobConfig) error {
 	if err := ce.saveToFileLocked(); err != nil {
 		return fmt.Errorf("save: %w", err)
 	}
-	logInfo("cron added job", "jobId", jc.ID)
+	log.Info("cron added job", "jobId", jc.ID)
 	return nil
 }
 
@@ -1449,7 +1450,7 @@ func (ce *CronEngine) UpdateJob(id string, jc CronJobConfig) error {
 			if err := ce.saveToFileLocked(); err != nil {
 				return fmt.Errorf("save: %w", err)
 			}
-			logInfo("cron updated job", "jobId", id)
+			log.Info("cron updated job", "jobId", id)
 			return nil
 		}
 	}
@@ -1480,7 +1481,7 @@ func (ce *CronEngine) RemoveJob(id string) error {
 	if err := ce.saveToFileLocked(); err != nil {
 		return fmt.Errorf("save: %w", err)
 	}
-	logInfo("cron removed job", "jobId", id)
+	log.Info("cron removed job", "jobId", id)
 	return nil
 }
 

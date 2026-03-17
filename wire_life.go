@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/nlp"
 	"tetora/internal/tool"
@@ -96,8 +97,8 @@ func makeLifeDB() lifedb.DB {
 		Query:   db.Query,
 		Exec:    db.Exec,
 		Escape:  db.Escape,
-		LogInfo: logInfo,
-		LogWarn: logWarn,
+		LogInfo: log.Info,
+		LogWarn: log.Warn,
 	}
 }
 
@@ -145,12 +146,12 @@ func newCalendarService(cfg *Config) *CalendarService {
 func newContactsService(cfg *Config) *ContactsService {
 	dbPath := filepath.Join(filepath.Dir(cfg.HistoryDB), "contacts.db")
 	if err := contacts.InitDB(dbPath); err != nil {
-		logError("contacts service init failed", "error", err)
+		log.Error("contacts service init failed", "error", err)
 		return nil
 	}
 	encFn := func(v string) string { return encryptField(cfg, v) }
 	decFn := func(v string) string { return decryptField(cfg, v) }
-	logInfo("contacts service initialized", "db", dbPath)
+	log.Info("contacts service initialized", "db", dbPath)
 	return contacts.New(dbPath, makeLifeDB(), encFn, decFn)
 }
 

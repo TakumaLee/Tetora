@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/crypto"
 	"tetora/internal/db"
 	"tetora/internal/session"
@@ -225,10 +226,10 @@ Conversation (%d messages):
 		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
 		newCount, db.Escape(now), db.Escape(sessionID))
 	if err := db.Exec(dbPath, updateSQL); err != nil {
-		logWarn("session count update failed", "session", sessionID, "error", err)
+		log.Warn("session count update failed", "session", sessionID, "error", err)
 	}
 
-	logInfo("session compacted", "session", sessionID[:8], "before", len(msgs), "after", newCount, "kept", keep)
+	log.Info("session compacted", "session", sessionID[:8], "before", len(msgs), "after", newCount, "kept", keep)
 	return nil
 }
 
@@ -244,7 +245,7 @@ func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount, tokens
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if err := compactSession(ctx, cfg, dbPath, sessionID, tokenTriggered, sem, childSem); err != nil {
-			logWarn("session compaction failed", "session", sessionID, "error", err)
+			log.Warn("session compaction failed", "session", sessionID, "error", err)
 		}
 	}()
 }
@@ -278,7 +279,7 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 			CreatedAt: now,
 			UpdatedAt: now,
 		}); err != nil {
-			logWarn("create session failed", "session", sessionID, "error", err)
+			log.Warn("create session failed", "session", sessionID, "error", err)
 		}
 
 		if err := addSessionMessage(dbPath, SessionMessage{
@@ -288,7 +289,7 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 			TaskID:    task.ID,
 			CreatedAt: now,
 		}); err != nil {
-			logWarn("add user message failed", "session", sessionID, "error", err)
+			log.Warn("add user message failed", "session", sessionID, "error", err)
 		}
 
 		msgRole := "assistant"
@@ -312,11 +313,11 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 			TaskID:    task.ID,
 			CreatedAt: now,
 		}); err != nil {
-			logWarn("add assistant message failed", "session", sessionID, "error", err)
+			log.Warn("add assistant message failed", "session", sessionID, "error", err)
 		}
 
 		if err := updateSessionStats(dbPath, sessionID, result.CostUSD, result.TokensIn, result.TokensOut, 2); err != nil {
-			logWarn("update session stats failed", "session", sessionID, "error", err)
+			log.Warn("update session stats failed", "session", sessionID, "error", err)
 		}
 
 		existing, _ := querySessionByID(dbPath, sessionID)
@@ -365,7 +366,7 @@ func logSystemDispatch(dbPath string, task Task, result TaskResult, role string)
 			TaskID:    task.ID,
 			CreatedAt: now,
 		}); err != nil {
-			logWarn("logSystemDispatch: add message failed", "task", task.ID, "error", err)
+			log.Warn("logSystemDispatch: add message failed", "task", task.ID, "error", err)
 			return
 		}
 		_ = updateSessionStats(dbPath, SystemLogSessionID, result.CostUSD, result.TokensIn, result.TokensOut, 1)

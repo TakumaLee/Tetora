@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"tetora/internal/log"
 )
 
 func (s *Server) registerPushRoutes(mux *http.ServeMux) {
@@ -13,7 +15,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 	var pushManager *PushManager
 	if cfg.Push.Enabled {
 		pushManager = newPushManager(cfg)
-		logInfo("push: web push notifications enabled")
+		log.Info("push: web push notifications enabled")
 	}
 
 	mux.HandleFunc("/api/push/vapid-key", func(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +53,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 		sub.UserAgent = r.Header.Get("User-Agent")
 
 		if err := pushManager.Subscribe(sub); err != nil {
-			logErrorCtx(r.Context(), "push subscribe failed", "error", err)
+			log.ErrorCtx(r.Context(), "push subscribe failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -83,7 +85,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 		}
 
 		if err := pushManager.Unsubscribe(req.Endpoint); err != nil {
-			logErrorCtx(r.Context(), "push unsubscribe failed", "error", err)
+			log.ErrorCtx(r.Context(), "push unsubscribe failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -113,7 +115,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 		}
 
 		if err := pushManager.SendNotification(notif); err != nil {
-			logErrorCtx(r.Context(), "push test failed", "error", err)
+			log.ErrorCtx(r.Context(), "push test failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -177,7 +179,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 
 		approved, err := pairingManager.Approve(req.Code)
 		if err != nil {
-			logErrorCtx(r.Context(), "pairing approve failed", "code", req.Code, "error", err)
+			log.ErrorCtx(r.Context(), "pairing approve failed", "code", req.Code, "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
@@ -209,7 +211,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 		}
 
 		if err := pairingManager.Reject(req.Code); err != nil {
-			logErrorCtx(r.Context(), "pairing reject failed", "code", req.Code, "error", err)
+			log.ErrorCtx(r.Context(), "pairing reject failed", "code", req.Code, "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
@@ -226,7 +228,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 
 		approved, err := pairingManager.ListApproved()
 		if err != nil {
-			logErrorCtx(r.Context(), "list approved failed", "error", err)
+			log.ErrorCtx(r.Context(), "list approved failed", "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
@@ -258,7 +260,7 @@ func (s *Server) registerPushRoutes(mux *http.ServeMux) {
 		}
 
 		if err := pairingManager.Revoke(req.Channel, req.UserID); err != nil {
-			logErrorCtx(r.Context(), "pairing revoke failed", "channel", req.Channel, "userId", req.UserID, "error", err)
+			log.ErrorCtx(r.Context(), "pairing revoke failed", "channel", req.Channel, "userId", req.UserID, "error", err)
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}

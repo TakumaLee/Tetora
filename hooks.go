@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Claude Code Hooks Event Receiver ---
@@ -432,7 +434,7 @@ func (hr *hookReceiver) handleEvent(w http.ResponseWriter, r *http.Request) {
 	case "Notification":
 		hr.handleNotification(&event, sessionID)
 	default:
-		logDebug("hooks: unknown event type", "type", eventType)
+		log.Debug("hooks: unknown event type", "type", eventType)
 	}
 
 	// Publish raw event to dashboard SSE.
@@ -491,7 +493,7 @@ func (hr *hookReceiver) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 func (hr *hookReceiver) handlePreToolUse(event *HookEvent, sessionID string) {
 	toolName := event.ResolvedToolName()
-	logDebug("hooks: PreToolUse", "tool", toolName, "session", sessionID)
+	log.Debug("hooks: PreToolUse", "tool", toolName, "session", sessionID)
 
 	// Track hook worker.
 	hr.trackHookWorker(event, sessionID, "working", toolName, "PreToolUse")
@@ -499,7 +501,7 @@ func (hr *hookReceiver) handlePreToolUse(event *HookEvent, sessionID string) {
 
 func (hr *hookReceiver) handlePostToolUse(event *HookEvent, sessionID string) {
 	toolName := event.ResolvedToolName()
-	logDebug("hooks: PostToolUse", "tool", toolName, "session", sessionID)
+	log.Debug("hooks: PostToolUse", "tool", toolName, "session", sessionID)
 
 	// Track hook worker.
 	hr.trackHookWorker(event, sessionID, "working", toolName, "PostToolUse")
@@ -520,7 +522,7 @@ func (hr *hookReceiver) handleStop(event *HookEvent, sessionID string) {
 	if event.Stop != nil {
 		reason = event.Stop.Reason
 	}
-	logInfo("hooks: Stop", "reason", reason, "session", sessionID)
+	log.Info("hooks: Stop", "reason", reason, "session", sessionID)
 
 	// Mark hook worker as done.
 	hr.trackHookWorker(event, sessionID, "done", "", "Stop")
@@ -539,7 +541,7 @@ func (hr *hookReceiver) handleStop(event *HookEvent, sessionID string) {
 }
 
 func (hr *hookReceiver) handleNotification(event *HookEvent, sessionID string) {
-	logInfo("hooks: Notification", "session", sessionID)
+	log.Info("hooks: Notification", "session", sessionID)
 
 	if hr.broker != nil {
 		hr.broker.Publish(SSEDashboardKey, SSEEvent{
@@ -639,12 +641,12 @@ func (hr *hookReceiver) checkPlanFileWrite(event *HookEvent, sessionID string) {
 		return
 	}
 
-	logInfo("hooks: plan file write detected", "path", input.FilePath, "session", sessionID)
+	log.Info("hooks: plan file write detected", "path", input.FilePath, "session", sessionID)
 
 	// Read the plan file content.
 	content, err := os.ReadFile(input.FilePath)
 	if err != nil {
-		logWarn("hooks: failed to read plan file", "path", input.FilePath, "error", err)
+		log.Warn("hooks: failed to read plan file", "path", input.FilePath, "error", err)
 		content = nil
 	}
 
@@ -660,7 +662,7 @@ func (hr *hookReceiver) checkPlanFileWrite(event *HookEvent, sessionID string) {
 
 // handlePlanReviewTrigger is called when ExitPlanMode is detected.
 func (hr *hookReceiver) handlePlanReviewTrigger(sessionID string) {
-	logInfo("hooks: plan review triggered (ExitPlanMode)", "session", sessionID)
+	log.Info("hooks: plan review triggered (ExitPlanMode)", "session", sessionID)
 
 	hr.planCacheMu.Lock()
 	plan, ok := hr.planCache[sessionID]
@@ -798,7 +800,7 @@ func (s *Server) handlePlanGate(w http.ResponseWriter, r *http.Request) {
 
 	// --- Keyboard mode: allow immediately (no terminal UI in --print mode) ---
 	if cfg.PlanGate.Mode == "keyboard" {
-		logInfo("plan gate: keyboard mode, allowing immediately", "session", sessionID)
+		log.Info("plan gate: keyboard mode, allowing immediately", "session", sessionID)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
@@ -900,10 +902,10 @@ func (s *Server) handlePlanGate(w http.ResponseWriter, r *http.Request) {
 			bot.sendEmbedWithComponents(notifyCh, embed, components)
 		}
 
-		logInfo("plan gate: waiting for Discord approval", "gateId", gateID, "session", sessionID)
+		log.Info("plan gate: waiting for Discord approval", "gateId", gateID, "session", sessionID)
 	} else {
 		// No Discord — auto-approve.
-		logInfo("plan gate: no Discord bot, auto-approving", "gateId", gateID)
+		log.Info("plan gate: no Discord bot, auto-approving", "gateId", gateID)
 		ch <- planGateDecision{Approved: true}
 	}
 
@@ -924,9 +926,9 @@ func (s *Server) handlePlanGate(w http.ResponseWriter, r *http.Request) {
 	var decision planGateDecision
 	select {
 	case decision = <-ch:
-		logInfo("plan gate: decision received", "gateId", gateID, "approved", decision.Approved)
+		log.Info("plan gate: decision received", "gateId", gateID, "approved", decision.Approved)
 	case <-time.After(5 * time.Minute):
-		logWarn("plan gate: timeout, auto-approving", "gateId", gateID)
+		log.Warn("plan gate: timeout, auto-approving", "gateId", gateID)
 		decision = planGateDecision{Approved: true, Reason: "timeout"}
 	}
 
@@ -1063,11 +1065,11 @@ func (s *Server) handleAskUser(w http.ResponseWriter, r *http.Request) {
 			components := []discordComponent{discordActionRow(buttons...)}
 			bot.sendMessageWithComponents(notifyCh, content, components)
 
-			logInfo("ask-user: waiting for Discord answer", "qId", qID)
+			log.Info("ask-user: waiting for Discord answer", "qId", qID)
 		}
 	} else {
 		// No Discord — return empty answer.
-		logInfo("ask-user: no Discord bot, returning empty", "qId", qID)
+		log.Info("ask-user: no Discord bot, returning empty", "qId", qID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"answer": "(no Discord configured)"})
 		return
@@ -1077,9 +1079,9 @@ func (s *Server) handleAskUser(w http.ResponseWriter, r *http.Request) {
 	var answer string
 	select {
 	case answer = <-ch:
-		logInfo("ask-user: answer received", "qId", qID)
+		log.Info("ask-user: answer received", "qId", qID)
 	case <-time.After(6 * time.Minute):
-		logWarn("ask-user: timeout", "qId", qID)
+		log.Warn("ask-user: timeout", "qId", qID)
 		answer = "(timeout: no answer received)"
 	}
 

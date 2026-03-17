@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Plugin Config Types ---
@@ -225,7 +227,7 @@ func (p *PluginProcess) readLoop() {
 		// Try to parse as a response (has "id" field).
 		var resp jsonRPCResponse
 		if err := json.Unmarshal([]byte(line), &resp); err != nil {
-			logWarn("plugin read invalid json", "plugin", p.Name, "error", err)
+			log.Warn("plugin read invalid json", "plugin", p.Name, "error", err)
 			continue
 		}
 
@@ -248,7 +250,7 @@ func (p *PluginProcess) readLoop() {
 					ch <- resp.Result
 				}
 			} else {
-				logDebug("plugin response for unknown id", "plugin", p.Name, "id", resp.ID)
+				log.Debug("plugin response for unknown id", "plugin", p.Name, "id", resp.ID)
 			}
 		} else {
 			// No ID — this is a notification from the plugin.
@@ -322,7 +324,7 @@ func (h *PluginHost) Start(name string) error {
 
 	// Wire notification handler for channel plugins.
 	proc.onNotify = func(method string, params json.RawMessage) {
-		logDebug("plugin notification", "plugin", name, "method", method)
+		log.Debug("plugin notification", "plugin", name, "method", method)
 		// Channel notifications can be handled by the dispatch system.
 		// For now, just log them.
 	}
@@ -335,14 +337,14 @@ func (h *PluginHost) Start(name string) error {
 	h.plugins[name] = proc
 	h.mu.Unlock()
 
-	logInfo("plugin started", "name", name, "type", pcfg.Type, "command", pcfg.Command)
+	log.Info("plugin started", "name", name, "type", pcfg.Type, "command", pcfg.Command)
 
 	// Register plugin tools in the tool registry.
 	if pcfg.Type == "tool" && len(pcfg.Tools) > 0 && h.cfg.Runtime.ToolRegistry != nil {
 		for _, toolName := range pcfg.Tools {
 			h.registerPluginTool(name, toolName)
 		}
-		logInfo("plugin tools registered", "plugin", name, "tools", len(pcfg.Tools))
+		log.Info("plugin tools registered", "plugin", name, "tools", len(pcfg.Tools))
 	}
 
 	return nil
@@ -382,7 +384,7 @@ func (h *PluginHost) Stop(name string) error {
 	delete(h.plugins, name)
 	h.mu.Unlock()
 
-	logInfo("plugin stopping", "name", name)
+	log.Info("plugin stopping", "name", name)
 	return proc.stop()
 }
 
@@ -397,7 +399,7 @@ func (h *PluginHost) StopAll() {
 
 	for _, name := range names {
 		if err := h.Stop(name); err != nil {
-			logWarn("stop plugin failed", "name", name, "error", err)
+			log.Warn("stop plugin failed", "name", name, "error", err)
 		}
 	}
 }
@@ -491,7 +493,7 @@ func (h *PluginHost) AutoStart() {
 	for name, pcfg := range h.cfg.Plugins {
 		if pcfg.AutoStart {
 			if err := h.Start(name); err != nil {
-				logWarn("auto-start plugin failed", "name", name, "error", err)
+				log.Warn("auto-start plugin failed", "name", name, "error", err)
 			}
 		}
 	}

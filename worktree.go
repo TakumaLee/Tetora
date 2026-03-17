@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Git Worktree Manager ---
@@ -127,7 +129,7 @@ func readBranchMeta(wtDir string) string {
 // writeBranchMeta writes the branch name to the .tetora-branch metadata file.
 func writeBranchMeta(wtDir, branch string) {
 	if err := os.WriteFile(filepath.Join(wtDir, branchMetaFile), []byte(branch+"\n"), 0o644); err != nil {
-		logDebug("worktree: failed to write branch metadata", "path", wtDir, "error", err)
+		log.Debug("worktree: failed to write branch metadata", "path", wtDir, "error", err)
 	}
 }
 
@@ -157,7 +159,7 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 
 	// Remove stale worktree if directory already exists.
 	if _, err := os.Stat(wtDir); err == nil {
-		logWarn("worktree: removing stale worktree", "path", wtDir)
+		log.Warn("worktree: removing stale worktree", "path", wtDir)
 		oldBranch := resolveBranch(wtDir)
 		wm.forceRemove(repoDir, wtDir, oldBranch)
 	}
@@ -176,7 +178,7 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 	// Write branch metadata so Remove/Merge can find the branch name.
 	writeBranchMeta(wtDir, branch)
 
-	logInfo("worktree: created", "task", taskID, "path", wtDir, "branch", branch, "base", baseBranch)
+	log.Info("worktree: created", "task", taskID, "path", wtDir, "branch", branch, "base", baseBranch)
 	return wtDir, nil
 }
 
@@ -200,7 +202,7 @@ func (wm *WorktreeManager) forceRemove(repoDir, wtDir, branch string) {
 	// Step 1: git worktree remove --force
 	if out, err := exec.Command("git", "-C", repoDir,
 		"worktree", "remove", "--force", wtDir).CombinedOutput(); err != nil {
-		logDebug("worktree: git worktree remove failed (non-fatal)",
+		log.Debug("worktree: git worktree remove failed (non-fatal)",
 			"path", wtDir, "error", strings.TrimSpace(string(out)))
 	}
 
@@ -208,18 +210,18 @@ func (wm *WorktreeManager) forceRemove(repoDir, wtDir, branch string) {
 	wtName := filepath.Base(wtDir)
 	metaDir := filepath.Join(repoDir, ".git", "worktrees", wtName)
 	if err := os.RemoveAll(metaDir); err != nil {
-		logDebug("worktree: metadata cleanup failed (non-fatal)", "path", metaDir, "error", err)
+		log.Debug("worktree: metadata cleanup failed (non-fatal)", "path", metaDir, "error", err)
 	}
 
 	// Step 3: rm -rf worktree directory (critical path)
 	if err := os.RemoveAll(wtDir); err != nil {
-		logWarn("worktree: failed to remove directory", "path", wtDir, "error", err)
+		log.Warn("worktree: failed to remove directory", "path", wtDir, "error", err)
 	}
 
 	// Step 4: git worktree prune
 	if out, err := exec.Command("git", "-C", repoDir,
 		"worktree", "prune").CombinedOutput(); err != nil {
-		logDebug("worktree: prune failed (non-fatal)",
+		log.Debug("worktree: prune failed (non-fatal)",
 			"error", strings.TrimSpace(string(out)))
 	}
 
@@ -228,7 +230,7 @@ func (wm *WorktreeManager) forceRemove(repoDir, wtDir, branch string) {
 		exec.Command("git", "-C", repoDir, "branch", "-D", branch).Run() //nolint:errcheck
 	}
 
-	logInfo("worktree: removed", "path", wtDir)
+	log.Info("worktree: removed", "path", wtDir)
 }
 
 // DiffSummary returns git diff --stat between the worktree branch and its merge base.
@@ -292,7 +294,7 @@ func (wm *WorktreeManager) Merge(repoDir, wtDir, commitMsg string) (diffSummary 
 			strings.TrimSpace(string(out)), err)
 	}
 
-	logInfo("worktree: merged", "branch", branch, "into", targetBranch, "task", taskID)
+	log.Info("worktree: merged", "branch", branch, "into", targetBranch, "task", taskID)
 	return diffSummary, nil
 }
 
@@ -362,10 +364,10 @@ func (wm *WorktreeManager) Prune(repoDir string, maxAge time.Duration) (int, err
 	removed := 0
 	for _, info := range infos {
 		if info.CreatedAt.Before(cutoff) {
-			logInfo("worktree: pruning expired", "path", info.Path,
+			log.Info("worktree: pruning expired", "path", info.Path,
 				"age", time.Since(info.CreatedAt).Round(time.Minute))
 			if err := wm.Remove(repoDir, info.Path); err != nil {
-				logWarn("worktree: prune remove failed", "path", info.Path, "error", err)
+				log.Warn("worktree: prune remove failed", "path", info.Path, "error", err)
 				continue
 			}
 			removed++
@@ -419,6 +421,6 @@ func (wm *WorktreeManager) MergeBranchOnly(repoDir, wtDir string) (diffSummary s
 			strings.TrimSpace(string(out)), mergeErr)
 	}
 
-	logInfo("worktree: merged (branch-only)", "branch", branch, "into", targetBranch, "task", taskID)
+	log.Info("worktree: merged (branch-only)", "branch", branch, "into", targetBranch, "task", taskID)
 	return diffSummary, nil
 }

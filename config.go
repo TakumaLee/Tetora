@@ -14,6 +14,7 @@ import (
 
 	"tetora/internal/cli"
 	"tetora/internal/config"
+	"tetora/internal/log"
 	"tetora/internal/migrate"
 )
 
@@ -166,7 +167,7 @@ type VoiceRealtimeConfig = config.VoiceRealtimeConfig
 func loadConfig(path string) *Config {
 	cfg, err := tryLoadConfig(path)
 	if err != nil {
-		logError("config load failed", "error", err)
+		log.Error("config load failed", "error", err)
 		os.Exit(1)
 	}
 	return cfg
@@ -372,50 +373,50 @@ func validateConfig(cfg *Config) {
 		claudePath = "claude"
 	}
 	if _, err := exec.LookPath(claudePath); err != nil {
-		logWarn("claude binary not found, tasks will fail", "path", claudePath)
+		log.Warn("claude binary not found, tasks will fail", "path", claudePath)
 	}
 
 	// Validate listen address format.
 	if cfg.ListenAddr != "" {
 		parts := strings.SplitN(cfg.ListenAddr, ":", 2)
 		if len(parts) != 2 {
-			logWarn("listenAddr should be host:port", "listenAddr", cfg.ListenAddr, "example", "127.0.0.1:7777")
+			log.Warn("listenAddr should be host:port", "listenAddr", cfg.ListenAddr, "example", "127.0.0.1:7777")
 		} else if _, err := strconv.Atoi(parts[1]); err != nil {
-			logWarn("listenAddr port is not a valid number", "port", parts[1])
+			log.Warn("listenAddr port is not a valid number", "port", parts[1])
 		}
 	}
 
 	// Validate default timeout is parseable.
 	if cfg.DefaultTimeout != "" {
 		if _, err := time.ParseDuration(cfg.DefaultTimeout); err != nil {
-			logWarn("defaultTimeout is not a valid duration", "defaultTimeout", cfg.DefaultTimeout, "example", "15m, 1h")
+			log.Warn("defaultTimeout is not a valid duration", "defaultTimeout", cfg.DefaultTimeout, "example", "15m, 1h")
 		}
 	}
 
 	// Validate MaxConcurrent is reasonable.
 	if cfg.MaxConcurrent > 20 {
-		logWarn("maxConcurrent is very high, claude sessions are resource-intensive", "maxConcurrent", cfg.MaxConcurrent)
+		log.Warn("maxConcurrent is very high, claude sessions are resource-intensive", "maxConcurrent", cfg.MaxConcurrent)
 	}
 
 	// Warn if API token is empty.
 	if cfg.APIToken == "" {
-		logWarn("apiToken is empty, API endpoints are unauthenticated")
+		log.Warn("apiToken is empty, API endpoints are unauthenticated")
 	}
 
 	// Validate default workdir exists.
 	if cfg.DefaultWorkdir != "" {
 		if _, err := os.Stat(cfg.DefaultWorkdir); err != nil {
-			logWarn("defaultWorkdir does not exist", "path", cfg.DefaultWorkdir)
+			log.Warn("defaultWorkdir does not exist", "path", cfg.DefaultWorkdir)
 		}
 	}
 
 	// Validate TLS cert/key files.
 	if cfg.TLSEnabled {
 		if _, err := os.Stat(cfg.TLS.CertFile); err != nil {
-			logWarn("tls.certFile does not exist", "path", cfg.TLS.CertFile)
+			log.Warn("tls.certFile does not exist", "path", cfg.TLS.CertFile)
 		}
 		if _, err := os.Stat(cfg.TLS.KeyFile); err != nil {
-			logWarn("tls.keyFile does not exist", "path", cfg.TLS.KeyFile)
+			log.Warn("tls.keyFile does not exist", "path", cfg.TLS.KeyFile)
 		}
 	}
 
@@ -431,18 +432,18 @@ func validateConfig(cfg *Config) {
 				path = "claude"
 			}
 			if _, err := exec.LookPath(path); err != nil {
-				logWarn("provider binary not found", "provider", name, "path", path)
+				log.Warn("provider binary not found", "provider", name, "path", path)
 			}
 		case "openai-compatible":
 			if pc.BaseURL == "" {
-				logWarn("provider has no baseUrl", "provider", name)
+				log.Warn("provider has no baseUrl", "provider", name)
 			}
 		case "claude-api":
 			if pc.APIKey == "" && os.Getenv("ANTHROPIC_API_KEY") == "" {
-				logWarn("provider has no apiKey and ANTHROPIC_API_KEY not set", "provider", name)
+				log.Warn("provider has no apiKey and ANTHROPIC_API_KEY not set", "provider", name)
 			}
 		default:
-			logWarn("provider has unknown type", "provider", name, "type", pc.Type)
+			log.Warn("provider has unknown type", "provider", name, "type", pc.Type)
 		}
 	}
 
@@ -450,11 +451,11 @@ func validateConfig(cfg *Config) {
 	for _, entry := range cfg.AllowedIPs {
 		if !strings.Contains(entry, "/") {
 			if net.ParseIP(entry) == nil {
-				logWarn("allowedIPs entry is not a valid IP address", "entry", entry)
+				log.Warn("allowedIPs entry is not a valid IP address", "entry", entry)
 			}
 		} else {
 			if _, _, err := net.ParseCIDR(entry); err != nil {
-				logWarn("allowedIPs entry is not a valid CIDR", "entry", entry, "error", err)
+				log.Warn("allowedIPs entry is not a valid CIDR", "entry", entry, "error", err)
 			}
 		}
 	}
@@ -462,11 +463,11 @@ func validateConfig(cfg *Config) {
 	// Validate smart dispatch config.
 	if cfg.SmartDispatch.Enabled {
 		if _, ok := cfg.Agents[cfg.SmartDispatch.Coordinator]; !ok && cfg.SmartDispatch.Coordinator != "" {
-			logWarn("smartDispatch.coordinator agent not found in agents", "coordinator", cfg.SmartDispatch.Coordinator)
+			log.Warn("smartDispatch.coordinator agent not found in agents", "coordinator", cfg.SmartDispatch.Coordinator)
 		}
 		for _, rule := range cfg.SmartDispatch.Rules {
 			if _, ok := cfg.Agents[rule.Agent]; !ok {
-				logWarn("smartDispatch rule references unknown agent", "agent", rule.Agent)
+				log.Warn("smartDispatch rule references unknown agent", "agent", rule.Agent)
 			}
 		}
 	}
@@ -474,10 +475,10 @@ func validateConfig(cfg *Config) {
 	// Validate Docker sandbox config.
 	if cfg.Docker.Enabled {
 		if cfg.Docker.Image == "" {
-			logWarn("docker.enabled=true but docker.image is empty")
+			log.Warn("docker.enabled=true but docker.image is empty")
 		}
 		if err := checkDockerAvailable(); err != nil {
-			logWarn("docker sandbox enabled but unavailable", "error", err)
+			log.Warn("docker sandbox enabled but unavailable", "error", err)
 		}
 	}
 }
@@ -495,7 +496,7 @@ func resolveEnvRef(value, fieldName string) string {
 	}
 	envVal := os.Getenv(envKey)
 	if envVal == "" {
-		logWarn("env var reference not set", "field", fieldName, "envVar", envKey)
+		log.Warn("env var reference not set", "field", fieldName, "envVar", envKey)
 		return ""
 	}
 	return envVal
@@ -655,7 +656,7 @@ func resolveMCPPaths(cfg *Config) {
 	for name, raw := range cfg.MCPConfigs {
 		path := filepath.Join(dir, name+".json")
 		if err := os.WriteFile(path, raw, 0o644); err != nil {
-			logWarn("write mcp config failed", "name", name, "error", err)
+			log.Warn("write mcp config failed", "name", name, "error", err)
 			continue
 		}
 		cfg.MCPPaths[name] = path

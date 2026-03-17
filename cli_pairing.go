@@ -44,7 +44,7 @@ func cmdPairing(args []string) {
 
 func cmdPairingList() {
 	cfg := loadConfig("")
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Call daemon API.
 	api := newAPIClient(cfg)
@@ -88,7 +88,7 @@ func cmdPairingList() {
 
 func cmdPairingApprove(code string) {
 	cfg := loadConfig("")
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Call daemon API.
 	api := newAPIClient(cfg)
@@ -129,7 +129,7 @@ func cmdPairingApprove(code string) {
 
 func cmdPairingReject(code string) {
 	cfg := loadConfig("")
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Call daemon API.
 	api := newAPIClient(cfg)
@@ -160,7 +160,7 @@ func cmdPairingReject(code string) {
 
 func cmdPairingApproved() {
 	cfg := loadConfig("")
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Call daemon API.
 	api := newAPIClient(cfg)
@@ -206,7 +206,7 @@ func cmdPairingApproved() {
 
 func cmdPairingRevoke(channel, userID string) {
 	cfg := loadConfig("")
-	defaultLogger = initLogger(cfg.Logging, cfg.BaseDir)
+	initLogger(cfg.Logging, cfg.BaseDir)
 
 	// Call daemon API.
 	api := newAPIClient(cfg)

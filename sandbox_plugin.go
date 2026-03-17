@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+
+	"tetora/internal/log"
 )
 
 // --- Sandbox Config ---
@@ -125,7 +127,7 @@ func (sm *SandboxManager) EnsureSandbox(sessionID, workspace string) (string, er
 	sm.active[sessionID] = resp.SandboxID
 	sm.mu.Unlock()
 
-	logInfo("sandbox created", "sessionId", sessionID, "sandboxId", resp.SandboxID)
+	log.Info("sandbox created", "sessionId", sessionID, "sandboxId", resp.SandboxID)
 	return resp.SandboxID, nil
 }
 
@@ -187,7 +189,7 @@ func (sm *SandboxManager) EnsureSandboxWithImage(sessionID, workspace, image str
 	sm.active[sessionID] = resp.SandboxID
 	sm.mu.Unlock()
 
-	logInfo("sandbox created", "sessionId", sessionID, "sandboxId", resp.SandboxID, "image", image)
+	log.Info("sandbox created", "sessionId", sessionID, "sandboxId", resp.SandboxID, "image", image)
 	return resp.SandboxID, nil
 }
 
@@ -261,7 +263,7 @@ func (sm *SandboxManager) DestroySandbox(sandboxID string) error {
 		return fmt.Errorf("sandbox/destroy failed: %w", err)
 	}
 
-	logInfo("sandbox destroyed", "sandboxId", sandboxID)
+	log.Info("sandbox destroyed", "sandboxId", sandboxID)
 	return nil
 }
 
@@ -300,7 +302,7 @@ func (sm *SandboxManager) DestroyAll() {
 
 	for _, sbid := range sandboxIDs {
 		if err := sm.DestroySandbox(sbid); err != nil {
-			logWarn("destroy sandbox failed during shutdown", "sandboxId", sbid, "error", err)
+			log.Warn("destroy sandbox failed during shutdown", "sandboxId", sbid, "error", err)
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/provider"
 	"tetora/internal/tmux"
 )
@@ -119,7 +120,7 @@ func initProviders(cfg *Config) *provider.Registry {
 			})
 
 		case "claude-api":
-			logWarn("provider type 'claude-api' is deprecated in v3, use 'claude-code' instead", "name", name)
+			log.Warn("provider type 'claude-api' is deprecated in v3, use 'claude-code' instead", "name", name)
 			path := pc.Path
 			if path == "" {
 				path = "/usr/local/bin/claude"
@@ -132,7 +133,7 @@ func initProviders(cfg *Config) *provider.Registry {
 
 		case "claude-code", "claude-tmux":
 			if pc.Type == "claude-tmux" {
-				logWarn("provider type 'claude-tmux' is deprecated in v3, use 'claude-code' instead", "name", name)
+				log.Warn("provider type 'claude-tmux' is deprecated in v3, use 'claude-code' instead", "name", name)
 			}
 			path := pc.Path
 			if path == "" {
@@ -341,7 +342,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 		if cfg.Runtime.CircuitRegistry != nil {
 			cb := cfg.Runtime.CircuitRegistry.(*circuitRegistry).Get(providerName)
 			if !cb.Allow() {
-				logDebugCtx(ctx, "circuit open, skipping provider", "provider", providerName)
+				log.DebugCtx(ctx, "circuit open, skipping provider", "provider", providerName)
 				if i == 0 && len(candidates) > 1 {
 					publishFailoverEvent(eventCh, task.ID, providerName, candidates[i+1], "circuit open")
 				}
@@ -351,7 +352,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 
 		p, err := registry.Get(providerName)
 		if err != nil {
-			logDebugCtx(ctx, "provider not registered", "provider", providerName)
+			log.DebugCtx(ctx, "provider not registered", "provider", providerName)
 			continue
 		}
 
@@ -370,17 +371,17 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 				if cfg.Runtime.CircuitRegistry != nil {
 					cfg.Runtime.CircuitRegistry.(*circuitRegistry).Get(providerName).RecordFailure()
 				}
-				logWarnCtx(ctx, "provider transient error", "provider", providerName, "error", errMsg)
+				log.WarnCtx(ctx, "provider transient error", "provider", providerName, "error", errMsg)
 				lastErr = fmt.Sprintf("provider %s: %s", providerName, errMsg)
 
 				if i < len(candidates)-1 {
 					next := candidates[i+1]
 					publishFailoverEvent(eventCh, task.ID, providerName, next, errMsg)
-					logInfoCtx(ctx, "failing over to next provider", "from", providerName, "to", next)
+					log.InfoCtx(ctx, "failing over to next provider", "from", providerName, "to", next)
 					continue
 				}
 			} else {
-				logWarnCtx(ctx, "provider non-transient error", "provider", providerName, "error", errMsg)
+				log.WarnCtx(ctx, "provider non-transient error", "provider", providerName, "error", errMsg)
 				if result == nil {
 					result = &provider.Result{IsError: true, Error: fmt.Sprintf("provider %s: %s", providerName, errMsg)}
 				}

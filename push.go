@@ -23,6 +23,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -77,14 +78,14 @@ func (pm *PushManager) initDB() {
 		created_at TEXT NOT NULL DEFAULT (datetime('now'))
 	);`
 	if _, err := db.Query(pm.dbPath, sql); err != nil {
-		logWarn("push: init db failed", "error", err)
+		log.Warn("push: init db failed", "error", err)
 	}
 }
 
 func (pm *PushManager) loadFromDB() {
 	rows, err := db.Query(pm.dbPath, "SELECT endpoint, p256dh, auth, user_agent, created_at FROM push_subscriptions")
 	if err != nil {
-		logWarn("push: load from db failed", "error", err)
+		log.Warn("push: load from db failed", "error", err)
 		return
 	}
 	pm.mu.Lock()
@@ -101,7 +102,7 @@ func (pm *PushManager) loadFromDB() {
 		}
 		pm.subscriptions[sub.Endpoint] = sub
 	}
-	logInfo("push: loaded subscriptions", "count", len(pm.subscriptions))
+	log.Info("push: loaded subscriptions", "count", len(pm.subscriptions))
 }
 
 func (pm *PushManager) Subscribe(sub PushSubscription) error {
@@ -137,11 +138,11 @@ func (pm *PushManager) Subscribe(sub PushSubscription) error {
 		db.Escape(sub.CreatedAt),
 	)
 	if _, err := db.Query(pm.dbPath, sql); err != nil {
-		logWarn("push: save subscription failed", "error", err)
+		log.Warn("push: save subscription failed", "error", err)
 		return err
 	}
 
-	logInfo("push: subscription saved", "endpoint", sub.Endpoint)
+	log.Info("push: subscription saved", "endpoint", sub.Endpoint)
 	return nil
 }
 
@@ -152,11 +153,11 @@ func (pm *PushManager) Unsubscribe(endpoint string) error {
 
 	sql := fmt.Sprintf(`DELETE FROM push_subscriptions WHERE endpoint = '%s'`, db.Escape(endpoint))
 	if _, err := db.Query(pm.dbPath, sql); err != nil {
-		logWarn("push: unsubscribe failed", "error", err)
+		log.Warn("push: unsubscribe failed", "error", err)
 		return err
 	}
 
-	logInfo("push: subscription removed", "endpoint", endpoint)
+	log.Info("push: subscription removed", "endpoint", endpoint)
 	return nil
 }
 
@@ -183,7 +184,7 @@ func (pm *PushManager) SendNotification(notif PushNotification) error {
 		return fmt.Errorf("failed to send to %d/%d subscribers: %s", len(errs), len(subs), strings.Join(errs, "; "))
 	}
 
-	logInfo("push: notification sent to all subscribers", "count", len(subs))
+	log.Info("push: notification sent to all subscribers", "count", len(subs))
 	return nil
 }
 
@@ -243,13 +244,13 @@ func (pm *PushManager) SendToEndpoint(endpoint string, notif PushNotification) e
 		body, _ := io.ReadAll(resp.Body)
 		// If subscription is gone (410), auto-remove it.
 		if resp.StatusCode == 410 {
-			logInfo("push: subscription expired (410), removing", "endpoint", endpoint)
+			log.Info("push: subscription expired (410), removing", "endpoint", endpoint)
 			pm.Unsubscribe(endpoint)
 		}
 		return fmt.Errorf("push server returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	logInfo("push: notification sent", "endpoint", endpoint, "status", resp.StatusCode)
+	log.Info("push: notification sent", "endpoint", endpoint, "status", resp.StatusCode)
 	return nil
 }
 

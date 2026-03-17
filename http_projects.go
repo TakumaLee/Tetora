@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 func (s *Server) registerProjectRoutes(mux *http.ServeMux) {
@@ -16,7 +18,7 @@ func (s *Server) registerProjectRoutes(mux *http.ServeMux) {
 
 	// Initialize projects table.
 	if err := initProjectsDB(cfg.HistoryDB); err != nil {
-		logWarn("init projects db failed", "error", err)
+		log.Warn("init projects db failed", "error", err)
 	}
 
 	// GET /api/projects        → list projects

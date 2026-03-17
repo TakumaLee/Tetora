@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 
+	"tetora/internal/log"
 	"tetora/internal/cost"
 	"tetora/internal/db"
 	"tetora/internal/sla"
@@ -229,7 +230,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			return
 		}
 		auditLog(cfg.HistoryDB, "budget.pause", "http", "all paid execution paused", clientIP(r))
-		logWarn("budget PAUSED by API request", "ip", clientIP(r))
+		log.Warn("budget PAUSED by API request", "ip", clientIP(r))
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"paused"}`))
 	})
@@ -246,7 +247,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			return
 		}
 		auditLog(cfg.HistoryDB, "budget.resume", "http", "paid execution resumed", clientIP(r))
-		logInfo("budget RESUMED by API request", "ip", clientIP(r))
+		log.Info("budget RESUMED by API request", "ip", clientIP(r))
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"active"}`))
 	})

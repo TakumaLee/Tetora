@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dtypes "tetora/internal/dispatch"
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -31,7 +32,7 @@ func loadWritingStyle(cfg *Config) string {
 		if err == nil {
 			return strings.TrimSpace(string(data))
 		}
-		logWarn("failed to load writing style file", "path", cfg.WritingStyle.FilePath, "error", err)
+		log.Warn("failed to load writing style file", "path", cfg.WritingStyle.FilePath, "error", err)
 	}
 	return cfg.WritingStyle.Guidelines
 }
@@ -119,7 +120,7 @@ func saveTaskOutput(baseDir string, jobID string, stdout []byte) string {
 	filePath := filepath.Join(outputDir, filename)
 
 	if err := os.WriteFile(filePath, stdout, 0o644); err != nil {
-		logWarn("save output failed", "error", err)
+		log.Warn("save output failed", "error", err)
 		return ""
 	}
 	return filename

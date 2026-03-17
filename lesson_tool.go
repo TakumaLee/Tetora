@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // toolStoreLesson handles the store_lesson tool.
@@ -59,7 +61,7 @@ func toolStoreLesson(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		sectionHeader := "## " + args.Category
 		line := fmt.Sprintf("- %s", args.Lesson)
 		if err := appendToLessonSection(lessonsFile, sectionHeader, line); err != nil {
-			logWarn("append to lessons.md failed", "error", err)
+			log.Warn("append to lessons.md failed", "error", err)
 		}
 	}
 
@@ -68,7 +70,7 @@ func toolStoreLesson(ctx context.Context, cfg *Config, input json.RawMessage) (s
 		recordSkillEvent(cfg.HistoryDB, category, "lesson", args.Lesson, args.Source)
 	}
 
-	logInfoCtx(ctx, "lesson stored", "category", category, "tags", args.Tags)
+	log.InfoCtx(ctx, "lesson stored", "category", category, "tags", args.Tags)
 
 	result := map[string]any{
 		"status":   "stored",

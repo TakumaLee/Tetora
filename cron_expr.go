@@ -10,6 +10,7 @@ import (
 
 	"tetora/internal/cron"
 	"tetora/internal/history"
+	"tetora/internal/log"
 )
 
 // cronExpr is an alias for cron.Expr for backward compatibility.
@@ -172,7 +173,7 @@ func (ce *CronEngine) startupReplay(ctx context.Context) {
 			continue
 		}
 
-		logInfo("cron startup replay: missed run detected",
+		log.Info("cron startup replay: missed run detected",
 			"jobId", j.ID, "name", j.Name, "scheduledAt", scheduledAt.Format(time.RFC3339))
 		missed = append(missed, j)
 	}
@@ -181,7 +182,7 @@ func (ce *CronEngine) startupReplay(ctx context.Context) {
 		return
 	}
 
-	logInfo("cron startup replay: scheduling missed jobs", "count", len(missed))
+	log.Info("cron startup replay: scheduling missed jobs", "count", len(missed))
 
 	go func() {
 		select {
@@ -201,7 +202,7 @@ func (ce *CronEngine) startupReplay(ctx context.Context) {
 			maxRuns := j.effectiveMaxConcurrentRuns()
 			if j.runCount >= maxRuns {
 				ce.mu.Unlock()
-				logInfo("cron startup replay: job already running max instances, skipping",
+				log.Info("cron startup replay: job already running max instances, skipping",
 					"jobId", j.ID, "running", j.runCount, "maxConcurrentRuns", maxRuns)
 				continue
 			}
@@ -212,7 +213,7 @@ func (ce *CronEngine) startupReplay(ctx context.Context) {
 			j.cancelFn = jobCancel
 			ce.mu.Unlock()
 
-			logInfo("cron startup replay: launching missed job", "jobId", j.ID, "name", j.Name)
+			log.Info("cron startup replay: launching missed job", "jobId", j.ID, "name", j.Name)
 			ce.jobWg.Add(1)
 			go func(jj *cronJob) {
 				defer ce.jobWg.Done()

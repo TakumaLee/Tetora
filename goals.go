@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"tetora/internal/log"
 	"tetora/internal/tool"
 )
 
@@ -39,7 +40,7 @@ func toolGoalUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (st
 	if app == nil || app.Goals == nil {
 		return "", fmt.Errorf("goals service not initialized")
 	}
-	return tool.GoalUpdate(app.Goals, newUUID, app.Lifecycle, logWarn, input)
+	return tool.GoalUpdate(app.Goals, newUUID, app.Lifecycle, log.Warn, input)
 }
 
 func toolGoalReview(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {

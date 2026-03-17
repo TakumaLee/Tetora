@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 // --- Compaction helpers ---
@@ -80,7 +81,7 @@ func checkCompaction(cfg *Config, sessionID string) error {
 		return nil
 	}
 
-	logInfo("compaction triggered for session %s (%d messages, threshold %d)", sessionID, count, compactionMaxMessages(cfg.Session.Compaction))
+	log.Info("compaction triggered for session %s (%d messages, threshold %d)", sessionID, count, compactionMaxMessages(cfg.Session.Compaction))
 
 	// 2. Get oldest messages to compact.
 	toCompact := count - compactionCompactTo(cfg.Session.Compaction)
@@ -90,24 +91,24 @@ func checkCompaction(cfg *Config, sessionID string) error {
 
 	messages := getOldestMessages(cfg, sessionID, toCompact)
 	if len(messages) == 0 {
-		logWarn("no messages to compact", "sessionID", sessionID)
+		log.Warn("no messages to compact", "sessionID", sessionID)
 		return nil
 	}
 
 	// 3. Generate summary via LLM.
 	summary, err := compactMessages(cfg, messages)
 	if err != nil {
-		logError("compaction failed", "sessionID", sessionID, "error", err)
+		log.Error("compaction failed", "sessionID", sessionID, "error", err)
 		return err
 	}
 
 	// 4. Delete old messages, insert compacted summary.
 	if err := replaceWithSummary(cfg, sessionID, messages, summary); err != nil {
-		logError("replace with summary failed", "sessionID", sessionID, "error", err)
+		log.Error("replace with summary failed", "sessionID", sessionID, "error", err)
 		return err
 	}
 
-	logInfo("compacted %d messages for session %s", len(messages), sessionID)
+	log.Info("compacted %d messages for session %s", len(messages), sessionID)
 	return nil
 }
 
@@ -257,7 +258,7 @@ func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMess
 			db.Escape(sessionID), firstID, lastID)
 		db.Query(dbPath, deleteSQL)
 
-		logDebug("deleted old messages for session %s (id range %d-%d, count %d)", sessionID, firstID, lastID, len(oldMessages))
+		log.Debug("deleted old messages for session %s (id range %d-%d, count %d)", sessionID, firstID, lastID, len(oldMessages))
 	}
 
 	// Insert compacted message as 'system' role.
@@ -265,7 +266,7 @@ func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMess
 		db.Escape(sessionID), db.Escape(summary))
 	db.Query(dbPath, insertSQL)
 
-	logDebug("inserted compacted summary for session %s (length %d)", sessionID, len(summary))
+	log.Debug("inserted compacted summary for session %s (length %d)", sessionID, len(summary))
 
 	return nil
 }

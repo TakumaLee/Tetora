@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/messaging"
 )
 
@@ -62,7 +63,7 @@ func (pm *presenceManager) RegisterSetter(name string, setter PresenceSetter) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.setters[name] = setter
-	logDebug("presence: registered setter", "channel", name)
+	log.Debug("presence: registered setter", "channel", name)
 }
 
 // StartTyping starts a typing indicator loop for the given task source.
@@ -125,7 +126,7 @@ func (pm *presenceManager) StopTyping(source string) {
 func (pm *presenceManager) typingLoop(ctx context.Context, setter PresenceSetter, ref, key string) {
 	// Send the first typing indicator immediately.
 	if err := setter.SetTyping(ctx, ref); err != nil {
-		logDebug("presence: typing error", "channel", setter.PresenceName(), "ref", ref, "error", err)
+		log.Debug("presence: typing error", "channel", setter.PresenceName(), "ref", ref, "error", err)
 	}
 
 	ticker := time.NewTicker(presenceTickInterval)
@@ -143,7 +144,7 @@ func (pm *presenceManager) typingLoop(ctx context.Context, setter PresenceSetter
 			return
 		case <-ticker.C:
 			if err := setter.SetTyping(ctx, ref); err != nil {
-				logDebug("presence: typing error", "channel", setter.PresenceName(), "ref", ref, "error", err)
+				log.Debug("presence: typing error", "channel", setter.PresenceName(), "ref", ref, "error", err)
 			}
 		}
 	}

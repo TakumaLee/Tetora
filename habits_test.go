@@ -11,6 +11,7 @@ import (
 
 
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 func setupHabitsTestDB(t *testing.T) (string, *HabitsService) {
@@ -287,7 +288,7 @@ func TestHabitStatus_MultipleHabits(t *testing.T) {
 		t.Fatalf("LogHabit: %v", err)
 	}
 
-	status, err := svc.HabitStatus("", logWarn)
+	status, err := svc.HabitStatus("", log.Warn)
 	if err != nil {
 		t.Fatalf("HabitStatus: %v", err)
 	}

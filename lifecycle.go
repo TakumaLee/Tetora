@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- P29.0: Closed-Loop Automation (Lifecycle Engine) ---
@@ -77,7 +79,7 @@ func (le *LifecycleEngine) RunInsightActions() ([]string, error) {
 	if globalInsightsEngine != nil {
 		insights, err := globalInsightsEngine.DetectAnomalies(7)
 		if err != nil {
-			logWarn("lifecycle: detect anomalies failed", "error", err)
+			log.Warn("lifecycle: detect anomalies failed", "error", err)
 		} else {
 			for _, insight := range insights {
 				if insight.Severity == "high" || insight.Severity == "critical" {
@@ -87,7 +89,7 @@ func (le *LifecycleEngine) RunInsightActions() ([]string, error) {
 						text := fmt.Sprintf("[Insight] %s: %s", insight.Title, insight.Description)
 						_, err := globalReminderEngine.Add(text, due, "", "", "default")
 						if err != nil {
-							logWarn("lifecycle: create insight reminder failed", "error", err)
+							log.Warn("lifecycle: create insight reminder failed", "error", err)
 						} else {
 							actions = append(actions, fmt.Sprintf("Reminder created for insight: %s", insight.Title))
 						}
@@ -101,7 +103,7 @@ func (le *LifecycleEngine) RunInsightActions() ([]string, error) {
 	if globalContactsService != nil {
 		inactive, err := globalContactsService.GetInactiveContacts(30)
 		if err != nil {
-			logWarn("lifecycle: get inactive contacts failed", "error", err)
+			log.Warn("lifecycle: get inactive contacts failed", "error", err)
 		} else if len(inactive) > 0 {
 			names := make([]string, 0, 3)
 			for i, c := range inactive {
@@ -114,7 +116,7 @@ func (le *LifecycleEngine) RunInsightActions() ([]string, error) {
 		}
 	}
 
-	logInfo("lifecycle: insight actions completed", "actions", len(actions))
+	log.Info("lifecycle: insight actions completed", "actions", len(actions))
 	return actions, nil
 }
 
@@ -159,13 +161,13 @@ func (le *LifecycleEngine) SyncBirthdayReminders() (int, error) {
 		_, err := globalReminderEngine.Add(reminderText, due, "", "", "default")
 		if err != nil {
 			// Likely hit per-user limit; skip silently.
-			logDebug("lifecycle: birthday reminder skipped", "contact", contactName, "error", err)
+			log.Debug("lifecycle: birthday reminder skipped", "contact", contactName, "error", err)
 			continue
 		}
 		created++
 	}
 
-	logInfo("lifecycle: birthday reminders synced", "created", created, "events", len(events))
+	log.Info("lifecycle: birthday reminders synced", "created", created, "events", len(events))
 	return created, nil
 }
 
@@ -204,9 +206,9 @@ func (le *LifecycleEngine) OnGoalCompleted(goalID string) error {
 
 		notePath := filepath.Join(vaultPath, filename)
 		if err := os.WriteFile(notePath, []byte(content), 0o644); err != nil {
-			logWarn("lifecycle: write celebration note failed", "error", err)
+			log.Warn("lifecycle: write celebration note failed", "error", err)
 		} else {
-			logInfo("lifecycle: celebration note written", "path", notePath)
+			log.Info("lifecycle: celebration note written", "path", notePath)
 		}
 	}
 

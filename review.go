@@ -8,6 +8,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -195,7 +196,7 @@ func queryReviewMessages(dbPath, cutoff string, limit int) []SessionMessage {
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
-		logWarn("review: query messages failed", "error", err)
+		log.Warn("review: query messages failed", "error", err)
 		return nil
 	}
 
@@ -217,7 +218,7 @@ func queryReviewReflections(dbPath, cutoff string, limit int) []ReflectionResult
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
-		logWarn("review: query reflections failed", "error", err)
+		log.Warn("review: query reflections failed", "error", err)
 		return nil
 	}
 
@@ -247,7 +248,7 @@ func queryReviewJobRuns(dbPath, cutoff string, limit int) []JobRun {
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
-		logWarn("review: query job runs failed", "error", err)
+		log.Warn("review: query job runs failed", "error", err)
 		return nil
 	}
 

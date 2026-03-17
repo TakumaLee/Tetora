@@ -10,6 +10,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -597,7 +598,7 @@ func (tb *TaskBoardEngine) AutoRetryFailed() error {
 			}
 		}
 		if cancelled {
-			logInfo("auto retry: skipping cancelled task", "id", id)
+			log.Info("auto retry: skipping cancelled task", "id", id)
 			continue
 		}
 
@@ -609,7 +610,7 @@ func (tb *TaskBoardEngine) AutoRetryFailed() error {
 		`, newRetry, time.Now().UTC().Format(time.RFC3339), db.Escape(id), currentRetry)
 
 		if err := db.Exec(tb.dbPath, updateSQL); err != nil {
-			logWarn("auto retry failed task", "id", id, "error", err)
+			log.Warn("auto retry failed task", "id", id, "error", err)
 			continue
 		}
 
@@ -617,7 +618,7 @@ func (tb *TaskBoardEngine) AutoRetryFailed() error {
 		verifyRows, _ := db.Query(tb.dbPath, fmt.Sprintf(
 			`SELECT retry_count FROM tasks WHERE id = '%s'`, db.Escape(id)))
 		if len(verifyRows) > 0 && int(getFloat64(verifyRows[0], "retry_count")) == newRetry {
-			logInfo("auto retried failed task", "id", id, "retryCount", newRetry)
+			log.Info("auto retried failed task", "id", id, "retryCount", newRetry)
 		}
 	}
 
@@ -638,7 +639,7 @@ func (tb *TaskBoardEngine) fireWebhook(event string, payload any) {
 			case tb.whSem <- struct{}{}:
 				defer func() { <-tb.whSem }()
 			default:
-				logWarn("webhook semaphore full, dropping webhook", "url", wh.URL, "event", fullEvent)
+				log.Warn("webhook semaphore full, dropping webhook", "url", wh.URL, "event", fullEvent)
 				return
 			}
 
@@ -650,14 +651,14 @@ func (tb *TaskBoardEngine) fireWebhook(event string, payload any) {
 
 			bodyJSON, err := json.Marshal(body)
 			if err != nil {
-				logError("webhook body marshal failed", "error", err)
+				log.Error("webhook body marshal failed", "error", err)
 				return
 			}
 
 			client := &http.Client{Timeout: 5 * time.Second}
 			req, err := http.NewRequest("POST", wh.URL, bytes.NewReader(bodyJSON))
 			if err != nil {
-				logError("webhook request creation failed", "url", wh.URL, "error", err)
+				log.Error("webhook request creation failed", "url", wh.URL, "error", err)
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
@@ -667,13 +668,13 @@ func (tb *TaskBoardEngine) fireWebhook(event string, payload any) {
 
 			resp, err := client.Do(req)
 			if err != nil {
-				logError("webhook POST failed", "url", wh.URL, "error", err)
+				log.Error("webhook POST failed", "url", wh.URL, "error", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode >= 400 {
-				logWarn("webhook POST returned error status", "url", wh.URL, "status", resp.StatusCode)
+				log.Warn("webhook POST returned error status", "url", wh.URL, "status", resp.StatusCode)
 			}
 		}(wh, payload)
 	}

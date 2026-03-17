@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/cost"
 	dtypes "tetora/internal/dispatch"
 	"tetora/internal/telemetry"
@@ -450,13 +451,13 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 
 	// Budget check before execution.
 	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
-		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
+		log.WarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: "budget_exceeded: " + budgetResult.Message, Model: task.Model, SessionID: task.SessionID,
 		}
 	} else if budgetResult != nil && budgetResult.DowngradeModel != "" {
-		logInfoCtx(ctx, "auto-downgrade model", "taskId", task.ID[:8],
+		log.InfoCtx(ctx, "auto-downgrade model", "taskId", task.ID[:8],
 			"from", task.Model, "to", budgetResult.DowngradeModel,
 			"utilization", fmt.Sprintf("%.0f%%", budgetResult.Utilization*100))
 		task.Model = budgetResult.DowngradeModel
@@ -464,7 +465,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 
 	providerName := resolveProviderName(cfg, task, agentName)
 
-	logDebugCtx(ctx, "task start",
+	log.DebugCtx(ctx, "task start",
 		"source", task.Source, "taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName,
 		"agent", agentName, "workdir", task.Workdir)
@@ -502,7 +503,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 				if task.WorkflowRunID != "" {
 					ev.WorkflowRunID = task.WorkflowRunID
 				}
-				logDebug("sse forward", "type", ev.Type, "taskID", ev.TaskID, "sessionID", ev.SessionID)
+				log.Debug("sse forward", "type", ev.Type, "taskID", ev.TaskID, "sessionID", ev.SessionID)
 				publishToSSEBroker(task.SSEBroker, ev)
 			}
 		}()
@@ -559,13 +560,13 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.MaxItemsOrDefault()) {
 			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
 				result.Status = "queued"
-				logInfoCtx(ctx, "task queued for offline retry",
+				log.InfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
 			}
 		}
 	}
 
-	logDebugCtx(ctx, "task done",
+	log.DebugCtx(ctx, "task done",
 		"taskId", task.ID[:8], "name", task.Name,
 		"elapsed", elapsed.Round(time.Millisecond),
 		"cost", result.CostUSD,
@@ -656,7 +657,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// Apply trust level (may override permissionMode for observe mode).
 	trustLevel, _ := applyTrustToTask(cfg, &task, agentName)
 	if trustLevel == TrustObserve {
-		logDebugCtx(ctx, "trust: observe mode, forcing plan permission", "agent", agentName)
+		log.DebugCtx(ctx, "trust: observe mode, forcing plan permission", "agent", agentName)
 	}
 
 	// Validate directories before running.
@@ -680,7 +681,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		image := sandboxImageForAgent(cfg, agentName)
 		sbID, err := state.sandboxMgr.EnsureSandboxWithImage(task.SessionID, task.Workdir, image)
 		if err != nil {
-			logWarnCtx(ctx, "sandbox creation failed", "taskId", task.ID[:8], "error", err)
+			log.WarnCtx(ctx, "sandbox creation failed", "taskId", task.ID[:8], "error", err)
 			// If policy is "required", this is fatal; if "optional", fall through.
 			if sandboxPolicyForAgent(cfg, agentName) == "required" {
 				return TaskResult{
@@ -691,7 +692,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			}
 		} else {
 			sandboxID = sbID
-			logDebugCtx(ctx, "sandbox active for task", "taskId", task.ID[:8], "sandboxId", sandboxID)
+			log.DebugCtx(ctx, "sandbox active for task", "taskId", task.ID[:8], "sandboxId", sandboxID)
 		}
 	}
 
@@ -715,13 +716,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	// Budget check before execution.
 	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
-		logWarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
+		log.WarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: "budget_exceeded: " + budgetResult.Message, Model: task.Model, SessionID: task.SessionID,
 		}
 	} else if budgetResult != nil && budgetResult.DowngradeModel != "" {
-		logInfoCtx(ctx, "auto-downgrade model", "taskId", task.ID[:8],
+		log.InfoCtx(ctx, "auto-downgrade model", "taskId", task.ID[:8],
 			"from", task.Model, "to", budgetResult.DowngradeModel,
 			"utilization", fmt.Sprintf("%.0f%%", budgetResult.Utilization*100))
 		task.Model = budgetResult.DowngradeModel
@@ -729,7 +730,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	providerName := resolveProviderName(cfg, task, agentName)
 
-	logDebugCtx(ctx, "task start",
+	log.DebugCtx(ctx, "task start",
 		"taskId", task.ID[:8], "name", task.Name,
 		"model", task.Model, "provider", providerName,
 		"role", agentName, "workdir", task.Workdir)
@@ -816,7 +817,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.MaxItemsOrDefault()) {
 			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
 				result.Status = "queued"
-				logInfoCtx(ctx, "task queued for offline retry",
+				log.InfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
 
 				// Publish SSE queued event.
@@ -832,10 +833,10 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				})
 				emitAgentState(state.broker, agentName, "waiting")
 			} else {
-				logWarnCtx(ctx, "failed to enqueue task", "taskId", task.ID[:8], "error", err)
+				log.WarnCtx(ctx, "failed to enqueue task", "taskId", task.ID[:8], "error", err)
 			}
 		} else {
-			logWarnCtx(ctx, "offline queue full, task not enqueued", "taskId", task.ID[:8])
+			log.WarnCtx(ctx, "offline queue full, task not enqueued", "taskId", task.ID[:8])
 		}
 	}
 
@@ -852,7 +853,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 	state.mu.Unlock()
 
-	logDebugCtx(ctx, "task done",
+	log.DebugCtx(ctx, "task done",
 		"taskId", task.ID[:8], "name", task.Name,
 		"elapsed", elapsed.Round(time.Millisecond),
 		"cost", result.CostUSD,
@@ -950,13 +951,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			defer reflCancel()
 			ref, err := performReflection(reflCtx, cfg, task, result)
 			if err != nil {
-				logDebug("reflection failed", "taskId", task.ID[:8], "error", err)
+				log.Debug("reflection failed", "taskId", task.ID[:8], "error", err)
 				return
 			}
 			if err := storeReflection(cfg.HistoryDB, ref); err != nil {
-				logDebug("reflection store failed", "taskId", task.ID[:8], "error", err)
+				log.Debug("reflection store failed", "taskId", task.ID[:8], "error", err)
 			} else {
-				logDebug("reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
+				log.Debug("reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
 			}
 		}()
 	}
@@ -964,7 +965,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// --- P13.2: Sandbox Plugin --- Cleanup sandbox after task completion.
 	if sandboxID != "" && state.sandboxMgr != nil {
 		if err := state.sandboxMgr.DestroySandbox(sandboxID); err != nil {
-			logWarnCtx(ctx, "sandbox cleanup failed", "sandboxId", sandboxID, "error", err)
+			log.WarnCtx(ctx, "sandbox cleanup failed", "sandboxId", sandboxID, "error", err)
 		}
 	}
 
@@ -1025,12 +1026,12 @@ func dispatchDevQALoop(ctx context.Context, cfg *Config, task Task, state *dispa
 			result.QAApproved = &approved
 			result.QAComment = reviewComment
 			result.Attempts = attempt + 1
-			logInfoCtx(ctx, "dispatchDevQA: review passed", "agent", task.Agent, "attempt", attempt+1)
+			log.InfoCtx(ctx, "dispatchDevQA: review passed", "agent", task.Agent, "attempt", attempt+1)
 			return result
 		}
 
 		// QA failed.
-		logInfoCtx(ctx, "dispatchDevQA: review failed, injecting feedback",
+		log.InfoCtx(ctx, "dispatchDevQA: review failed, injecting feedback",
 			"agent", task.Agent, "attempt", attempt+1, "maxAttempts", maxRetries+1,
 			"comment", truncate(reviewComment, 200))
 
@@ -1043,7 +1044,7 @@ func dispatchDevQALoop(ctx context.Context, cfg *Config, task Task, state *dispa
 
 		if attempt == maxRetries {
 			// All retries exhausted — escalate.
-			logWarnCtx(ctx, "dispatchDevQA: max retries exhausted, escalating",
+			log.WarnCtx(ctx, "dispatchDevQA: max retries exhausted, escalating",
 				"agent", task.Agent, "attempts", maxRetries+1)
 			rejected := false
 			result.QAApproved = &rejected

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Status Constants ---
@@ -116,7 +118,7 @@ func (fb *discordForumBoard) createThread(title, body, status string) (string, e
 		return "", fmt.Errorf("created thread has no ID")
 	}
 
-	logInfo("discord forum thread created",
+	log.Info("discord forum thread created",
 		"thread", result.ID, "title", title, "status", status)
 
 	return result.ID, nil
@@ -160,7 +162,7 @@ func (fb *discordForumBoard) setStatus(threadID, status string) error {
 		return fmt.Errorf("set forum status failed: status %d, body: %s", statusCode, string(respBody))
 	}
 
-	logInfo("discord forum status updated",
+	log.Info("discord forum status updated",
 		"thread", threadID, "status", status)
 
 	return nil
@@ -203,13 +205,13 @@ func (fb *discordForumBoard) handleAssign(threadID, guildID, role string) error 
 	if fb.bot.threads != nil && fb.bot.cfg.Discord.ThreadBindings.Enabled {
 		ttl := fb.bot.cfg.Discord.ThreadBindings.ThreadBindingsTTL()
 		sessionID := fb.bot.threads.bind(guildID, threadID, role, ttl)
-		logInfo("discord forum thread assigned",
+		log.Info("discord forum thread assigned",
 			"thread", threadID, "agent", role, "session", sessionID)
 	}
 
 	// Set status to "doing".
 	if err := fb.setStatus(threadID, forumStatusDoing); err != nil {
-		logWarn("discord forum auto-status failed", "thread", threadID, "error", err)
+		log.Warn("discord forum auto-status failed", "thread", threadID, "error", err)
 		// Non-fatal: assignment succeeded even if tag update fails.
 	}
 
@@ -232,7 +234,7 @@ func (fb *discordForumBoard) handleCompletion(threadID string, success bool) {
 	}
 
 	if err := fb.setStatus(threadID, newStatus); err != nil {
-		logWarn("discord forum completion status failed",
+		log.Warn("discord forum completion status failed",
 			"thread", threadID, "success", success, "error", err)
 	}
 }

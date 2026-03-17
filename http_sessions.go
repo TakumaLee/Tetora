@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/trace"
 )
 
@@ -192,10 +193,10 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 				Content:   truncateStr(body.Prompt, 5000),
 				CreatedAt: now,
 			}); err != nil {
-				logWarn("add user message failed", "session", sessionID, "error", err)
+				log.Warn("add user message failed", "session", sessionID, "error", err)
 			}
 			if err := updateSessionStats(cfg.HistoryDB, sessionID, 0, 0, 0, 1); err != nil {
-				logWarn("update session stats failed", "session", sessionID, "error", err)
+				log.Warn("update session stats failed", "session", sessionID, "error", err)
 			}
 
 			// Update session title on first message.
@@ -204,13 +205,13 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 				title = title[:100]
 			}
 			if err := updateSessionTitle(cfg.HistoryDB, sessionID, title); err != nil {
-				logWarn("update session title failed", "session", sessionID, "error", err)
+				log.Warn("update session title failed", "session", sessionID, "error", err)
 			}
 
 			// Re-activate session if it was completed.
 			if sess.Status == "completed" {
 				if err := updateSessionStatus(cfg.HistoryDB, sessionID, "active"); err != nil {
-					logWarn("reactivate session failed", "session", sessionID, "error", err)
+					log.Warn("reactivate session failed", "session", sessionID, "error", err)
 				}
 			}
 
@@ -394,7 +395,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 					}
 					msg := fmt.Sprintf("%s **[mirror:%s]**\n%s", prefix, body.Role, content)
 					if err := cronDiscordSendBotChannel(cfg.Discord.BotToken, body.DiscordChannel, msg); err != nil {
-						logWarn("mirror discord forward failed", "session", sessionID, "error", err)
+						log.Warn("mirror discord forward failed", "session", sessionID, "error", err)
 					}
 				}()
 			}
@@ -412,7 +413,7 @@ func (s *Server) registerSessionRoutes(mux *http.ServeMux) {
 				compactCtx, compactCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 				defer compactCancel()
 				if err := compactSession(compactCtx, cfg, cfg.HistoryDB, sessionID, false, sem, childSem); err != nil {
-					logError("compact session error", "session", sessionID, "error", err)
+					log.Error("compact session error", "session", sessionID, "error", err)
 				}
 			}()
 			auditLog(cfg.HistoryDB, "session.compact", "http",

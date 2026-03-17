@@ -2,6 +2,8 @@ package main
 
 import (
 	"net/http"
+
+	"tetora/internal/log"
 )
 
 func (s *Server) registerWebhookRoutes(mux *http.ServeMux) {
@@ -23,7 +25,7 @@ func (s *Server) registerWebhookRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/api/discord/interactions", func(w http.ResponseWriter, r *http.Request) {
 			handleDiscordInteraction(discordBot, w, r)
 		})
-		logInfo("discord interactions endpoint enabled", "endpoint", "/api/discord/interactions")
+		log.Info("discord interactions endpoint enabled", "endpoint", "/api/discord/interactions")
 	}
 
 	// --- P15.1: LINE Channel --- Register LINE webhook endpoint.

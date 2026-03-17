@@ -9,6 +9,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -37,7 +38,7 @@ func newPairingManager(cfg *Config) *PairingManager {
 		pending: make(map[string]*PairingRequest),
 	}
 	if err := pm.initPairingDB(); err != nil {
-		logWarn("init pairing db failed", "error", err)
+		log.Warn("init pairing db failed", "error", err)
 	}
 	// Cleanup expired pending requests periodically.
 	go pm.cleanupExpired()

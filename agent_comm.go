@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 // --- Agent Communication Tools ---
@@ -212,7 +213,7 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 	fillDefaults(cfg, &task)
 
-	logDebug("agent_dispatch", "agent", args.Agent, "depth", childDepth, "parentId", args.ParentID)
+	log.Debug("agent_dispatch", "agent", args.Agent, "depth", childDepth, "parentId", args.ParentID)
 
 	// Call local HTTP API.
 	requestBody, _ := json.Marshal([]Task{task})

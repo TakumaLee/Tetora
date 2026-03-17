@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"tetora/internal/log"
 	"tetora/internal/db"
 	"tetora/internal/export"
 	"time"
@@ -151,7 +152,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 
 	rows, err := db.Query(mq.dbPath, sql)
 	if err != nil {
-		logWarn("message queue: query failed", "error", err)
+		log.Warn("message queue: query failed", "error", err)
 		return
 	}
 
@@ -192,7 +193,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 			// Update channel health.
 			recordChannelHealth(mq.dbPath, channel, "healthy", "")
 
-			logInfo("message queue: delivered", "id", id, "channel", channel, "target", target)
+			log.Info("message queue: delivered", "id", id, "channel", channel, "target", target)
 		} else {
 			// Failure.
 			retryCount++
@@ -206,7 +207,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 				)
 				exec.Command("sqlite3", mq.dbPath, failSQL).Run()
 
-				logWarn("message queue: permanently failed", "id", id, "channel", channel, "retries", retryCount)
+				log.Warn("message queue: permanently failed", "id", id, "channel", channel, "retries", retryCount)
 			} else {
 				// Schedule retry with exponential backoff: 30s * 2^retry_count.
 				backoff := time.Duration(30*(1<<uint(retryCount))) * time.Second
@@ -218,7 +219,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 				)
 				exec.Command("sqlite3", mq.dbPath, retrySQL).Run()
 
-				logInfo("message queue: retry scheduled", "id", id, "channel", channel, "retryCount", retryCount, "nextRetry", nextRetry)
+				log.Info("message queue: retry scheduled", "id", id, "channel", channel, "retryCount", retryCount, "nextRetry", nextRetry)
 			}
 
 			// Update channel health.
@@ -232,7 +233,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 func attemptDelivery(channel, target, text string) error {
 	// Placeholder: real delivery integration will come later.
 	// For now, all deliveries succeed (logged only).
-	logDebug("message queue: delivery attempt", "channel", channel, "target", target, "textLen", len(text))
+	log.Debug("message queue: delivery attempt", "channel", channel, "target", target, "textLen", len(text))
 	return nil
 }
 

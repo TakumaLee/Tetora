@@ -9,6 +9,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -332,7 +333,7 @@ func (d *queueDrainer) run(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	logInfo("queue drainer started", "ttl", d.ttl.String())
+	log.Info("queue drainer started", "ttl", d.ttl.String())
 
 	for {
 		select {
@@ -353,7 +354,7 @@ func (d *queueDrainer) tick(ctx context.Context) {
 	// 1. Expire old items.
 	expired := cleanupExpiredQueue(dbPath, d.ttl)
 	if expired > 0 {
-		logWarn("queue items expired", "count", expired)
+		log.Warn("queue items expired", "count", expired)
 		if d.notifyFn != nil {
 			d.notifyFn(fmt.Sprintf("Offline queue: %d item(s) expired (TTL %s)", expired, d.ttl.String()))
 		}
@@ -383,7 +384,7 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 	// Deserialize task.
 	var task Task
 	if err := json.Unmarshal([]byte(item.TaskJSON), &task); err != nil {
-		logError("queue: bad task JSON", "id", item.ID, "error", err)
+		log.Error("queue: bad task JSON", "id", item.ID, "error", err)
 		updateQueueStatus(d.cfg.HistoryDB, item.ID, "failed", "invalid task JSON: "+err.Error())
 		return
 	}
@@ -393,14 +394,14 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 	task.SessionID = newUUID()
 	task.Source = "queue:" + task.Source
 
-	logInfoCtx(ctx, "queue: retrying task", "queueId", item.ID, "taskId", task.ID[:8], "name", task.Name, "retry", item.RetryCount+1)
+	log.InfoCtx(ctx, "queue: retrying task", "queueId", item.ID, "taskId", task.ID[:8], "name", task.Name, "retry", item.RetryCount+1)
 
 	// Run the task.
 	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, item.AgentName)
 
 	if result.Status == "success" {
 		updateQueueStatus(d.cfg.HistoryDB, item.ID, "completed", "")
-		logInfoCtx(ctx, "queue: task succeeded", "queueId", item.ID, "taskId", task.ID[:8])
+		log.InfoCtx(ctx, "queue: task succeeded", "queueId", item.ID, "taskId", task.ID[:8])
 
 		// Record to history.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
@@ -415,19 +416,19 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 		// Still unavailable — put back in queue.
 		if item.RetryCount+1 >= maxQueueRetries {
 			incrementQueueRetry(d.cfg.HistoryDB, item.ID, "failed", result.Error)
-			logWarnCtx(ctx, "queue: task failed after max retries", "queueId", item.ID, "retries", maxQueueRetries)
+			log.WarnCtx(ctx, "queue: task failed after max retries", "queueId", item.ID, "retries", maxQueueRetries)
 			if d.notifyFn != nil {
 				d.notifyFn(fmt.Sprintf("Offline queue: task %q failed after %d retries: %s",
 					task.Name, maxQueueRetries, truncate(result.Error, 200)))
 			}
 		} else {
 			incrementQueueRetry(d.cfg.HistoryDB, item.ID, "pending", result.Error)
-			logInfoCtx(ctx, "queue: task still unavailable, re-queued", "queueId", item.ID, "retry", item.RetryCount+1)
+			log.InfoCtx(ctx, "queue: task still unavailable, re-queued", "queueId", item.ID, "retry", item.RetryCount+1)
 		}
 	} else {
 		// Non-provider error — mark as failed.
 		incrementQueueRetry(d.cfg.HistoryDB, item.ID, "failed", result.Error)
-		logWarnCtx(ctx, "queue: task failed with non-provider error", "queueId", item.ID, "error", result.Error)
+		log.WarnCtx(ctx, "queue: task failed with non-provider error", "queueId", item.ID, "error", result.Error)
 
 		// Record to history even on failure.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)

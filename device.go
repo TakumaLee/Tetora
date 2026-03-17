@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- P20.4: Device Actions ---
@@ -120,7 +122,7 @@ func toolCameraSnap(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		"path":     outPath,
 		"platform": runtime.GOOS,
 	})
-	logInfo("camera snap taken", "path", outPath)
+	log.Info("camera snap taken", "path", outPath)
 	return string(result), nil
 }
 
@@ -177,7 +179,7 @@ func toolScreenCapture(ctx context.Context, cfg *Config, input json.RawMessage) 
 		"path":     outPath,
 		"platform": runtime.GOOS,
 	})
-	logInfo("screen capture taken", "path", outPath)
+	log.Info("screen capture taken", "path", outPath)
 	return string(result), nil
 }
 
@@ -247,7 +249,7 @@ func toolClipboardSet(ctx context.Context, cfg *Config, input json.RawMessage) (
 		return "", fmt.Errorf("clipboard_set not supported on %s", runtime.GOOS)
 	}
 
-	logInfo("clipboard set", "length", len(args.Text))
+	log.Info("clipboard set", "length", len(args.Text))
 	return "ok", nil
 }
 
@@ -287,7 +289,7 @@ func toolNotificationSend(ctx context.Context, cfg *Config, input json.RawMessag
 		return "", fmt.Errorf("notification_send not supported on %s", runtime.GOOS)
 	}
 
-	logInfo("notification sent", "title", args.Title)
+	log.Info("notification sent", "title", args.Title)
 	return "ok", nil
 }
 
@@ -369,7 +371,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Builtin:     true,
 				RequireAuth: true,
 			})
-			logDebug("device tool registered", "tool", "camera_snap", "platform", goos)
+			log.Debug("device tool registered", "tool", "camera_snap", "platform", goos)
 		}
 	}
 
@@ -400,7 +402,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Builtin:     true,
 				RequireAuth: true,
 			})
-			logDebug("device tool registered", "tool", "screen_capture", "platform", goos)
+			log.Debug("device tool registered", "tool", "screen_capture", "platform", goos)
 		}
 	}
 
@@ -427,7 +429,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Handler: toolClipboardGet,
 				Builtin: true,
 			})
-			logDebug("device tool registered", "tool", "clipboard_get", "platform", goos)
+			log.Debug("device tool registered", "tool", "clipboard_get", "platform", goos)
 		}
 	}
 
@@ -457,7 +459,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Handler: toolClipboardSet,
 				Builtin: true,
 			})
-			logDebug("device tool registered", "tool", "clipboard_set", "platform", goos)
+			log.Debug("device tool registered", "tool", "clipboard_set", "platform", goos)
 		}
 	}
 
@@ -488,7 +490,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Handler: toolNotificationSend,
 				Builtin: true,
 			})
-			logDebug("device tool registered", "tool", "notification_send", "platform", goos)
+			log.Debug("device tool registered", "tool", "notification_send", "platform", goos)
 		}
 	}
 
@@ -505,7 +507,7 @@ func registerDeviceTools(r *ToolRegistry, cfg *Config) {
 				Handler: toolLocationGet,
 				Builtin: true,
 			})
-			logDebug("device tool registered", "tool", "location_get", "platform", goos)
+			log.Debug("device tool registered", "tool", "location_get", "platform", goos)
 		}
 	}
 }
@@ -517,5 +519,5 @@ func ensureDeviceOutputDir(cfg *Config) {
 		outDir = filepath.Join(cfg.BaseDir, "outputs")
 	}
 	os.MkdirAll(outDir, 0o755)
-	logInfo("device actions enabled", "outputDir", outDir, "platform", runtime.GOOS)
+	log.Info("device actions enabled", "outputDir", outDir, "platform", runtime.GOOS)
 }

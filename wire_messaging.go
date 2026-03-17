@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/messaging"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
@@ -184,29 +185,29 @@ func (r *messagingRuntime) WithTraceID(ctx context.Context, traceID string) cont
 }
 
 func (r *messagingRuntime) LogInfo(msg string, args ...interface{}) {
-	logInfo(msg, args...)
+	log.Info(msg, args...)
 }
 
 func (r *messagingRuntime) LogWarn(msg string, args ...interface{}) {
-	logWarn(msg, args...)
+	log.Warn(msg, args...)
 }
 
 func (r *messagingRuntime) LogError(msg string, err error, args ...interface{}) {
 	combined := append([]interface{}{"error", err}, args...)
-	logError(msg, combined...)
+	log.Error(msg, combined...)
 }
 
 func (r *messagingRuntime) LogInfoCtx(ctx context.Context, msg string, args ...interface{}) {
-	logInfoCtx(ctx, msg, args...)
+	log.InfoCtx(ctx, msg, args...)
 }
 
 func (r *messagingRuntime) LogErrorCtx(ctx context.Context, msg string, err error, args ...interface{}) {
 	combined := append([]interface{}{"error", err}, args...)
-	logErrorCtx(ctx, msg, combined...)
+	log.ErrorCtx(ctx, msg, combined...)
 }
 
 func (r *messagingRuntime) LogDebugCtx(ctx context.Context, msg string, args ...interface{}) {
-	logDebugCtx(ctx, msg, args...)
+	log.DebugCtx(ctx, msg, args...)
 }
 
 func (r *messagingRuntime) ClientIP(req *http.Request) string {

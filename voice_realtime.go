@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Voice Realtime Engine ---
@@ -34,7 +36,7 @@ func newVoiceRealtimeEngine(cfg *Config, voiceEngine *VoiceEngine) *VoiceRealtim
 		cfg:         cfg,
 		voiceEngine: voiceEngine,
 	}
-	logInfo("voice realtime engine initialized")
+	log.Info("voice realtime engine initialized")
 	return vre
 }
 
@@ -57,7 +59,7 @@ func (vre *VoiceRealtimeEngine) handleWakeWebSocket(w http.ResponseWriter, r *ht
 	// Upgrade to WebSocket.
 	conn, err := wsUpgrade(w, r)
 	if err != nil {
-		logWarn("wake websocket upgrade failed", "error", err)
+		log.Warn("wake websocket upgrade failed", "error", err)
 		http.Error(w, "upgrade failed", http.StatusBadRequest)
 		return
 	}
@@ -72,7 +74,7 @@ func (vre *VoiceRealtimeEngine) handleWakeWebSocket(w http.ResponseWriter, r *ht
 		lastAudio:   time.Now(),
 	}
 
-	logInfo("wake session started", "sessionID", sessionID)
+	log.Info("wake session started", "sessionID", sessionID)
 
 	// Run session in goroutine.
 	go sess.run()
@@ -84,7 +86,7 @@ func (ws *wakeSession) run() {
 		ws.closed = true
 		ws.mu.Unlock()
 		ws.conn.Close()
-		logInfo("wake session closed", "sessionID", ws.id)
+		log.Info("wake session closed", "sessionID", ws.id)
 	}()
 
 	// Start silence detector (detects end of utterance).
@@ -95,7 +97,7 @@ func (ws *wakeSession) run() {
 		opcode, payload, err := ws.conn.ReadMessage()
 		if err != nil {
 			if !ws.closed {
-				logDebug("wake websocket read error", "sessionID", ws.id, "error", err)
+				log.Debug("wake websocket read error", "sessionID", ws.id, "error", err)
 			}
 			return
 		}
@@ -140,7 +142,7 @@ func (ws *wakeSession) silenceDetector() {
 func (ws *wakeSession) processAudio(audioData []byte) {
 	// Run STT on audio chunk.
 	if ws.voiceEngine == nil || ws.voiceEngine.stt == nil {
-		logDebug("wake stt not enabled", "sessionID", ws.id)
+		log.Debug("wake stt not enabled", "sessionID", ws.id)
 		return
 	}
 
@@ -151,11 +153,11 @@ func (ws *wakeSession) processAudio(audioData []byte) {
 		Format: "webm", // assume WebM Opus from browser
 	})
 	if err != nil {
-		logDebug("wake stt error", "sessionID", ws.id, "error", err)
+		log.Debug("wake stt error", "sessionID", ws.id, "error", err)
 		return
 	}
 
-	logDebug("wake stt result", "sessionID", ws.id, "text", result.Text)
+	log.Debug("wake stt result", "sessionID", ws.id, "text", result.Text)
 
 	// Check for wake word.
 	wakeWords := ws.cfg.Voice.Wake.WakeWords
@@ -177,7 +179,7 @@ func (ws *wakeSession) processAudio(audioData []byte) {
 		ws.sendEvent("wake_detected", map[string]any{
 			"text": result.Text,
 		})
-		logInfo("wake word detected", "sessionID", ws.id, "text", result.Text)
+		log.Info("wake word detected", "sessionID", ws.id, "text", result.Text)
 	}
 }
 
@@ -218,7 +220,7 @@ func (vre *VoiceRealtimeEngine) handleRealtimeWebSocket(w http.ResponseWriter, r
 	// Upgrade to WebSocket.
 	conn, err := wsUpgrade(w, r)
 	if err != nil {
-		logWarn("realtime websocket upgrade failed", "error", err)
+		log.Warn("realtime websocket upgrade failed", "error", err)
 		http.Error(w, "upgrade failed", http.StatusBadRequest)
 		return
 	}
@@ -237,7 +239,7 @@ func (vre *VoiceRealtimeEngine) handleRealtimeWebSocket(w http.ResponseWriter, r
 	}
 
 	vre.sessions.Store(sessionID, sess)
-	logInfo("realtime session started", "sessionID", sessionID)
+	log.Info("realtime session started", "sessionID", sessionID)
 
 	// Run session in goroutine.
 	go sess.run()
@@ -255,12 +257,12 @@ func (rs *realtimeSession) run() {
 		rs.clientConn.Close()
 		rs.cancel()
 
-		logInfo("realtime session closed", "sessionID", rs.id)
+		log.Info("realtime session closed", "sessionID", rs.id)
 	}()
 
 	// Connect to OpenAI Realtime API.
 	if err := rs.connectOpenAI(); err != nil {
-		logError("realtime openai connect failed", "sessionID", rs.id, "error", err)
+		log.Error("realtime openai connect failed", "sessionID", rs.id, "error", err)
 		rs.sendError(err.Error())
 		return
 	}
@@ -305,7 +307,7 @@ func (rs *realtimeSession) connectOpenAI() error {
 	}
 
 	rs.openaiConn = conn
-	logInfo("realtime connected to openai", "sessionID", rs.id, "model", model)
+	log.Info("realtime connected to openai", "sessionID", rs.id, "model", model)
 
 	// Send session.update with system prompt and tools.
 	if err := rs.configureSession(); err != nil {
@@ -369,7 +371,7 @@ func (rs *realtimeSession) buildToolDefinitions() []map[string]any {
 		// Parse InputSchema to extract parameters.
 		var schema map[string]any
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
-			logWarn("failed to parse tool input schema", "tool", tool.Name, "error", err)
+			log.Warn("failed to parse tool input schema", "tool", tool.Name, "error", err)
 			continue
 		}
 
@@ -389,7 +391,7 @@ func (rs *realtimeSession) relayClientToOpenAI() {
 		opcode, payload, err := rs.clientConn.ReadMessage()
 		if err != nil {
 			if !rs.closed {
-				logDebug("realtime client read error", "sessionID", rs.id, "error", err)
+				log.Debug("realtime client read error", "sessionID", rs.id, "error", err)
 			}
 			return
 		}
@@ -402,7 +404,7 @@ func (rs *realtimeSession) relayClientToOpenAI() {
 
 		// Forward to OpenAI.
 		if err := rs.openaiConn.WriteMessage(opcode, payload); err != nil {
-			logDebug("realtime openai write error", "sessionID", rs.id, "error", err)
+			log.Debug("realtime openai write error", "sessionID", rs.id, "error", err)
 			rs.mu.Unlock()
 			return
 		}
@@ -415,7 +417,7 @@ func (rs *realtimeSession) relayOpenAIToClient() {
 		opcode, payload, err := rs.openaiConn.ReadMessage()
 		if err != nil {
 			if !rs.closed {
-				logDebug("realtime openai read error", "sessionID", rs.id, "error", err)
+				log.Debug("realtime openai read error", "sessionID", rs.id, "error", err)
 			}
 			return
 		}
@@ -433,7 +435,7 @@ func (rs *realtimeSession) relayOpenAIToClient() {
 
 		// Forward to client.
 		if err := rs.clientConn.WriteMessage(opcode, payload); err != nil {
-			logDebug("realtime client write error", "sessionID", rs.id, "error", err)
+			log.Debug("realtime client write error", "sessionID", rs.id, "error", err)
 			rs.mu.Unlock()
 			return
 		}
@@ -457,7 +459,7 @@ func (rs *realtimeSession) handleOpenAIEvent(payload []byte) {
 	name, _ := event["name"].(string)
 	argsStr, _ := event["arguments"].(string)
 
-	logInfo("realtime function call", "sessionID", rs.id, "callID", callID, "name", name)
+	log.Info("realtime function call", "sessionID", rs.id, "callID", callID, "name", name)
 
 	// Execute tool.
 	go rs.executeToolCall(callID, name, argsStr)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/scheduling"
 )
 
@@ -36,7 +37,7 @@ func newSchedulingService(cfg *Config) *SchedulingService {
 	calProv = &schedulingCalendarAdapter{}
 	taskProv = &schedulingTaskAdapter{}
 
-	svc := scheduling.New(calProv, taskProv, logWarn)
+	svc := scheduling.New(calProv, taskProv, log.Warn)
 	return &SchedulingService{svc: svc}
 }
 

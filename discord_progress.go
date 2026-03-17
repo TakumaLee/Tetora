@@ -7,6 +7,8 @@ import (
 	"time"
 
 
+
+	"tetora/internal/log"
 )
 
 // --- Discord Progress Updater ---
@@ -120,7 +122,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 	eventCh, unsub := broker.Subscribe(taskID)
 	defer unsub()
 
-	logDebug("discord progress updater started", "taskID", taskID, "sessionID", sessionID)
+	log.Debug("discord progress updater started", "taskID", taskID, "sessionID", sessionID)
 
 	// Also subscribe to sessionID to receive output_chunk events, which are published
 	// under the session key by the provider.
@@ -129,7 +131,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 		ch, u := broker.Subscribe(sessionID)
 		sessionEventCh = ch
 		defer u()
-		logDebug("discord progress updater subscribed to session", "sessionID", sessionID)
+		log.Debug("discord progress updater subscribed to session", "sessionID", sessionID)
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -140,9 +142,9 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 	tryEdit := func() {
 		if builder.isDirty() && time.Since(lastEdit) >= 1500*time.Millisecond {
 			content := builder.render()
-			logDebug("discord progress edit", "contentLen", len(content), "taskID", taskID)
+			log.Debug("discord progress edit", "contentLen", len(content), "taskID", taskID)
 			if err := db.editMessageWithComponents(channelID, progressMsgID, content, components); err != nil {
-				logWarn("discord progress edit failed", "error", err)
+				log.Warn("discord progress edit failed", "error", err)
 			}
 			db.sendTyping(channelID)
 			lastEdit = time.Now()
@@ -161,7 +163,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 		case SSEOutputChunk:
 			if data, ok := ev.Data.(map[string]any); ok {
 				if chunk, _ := data["chunk"].(string); chunk != "" {
-					logDebug("discord progress got chunk", "len", len(chunk), "taskID", taskID)
+					log.Debug("discord progress got chunk", "len", len(chunk), "taskID", taskID)
 					if replace, _ := data["replace"].(bool); replace {
 						builder.replaceText(chunk)
 					} else {
@@ -171,7 +173,7 @@ func (db *DiscordBot) runDiscordProgressUpdater(
 				}
 			}
 		case SSECompleted, SSEError:
-			logDebug("discord progress completed/error event", "type", ev.Type, "taskID", taskID)
+			log.Debug("discord progress completed/error event", "type", ev.Type, "taskID", taskID)
 			return true
 		}
 		return false

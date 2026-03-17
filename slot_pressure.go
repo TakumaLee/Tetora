@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- Slot Pressure Guard ---
@@ -156,7 +158,7 @@ func (g *SlotPressureGuard) acquireNonInteractive(ctx context.Context, sem chan 
 	g.waiting.Add(1)
 	defer g.waiting.Add(-1)
 
-	logInfo("slot pressure: non-interactive task waiting",
+	log.Info("slot pressure: non-interactive task waiting",
 		"source", source,
 		"available", g.available(),
 		"reserved", g.reservedSlots())
@@ -174,7 +176,7 @@ func (g *SlotPressureGuard) acquireNonInteractive(ctx context.Context, sem chan 
 
 		case <-timeout.C:
 			// Timeout: force acquire to prevent starvation.
-			logWarn("slot pressure: non-interactive task force-acquiring after timeout",
+			log.Warn("slot pressure: non-interactive task force-acquiring after timeout",
 				"source", source, "timeout", g.nonInteractiveTimeout().String())
 			select {
 			case sem <- struct{}{}:

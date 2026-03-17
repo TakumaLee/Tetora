@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"tetora/internal/log"
 )
 
 //go:embed examples/templates/*.json
@@ -567,7 +569,7 @@ func resolveExpr(expr string, wCtx *WorkflowContext) string {
 		field := parts[2]
 		result, ok := wCtx.Steps[stepID]
 		if !ok {
-			logWarn("workflow template: step not found", "expr", expr)
+			log.Warn("workflow template: step not found", "expr", expr)
 			return ""
 		}
 		switch field {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/provider"
 
 	"tetora/internal/cost"
@@ -20,7 +21,7 @@ func safeToolExec(ctx context.Context, cfg *Config, tool *ToolDef, input json.Ra
 	defer func() {
 		if rv := recover(); rv != nil {
 			err = fmt.Errorf("tool %q panicked: %v", tool.Name, rv)
-			logError("tool panic recovered", "tool", tool.Name, "panic", fmt.Sprintf("%v", rv))
+			log.Error("tool panic recovered", "tool", tool.Name, "panic", fmt.Sprintf("%v", rv))
 		}
 	}()
 	return tool.Handler(ctx, cfg, input)
@@ -210,7 +211,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		for _, tc := range result.ToolCalls {
 			// Check tool policy - is tool allowed for this agent?
 			if task.Agent != "" && !isToolAllowed(cfg, task.Agent, tc.Name) {
-				logWarnCtx(ctx, "tool call blocked by policy", "tool", tc.Name, "agent", task.Agent)
+				log.WarnCtx(ctx, "tool call blocked by policy", "tool", tc.Name, "agent", task.Agent)
 				toolResults = append(toolResults, ToolResult{
 					ToolUseID: tc.ID,
 					Content:   fmt.Sprintf("error: tool %q not allowed by policy for agent %q", tc.Name, task.Agent),
@@ -222,7 +223,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 			// Check for loop using enhanced detector.
 			isLoop, loopMsg := detector.Check(tc.Name, tc.Input)
 			if isLoop {
-				logWarnCtx(ctx, "tool loop detected", "tool", tc.Name, "msg", loopMsg)
+				log.WarnCtx(ctx, "tool loop detected", "tool", tc.Name, "msg", loopMsg)
 				toolResults = append(toolResults, ToolResult{
 					ToolUseID: tc.ID,
 					Content:   loopMsg,
@@ -234,7 +235,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 			// Check for repeating pattern.
 			if i > 2 { // Only check after a few iterations.
 				if hasPattern, patternMsg := detector.detectToolLoopPattern(); hasPattern {
-					logWarnCtx(ctx, "tool pattern detected", "msg", patternMsg)
+					log.WarnCtx(ctx, "tool pattern detected", "msg", patternMsg)
 					toolResults = append(toolResults, ToolResult{
 						ToolUseID: tc.ID,
 						Content:   patternMsg,
@@ -375,7 +376,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		// Per-task budget soft limit: log once for analysis, then continue.
 		if task.Budget > 0 && totalCostUSD >= task.Budget && !taskBudgetWarnLogged {
 			taskBudgetWarnLogged = true
-			logWarnCtx(ctx, "task budget soft-limit exceeded (continuing)",
+			log.WarnCtx(ctx, "task budget soft-limit exceeded (continuing)",
 				"budget", task.Budget,
 				"spent", totalCostUSD,
 				"role", task.Agent,
@@ -386,7 +387,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 
 		// Global budget check.
 		if br := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); br != nil && !br.Allowed {
-			logWarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
+			log.WarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
 			finalResult = &ProviderResult{
 				Output:  result.Output + "\n[stopped: global budget exceeded]",
 				IsError: true,
@@ -406,7 +407,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 			req.Messages = messages
 			estTokens = estimateRequestTokens(req)
 			if estTokens > threshold {
-				logWarnCtx(ctx, "context window limit after compression", "estimatedTokens", estTokens, "threshold", threshold)
+				log.WarnCtx(ctx, "context window limit after compression", "estimatedTokens", estTokens, "threshold", threshold)
 				finalResult = &ProviderResult{
 					Output:  result.Output + "\n[stopped: context limit reached]",
 					IsError: true,
@@ -414,7 +415,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 				}
 				break
 			}
-			logInfoCtx(ctx, "compressed old messages to fit context window", "estimatedTokens", estTokens, "threshold", threshold)
+			log.InfoCtx(ctx, "compressed old messages to fit context window", "estimatedTokens", estTokens, "threshold", threshold)
 		}
 	}
 
@@ -457,7 +458,7 @@ func injectWorkspaceContent(cfg *Config, task *Task, agentName string) {
 		}
 		size := estimateDirSize(dir)
 		if size > maxInjectionSize {
-			logWarn("workspace dir exceeds 50KB, skipping injection", "dir", dir, "size", size)
+			log.Warn("workspace dir exceeds 50KB, skipping injection", "dir", dir, "size", size)
 			return
 		}
 		if size > indexThreshold {

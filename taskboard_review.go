@@ -10,6 +10,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -69,14 +70,14 @@ func (d *TaskBoardDispatcher) devQALoop(ctx context.Context, t TaskBoard, task T
 		accumulated += reviewCost
 
 		if reviewOK {
-			logInfo("devQA: review passed", "task", t.ID, "attempt", attempt+1)
+			log.Info("devQA: review passed", "task", t.ID, "attempt", attempt+1)
 			d.engine.AddComment(t.ID, reviewer,
 				fmt.Sprintf("[QA PASS] (attempt %d/%d) %s", attempt+1, maxRetries+1, reviewComment))
 			return devQALoopResult{Result: result, QAApproved: true, Attempts: attempt + 1, TotalCost: accumulated}
 		}
 
 		// QA failed.
-		logInfo("devQA: review failed, injecting feedback",
+		log.Info("devQA: review failed, injecting feedback",
 			"task", t.ID, "attempt", attempt+1, "maxAttempts", maxRetries+1, "comment", truncate(reviewComment, 200))
 
 		d.engine.AddComment(t.ID, reviewer,
@@ -90,7 +91,7 @@ func (d *TaskBoardDispatcher) devQALoop(ctx context.Context, t TaskBoard, task T
 			// All retries exhausted — escalate.
 			d.engine.AddComment(t.ID, "system",
 				fmt.Sprintf("[ESCALATE] Dev↔QA loop exhausted (%d attempts). Escalating to human review.", maxRetries+1))
-			logWarn("devQA: max retries exhausted, escalating", "task", t.ID, "attempts", maxRetries+1)
+			log.Warn("devQA: max retries exhausted, escalating", "task", t.ID, "attempts", maxRetries+1)
 			return devQALoopResult{Result: result, Attempts: attempt + 1, TotalCost: accumulated}
 		}
 
@@ -385,7 +386,7 @@ func (d *TaskBoardDispatcher) idleAnalysis() {
 		`, db.Escape(cutoff24h), db.Escape(projectID))
 		cooldownRows, err := db.Query(d.engine.dbPath, cooldownSQL)
 		if err == nil && len(cooldownRows) > 0 && getFloat64(cooldownRows[0], "cnt") > 0 {
-			logDebug("idleAnalysis: 24h cooldown active", "project", projectID)
+			log.Debug("idleAnalysis: 24h cooldown active", "project", projectID)
 			continue
 		}
 
@@ -450,10 +451,10 @@ Example: [{"title":"...","description":"...","priority":"normal"}]`, projectName
 	task.Model = "haiku"
 	task.Budget = 0.10
 
-	logInfo("idleAnalysis: analyzing project", "project", projectID)
+	log.Info("idleAnalysis: analyzing project", "project", projectID)
 	result := runSingleTask(d.ctx, d.cfg, task, idleAnalysisSem, nil, "")
 	if result.Status != "success" || strings.TrimSpace(result.Output) == "" {
-		logWarn("idleAnalysis: LLM call failed", "project", projectID, "error", result.Error)
+		log.Warn("idleAnalysis: LLM call failed", "project", projectID, "error", result.Error)
 		return
 	}
 
@@ -469,11 +470,11 @@ Example: [{"title":"...","description":"...","priority":"normal"}]`, projectName
 	start := strings.Index(output, "[")
 	end := strings.LastIndex(output, "]")
 	if start < 0 || end <= start {
-		logWarn("idleAnalysis: no JSON array in output", "project", projectID)
+		log.Warn("idleAnalysis: no JSON array in output", "project", projectID)
 		return
 	}
 	if err := json.Unmarshal([]byte(output[start:end+1]), &suggestions); err != nil {
-		logWarn("idleAnalysis: JSON parse failed", "project", projectID, "error", err)
+		log.Warn("idleAnalysis: JSON parse failed", "project", projectID, "error", err)
 		return
 	}
 
@@ -499,14 +500,14 @@ Example: [{"title":"...","description":"...","priority":"normal"}]`, projectName
 			Status:      "backlog",
 		})
 		if err != nil {
-			logWarn("idleAnalysis: failed to create task", "project", projectID, "title", s.Title, "error", err)
+			log.Warn("idleAnalysis: failed to create task", "project", projectID, "title", s.Title, "error", err)
 			continue
 		}
 		d.engine.AddComment(newTask.ID, "system", "[idle-analysis] Auto-generated from project analysis")
 		created++
 	}
 
-	logInfo("idleAnalysis: created backlog tasks", "project", projectID, "count", created)
+	log.Info("idleAnalysis: created backlog tasks", "project", projectID, "count", created)
 }
 
 // problemScanSem limits concurrent problem-scan LLM calls.
@@ -565,7 +566,7 @@ If no problems found, respond with exactly: {"problems": [], "followup": []}`, t
 
 	result := runSingleTask(d.ctx, d.cfg, task, problemScanSem, nil, "")
 	if result.Status != "success" || strings.TrimSpace(result.Output) == "" {
-		logDebug("postTaskProblemScan: LLM call failed or empty", "task", t.ID, "error", result.Error)
+		log.Debug("postTaskProblemScan: LLM call failed or empty", "task", t.ID, "error", result.Error)
 		return
 	}
 
@@ -589,18 +590,18 @@ If no problems found, respond with exactly: {"problems": [], "followup": []}`, t
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
 	if start < 0 || end <= start {
-		logDebug("postTaskProblemScan: no JSON in output", "task", t.ID)
+		log.Debug("postTaskProblemScan: no JSON in output", "task", t.ID)
 		return
 	}
 
 	var sr scanResult
 	if err := json.Unmarshal([]byte(raw[start:end+1]), &sr); err != nil {
-		logDebug("postTaskProblemScan: JSON parse failed", "task", t.ID, "error", err)
+		log.Debug("postTaskProblemScan: JSON parse failed", "task", t.ID, "error", err)
 		return
 	}
 
 	if len(sr.Problems) == 0 && len(sr.Followup) == 0 {
-		logDebug("postTaskProblemScan: no issues found", "task", t.ID)
+		log.Debug("postTaskProblemScan: no issues found", "task", t.ID)
 		return
 	}
 
@@ -612,7 +613,7 @@ If no problems found, respond with exactly: {"problems": [], "followup": []}`, t
 	}
 
 	if _, err := d.engine.AddComment(t.ID, "system", commentSb.String()); err != nil {
-		logWarn("postTaskProblemScan: failed to add comment", "task", t.ID, "error", err)
+		log.Warn("postTaskProblemScan: failed to add comment", "task", t.ID, "error", err)
 	}
 
 	// Create follow-up tickets (cap at 3).
@@ -634,7 +635,7 @@ If no problems found, respond with exactly: {"problems": [], "followup": []}`, t
 			DependsOn:   []string{t.ID},
 		})
 		if err != nil {
-			logWarn("postTaskProblemScan: failed to create follow-up", "task", t.ID, "title", f.Title, "error", err)
+			log.Warn("postTaskProblemScan: failed to create follow-up", "task", t.ID, "title", f.Title, "error", err)
 			continue
 		}
 		d.engine.AddComment(newTask.ID, "system",
@@ -642,7 +643,7 @@ If no problems found, respond with exactly: {"problems": [], "followup": []}`, t
 		created++
 	}
 
-	logInfo("postTaskProblemScan: scan complete", "task", t.ID, "problems", len(sr.Problems), "followups", created)
+	log.Info("postTaskProblemScan: scan complete", "task", t.ID, "problems", len(sr.Problems), "followups", created)
 }
 
 // postTaskSkillFailures records the failure to each skill's failures.md
@@ -659,6 +660,6 @@ func (d *TaskBoardDispatcher) postTaskSkillFailures(t TaskBoard, task Task, errM
 
 	for _, s := range skills {
 		appendSkillFailure(d.cfg, s.Name, t.Title, t.Assignee, errMsg)
-		logDebug("skill failure recorded", "skill", s.Name, "task", t.ID)
+		log.Debug("skill failure recorded", "skill", s.Name, "task", t.ID)
 	}
 }

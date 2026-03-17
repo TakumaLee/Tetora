@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/messaging/webhook"
 )
 
@@ -87,7 +88,7 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 
 	// Verify signature.
 	if !verifyWebhookSignature(r, body, whCfg.Secret) {
-		logWarn("incoming webhook signature mismatch", "name", name)
+		log.Warn("incoming webhook signature mismatch", "name", name)
 		auditLog(cfg.HistoryDB, "webhook.incoming.auth_fail", "http", name, clientIP(r))
 		return IncomingWebhookResult{
 			Name: name, Status: "error",
@@ -106,7 +107,7 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 
 	// Apply filter.
 	if !evaluateFilter(whCfg.Filter, payload) {
-		logDebugCtx(ctx, "incoming webhook filtered out", "name", name, "filter", whCfg.Filter)
+		log.DebugCtx(ctx, "incoming webhook filtered out", "name", name, "filter", whCfg.Filter)
 		return IncomingWebhookResult{Name: name, Status: "filtered"}
 	}
 
@@ -120,7 +121,7 @@ func handleIncomingWebhook(ctx context.Context, cfg *Config, name string, r *htt
 		prompt = fmt.Sprintf("Process this webhook event (%s):\n\n%s", name, string(b))
 	}
 
-	logInfoCtx(ctx, "incoming webhook accepted", "name", name, "agent", whCfg.Agent)
+	log.InfoCtx(ctx, "incoming webhook accepted", "name", name, "agent", whCfg.Agent)
 	auditLog(cfg.HistoryDB, "webhook.incoming", "http",
 		fmt.Sprintf("name=%s agent=%s", name, whCfg.Agent), clientIP(r))
 
@@ -154,7 +155,7 @@ func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg
 		// Record session activity.
 		recordSessionActivity(cfg.HistoryDB, task, result, whCfg.Agent)
 
-		logInfoCtx(ctx, "incoming webhook task done", "name", name, "taskId", task.ID[:8],
+		log.InfoCtx(ctx, "incoming webhook task done", "name", name, "taskId", task.ID[:8],
 			"status", result.Status, "cost", result.CostUSD)
 	}()
 
@@ -202,7 +203,7 @@ func triggerWebhookWorkflow(ctx context.Context, cfg *Config, name string, whCfg
 	// Run async.
 	go func() {
 		run := executeWorkflow(ctx, cfg, wf, vars, state, sem, childSem)
-		logInfoCtx(ctx, "incoming webhook workflow done", "name", name,
+		log.InfoCtx(ctx, "incoming webhook workflow done", "name", name,
 			"workflow", whCfg.Workflow, "status", run.Status, "cost", run.TotalCost)
 	}()
 

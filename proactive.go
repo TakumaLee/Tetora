@@ -10,6 +10,7 @@ import (
 	"time"
 
 
+	"tetora/internal/log"
 	"tetora/internal/db"
 )
 
@@ -60,7 +61,7 @@ func newProactiveEngine(cfg *Config, broker *sseBroker, sem, childSem chan struc
 func (e *ProactiveEngine) Start(ctx context.Context) {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 
-	logInfo("proactive engine starting", "rules", len(e.rules))
+	log.Info("proactive engine starting", "rules", len(e.rules))
 
 	// Start schedule loop (checks cron rules every 30s).
 	e.wg.Add(1)
@@ -71,7 +72,7 @@ func (e *ProactiveEngine) Start(ctx context.Context) {
 	go e.runHeartbeatLoop(e.ctx)
 
 	// Threshold checking is polled by schedule loop.
-	logInfo("proactive engine started")
+	log.Info("proactive engine started")
 }
 
 // Stop gracefully shuts down the engine.
@@ -81,7 +82,7 @@ func (e *ProactiveEngine) Stop() {
 	}
 	close(e.stopCh)
 	e.wg.Wait()
-	logInfo("proactive engine stopped")
+	log.Info("proactive engine stopped")
 }
 
 // --- Trigger Evaluators ---
@@ -92,7 +93,7 @@ func (e *ProactiveEngine) runScheduleLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	logDebug("proactive schedule loop started")
+	log.Debug("proactive schedule loop started")
 
 	for {
 		select {
@@ -113,7 +114,7 @@ func (e *ProactiveEngine) runHeartbeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	logDebug("proactive heartbeat loop started")
+	log.Debug("proactive heartbeat loop started")
 
 	for {
 		select {
@@ -143,9 +144,9 @@ func (e *ProactiveEngine) checkScheduleRules(ctx context.Context) {
 		}
 
 		if e.matchesSchedule(rule) {
-			logInfo("proactive schedule triggered", "rule", rule.Name)
+			log.Info("proactive schedule triggered", "rule", rule.Name)
 			if err := e.executeAction(ctx, rule); err != nil {
-				logError("proactive action failed", "rule", rule.Name, "error", err)
+				log.Error("proactive action failed", "rule", rule.Name, "error", err)
 			}
 		}
 	}
@@ -173,9 +174,9 @@ func (e *ProactiveEngine) checkHeartbeatRules(ctx context.Context) {
 		e.mu.Unlock()
 
 		if !ok || now.Sub(lastTriggered) >= interval {
-			logInfo("proactive heartbeat triggered", "rule", rule.Name, "interval", interval)
+			log.Info("proactive heartbeat triggered", "rule", rule.Name, "interval", interval)
 			if err := e.executeAction(ctx, rule); err != nil {
-				logError("proactive action failed", "rule", rule.Name, "error", err)
+				log.Error("proactive action failed", "rule", rule.Name, "error", err)
 			}
 		}
 	}
@@ -198,14 +199,14 @@ func (e *ProactiveEngine) checkThresholdRules(ctx context.Context) {
 
 		value, err := e.getMetricValue(rule.Trigger.Metric)
 		if err != nil {
-			logDebug("proactive metric error", "rule", rule.Name, "metric", rule.Trigger.Metric, "error", err)
+			log.Debug("proactive metric error", "rule", rule.Name, "metric", rule.Trigger.Metric, "error", err)
 			continue
 		}
 
 		if e.compareThreshold(value, rule.Trigger.Op, rule.Trigger.Value) {
-			logInfo("proactive threshold triggered", "rule", rule.Name, "metric", rule.Trigger.Metric, "value", value, "threshold", rule.Trigger.Value)
+			log.Info("proactive threshold triggered", "rule", rule.Name, "metric", rule.Trigger.Metric, "value", value, "threshold", rule.Trigger.Value)
 			if err := e.executeAction(ctx, rule); err != nil {
-				logError("proactive action failed", "rule", rule.Name, "error", err)
+				log.Error("proactive action failed", "rule", rule.Name, "error", err)
 			}
 		}
 	}
@@ -227,10 +228,10 @@ func (e *ProactiveEngine) handleEvent(event SSEEvent) {
 				continue
 			}
 
-			logInfo("proactive event triggered", "rule", rule.Name, "event", event.Type)
+			log.Info("proactive event triggered", "rule", rule.Name, "event", event.Type)
 			ctx := context.Background()
 			if err := e.executeAction(ctx, rule); err != nil {
-				logError("proactive action failed", "rule", rule.Name, "error", err)
+				log.Error("proactive action failed", "rule", rule.Name, "error", err)
 			}
 		}
 	}
@@ -446,7 +447,7 @@ func (e *ProactiveEngine) executeAction(ctx context.Context, rule ProactiveRule)
 // actionDispatch creates a new task dispatch.
 func (e *ProactiveEngine) actionDispatch(ctx context.Context, rule ProactiveRule) error {
 	if e.sem == nil {
-		logWarn("proactive dispatch skipped: sem not available", "rule", rule.Name)
+		log.Warn("proactive dispatch skipped: sem not available", "rule", rule.Name)
 		return nil
 	}
 
@@ -475,13 +476,13 @@ func (e *ProactiveEngine) actionDispatch(ctx context.Context, rule ProactiveRule
 
 	fillDefaults(e.cfg, &task)
 
-	logInfo("proactive dispatch action", "rule", rule.Name, "agent", agentName, "taskId", truncate(task.ID, 16), "prompt", truncate(prompt, 100))
+	log.Info("proactive dispatch action", "rule", rule.Name, "agent", agentName, "taskId", truncate(task.ID, 16), "prompt", truncate(prompt, 100))
 
 	// Run in background goroutine so the trigger loop is not blocked.
 	go func() {
 		start := time.Now()
 		result := runSingleTask(ctx, e.cfg, task, e.sem, e.childSem, agentName)
-		logInfo("proactive dispatch done", "rule", rule.Name, "taskId", truncate(task.ID, 16), "status", result.Status, "durationMs", result.DurationMs)
+		log.Info("proactive dispatch done", "rule", rule.Name, "taskId", truncate(task.ID, 16), "status", result.Status, "durationMs", result.DurationMs)
 
 		// Record to history DB so cost/tokens appear in budget queries.
 		recordHistory(e.cfg.HistoryDB, task.ID, task.Name, task.Source, agentName, task, result,
@@ -496,7 +497,7 @@ func (e *ProactiveEngine) actionDispatch(ctx context.Context, rule ProactiveRule
 			out = fmt.Sprintf("Proactive rule %q completed with status %s", rule.Name, result.Status)
 		}
 		if err := e.deliver(rule, truncate(out, 1000)); err != nil {
-			logWarn("proactive deliver failed", "rule", rule.Name, "error", err)
+			log.Warn("proactive deliver failed", "rule", rule.Name, "error", err)
 		}
 	}()
 
@@ -661,7 +662,7 @@ func (e *ProactiveEngine) deliverSlack(rule ProactiveRule, content string) error
 	}
 
 	// Use existing Slack notification mechanism.
-	logInfo("proactive slack delivery", "rule", rule.Name, "message", truncate(content, 100))
+	log.Info("proactive slack delivery", "rule", rule.Name, "message", truncate(content, 100))
 	// TODO: integrate with Slack send when available.
 	return nil
 }
@@ -673,7 +674,7 @@ func (e *ProactiveEngine) deliverDiscord(rule ProactiveRule, content string) err
 	}
 
 	// Use existing Discord notification mechanism.
-	logInfo("proactive discord delivery", "rule", rule.Name, "message", truncate(content, 100))
+	log.Info("proactive discord delivery", "rule", rule.Name, "message", truncate(content, 100))
 	// TODO: integrate with Discord send when available.
 	return nil
 }
@@ -821,7 +822,7 @@ func (e *ProactiveEngine) TriggerRule(name string) error {
 		return fmt.Errorf("rule %q is disabled", name)
 	}
 
-	logInfo("proactive manual trigger", "rule", name)
+	log.Info("proactive manual trigger", "rule", name)
 	ctx := context.Background()
 	return e.executeAction(ctx, *target)
 }

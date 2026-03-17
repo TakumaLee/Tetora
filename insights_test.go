@@ -12,6 +12,7 @@ import (
 
 	"tetora/internal/automation/insights"
 	"tetora/internal/db"
+	"tetora/internal/log"
 )
 
 // setupInsightsTestDB creates a temp database with all required tables for testing.
@@ -134,7 +135,7 @@ CREATE TABLE IF NOT EXISTS expense_budgets (
 	deps := insights.Deps{
 		Query:          db.Query,
 		Escape:         db.Escape,
-		LogWarn:        logWarn,
+		LogWarn:        log.Warn,
 		UUID:           newUUID,
 		FinanceDBPath:  dbPath,
 		TasksDBPath:    dbPath,
@@ -722,7 +723,7 @@ func TestSpendingForecast_NoFinanceService(t *testing.T) {
 	deps := insights.Deps{
 		Query:   db.Query,
 		Escape:  db.Escape,
-		LogWarn: logWarn,
+		LogWarn: log.Warn,
 		UUID:    newUUID,
 	}
 	engine := insights.New(dbPath, deps)
@@ -1075,7 +1076,7 @@ func TestGenerateReport_NilServices(t *testing.T) {
 	deps := insights.Deps{
 		Query:   db.Query,
 		Escape:  db.Escape,
-		LogWarn: logWarn,
+		LogWarn: log.Warn,
 		UUID:    newUUID,
 	}
 	engine := insights.New(dbPath, deps)

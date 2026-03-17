@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // --- STT (Speech-to-Text) Types ---
@@ -320,16 +322,16 @@ func newVoiceEngine(cfg *Config) *VoiceEngine {
 		case "openai":
 			apiKey := cfg.Voice.STT.APIKey
 			if apiKey == "" {
-				logWarn("voice stt enabled but no apiKey configured")
+				log.Warn("voice stt enabled but no apiKey configured")
 			}
 			ve.stt = &OpenAISTTProvider{
 				endpoint: cfg.Voice.STT.Endpoint,
 				apiKey:   apiKey,
 				model:    cfg.Voice.STT.Model,
 			}
-			logInfo("voice stt initialized", "provider", provider, "model", cfg.Voice.STT.Model)
+			log.Info("voice stt initialized", "provider", provider, "model", cfg.Voice.STT.Model)
 		default:
-			logWarn("unknown stt provider", "provider", provider)
+			log.Warn("unknown stt provider", "provider", provider)
 		}
 	}
 
@@ -343,7 +345,7 @@ func newVoiceEngine(cfg *Config) *VoiceEngine {
 		case "openai":
 			apiKey := cfg.Voice.TTS.APIKey
 			if apiKey == "" {
-				logWarn("voice tts enabled but no apiKey configured")
+				log.Warn("voice tts enabled but no apiKey configured")
 			}
 			ve.tts = &OpenAITTSProvider{
 				endpoint: cfg.Voice.TTS.Endpoint,
@@ -351,20 +353,20 @@ func newVoiceEngine(cfg *Config) *VoiceEngine {
 				model:    cfg.Voice.TTS.Model,
 				voice:    cfg.Voice.TTS.Voice,
 			}
-			logInfo("voice tts initialized", "provider", provider, "model", cfg.Voice.TTS.Model, "voice", cfg.Voice.TTS.Voice)
+			log.Info("voice tts initialized", "provider", provider, "model", cfg.Voice.TTS.Model, "voice", cfg.Voice.TTS.Voice)
 		case "elevenlabs":
 			apiKey := cfg.Voice.TTS.APIKey
 			if apiKey == "" {
-				logWarn("voice tts enabled but no apiKey configured")
+				log.Warn("voice tts enabled but no apiKey configured")
 			}
 			ve.tts = &ElevenLabsTTSProvider{
 				apiKey:  apiKey,
 				voiceID: cfg.Voice.TTS.Voice,
 				model:   cfg.Voice.TTS.Model,
 			}
-			logInfo("voice tts initialized", "provider", provider, "model", cfg.Voice.TTS.Model, "voice", cfg.Voice.TTS.Voice)
+			log.Info("voice tts initialized", "provider", provider, "model", cfg.Voice.TTS.Model, "voice", cfg.Voice.TTS.Voice)
 		default:
-			logWarn("unknown tts provider", "provider", provider)
+			log.Warn("unknown tts provider", "provider", provider)
 		}
 	}
 

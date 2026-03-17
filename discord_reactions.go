@@ -11,6 +11,8 @@ import (
 	"sync"
 
 
+
+	"tetora/internal/log"
 )
 
 // --- Default Phase Emojis ---
@@ -85,7 +87,7 @@ func (rm *discordReactionManager) setPhase(channelID, messageID, phase string) {
 
 	newEmoji := rm.emojiForPhase(phase)
 	if newEmoji == "" {
-		logDebug("discord reactions: unknown phase", "phase", phase)
+		log.Debug("discord reactions: unknown phase", "phase", phase)
 		return
 	}
 
@@ -107,7 +109,7 @@ func (rm *discordReactionManager) setPhase(channelID, messageID, phase string) {
 	// Add new phase emoji.
 	rm.addReaction(channelID, messageID, newEmoji)
 
-	logDebug("discord reaction phase set",
+	log.Debug("discord reaction phase set",
 		"channel", channelID, "message", messageID,
 		"phase", phase, "emoji", newEmoji,
 		"prevPhase", prevPhase)
@@ -176,7 +178,7 @@ func (db *DiscordBot) discordRequest(method, path string, payload any) (int, []b
 
 	req, err := http.NewRequest(method, discordAPIBase+path, reqBody)
 	if err != nil {
-		logError("discord api request error", "method", method, "path", path, "error", err)
+		log.Error("discord api request error", "method", method, "path", path, "error", err)
 		return 0, nil
 	}
 	if bodyStr != "" {
@@ -186,7 +188,7 @@ func (db *DiscordBot) discordRequest(method, path string, payload any) (int, []b
 
 	resp, err := db.client.Do(req)
 	if err != nil {
-		logError("discord api send failed", "method", method, "path", path, "error", err)
+		log.Error("discord api send failed", "method", method, "path", path, "error", err)
 		return 0, nil
 	}
 	defer resp.Body.Close()
@@ -210,7 +212,7 @@ func (db *DiscordBot) discordRequest(method, path string, payload any) (int, []b
 	}
 
 	if resp.StatusCode >= 400 {
-		logWarn("discord api error", "method", method, "path", path,
+		log.Warn("discord api error", "method", method, "path", path,
 			"status", resp.StatusCode, "body", string(respBody))
 	}
 

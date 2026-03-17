@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"tetora/internal/log"
 )
 
 // discordTaskNotifier posts thread-per-task notifications to a fixed Discord channel.
@@ -46,7 +48,7 @@ func (n *discordTaskNotifier) NotifyStart(task Task) {
 
 	msgID, err := n.bot.sendMessageReturningID(n.channelID, parentMsg)
 	if err != nil {
-		logWarn("discord notify: send start message failed", "taskId", task.ID[:8], "error", err)
+		log.Warn("discord notify: send start message failed", "taskId", task.ID[:8], "error", err)
 		return
 	}
 
@@ -58,7 +60,7 @@ func (n *discordTaskNotifier) NotifyStart(task Task) {
 
 	threadID, err := n.createThread(msgID, threadName)
 	if err != nil {
-		logWarn("discord notify: create thread failed", "taskId", task.ID[:8], "error", err)
+		log.Warn("discord notify: create thread failed", "taskId", task.ID[:8], "error", err)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/log"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 )
@@ -168,25 +169,25 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 	// P14.3: Initialize reaction manager.
 	if cfg.Discord.Reactions.Enabled {
 		db.reactions = newDiscordReactionManager(db, cfg.Discord.Reactions.Emojis)
-		logInfo("discord lifecycle reactions enabled")
+		log.Info("discord lifecycle reactions enabled")
 	}
 
 	// P14.4: Initialize forum board.
 	if cfg.Discord.ForumBoard.Enabled {
 		db.forumBoard = newDiscordForumBoard(db, cfg.Discord.ForumBoard)
-		logInfo("discord forum board enabled", "channel", cfg.Discord.ForumBoard.ForumChannelID)
+		log.Info("discord forum board enabled", "channel", cfg.Discord.ForumBoard.ForumChannelID)
 	}
 
 	// P14.5: Initialize voice manager.
 	db.voice = newDiscordVoiceManager(db)
 	if cfg.Discord.Voice.Enabled {
-		logInfo("discord voice enabled", "auto_join_count", len(cfg.Discord.Voice.AutoJoin))
+		log.Info("discord voice enabled", "auto_join_count", len(cfg.Discord.Voice.AutoJoin))
 	}
 
 	// Terminal bridge: interactive tmux sessions via Discord.
 	if cfg.Discord.Terminal.Enabled {
 		db.terminal = newTerminalBridge(db, cfg.Discord.Terminal)
-		logInfo("discord terminal bridge enabled",
+		log.Info("discord terminal bridge enabled",
 			"maxSessions", cfg.Discord.Terminal.MaxSessions,
 			"defaultTool", cfg.Discord.Terminal.DefaultTool)
 	}
@@ -201,7 +202,7 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 	// Task notification (thread-per-task).
 	if ch := cfg.Discord.NotifyChannelID; ch != "" {
 		db.notifier = newDiscordTaskNotifier(db, ch)
-		logInfo("discord task notifier enabled", "channel", ch)
+		log.Info("discord task notifier enabled", "channel", ch)
 	}
 
 	return db
@@ -224,7 +225,7 @@ func (db *DiscordBot) Run(ctx context.Context) {
 		}
 
 		if err := db.connectAndRun(ctx); err != nil {
-			logError("discord gateway error", "error", err)
+			log.Error("discord gateway error", "error", err)
 		}
 
 		select {
@@ -233,7 +234,7 @@ func (db *DiscordBot) Run(ctx context.Context) {
 		case <-db.stopCh:
 			return
 		case <-time.After(5 * time.Second):
-			logInfo("discord reconnecting...")
+			log.Info("discord reconnecting...")
 		}
 	}
 }
@@ -315,10 +316,10 @@ func (db *DiscordBot) connectAndRun(ctx context.Context) error {
 		case opHeartbeat:
 			db.sendHeartbeatWS(ws)
 		case opReconnect:
-			logInfo("discord gateway reconnect requested")
+			log.Info("discord gateway reconnect requested")
 			return nil
 		case opInvalidSession:
-			logWarn("discord invalid session")
+			log.Warn("discord invalid session")
 			db.sessionID = ""
 			return nil
 		case opHeartbeatAck:
@@ -336,7 +337,7 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 		if json.Unmarshal(payload.D, &ready) == nil {
 			db.botUserID = ready.User.ID
 			db.sessionID = ready.SessionID
-			logInfo("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
+			log.Info("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
 
 			// P14.5: Auto-join voice channels if configured
 			if db.cfg.Discord.Voice.Enabled && len(db.cfg.Discord.Voice.AutoJoin) > 0 {
@@ -354,7 +355,7 @@ func (db *DiscordBot) handleEvent(payload gatewayPayload) {
 					db.handleMessageWithType(msgT.discordMessage, msgT.ChannelType)
 				}()
 			default:
-				logWarn("discord message handler limit reached, dropping message",
+				log.Warn("discord message handler limit reached, dropping message",
 					"author", msgT.Author.Username, "channel", msgT.ChannelID)
 			}
 		}
@@ -397,7 +398,7 @@ func (db *DiscordBot) isDuplicateMessage(msgID string) bool {
 // handleMessageWithType is the top-level message handler that checks for thread bindings
 // before falling through to normal message handling. (P14.2)
 func (db *DiscordBot) handleMessageWithType(msg discordMessage, channelType int) {
-	logDebug("discord message received",
+	log.Debug("discord message received",
 		"author", msg.Author.Username, "channel", msg.ChannelID,
 		"content_len", len(msg.Content), "bot", msg.Author.Bot,
 		"guild", msg.GuildID, "mentions", len(msg.Mentions))
@@ -409,7 +410,7 @@ func (db *DiscordBot) handleMessageWithType(msg discordMessage, channelType int)
 
 	// Dedup: skip if this message was already processed (gateway resume replays events).
 	if db.isDuplicateMessage(msg.ID) {
-		logDebug("discord message dedup: skipping replayed message", "msgId", msg.ID, "author", msg.Author.Username)
+		log.Debug("discord message dedup: skipping replayed message", "msgId", msg.ID, "author", msg.Author.Username)
 		return
 	}
 
@@ -446,7 +447,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 			isDirect = db.isDirectChannel(parentID)
 		}
 	}
-	logDebug("discord message filter",
+	log.Debug("discord message filter",
 		"mentioned", mentioned, "isDM", isDM, "isDirect", isDirect,
 		"channel", msg.ChannelID, "author", msg.Author.Username)
 	if !mentioned && !isDM && !isDirect {
@@ -460,7 +461,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 	var attachedFiles []*upload.File
 	for _, att := range msg.Attachments {
 		if f, err := downloadDiscordAttachment(db.cfg.BaseDir, att); err != nil {
-			logWarn("discord: attachment download failed", "url", att.URL, "err", err)
+			log.Warn("discord: attachment download failed", "url", att.URL, "err", err)
 		} else {
 			attachedFiles = append(attachedFiles, f)
 		}
@@ -898,7 +899,7 @@ func (db *DiscordBot) handleDirectRoute(msg discordMessage, prompt string, agent
 func (db *DiscordBot) handleRoute(msg discordMessage, prompt string) {
 	ctx := trace.WithID(context.Background(), trace.NewID("discord"))
 	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
-	logInfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
+	log.InfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
 	db.executeRoute(msg, prompt, *route)
 }
 
@@ -947,7 +948,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 	chKey := channelSessionKey("discord", msg.ChannelID)
 	sess, err := getOrCreateChannelSession(dbPath, "discord", chKey, route.Agent, "")
 	if err != nil {
-		logErrorCtx(ctx, "discord session error", "error", err)
+		log.ErrorCtx(ctx, "discord session error", "error", err)
 	}
 
 	// Context-aware prompt.
@@ -1086,7 +1087,7 @@ func (db *DiscordBot) executeRoute(msg discordMessage, prompt string, route Rout
 					},
 				},
 				Callback: func(data discordInteractionData) {
-					logInfo("progress escape: cancelling task", "taskId", task.ID)
+					log.Info("progress escape: cancelling task", "taskId", task.ID)
 					// Cancel the base context directly — works for both
 					// Discord chat mode (no state.running entry) and
 					// dispatch mode.
