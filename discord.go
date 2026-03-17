@@ -10,113 +10,12 @@ import (
 	"time"
 
 	"tetora/internal/audit"
+	"tetora/internal/discord"
 	"tetora/internal/log"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 	"tetora/internal/webhook"
 )
-
-// --- Constants ---
-
-const (
-	discordGatewayURL = "wss://gateway.discord.gg/?v=10&encoding=json"
-	discordAPIBase    = "https://discord.com/api/v10"
-
-	// Gateway opcodes.
-	opDispatch       = 0
-	opHeartbeat      = 1
-	opIdentify       = 2
-	opResume         = 6
-	opReconnect      = 7
-	opInvalidSession = 9
-	opHello          = 10
-	opHeartbeatAck   = 11
-
-	// Gateway intents.
-	intentGuildMessages  = 1 << 9
-	intentDirectMessages = 1 << 12
-	intentMessageContent = 1 << 15
-)
-
-// --- Gateway Types ---
-
-type gatewayPayload struct {
-	Op int              `json:"op"`
-	D  json.RawMessage  `json:"d,omitempty"`
-	S  *int             `json:"s,omitempty"`
-	T  string           `json:"t,omitempty"`
-}
-
-type helloData struct {
-	HeartbeatInterval int `json:"heartbeat_interval"`
-}
-
-type identifyData struct {
-	Token      string            `json:"token"`
-	Intents    int               `json:"intents"`
-	Properties map[string]string `json:"properties"`
-}
-
-type resumePayload struct {
-	Token     string `json:"token"`
-	SessionID string `json:"session_id"`
-	Seq       int    `json:"seq"`
-}
-
-type readyData struct {
-	SessionID string      `json:"session_id"`
-	User      discordUser `json:"user"`
-}
-
-// --- API Types ---
-
-type discordUser struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Bot      bool   `json:"bot"`
-}
-
-type discordAttachment struct {
-	ID          string `json:"id"`
-	URL         string `json:"url"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type,omitempty"`
-	Size        int64  `json:"size"`
-}
-
-type discordMessage struct {
-	ID          string               `json:"id"`
-	ChannelID   string               `json:"channel_id"`
-	GuildID     string               `json:"guild_id,omitempty"`
-	Author      discordUser          `json:"author"`
-	Content     string               `json:"content"`
-	Mentions    []discordUser        `json:"mentions,omitempty"`
-	Attachments []discordAttachment  `json:"attachments,omitempty"`
-}
-
-type discordEmbed struct {
-	Title       string              `json:"title,omitempty"`
-	Description string              `json:"description,omitempty"`
-	Color       int                 `json:"color,omitempty"`
-	Fields      []discordEmbedField `json:"fields,omitempty"`
-	Footer      *discordEmbedFooter `json:"footer,omitempty"`
-	Timestamp   string              `json:"timestamp,omitempty"`
-}
-
-type discordEmbedField struct {
-	Name   string `json:"name"`
-	Value  string `json:"value"`
-	Inline bool   `json:"inline,omitempty"`
-}
-
-type discordEmbedFooter struct {
-	Text string `json:"text"`
-}
-
-type discordMessageRef struct {
-	MessageID       string `json:"message_id"`
-	FailIfNotExists bool   `json:"fail_if_not_exists"`
-}
 
 // --- Discord Bot ---
 
@@ -133,6 +32,7 @@ type DiscordBot struct {
 	seq       int
 	seqMu     sync.Mutex
 
+	api          *discord.Client
 	client       *http.Client
 	stopCh       chan struct{}
 	interactions *discordInteractionState // P14.1: tracks pending component interactions
@@ -154,13 +54,15 @@ type DiscordBot struct {
 }
 
 func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
+	apiClient := discord.NewClient(cfg.Discord.BotToken)
 	db := &DiscordBot{
 		cfg:          cfg,
 		state:        state,
 		sem:          sem,
 		childSem:     childSem,
 		cron:         cron,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		api:          apiClient,
+		client:       apiClient.HTTPClient,
 		stopCh:       make(chan struct{}),
 		interactions:  newDiscordInteractionState(), // P14.1
 		threads:       newThreadBindingStore(),      // P14.2
@@ -441,7 +343,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 
 	// Direct channels respond to all messages; mention channels require @; DMs always accepted.
 	// For threads, inherit the parent channel's direct-channel status.
-	mentioned := discordIsMentioned(msg.Mentions, db.botUserID)
+	mentioned := discord.IsMentioned(msg.Mentions, db.botUserID)
 	isDM := msg.GuildID == ""
 	isDirect := db.isDirectChannel(msg.ChannelID)
 	if !isDirect && msg.GuildID != "" {
@@ -456,7 +358,7 @@ func (db *DiscordBot) handleMessage(msg discordMessage) {
 		return
 	}
 
-	text := discordStripMention(msg.Content, db.botUserID)
+	text := discord.StripMention(msg.Content, db.botUserID)
 	text = strings.TrimSpace(text)
 
 	// Download attachments and inject into prompt.
@@ -548,26 +450,6 @@ func downloadDiscordAttachment(baseDir string, att discordAttachment) (*upload.F
 	}
 	uploadDir := upload.InitDir(baseDir)
 	return upload.Save(uploadDir, att.Filename, resp.Body, att.Size, "discord")
-}
-
-// discordIsMentioned checks if the bot user ID appears in the mentions list.
-func discordIsMentioned(mentions []discordUser, botID string) bool {
-	for _, m := range mentions {
-		if m.ID == botID {
-			return true
-		}
-	}
-	return false
-}
-
-// discordStripMention removes bot mentions from content.
-func discordStripMention(content, botID string) string {
-	if botID == "" {
-		return content
-	}
-	content = strings.ReplaceAll(content, "<@"+botID+">", "")
-	content = strings.ReplaceAll(content, "<@!"+botID+">", "")
-	return strings.TrimSpace(content)
 }
 
 // --- Commands ---

@@ -1,16 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"sync"
-
-
 
 	"tetora/internal/log"
 )
@@ -72,31 +66,19 @@ func formatTokenCount(n int) string {
 // --- REST API Helpers ---
 
 func (db *DiscordBot) sendMessage(channelID, content string) {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]string{"content": content})
+	db.api.SendMessage(channelID, content)
 }
 
 func (db *DiscordBot) sendEmbed(channelID string, embed discordEmbed) {
-	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{"embeds": []discordEmbed{embed}})
+	db.api.SendEmbed(channelID, embed)
 }
 
 func (db *DiscordBot) sendEmbedReply(channelID, replyToID string, embed discordEmbed) {
-	payload := map[string]any{"embeds": []discordEmbed{embed}}
-	if replyToID != "" {
-		payload["message_reference"] = discordMessageRef{MessageID: replyToID, FailIfNotExists: false}
-	}
-	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), payload)
+	db.api.SendEmbedReply(channelID, replyToID, embed)
 }
 
 func (db *DiscordBot) sendTyping(channelID string) {
-	url := discordAPIBase + fmt.Sprintf("/channels/%s/typing", channelID)
-	req, _ := http.NewRequest("POST", url, nil)
-	if req != nil {
-		req.Header.Set("Authorization", "Bot "+db.cfg.Discord.BotToken)
-		db.client.Do(req)
-	}
+	db.api.SendTyping(channelID)
 }
 
 // --- P27.3: Discord Channel Notifier ---
@@ -162,7 +144,7 @@ func (db *DiscordBot) resolveThreadParent(threadID string) string {
 		return parentID
 	}
 	// Fallback: GET /channels/{threadID} and parse parent_id.
-	body, err := db.discordRequestWithResponse("GET", fmt.Sprintf("/channels/%s", threadID), nil)
+	body, err := db.api.Request("GET", fmt.Sprintf("/channels/%s", threadID), nil)
 	if err != nil {
 		log.Debug("resolveThreadParent API failed", "thread", threadID, "error", err)
 		// Cache negative result to avoid repeated API calls on failure.
@@ -213,148 +195,51 @@ func (db *DiscordBot) sendNotify(text string) {
 	db.sendMessage(ch, text)
 }
 
+// discordPost delegates to the api client (kept for callers in other files).
 func (db *DiscordBot) discordPost(path string, payload any) {
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest("POST", discordAPIBase+path, strings.NewReader(string(body)))
-	if err != nil {
-		log.Error("discord api request error", "error", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bot "+db.cfg.Discord.BotToken)
-	resp, err := db.client.Do(req)
-	if err != nil {
-		log.Error("discord api send failed", "error", err)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		log.Warn("discord api error", "status", resp.StatusCode, "body", string(b))
-	}
+	db.api.Post(path, payload)
 }
 
-// discordRequestWithResponse sends a Discord API request and returns the response body.
-// Supports any HTTP method (POST, PATCH, DELETE).
+// discordRequestWithResponse delegates to the api client (kept for callers in other files).
 func (db *DiscordBot) discordRequestWithResponse(method, path string, payload any) ([]byte, error) {
-	var bodyReader io.Reader
-	if payload != nil {
-		body, _ := json.Marshal(payload)
-		bodyReader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequest(method, discordAPIBase+path, bodyReader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bot "+db.cfg.Discord.BotToken)
-	resp, err := db.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	if resp.StatusCode >= 400 {
-		return respBody, fmt.Errorf("discord api %s %s: %d %s", method, path, resp.StatusCode, string(respBody))
-	}
-	return respBody, nil
+	return db.api.Request(method, path, payload)
 }
 
 // sendMessageReturningID sends a message and returns the message ID.
 func (db *DiscordBot) sendMessageReturningID(channelID, content string) (string, error) {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	body, err := db.discordRequestWithResponse("POST",
-		fmt.Sprintf("/channels/%s/messages", channelID),
-		map[string]string{"content": content})
-	if err != nil {
-		return "", err
-	}
-	var msg struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return "", err
-	}
-	return msg.ID, nil
+	return db.api.SendMessageReturningID(channelID, content)
 }
 
 // editMessage edits an existing Discord message.
 func (db *DiscordBot) editMessage(channelID, messageID, content string) error {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	_, err := db.discordRequestWithResponse("PATCH",
-		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID),
-		map[string]string{"content": content})
-	return err
+	return db.api.EditMessage(channelID, messageID, content)
 }
 
 // editMessageWithComponents edits an existing Discord message, replacing content and components.
 func (db *DiscordBot) editMessageWithComponents(channelID, messageID, content string, components []discordComponent) error {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	payload := map[string]any{"content": content}
-	if components != nil {
-		payload["components"] = components
-	} else {
-		payload["components"] = []discordComponent{} // clear components
-	}
-	_, err := db.discordRequestWithResponse("PATCH",
-		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID), payload)
-	return err
+	return db.api.EditMessageWithComponents(channelID, messageID, content, components)
 }
 
 // deleteMessage deletes a Discord message.
 func (db *DiscordBot) deleteMessage(channelID, messageID string) {
-	_, err := db.discordRequestWithResponse("DELETE",
-		fmt.Sprintf("/channels/%s/messages/%s", channelID, messageID), nil)
-	if err != nil {
-		log.Warn("discord delete message failed", "error", err)
-	}
+	db.api.DeleteMessage(channelID, messageID)
 }
 
 // --- P14.1: Discord Components v2 ---
 
 // sendMessageWithComponents sends a message with interactive components (buttons, selects, etc.).
 func (db *DiscordBot) sendMessageWithComponents(channelID, content string, components []discordComponent) {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{
-		"content":    content,
-		"components": components,
-	})
+	db.api.SendMessageWithComponents(channelID, content, components)
 }
 
 // sendMessageWithComponentsReturningID sends a message with components and returns the message ID.
 func (db *DiscordBot) sendMessageWithComponentsReturningID(channelID, content string, components []discordComponent) (string, error) {
-	if len(content) > 2000 {
-		content = content[:1997] + "..."
-	}
-	body, err := db.discordRequestWithResponse("POST",
-		fmt.Sprintf("/channels/%s/messages", channelID),
-		map[string]any{"content": content, "components": components})
-	if err != nil {
-		return "", err
-	}
-	var msg struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &msg); err != nil {
-		return "", err
-	}
-	return msg.ID, nil
+	return db.api.SendMessageWithComponentsReturningID(channelID, content, components)
 }
 
 // sendEmbedWithComponents sends an embed message with interactive components.
 func (db *DiscordBot) sendEmbedWithComponents(channelID string, embed discordEmbed, components []discordComponent) {
-	db.discordPost(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{
-		"embeds":     []discordEmbed{embed},
-		"components": components,
-	})
+	db.api.SendEmbedWithComponents(channelID, embed, components)
 }
 
 // --- P28.0: Discord Approval Gate ---

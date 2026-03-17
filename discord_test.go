@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"tetora/internal/discord"
 )
 
 // --- WebSocket Accept Key ---
@@ -22,19 +24,19 @@ func TestWsAcceptKey(t *testing.T) {
 func TestDiscordIsMentioned(t *testing.T) {
 	botID := "123456"
 	tests := []struct {
-		mentions []discordUser
+		mentions []discord.User
 		expected bool
 	}{
 		{nil, false},
-		{[]discordUser{}, false},
-		{[]discordUser{{ID: "999"}}, false},
-		{[]discordUser{{ID: "123456"}}, true},
-		{[]discordUser{{ID: "999"}, {ID: "123456"}}, true},
+		{[]discord.User{}, false},
+		{[]discord.User{{ID: "999"}}, false},
+		{[]discord.User{{ID: "123456"}}, true},
+		{[]discord.User{{ID: "999"}, {ID: "123456"}}, true},
 	}
 	for _, tt := range tests {
-		got := discordIsMentioned(tt.mentions, botID)
+		got := discord.IsMentioned(tt.mentions, botID)
 		if got != tt.expected {
-			t.Errorf("discordIsMentioned(%v, %q) = %v, want %v", tt.mentions, botID, got, tt.expected)
+			t.Errorf("discord.IsMentioned(%v, %q) = %v, want %v", tt.mentions, botID, got, tt.expected)
 		}
 	}
 }
@@ -55,15 +57,15 @@ func TestDiscordStripMention(t *testing.T) {
 		{"<@999> hello", "<@999> hello"},
 	}
 	for _, tt := range tests {
-		got := discordStripMention(tt.content, botID)
+		got := discord.StripMention(tt.content, botID)
 		if got != tt.expected {
-			t.Errorf("discordStripMention(%q, %q) = %q, want %q", tt.content, botID, got, tt.expected)
+			t.Errorf("discord.StripMention(%q, %q) = %q, want %q", tt.content, botID, got, tt.expected)
 		}
 	}
 }
 
 func TestDiscordStripMention_EmptyBotID(t *testing.T) {
-	got := discordStripMention("<@123> hello", "")
+	got := discord.StripMention("<@123> hello", "")
 	if got != "<@123> hello" {
 		t.Errorf("expected no change with empty botID, got %q", got)
 	}

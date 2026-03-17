@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tetora/internal/audit"
+	"tetora/internal/discord"
 	"tetora/internal/log"
 	"tetora/internal/trace"
 )
@@ -372,7 +373,7 @@ func (db *DiscordBot) handleThreadMessage(msg discordMessage, channelType int) b
 	isThread := isThreadChannel(channelType)
 
 	// Check for /focus and /unfocus commands (only in confirmed threads).
-	text := discordStripMention(msg.Content, db.botUserID)
+	text := discord.StripMention(msg.Content, db.botUserID)
 	text = strings.TrimSpace(text)
 
 	if isThread {
