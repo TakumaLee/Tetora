@@ -295,6 +295,7 @@ func cmdRestart() {
 // waitForHealthy polls /healthz for up to 10 seconds after a restart to confirm
 // the daemon is up. Prints version on success or a warning on timeout.
 func waitForHealthy() {
+	loadDotEnv()
 	cfg, err := tryLoadConfig("")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not load config: %v\n", err)

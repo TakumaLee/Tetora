@@ -203,6 +203,7 @@ func main() {
 	serve := flag.Bool("serve", false, "run as daemon (Telegram bot + HTTP + cron)")
 	flag.Parse()
 
+	loadDotEnv()
 	cfg := loadConfig(*configPath)
 
 	// P27.2: Set global encryption key for standalone functions.
@@ -743,10 +744,17 @@ func main() {
 			}
 		}
 
+		// Initialize voice engine (before Discord so bot can use STT).
+		var voiceEngine *VoiceEngine
+		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
+			voiceEngine = newVoiceEngine(cfg)
+			logInfo("voice engine initialized")
+		}
+
 		// Initialize Discord bot.
 		var discordBot *DiscordBot
 		if cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
-			discordBot = newDiscordBot(cfg, state, sem, childSem, cron)
+			discordBot = newDiscordBot(cfg, state, sem, childSem, cron, voiceEngine)
 			state.discordBot = discordBot // P14.1: store for interaction handler
 			cfg.discordBot = discordBot   // provider approval routing
 			logInfo("discord bot enabled")
@@ -780,13 +788,6 @@ func main() {
 		if cfg.WhatsApp.Enabled && cfg.WhatsApp.PhoneNumberID != "" && cfg.WhatsApp.AccessToken != "" {
 			whatsappBot = newWhatsAppBot(cfg, state, sem, childSem, cron)
 			logInfo("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
-		}
-
-		// Initialize voice engine.
-		var voiceEngine *VoiceEngine
-		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
-			voiceEngine = newVoiceEngine(cfg)
-			logInfo("voice engine initialized")
 		}
 
 		// Initialize agent communication DB.

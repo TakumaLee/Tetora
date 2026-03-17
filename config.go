@@ -1373,3 +1373,36 @@ func tryLoadConfigForVersioning(configPath string) *Config {
 	return &cfg
 }
 
+
+// loadDotEnv reads ~/.tetora/.env and sets any key=value pairs as environment
+// variables. Existing env vars are NOT overwritten (same semantics as dotenv).
+// Lines starting with # are ignored. Supports: KEY=value and export KEY=value.
+func loadDotEnv() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	envFile := filepath.Join(home, ".tetora", ".env")
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		return // .env is optional
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		v = strings.Trim(v, `"'`)
+		if k != "" && os.Getenv(k) == "" {
+			os.Setenv(k, v)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "INFO: loaded .env file=%s\n", envFile)
+}

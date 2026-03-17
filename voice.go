@@ -133,6 +133,91 @@ func (p *OpenAISTTProvider) Transcribe(ctx context.Context, audio io.Reader, opt
 	}, nil
 }
 
+// --- Groq STT Provider ---
+
+// GroqSTTProvider implements STT using Groq's Whisper-compatible API.
+// Groq offers OpenAI-compatible transcription endpoints at significantly lower cost
+// (~9x cheaper than OpenAI Whisper for the Large v3 Turbo model).
+type GroqSTTProvider struct {
+	apiKey string
+	model  string // default: "whisper-large-v3"
+}
+
+func (p *GroqSTTProvider) Name() string {
+	return "groq-stt"
+}
+
+func (p *GroqSTTProvider) Transcribe(ctx context.Context, audio io.Reader, opts STTOptions) (*STTResult, error) {
+	model := p.model
+	if model == "" {
+		model = "whisper-large-v3"
+	}
+
+	// Build multipart form data (Groq uses same format as OpenAI Whisper).
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+
+	format := opts.Format
+	if format == "" {
+		format = "ogg"
+	}
+	fw, err := mw.CreateFormFile("file", "audio."+format)
+	if err != nil {
+		return nil, fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := io.Copy(fw, audio); err != nil {
+		return nil, fmt.Errorf("copy audio: %w", err)
+	}
+	if err := mw.WriteField("model", model); err != nil {
+		return nil, fmt.Errorf("write model field: %w", err)
+	}
+	if opts.Language != "" {
+		if err := mw.WriteField("language", opts.Language); err != nil {
+			return nil, fmt.Errorf("write language field: %w", err)
+		}
+	}
+	if err := mw.WriteField("response_format", "json"); err != nil {
+		return nil, fmt.Errorf("write response_format field: %w", err)
+	}
+	if err := mw.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.groq.com/openai/v1/audio/transcriptions", &buf)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("groq stt api error: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Text     string  `json:"text"`
+		Language string  `json:"language,omitempty"`
+		Duration float64 `json:"duration,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &STTResult{
+		Text:     result.Text,
+		Language: result.Language,
+		Duration: result.Duration,
+	}, nil
+}
+
 // --- TTS (Text-to-Speech) Types ---
 
 // TTSProvider defines the interface for text-to-speech providers.
@@ -326,6 +411,16 @@ func newVoiceEngine(cfg *Config) *VoiceEngine {
 				endpoint: cfg.Voice.STT.Endpoint,
 				apiKey:   apiKey,
 				model:    cfg.Voice.STT.Model,
+			}
+			logInfo("voice stt initialized", "provider", provider, "model", cfg.Voice.STT.Model)
+		case "groq":
+			apiKey := cfg.Voice.STT.APIKey
+			if apiKey == "" {
+				logWarn("voice stt enabled but no apiKey configured for groq")
+			}
+			ve.stt = &GroqSTTProvider{
+				apiKey: apiKey,
+				model:  cfg.Voice.STT.Model,
 			}
 			logInfo("voice stt initialized", "provider", provider, "model", cfg.Voice.STT.Model)
 		default:
