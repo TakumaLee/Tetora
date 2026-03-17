@@ -8,6 +8,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Task Board Types ---
@@ -67,8 +70,8 @@ func newTaskBoardEngine(dbPath string, config TaskBoardConfig, webhooks []Webhoo
 
 // initTaskBoardSchema creates the tasks and task_comments tables if they don't exist.
 func (tb *TaskBoardEngine) initTaskBoardSchema() error {
-	if err := pragmaDB(tb.dbPath); err != nil {
-		return fmt.Errorf("init task board pragmaDB: %w", err)
+	if err := db.Pragma(tb.dbPath); err != nil {
+		return fmt.Errorf("init task board db.Pragma: %w", err)
 	}
 
 	schema := `
@@ -98,7 +101,7 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 	CREATE INDEX IF NOT EXISTS idx_task_comments_task_id ON task_comments(task_id);
 	`
-	if err := execDB(tb.dbPath, schema); err != nil {
+	if err := db.Exec(tb.dbPath, schema); err != nil {
 		return fmt.Errorf("init task board schema: %w", err)
 	}
 
@@ -118,7 +121,7 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 		"ALTER TABLE task_comments ADD COLUMN type TEXT DEFAULT 'log';",
 	}
 	for _, m := range commentMigrations {
-		execDB(tb.dbPath, m) // ignore duplicate column errors
+		db.Exec(tb.dbPath, m) // ignore duplicate column errors
 	}
 
 	// Index for parent-child lookups (ignore error if already exists).
@@ -126,10 +129,10 @@ func (tb *TaskBoardEngine) initTaskBoardSchema() error {
 		"CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);",
 	}
 	for _, m := range migrations {
-		execDB(tb.dbPath, m) // ignore duplicate column errors
+		db.Exec(tb.dbPath, m) // ignore duplicate column errors
 	}
 	for _, m := range postMigrations {
-		execDB(tb.dbPath, m)
+		db.Exec(tb.dbPath, m)
 	}
 
 	return nil
@@ -173,13 +176,13 @@ func (tb *TaskBoardEngine) ListTasksPaginated(status, assignee, project string, 
 
 	var whereClauses []string
 	if status != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("status = '%s'", escapeSQLite(status)))
+		whereClauses = append(whereClauses, fmt.Sprintf("status = '%s'", db.Escape(status)))
 	}
 	if assignee != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("assignee = '%s'", escapeSQLite(assignee)))
+		whereClauses = append(whereClauses, fmt.Sprintf("assignee = '%s'", db.Escape(assignee)))
 	}
 	if project != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("project = '%s'", escapeSQLite(project)))
+		whereClauses = append(whereClauses, fmt.Sprintf("project = '%s'", db.Escape(project)))
 	}
 
 	whereClause := ""
@@ -189,7 +192,7 @@ func (tb *TaskBoardEngine) ListTasksPaginated(status, assignee, project string, 
 
 	// Get total count.
 	countSQL := fmt.Sprintf("SELECT COUNT(*) as total FROM tasks %s", whereClause)
-	countRows, err := queryDB(tb.dbPath, countSQL)
+	countRows, err := db.Query(tb.dbPath, countSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +221,7 @@ func (tb *TaskBoardEngine) ListTasksPaginated(status, assignee, project string, 
 		LIMIT %d OFFSET %d
 	`, whereClause, limit, offset)
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -259,9 +262,9 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 	// Dedup guard: reject if same title exists in active state.
 	dupSQL := fmt.Sprintf(
 		`SELECT id, status FROM tasks WHERE title = '%s' AND status IN ('todo', 'backlog', 'doing', 'review')`,
-		escapeSQLite(task.Title),
+		db.Escape(task.Title),
 	)
-	dupRows, _ := queryDB(tb.dbPath, dupSQL)
+	dupRows, _ := db.Query(tb.dbPath, dupSQL)
 	if len(dupRows) > 0 {
 		existingID := fmt.Sprintf("%v", dupRows[0]["id"])
 		existingStatus := fmt.Sprintf("%v", dupRows[0]["status"])
@@ -284,24 +287,24 @@ func (tb *TaskBoardEngine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id)
 		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s')
 	`,
-		escapeSQLite(task.ID),
-		escapeSQLite(task.Project),
-		escapeSQLite(task.Title),
-		escapeSQLite(task.Description),
-		escapeSQLite(task.Status),
-		escapeSQLite(task.Assignee),
-		escapeSQLite(task.Priority),
-		escapeSQLite(task.Model),
-		escapeSQLite(string(dependsOnJSON)),
-		escapeSQLite(task.Type),
-		escapeSQLite(task.Workflow),
-		escapeSQLite(task.DiscordThread),
+		db.Escape(task.ID),
+		db.Escape(task.Project),
+		db.Escape(task.Title),
+		db.Escape(task.Description),
+		db.Escape(task.Status),
+		db.Escape(task.Assignee),
+		db.Escape(task.Priority),
+		db.Escape(task.Model),
+		db.Escape(string(dependsOnJSON)),
+		db.Escape(task.Type),
+		db.Escape(task.Workflow),
+		db.Escape(task.DiscordThread),
 		task.CreatedAt,
 		task.UpdatedAt,
-		escapeSQLite(task.ParentID),
+		db.Escape(task.ParentID),
 	)
 
-	if err := execDB(tb.dbPath, sql); err != nil {
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return TaskBoard{}, fmt.Errorf("create task: %w", err)
 	}
 
@@ -318,10 +321,10 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 	for key, val := range updates {
 		switch key {
 		case "title", "description", "priority", "assignee", "project", "discordThread", "model", "parentId", "workflow", "type", "workflowRunId":
-			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", toSnakeCase(key), escapeSQLite(fmt.Sprintf("%v", val))))
+			setClauses = append(setClauses, fmt.Sprintf("%s = '%s'", toSnakeCase(key), db.Escape(fmt.Sprintf("%v", val))))
 		case "dependsOn":
 			dependsOnJSON, _ := json.Marshal(val)
-			setClauses = append(setClauses, fmt.Sprintf("depends_on = '%s'", escapeSQLite(string(dependsOnJSON))))
+			setClauses = append(setClauses, fmt.Sprintf("depends_on = '%s'", db.Escape(string(dependsOnJSON))))
 		}
 	}
 
@@ -333,10 +336,10 @@ func (tb *TaskBoardEngine) UpdateTask(id string, updates map[string]any) (TaskBo
 
 	sql := fmt.Sprintf(`UPDATE tasks SET %s WHERE id = '%s'`,
 		strings.Join(setClauses, ", "),
-		escapeSQLite(id),
+		db.Escape(id),
 	)
 
-	if err := execDB(tb.dbPath, sql); err != nil {
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return TaskBoard{}, fmt.Errorf("update task: %w", err)
 	}
 
@@ -349,8 +352,8 @@ func (tb *TaskBoardEngine) DeleteTask(id string) error {
 	sql := fmt.Sprintf(`
 		DELETE FROM task_comments WHERE task_id = '%s';
 		DELETE FROM tasks WHERE id = '%s';
-	`, escapeSQLite(id), escapeSQLite(id))
-	if err := execDB(tb.dbPath, sql); err != nil {
+	`, db.Escape(id), db.Escape(id))
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
 	return nil
@@ -365,9 +368,9 @@ func (tb *TaskBoardEngine) GetTask(id string) (TaskBoard, error) {
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
 		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks WHERE id = '%s'
-	`, escapeSQLite(id))
+	`, db.Escape(id))
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return TaskBoard{}, err
 	}
@@ -394,9 +397,9 @@ func (tb *TaskBoardEngine) suggestTasks(id string) []TaskBoard {
 		FROM tasks WHERE id LIKE '%s%%'
 		ORDER BY created_at DESC
 		LIMIT 3
-	`, escapeSQLite(prefix))
+	`, db.Escape(prefix))
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -455,9 +458,9 @@ func (tb *TaskBoardEngine) MoveTask(id, newStatus string) (TaskBoard, error) {
 
 	sql := fmt.Sprintf(`
 		UPDATE tasks SET status = '%s', updated_at = '%s', completed_at = '%s' WHERE id = '%s'
-	`, escapeSQLite(newStatus), nowISO, completedAt, escapeSQLite(id))
+	`, db.Escape(newStatus), nowISO, completedAt, db.Escape(id))
 
-	if err := execDB(tb.dbPath, sql); err != nil {
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return TaskBoard{}, fmt.Errorf("move task: %w", err)
 	}
 
@@ -475,9 +478,9 @@ func (tb *TaskBoardEngine) MoveTask(id, newStatus string) (TaskBoard, error) {
 func (tb *TaskBoardEngine) AssignTask(id, assignee string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		UPDATE tasks SET assignee = '%s', updated_at = '%s' WHERE id = '%s'
-	`, escapeSQLite(assignee), time.Now().UTC().Format(time.RFC3339), escapeSQLite(id))
+	`, db.Escape(assignee), time.Now().UTC().Format(time.RFC3339), db.Escape(id))
 
-	if err := execDB(tb.dbPath, sql); err != nil {
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return TaskBoard{}, fmt.Errorf("assign task: %w", err)
 	}
 
@@ -512,15 +515,15 @@ func (tb *TaskBoardEngine) AddComment(taskID, author, content string, commentTyp
 		INSERT INTO task_comments (id, task_id, author, content, type, created_at)
 		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
 	`,
-		escapeSQLite(comment.ID),
-		escapeSQLite(comment.TaskID),
-		escapeSQLite(comment.Author),
-		escapeSQLite(comment.Content),
-		escapeSQLite(comment.Type),
+		db.Escape(comment.ID),
+		db.Escape(comment.TaskID),
+		db.Escape(comment.Author),
+		db.Escape(comment.Content),
+		db.Escape(comment.Type),
 		comment.CreatedAt,
 	)
 
-	if err := execDB(tb.dbPath, sql); err != nil {
+	if err := db.Exec(tb.dbPath, sql); err != nil {
 		return TaskComment{}, fmt.Errorf("add comment: %w", err)
 	}
 
@@ -541,9 +544,9 @@ func (tb *TaskBoardEngine) GetThread(taskID string) ([]TaskComment, error) {
 		WHERE task_id = '%s'
 		ORDER BY created_at ASC
 		LIMIT 100
-	`, escapeSQLite(taskID))
+	`, db.Escape(taskID))
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -575,7 +578,7 @@ func (tb *TaskBoardEngine) AutoRetryFailed() error {
 		SELECT id, retry_count FROM tasks WHERE status = 'failed' AND retry_count < %d
 	`, maxRetries)
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return err
 	}
@@ -603,16 +606,16 @@ func (tb *TaskBoardEngine) AutoRetryFailed() error {
 		updateSQL := fmt.Sprintf(`
 			UPDATE tasks SET status = 'todo', retry_count = %d, updated_at = '%s'
 			WHERE id = '%s' AND retry_count = %d
-		`, newRetry, time.Now().UTC().Format(time.RFC3339), escapeSQLite(id), currentRetry)
+		`, newRetry, time.Now().UTC().Format(time.RFC3339), db.Escape(id), currentRetry)
 
-		if err := execDB(tb.dbPath, updateSQL); err != nil {
+		if err := db.Exec(tb.dbPath, updateSQL); err != nil {
 			logWarn("auto retry failed task", "id", id, "error", err)
 			continue
 		}
 
 		// Verify CAS succeeded (sqlite3 CLI doesn't return affected rows).
-		verifyRows, _ := queryDB(tb.dbPath, fmt.Sprintf(
-			`SELECT retry_count FROM tasks WHERE id = '%s'`, escapeSQLite(id)))
+		verifyRows, _ := db.Query(tb.dbPath, fmt.Sprintf(
+			`SELECT retry_count FROM tasks WHERE id = '%s'`, db.Escape(id)))
 		if len(verifyRows) > 0 && int(getFloat64(verifyRows[0], "retry_count")) == newRetry {
 			logInfo("auto retried failed task", "id", id, "retryCount", newRetry)
 		}
@@ -737,9 +740,9 @@ func (tb *TaskBoardEngine) ListChildren(parentID string) ([]TaskBoard, error) {
 		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
-	`, escapeSQLite(parentID))
+	`, db.Escape(parentID))
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -849,7 +852,7 @@ func (tb *TaskBoardEngine) GetBoardView(f BoardFilter) (*BoardView, error) {
 		{"workflow", f.Workflow},
 	} {
 		if pair.val != "" {
-			whereClauses = append(whereClauses, fmt.Sprintf("%s = '%s'", pair.col, escapeSQLite(pair.val)))
+			whereClauses = append(whereClauses, fmt.Sprintf("%s = '%s'", pair.col, db.Escape(pair.val)))
 		}
 	}
 
@@ -884,7 +887,7 @@ func (tb *TaskBoardEngine) GetBoardView(f BoardFilter) (*BoardView, error) {
 		LIMIT 500
 	`, whereClause)
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -957,9 +960,9 @@ func (tb *TaskBoardEngine) GetProjectStats(projectID string) (*ProjectStats, err
 		FROM tasks
 		WHERE project = '%s'
 		GROUP BY status
-	`, escapeSQLite(projectID))
+	`, db.Escape(projectID))
 
-	rows, err := queryDB(tb.dbPath, sql)
+	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return nil, err
 	}

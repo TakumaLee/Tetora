@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+
+	"tetora/internal/db"
 )
 
 func TestTimeTracking_InitDB(t *testing.T) {
@@ -15,7 +18,7 @@ func TestTimeTracking_InitDB(t *testing.T) {
 	}
 
 	// Verify table exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='time_entries';")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='time_entries';")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -103,7 +106,7 @@ func TestTimeTracking_AutoStop(t *testing.T) {
 	}
 
 	// Verify first is stopped.
-	rows, _ := queryDB(dbPath, "SELECT end_time FROM time_entries WHERE id = '"+first.ID+"';")
+	rows, _ := db.Query(dbPath, "SELECT end_time FROM time_entries WHERE id = '"+first.ID+"';")
 	if len(rows) == 0 {
 		t.Fatal("first entry not found")
 	}

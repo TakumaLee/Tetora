@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Queue Item ---
@@ -67,12 +70,12 @@ func enqueueTask(dbPath string, task Task, agentName string, priority int) error
 	sql := fmt.Sprintf(
 		`INSERT INTO offline_queue (task_json, agent, source, priority, status, retry_count, created_at, updated_at)
 		 VALUES ('%s','%s','%s',%d,'pending',0,'%s','%s')`,
-		escapeSQLite(string(taskBytes)),
-		escapeSQLite(agentName),
-		escapeSQLite(task.Source),
+		db.Escape(string(taskBytes)),
+		db.Escape(agentName),
+		db.Escape(task.Source),
 		priority,
-		escapeSQLite(now),
-		escapeSQLite(now),
+		db.Escape(now),
+		db.Escape(now),
 	)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -97,7 +100,7 @@ func dequeueNext(dbPath string) *QueueItem {
 		ORDER BY priority DESC, id ASC
 		LIMIT 1`
 
-	rows, err := queryDB(dbPath, selectSQL)
+	rows, err := db.Query(dbPath, selectSQL)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -108,7 +111,7 @@ func dequeueNext(dbPath string) *QueueItem {
 	now := time.Now().Format(time.RFC3339)
 	updateSQL := fmt.Sprintf(
 		`UPDATE offline_queue SET status = 'processing', updated_at = '%s' WHERE id = %d AND status = 'pending'`,
-		escapeSQLite(now), item.ID)
+		db.Escape(now), item.ID)
 	cmd := exec.Command("sqlite3", dbPath, updateSQL)
 	if _, err := cmd.CombinedOutput(); err != nil {
 		return nil
@@ -128,7 +131,7 @@ func queryQueue(dbPath, status string) []QueueItem {
 
 	where := ""
 	if status != "" {
-		where = fmt.Sprintf("WHERE status = '%s'", escapeSQLite(status))
+		where = fmt.Sprintf("WHERE status = '%s'", db.Escape(status))
 	}
 
 	sql := fmt.Sprintf(
@@ -136,7 +139,7 @@ func queryQueue(dbPath, status string) []QueueItem {
 		 FROM offline_queue %s
 		 ORDER BY priority DESC, id ASC`, where)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil
 	}
@@ -156,7 +159,7 @@ func queryQueueItem(dbPath string, id int) *QueueItem {
 	sql := fmt.Sprintf(
 		`SELECT id, task_json, agent, source, priority, status, retry_count, created_at, updated_at, error
 		 FROM offline_queue WHERE id = %d`, id)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -174,7 +177,7 @@ func updateQueueStatus(dbPath string, id int, status, errMsg string) {
 	now := time.Now().Format(time.RFC3339)
 	sql := fmt.Sprintf(
 		`UPDATE offline_queue SET status = '%s', error = '%s', updated_at = '%s' WHERE id = %d`,
-		escapeSQLite(status), escapeSQLite(errMsg), escapeSQLite(now), id)
+		db.Escape(status), db.Escape(errMsg), db.Escape(now), id)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	cmd.CombinedOutput()
 }
@@ -187,7 +190,7 @@ func incrementQueueRetry(dbPath string, id int, status, errMsg string) {
 	now := time.Now().Format(time.RFC3339)
 	sql := fmt.Sprintf(
 		`UPDATE offline_queue SET status = '%s', error = '%s', retry_count = retry_count + 1, updated_at = '%s' WHERE id = %d`,
-		escapeSQLite(status), escapeSQLite(errMsg), escapeSQLite(now), id)
+		db.Escape(status), db.Escape(errMsg), db.Escape(now), id)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	cmd.CombinedOutput()
 }
@@ -222,8 +225,8 @@ func cleanupExpiredQueue(dbPath string, ttl time.Duration) int {
 	// Count before updating.
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM offline_queue WHERE status = 'pending' AND created_at < '%s'`,
-		escapeSQLite(cutoff))
-	rows, err := queryDB(dbPath, countSQL)
+		db.Escape(cutoff))
+	rows, err := db.Query(dbPath, countSQL)
 	if err != nil || len(rows) == 0 {
 		return 0
 	}
@@ -236,7 +239,7 @@ func cleanupExpiredQueue(dbPath string, ttl time.Duration) int {
 	updateSQL := fmt.Sprintf(
 		`UPDATE offline_queue SET status = 'expired', error = 'TTL exceeded', updated_at = '%s'
 		 WHERE status = 'pending' AND created_at < '%s'`,
-		escapeSQLite(now), escapeSQLite(cutoff))
+		db.Escape(now), db.Escape(cutoff))
 	cmd := exec.Command("sqlite3", dbPath, updateSQL)
 	cmd.CombinedOutput()
 
@@ -260,7 +263,7 @@ func countPendingQueue(dbPath string) int {
 	if dbPath == "" {
 		return 0
 	}
-	rows, err := queryDB(dbPath, `SELECT COUNT(*) as cnt FROM offline_queue WHERE status IN ('pending','processing')`)
+	rows, err := db.Query(dbPath, `SELECT COUNT(*) as cnt FROM offline_queue WHERE status IN ('pending','processing')`)
 	if err != nil || len(rows) == 0 {
 		return 0
 	}

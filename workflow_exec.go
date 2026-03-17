@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Workflow Run Types ---
@@ -702,9 +705,9 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 	}
 
 	// Mark original run as "resumed".
-	if _, err := queryDB(cfg.HistoryDB, fmt.Sprintf(
+	if _, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 		`UPDATE workflow_runs SET status='resumed', error='resumed as %s' WHERE id='%s'`,
-		escapeSQLite(runID), escapeSQLite(originalRunID),
+		db.Escape(runID), db.Escape(originalRunID),
 	)); err != nil {
 		logWarn("resumeWorkflow: failed to mark original as resumed", "error", err)
 	}
@@ -1660,11 +1663,11 @@ func initWorkflowRunsTable(dbPath string) {
 	if dbPath == "" {
 		return
 	}
-	if _, err := queryDB(dbPath, workflowRunsTableSQL); err != nil {
+	if _, err := db.Query(dbPath, workflowRunsTableSQL); err != nil {
 		logWarn("init workflow_runs table failed", "error", err)
 	}
 	// Migration: add resumed_from column (no-op if column already exists).
-	if _, err := queryDB(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
+	if _, err := db.Query(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			logWarn("migration: add resumed_from column failed", "error", err)
 		}
@@ -1683,21 +1686,21 @@ func recordWorkflowRun(dbPath string, run *WorkflowRun) {
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO workflow_runs (id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, created_at, resumed_from)
 		 VALUES ('%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s')`,
-		escapeSQLite(run.ID),
-		escapeSQLite(run.WorkflowName),
-		escapeSQLite(run.Status),
-		escapeSQLite(run.StartedAt),
-		escapeSQLite(run.FinishedAt),
+		db.Escape(run.ID),
+		db.Escape(run.WorkflowName),
+		db.Escape(run.Status),
+		db.Escape(run.StartedAt),
+		db.Escape(run.FinishedAt),
 		run.DurationMs,
 		run.TotalCost,
-		escapeSQLite(string(varsJSON)),
-		escapeSQLite(string(stepsJSON)),
-		escapeSQLite(run.Error),
-		escapeSQLite(run.StartedAt),
-		escapeSQLite(run.ResumedFrom),
+		db.Escape(string(varsJSON)),
+		db.Escape(string(stepsJSON)),
+		db.Escape(run.Error),
+		db.Escape(run.StartedAt),
+		db.Escape(run.ResumedFrom),
 	)
 
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("record workflow run failed", "error", err)
 	}
 }
@@ -1710,7 +1713,7 @@ func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]Workflo
 
 	where := ""
 	if workflowName != "" {
-		where = fmt.Sprintf("WHERE workflow_name='%s'", escapeSQLite(workflowName))
+		where = fmt.Sprintf("WHERE workflow_name='%s'", db.Escape(workflowName))
 	}
 
 	sql := fmt.Sprintf(
@@ -1719,7 +1722,7 @@ func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]Workflo
 		where, limit,
 	)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		// Table might not exist yet.
 		if strings.Contains(err.Error(), "no such table") {
@@ -1760,10 +1763,10 @@ func queryWorkflowRunByID(dbPath, id string) (*WorkflowRun, error) {
 	sql := fmt.Sprintf(
 		`SELECT id, workflow_name, status, started_at, finished_at, duration_ms, total_cost, variables, step_results, error, COALESCE(resumed_from,'') as resumed_from
 		 FROM workflow_runs WHERE id='%s'`,
-		escapeSQLite(id),
+		db.Escape(id),
 	)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, fmt.Errorf("workflow run %q not found", id)

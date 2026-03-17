@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+
+
+	"tetora/internal/db"
 )
 
 // --- CompactionConfig Defaults Tests ---
@@ -142,13 +145,13 @@ func TestCountSessionMessages(t *testing.T) {
 	// Insert test session.
 	sessionID := "test-session-1"
 	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
-	queryDB(dbPath, sql)
+	db.Query(dbPath, sql)
 
 	// Insert messages.
 	for i := 1; i <= 5; i++ {
 		sql := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'user', 'Message %d', datetime('now'))",
 			sessionID, i)
-		queryDB(dbPath, sql)
+		db.Query(dbPath, sql)
 	}
 
 	cfg := &Config{HistoryDB: dbPath}
@@ -175,13 +178,13 @@ func TestGetOldestMessages(t *testing.T) {
 
 	sessionID := "test-session-2"
 	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
-	queryDB(dbPath, sql)
+	db.Query(dbPath, sql)
 
 	// Insert 10 messages.
 	for i := 1; i <= 10; i++ {
 		sql := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'user', 'Message %d', datetime('now', '+%d seconds'))",
 			sessionID, i, i)
-		queryDB(dbPath, sql)
+		db.Query(dbPath, sql)
 	}
 
 	cfg := &Config{HistoryDB: dbPath}
@@ -217,13 +220,13 @@ func TestReplaceWithSummary(t *testing.T) {
 
 	sessionID := "test-session-3"
 	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
-	queryDB(dbPath, sql)
+	db.Query(dbPath, sql)
 
 	// Insert 5 messages.
 	for i := 1; i <= 5; i++ {
 		sql := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'user', 'Message %d', datetime('now'))",
 			sessionID, i)
-		queryDB(dbPath, sql)
+		db.Query(dbPath, sql)
 	}
 
 	cfg := &Config{HistoryDB: dbPath}
@@ -250,8 +253,8 @@ func TestReplaceWithSummary(t *testing.T) {
 
 	// Check that summary exists.
 	sql = fmt.Sprintf("SELECT content FROM session_messages WHERE session_id = '%s' AND role = 'system' ORDER BY id ASC LIMIT 1",
-		escapeSQLite(sessionID))
-	rows, err := queryDB(dbPath, sql)
+		db.Escape(sessionID))
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -283,7 +286,7 @@ func TestSessionExists(t *testing.T) {
 	// Create session.
 	sessionID := "test-session-exists"
 	sql := fmt.Sprintf("INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'test', 'active', 'Test', datetime('now'), datetime('now'))", sessionID)
-	queryDB(dbPath, sql)
+	db.Query(dbPath, sql)
 
 	// Should exist now.
 	if !sessionExists(cfg, sessionID) {

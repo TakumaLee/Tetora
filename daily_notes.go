@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- P17.3a: Daily Notes ---
@@ -27,9 +30,9 @@ func generateDailyNote(cfg *Config, date time.Time) (string, error) {
 		FROM history
 		WHERE started_at >= '%s' AND started_at < '%s'
 		ORDER BY started_at
-	`, escapeSQLite(startOfDay), escapeSQLite(endOfDay))
+	`, db.Escape(startOfDay), db.Escape(endOfDay))
 
-	rows, err := queryDB(cfg.HistoryDB, sql)
+	rows, err := db.Query(cfg.HistoryDB, sql)
 	if err != nil {
 		return "", fmt.Errorf("query history: %w", err)
 	}

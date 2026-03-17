@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Test Helpers ---
@@ -47,7 +50,7 @@ func TestInitGoalsDB(t *testing.T) {
 	}
 
 	// Verify table exists by running a query.
-	rows, err := queryDB(dbPath, "SELECT COUNT(*) as cnt FROM goals;")
+	rows, err := db.Query(dbPath, "SELECT COUNT(*) as cnt FROM goals;")
 	if err != nil {
 		t.Fatalf("query after init: %v", err)
 	}
@@ -490,8 +493,8 @@ func TestGetStaleGoals(t *testing.T) {
 	oldDate := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
 	svc.UpdateGoal(goal.ID, map[string]any{"title": "Old goal"}) // just to have a valid update
 	// Force the updated_at to be old via direct SQL.
-	forceSQL := "UPDATE goals SET updated_at = '" + escapeSQLite(oldDate) + "' WHERE id = '" + escapeSQLite(goal.ID) + "';"
-	queryDB(dbPath, forceSQL)
+	forceSQL := "UPDATE goals SET updated_at = '" + db.Escape(oldDate) + "' WHERE id = '" + db.Escape(goal.ID) + "';"
+	db.Query(dbPath, forceSQL)
 
 	// Create a fresh goal.
 	svc.CreateGoal(newUUID(), "user1", "Fresh goal", "", "", "", newUUID)
@@ -529,8 +532,8 @@ func TestGetStaleGoals_ExcludesCompleted(t *testing.T) {
 	goal, _ := svc.CreateGoal(newUUID(), "user1", "Old completed", "", "", "", newUUID)
 	oldDate := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
 	svc.UpdateGoal(goal.ID, map[string]any{"status": "completed"})
-	forceSQL := "UPDATE goals SET updated_at = '" + escapeSQLite(oldDate) + "' WHERE id = '" + escapeSQLite(goal.ID) + "';"
-	queryDB(svc.DBPath(), forceSQL)
+	forceSQL := "UPDATE goals SET updated_at = '" + db.Escape(oldDate) + "' WHERE id = '" + db.Escape(goal.ID) + "';"
+	db.Query(svc.DBPath(), forceSQL)
 
 	stale, err := svc.GetStaleGoals("user1", 14)
 	if err != nil {

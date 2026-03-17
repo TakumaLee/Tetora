@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 
+	"tetora/internal/db"
 	"tetora/internal/scheduling"
 )
 
@@ -23,7 +24,7 @@ func newBackupScheduler(cfg *Config) *BackupScheduler {
 		DBPath:     cfg.HistoryDB,
 		BackupDir:  cfg.Ops.BackupDirResolved(cfg.BaseDir),
 		RetainDays: cfg.Ops.BackupRetainOrDefault(),
-		EscapeSQL:  escapeSQLite,
+		EscapeSQL:  db.Escape,
 		LogInfo:    logInfo,
 		LogWarn:    logWarn,
 	}

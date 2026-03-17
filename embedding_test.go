@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Cosine Similarity ---
@@ -803,7 +806,7 @@ func TestStoreEmbedding_Dedup(t *testing.T) {
 	}
 
 	// Should only have 1 row.
-	rows, err := queryDB(dbPath, "SELECT COUNT(*) as cnt FROM embeddings WHERE source_id='dup1'")
+	rows, err := db.Query(dbPath, "SELECT COUNT(*) as cnt FROM embeddings WHERE source_id='dup1'")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func TestBackupScheduler_RunBackup(t *testing.T) {
@@ -62,7 +65,7 @@ func TestBackupScheduler_RunBackup(t *testing.T) {
 	}
 
 	// Verify backup was logged.
-	rows, err := queryDB(dbPath, "SELECT filename, status FROM backup_log ORDER BY id DESC LIMIT 1")
+	rows, err := db.Query(dbPath, "SELECT filename, status FROM backup_log ORDER BY id DESC LIMIT 1")
 	if err != nil {
 		t.Fatalf("query backup_log failed: %v", err)
 	}

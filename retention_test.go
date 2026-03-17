@@ -9,6 +9,9 @@ import (
 	"regexp"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- retentionDays ---
@@ -196,7 +199,7 @@ func insertTestRow(t *testing.T, dbPath, sql string) {
 
 func countRows(t *testing.T, dbPath, table string) int {
 	t.Helper()
-	rows, err := queryDB(dbPath, fmt.Sprintf("SELECT COUNT(*) as cnt FROM %s", table))
+	rows, err := db.Query(dbPath, fmt.Sprintf("SELECT COUNT(*) as cnt FROM %s", table))
 	if err != nil || len(rows) == 0 {
 		return 0
 	}

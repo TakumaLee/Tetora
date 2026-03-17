@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Dev↔QA Loop ---
@@ -362,8 +365,8 @@ func (d *TaskBoardDispatcher) idleAnalysis() {
 		AND completed_at > '%s'
 		AND project != '' AND project != 'default'
 		LIMIT 3
-	`, escapeSQLite(cutoff7d))
-	projectRows, err := queryDB(d.engine.dbPath, projectSQL)
+	`, db.Escape(cutoff7d))
+	projectRows, err := db.Query(d.engine.dbPath, projectSQL)
 	if err != nil || len(projectRows) == 0 {
 		return
 	}
@@ -379,8 +382,8 @@ func (d *TaskBoardDispatcher) idleAnalysis() {
 			WHERE content LIKE '%%[idle-analysis]%%'
 			AND created_at > '%s'
 			AND task_id IN (SELECT id FROM tasks WHERE project = '%s')
-		`, escapeSQLite(cutoff24h), escapeSQLite(projectID))
-		cooldownRows, err := queryDB(d.engine.dbPath, cooldownSQL)
+		`, db.Escape(cutoff24h), db.Escape(projectID))
+		cooldownRows, err := db.Query(d.engine.dbPath, cooldownSQL)
 		if err == nil && len(cooldownRows) > 0 && getFloat64(cooldownRows[0], "cnt") > 0 {
 			logDebug("idleAnalysis: 24h cooldown active", "project", projectID)
 			continue
@@ -397,8 +400,8 @@ func (d *TaskBoardDispatcher) runIdleAnalysisForProject(projectID string) {
 		SELECT id, title, status FROM tasks
 		WHERE project = '%s' AND status IN ('done','failed')
 		ORDER BY completed_at DESC LIMIT 10
-	`, escapeSQLite(projectID))
-	recentRows, err := queryDB(d.engine.dbPath, recentSQL)
+	`, db.Escape(projectID))
+	recentRows, err := db.Query(d.engine.dbPath, recentSQL)
 	if err != nil || len(recentRows) == 0 {
 		return
 	}

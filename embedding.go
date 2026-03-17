@@ -15,6 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Embedding helpers ---
@@ -53,18 +56,18 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_source ON embeddings(source);
 CREATE INDEX IF NOT EXISTS idx_embeddings_source_id ON embeddings(source, source_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash);
 `
-	_, err := queryDB(dbPath, schema)
+	_, err := db.Query(dbPath, schema)
 	if err != nil {
 		return err
 	}
 	// Migration: add content_hash column if missing (tolerate "duplicate column" error).
-	if _, err := queryDB(dbPath, `ALTER TABLE embeddings ADD COLUMN content_hash TEXT DEFAULT ''`); err != nil {
+	if _, err := db.Query(dbPath, `ALTER TABLE embeddings ADD COLUMN content_hash TEXT DEFAULT ''`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			logWarn("embedding migration: add content_hash", "error", err)
 		}
 	}
 	// Migration: add dedup index if missing.
-	if _, err := queryDB(dbPath, `CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash)`); err != nil {
+	if _, err := db.Query(dbPath, `CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_dedup ON embeddings(source, source_id, content_hash)`); err != nil {
 		logWarn("embedding migration: add dedup index", "error", err)
 	}
 	return nil
@@ -258,11 +261,11 @@ func storeEmbedding(dbPath string, source, sourceID, content string, vec []float
 
 	query := fmt.Sprintf(`INSERT OR REPLACE INTO embeddings (source, source_id, content, embedding, metadata, created_at, content_hash)
 VALUES ('%s', '%s', '%s', %s, '%s', '%s', '%s')`,
-		escapeSQLite(source), escapeSQLite(sourceID), escapeSQLite(content),
-		blobHex, escapeSQLite(metaJSON), escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
-		escapeSQLite(contentHash))
+		db.Escape(source), db.Escape(sourceID), db.Escape(content),
+		blobHex, db.Escape(metaJSON), db.Escape(time.Now().UTC().Format(time.RFC3339)),
+		db.Escape(contentHash))
 
-	_, err := queryDB(dbPath, query)
+	_, err := db.Query(dbPath, query)
 	if err != nil {
 		return err
 	}
@@ -291,10 +294,10 @@ type embeddingRecord struct {
 func loadEmbeddings(dbPath, source string) ([]embeddingRecord, error) {
 	query := `SELECT id, source, source_id, content, embedding, metadata, created_at FROM embeddings`
 	if source != "" {
-		query += ` WHERE source = '` + escapeSQLite(source) + `'`
+		query += ` WHERE source = '` + db.Escape(source) + `'`
 	}
 
-	rows, err := queryDB(dbPath, query)
+	rows, err := db.Query(dbPath, query)
 	if err != nil {
 		return nil, fmt.Errorf("query embeddings: %w", err)
 	}
@@ -706,7 +709,7 @@ func reindexAll(ctx context.Context, cfg *Config) error {
 	dbPath := cfg.HistoryDB
 
 	// Clear existing embeddings.
-	_, err := queryDB(dbPath, "DELETE FROM embeddings")
+	_, err := db.Query(dbPath, "DELETE FROM embeddings")
 	if err != nil {
 		return fmt.Errorf("clear embeddings: %w", err)
 	}
@@ -826,7 +829,7 @@ func embeddingStatus(dbPath string) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
 	// Count total embeddings
-	rows, err := queryDB(dbPath, "SELECT COUNT(*) as cnt FROM embeddings")
+	rows, err := db.Query(dbPath, "SELECT COUNT(*) as cnt FROM embeddings")
 	if err != nil {
 		return nil, err
 	}
@@ -839,7 +842,7 @@ func embeddingStatus(dbPath string) (map[string]interface{}, error) {
 	stats["total"] = total
 
 	// Count by source
-	rows, err = queryDB(dbPath, "SELECT source, COUNT(*) as cnt FROM embeddings GROUP BY source")
+	rows, err = db.Query(dbPath, "SELECT source, COUNT(*) as cnt FROM embeddings GROUP BY source")
 	if err != nil {
 		return nil, err
 	}

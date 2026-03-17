@@ -15,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Section A: Types ---
@@ -824,10 +827,10 @@ func initCallbackTable(dbPath string) {
 	if dbPath == "" {
 		return
 	}
-	if _, err := queryDB(dbPath, callbackTableSQL); err != nil {
+	if _, err := db.Query(dbPath, callbackTableSQL); err != nil {
 		logWarn("init workflow_callbacks table failed", "error", err)
 	}
-	if _, err := queryDB(dbPath, callbackStreamTableSQL); err != nil {
+	if _, err := db.Query(dbPath, callbackStreamTableSQL); err != nil {
 		logWarn("init workflow_callback_stream table failed", "error", err)
 	}
 }
@@ -839,11 +842,11 @@ func recordPendingCallback(dbPath, key, runID, stepID, mode, authMode, url, body
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO workflow_callbacks (key, run_id, step_id, mode, auth_mode, url, body, status, timeout_at, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','waiting','%s',datetime('now'))`,
-		escapeSQLite(key), escapeSQLite(runID), escapeSQLite(stepID),
-		escapeSQLite(mode), escapeSQLite(authMode),
-		escapeSQLite(url), escapeSQLite(body), escapeSQLite(timeoutAt),
+		db.Escape(key), db.Escape(runID), db.Escape(stepID),
+		db.Escape(mode), db.Escape(authMode),
+		db.Escape(url), db.Escape(body), db.Escape(timeoutAt),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("record pending callback failed", "error", err, "key", key)
 	}
 }
@@ -856,9 +859,9 @@ func queryPendingCallbackByKey(dbPath, key string) *CallbackRecord {
 	sql := fmt.Sprintf(
 		`SELECT key, run_id, step_id, mode, auth_mode, url, body, status, timeout_at, post_sent, seq, result_body
 		 FROM workflow_callbacks WHERE key='%s' LIMIT 1`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -873,9 +876,9 @@ func queryPendingCallback(dbPath, key string) *CallbackRecord {
 	sql := fmt.Sprintf(
 		`SELECT key, run_id, step_id, mode, auth_mode, url, body, status, timeout_at, post_sent, seq, result_body
 		 FROM workflow_callbacks WHERE key='%s' AND status='waiting' LIMIT 1`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
@@ -890,9 +893,9 @@ func queryPendingCallbacksByRun(dbPath, runID string) []*CallbackRecord {
 	sql := fmt.Sprintf(
 		`SELECT key, run_id, step_id, mode, auth_mode, url, body, status, timeout_at, post_sent, seq, result_body
 		 FROM workflow_callbacks WHERE run_id='%s' AND status='waiting'`,
-		escapeSQLite(runID),
+		db.Escape(runID),
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil
 	}
@@ -945,9 +948,9 @@ func markPostSent(dbPath, key string) {
 	}
 	sql := fmt.Sprintf(
 		`UPDATE workflow_callbacks SET post_sent=1 WHERE key='%s'`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("mark post sent failed", "error", err, "key", key)
 	}
 }
@@ -959,10 +962,10 @@ func markCallbackDelivered(dbPath, key string, seq int, result CallbackResult) {
 	sql := fmt.Sprintf(
 		`UPDATE workflow_callbacks SET status='delivered', seq=%d, result_body='%s', result_status=%d, result_content_type='%s', delivered_at=datetime('now')
 		 WHERE key='%s'`,
-		seq, escapeSQLite(result.Body), result.Status, escapeSQLite(result.ContentType),
-		escapeSQLite(key),
+		seq, db.Escape(result.Body), result.Status, db.Escape(result.ContentType),
+		db.Escape(key),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("mark callback delivered failed", "error", err, "key", key)
 	}
 }
@@ -974,9 +977,9 @@ func updateCallbackRunID(dbPath, key, newRunID string) {
 	}
 	sql := fmt.Sprintf(
 		`UPDATE workflow_callbacks SET run_id='%s' WHERE key='%s'`,
-		escapeSQLite(newRunID), escapeSQLite(key),
+		db.Escape(newRunID), db.Escape(key),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("update callback run_id failed", "error", err, "key", key)
 	}
 }
@@ -987,9 +990,9 @@ func resetCallbackRecord(dbPath, key string) {
 	}
 	sql := fmt.Sprintf(
 		`UPDATE workflow_callbacks SET status='waiting', post_sent=0, seq=0, result_body=NULL, delivered_at=NULL WHERE key='%s'`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("reset callback record failed", "error", err, "key", key)
 	}
 }
@@ -1000,9 +1003,9 @@ func isCallbackDelivered(dbPath, key string, seq int) bool {
 	}
 	sql := fmt.Sprintf(
 		`SELECT 1 FROM workflow_callbacks WHERE key='%s' AND status='delivered' AND seq>=%d LIMIT 1`,
-		escapeSQLite(key), seq,
+		db.Escape(key), seq,
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return false
 	}
@@ -1015,9 +1018,9 @@ func clearPendingCallback(dbPath, key string) {
 	}
 	sql := fmt.Sprintf(
 		`UPDATE workflow_callbacks SET status='completed' WHERE key='%s'`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("clear pending callback failed", "error", err, "key", key)
 	}
 }
@@ -1030,10 +1033,10 @@ func appendStreamingCallback(dbPath, key string, seq int, result CallbackResult)
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO workflow_callback_stream (key, seq, body, content_type, recv_at)
 		 VALUES ('%s', %d, '%s', '%s', '%s')`,
-		escapeSQLite(key), seq, escapeSQLite(result.Body),
-		escapeSQLite(result.ContentType), escapeSQLite(result.RecvAt),
+		db.Escape(key), seq, db.Escape(result.Body),
+		db.Escape(result.ContentType), db.Escape(result.RecvAt),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("append streaming callback failed", "error", err, "key", key, "seq", seq)
 	}
 }
@@ -1045,9 +1048,9 @@ func queryStreamingCallbacks(dbPath, key string) []CallbackResult {
 	}
 	sql := fmt.Sprintf(
 		`SELECT body, content_type, recv_at FROM workflow_callback_stream WHERE key='%s' ORDER BY seq`,
-		escapeSQLite(key),
+		db.Escape(key),
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil
 	}
@@ -1070,7 +1073,7 @@ func cleanupExpiredCallbacks(dbPath string) {
 	// Mark expired waiting callbacks as timeout.
 	sql := `UPDATE workflow_callbacks SET status='timeout'
 		WHERE status='waiting' AND timeout_at != '' AND timeout_at < datetime('now')`
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("cleanup expired callbacks failed", "error", err)
 	}
 
@@ -1079,7 +1082,7 @@ func cleanupExpiredCallbacks(dbPath string) {
 		SELECT key FROM workflow_callbacks WHERE status IN ('completed','delivered','timeout')
 		AND created_at < datetime('now', '-7 days')
 	)`
-	if _, err := queryDB(dbPath, sql2); err != nil {
+	if _, err := db.Query(dbPath, sql2); err != nil {
 		logWarn("cleanup old streaming records failed", "error", err)
 	}
 }
@@ -1101,7 +1104,7 @@ func recoverPendingWorkflows(cfg *Config, state *dispatchState, sem, childSem ch
 
 	// Find all unique run IDs with waiting callbacks.
 	sql := `SELECT DISTINCT run_id FROM workflow_callbacks WHERE status='waiting'`
-	rows, err := queryDB(cfg.HistoryDB, sql)
+	rows, err := db.Query(cfg.HistoryDB, sql)
 	if err != nil || len(rows) == 0 {
 		return
 	}
@@ -1139,9 +1142,9 @@ func recoverPendingWorkflows(cfg *Config, state *dispatchState, sem, childSem ch
 		markRunSuperseded := func(oldRunID string) {
 			sql := fmt.Sprintf(
 				`UPDATE workflow_runs SET status='recovered', finished_at=datetime('now') WHERE id='%s' AND status IN ('running','waiting')`,
-				escapeSQLite(oldRunID),
+				db.Escape(oldRunID),
 			)
-			queryDB(cfg.HistoryDB, sql)
+			db.Query(cfg.HistoryDB, sql)
 		}
 		markRunSuperseded(runID)
 

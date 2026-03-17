@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Types ---
@@ -173,7 +176,7 @@ func (pm *PairingManager) ListPending() []*PairingRequest {
 // ListApproved returns all approved users from DB.
 func (pm *PairingManager) ListApproved() ([]map[string]any, error) {
 	sql := `SELECT channel, user_id, username, approved_at FROM pairing_approved ORDER BY approved_at DESC`
-	rows, err := queryDB(pm.cfg.HistoryDB, sql)
+	rows, err := db.Query(pm.cfg.HistoryDB, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +210,8 @@ func (pm *PairingManager) initPairingDB() error {
 func (pm *PairingManager) isApprovedInDB(channel, userID string) bool {
 	sql := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM pairing_approved WHERE channel = '%s' AND user_id = '%s'`,
-		escapeSQLite(channel), escapeSQLite(userID))
-	rows, err := queryDB(pm.cfg.HistoryDB, sql)
+		db.Escape(channel), db.Escape(userID))
+	rows, err := db.Query(pm.cfg.HistoryDB, sql)
 	if err != nil || len(rows) == 0 {
 		return false
 	}
@@ -222,7 +225,7 @@ func (pm *PairingManager) storeApproval(channel, userID, username string) error 
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO pairing_approved (channel, user_id, username, approved_at)
 		 VALUES ('%s', '%s', '%s', datetime('now'))`,
-		escapeSQLite(channel), escapeSQLite(userID), escapeSQLite(username))
+		db.Escape(channel), db.Escape(userID), db.Escape(username))
 	cmd := exec.Command("sqlite3", pm.cfg.HistoryDB, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("sqlite3: %s: %w", string(out), err)
@@ -234,7 +237,7 @@ func (pm *PairingManager) storeApproval(channel, userID, username string) error 
 func (pm *PairingManager) removeApproval(channel, userID string) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM pairing_approved WHERE channel = '%s' AND user_id = '%s'`,
-		escapeSQLite(channel), escapeSQLite(userID))
+		db.Escape(channel), db.Escape(userID))
 	cmd := exec.Command("sqlite3", pm.cfg.HistoryDB, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("sqlite3: %s: %w", string(out), err)

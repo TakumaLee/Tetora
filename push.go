@@ -21,6 +21,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Web Push Types ---
@@ -73,13 +76,13 @@ func (pm *PushManager) initDB() {
 		user_agent TEXT DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT (datetime('now'))
 	);`
-	if _, err := queryDB(pm.dbPath, sql); err != nil {
+	if _, err := db.Query(pm.dbPath, sql); err != nil {
 		logWarn("push: init db failed", "error", err)
 	}
 }
 
 func (pm *PushManager) loadFromDB() {
-	rows, err := queryDB(pm.dbPath, "SELECT endpoint, p256dh, auth, user_agent, created_at FROM push_subscriptions")
+	rows, err := db.Query(pm.dbPath, "SELECT endpoint, p256dh, auth, user_agent, created_at FROM push_subscriptions")
 	if err != nil {
 		logWarn("push: load from db failed", "error", err)
 		return
@@ -127,13 +130,13 @@ func (pm *PushManager) Subscribe(sub PushSubscription) error {
 	// Save to DB.
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO push_subscriptions (endpoint, p256dh, auth, user_agent, created_at) VALUES ('%s', '%s', '%s', '%s', '%s')`,
-		escapeSQLite(sub.Endpoint),
-		escapeSQLite(sub.Keys.P256dh),
-		escapeSQLite(sub.Keys.Auth),
-		escapeSQLite(sub.UserAgent),
-		escapeSQLite(sub.CreatedAt),
+		db.Escape(sub.Endpoint),
+		db.Escape(sub.Keys.P256dh),
+		db.Escape(sub.Keys.Auth),
+		db.Escape(sub.UserAgent),
+		db.Escape(sub.CreatedAt),
 	)
-	if _, err := queryDB(pm.dbPath, sql); err != nil {
+	if _, err := db.Query(pm.dbPath, sql); err != nil {
 		logWarn("push: save subscription failed", "error", err)
 		return err
 	}
@@ -147,8 +150,8 @@ func (pm *PushManager) Unsubscribe(endpoint string) error {
 	delete(pm.subscriptions, endpoint)
 	pm.mu.Unlock()
 
-	sql := fmt.Sprintf(`DELETE FROM push_subscriptions WHERE endpoint = '%s'`, escapeSQLite(endpoint))
-	if _, err := queryDB(pm.dbPath, sql); err != nil {
+	sql := fmt.Sprintf(`DELETE FROM push_subscriptions WHERE endpoint = '%s'`, db.Escape(endpoint))
+	if _, err := db.Query(pm.dbPath, sql); err != nil {
 		logWarn("push: unsubscribe failed", "error", err)
 		return err
 	}

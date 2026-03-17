@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- P19.3: Smart Reminders Tests ---
@@ -563,7 +566,7 @@ func TestInitReminderDB(t *testing.T) {
 	}
 
 	// Verify it exists.
-	rows, err := queryDB(dbPath, "SELECT * FROM reminders WHERE id = 'test1'")
+	rows, err := db.Query(dbPath, "SELECT * FROM reminders WHERE id = 'test1'")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}

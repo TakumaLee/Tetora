@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Reflection Config ---
@@ -29,7 +32,7 @@ type ReflectionResult struct {
 // initReflectionDB creates the reflections table and index.
 func initReflectionDB(dbPath string) error {
 	// Create table first (so subsequent ALTER TABLE migration has a target).
-	if err := execDB(dbPath, `CREATE TABLE IF NOT EXISTS reflections (
+	if err := db.Exec(dbPath, `CREATE TABLE IF NOT EXISTS reflections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL,
   agent TEXT NOT NULL DEFAULT '',
@@ -42,12 +45,12 @@ func initReflectionDB(dbPath string) error {
 		return fmt.Errorf("init reflections table: %w", err)
 	}
 	// Migration: add agent column if missing (for DBs created before this column existed).
-	if err := execDB(dbPath, `ALTER TABLE reflections ADD COLUMN agent TEXT NOT NULL DEFAULT '';`); err != nil {
+	if err := db.Exec(dbPath, `ALTER TABLE reflections ADD COLUMN agent TEXT NOT NULL DEFAULT '';`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("init reflections migration: %w", err)
 		}
 	}
-	if err := execDB(dbPath, `CREATE INDEX IF NOT EXISTS idx_reflections_agent ON reflections(agent);`); err != nil {
+	if err := db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_reflections_agent ON reflections(agent);`); err != nil {
 		return fmt.Errorf("init reflections index: %w", err)
 	}
 	return nil
@@ -226,13 +229,13 @@ func storeReflection(dbPath string, ref *ReflectionResult) error {
 	sql := fmt.Sprintf(
 		`INSERT INTO reflections (task_id, agent, score, feedback, improvement, cost_usd, created_at)
 		 VALUES ('%s','%s',%d,'%s','%s',%f,'%s')`,
-		escapeSQLite(ref.TaskID),
-		escapeSQLite(ref.Agent),
+		db.Escape(ref.TaskID),
+		db.Escape(ref.Agent),
 		ref.Score,
-		escapeSQLite(ref.Feedback),
-		escapeSQLite(ref.Improvement),
+		db.Escape(ref.Feedback),
+		db.Escape(ref.Improvement),
 		ref.CostUSD,
-		escapeSQLite(ref.CreatedAt),
+		db.Escape(ref.CreatedAt),
 	)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -252,7 +255,7 @@ func queryReflections(dbPath, agent string, limit int) ([]ReflectionResult, erro
 
 	where := ""
 	if agent != "" {
-		where = fmt.Sprintf("WHERE agent = '%s'", escapeSQLite(agent))
+		where = fmt.Sprintf("WHERE agent = '%s'", db.Escape(agent))
 	}
 
 	sql := fmt.Sprintf(
@@ -260,7 +263,7 @@ func queryReflections(dbPath, agent string, limit int) ([]ReflectionResult, erro
 		 FROM reflections %s ORDER BY created_at DESC LIMIT %d`,
 		where, limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}

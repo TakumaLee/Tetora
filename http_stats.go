@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"tetora/internal/cost"
+	"tetora/internal/db"
 	"tetora/internal/sla"
 	"tetora/internal/telemetry"
 )
@@ -418,7 +419,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			return byDate[day]
 		}
 
-		createdRows, err := queryDB(cfg.HistoryDB, fmt.Sprintf(
+		createdRows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 			`SELECT date(created_at, 'localtime') as day, COUNT(*) as cnt
 			 FROM tasks
 			 WHERE date(created_at, 'localtime') >= date('now', 'localtime', '-%d days')
@@ -431,7 +432,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			ensure(jsonStr(row["day"])).Created = jsonInt(row["cnt"])
 		}
 
-		doneRows, err := queryDB(cfg.HistoryDB, fmt.Sprintf(
+		doneRows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 			`SELECT date(CASE WHEN completed_at != '' THEN completed_at ELSE updated_at END, 'localtime') as day, COUNT(*) as cnt
 			 FROM tasks
 			 WHERE status IN ('done', 'completed')
@@ -575,7 +576,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux) {
 			ORDER BY done_tasks DESC
 		`, days)
 
-		rows, err := queryDB(cfg.HistoryDB, sql)
+		rows, err := db.Query(cfg.HistoryDB, sql)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return

@@ -11,6 +11,9 @@ import (
 	"time"
 
 	bpkg "tetora/internal/automation/briefing"
+
+
+	"tetora/internal/db"
 )
 
 // --- Test helpers ---
@@ -494,8 +497,8 @@ func TestToolBriefingEvening_InvalidJSON(t *testing.T) {
 
 func TestScheduleSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:  queryDB,
-		Escape: escapeSQLite,
+		Query:  db.Query,
+		Escape: db.Escape,
 		// ViewSchedule is nil by default
 	})
 	sec := svc.ScheduleSection("2026-02-23")
@@ -505,7 +508,7 @@ func TestScheduleSection_NilService(t *testing.T) {
 }
 
 func TestRemindersSection_NoDB(t *testing.T) {
-	svc := bpkg.New("", bpkg.Deps{Query: queryDB, Escape: escapeSQLite})
+	svc := bpkg.New("", bpkg.Deps{Query: db.Query, Escape: db.Escape})
 	sec := svc.RemindersSection("2026-02-23")
 	if sec != nil {
 		t.Error("expected nil when dbPath is empty")
@@ -514,8 +517,8 @@ func TestRemindersSection_NoDB(t *testing.T) {
 
 func TestTasksSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:          queryDB,
-		Escape:         escapeSQLite,
+		Query:          db.Query,
+		Escape:         db.Escape,
 		TasksAvailable: false,
 	})
 	sec := svc.TasksSection("2026-02-23")
@@ -526,8 +529,8 @@ func TestTasksSection_NilService(t *testing.T) {
 
 func TestHabitsSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:           queryDB,
-		Escape:          escapeSQLite,
+		Query:           db.Query,
+		Escape:          db.Escape,
 		HabitsAvailable: false,
 	})
 	sec := svc.HabitsSection("2026-02-23", time.Monday)
@@ -538,8 +541,8 @@ func TestHabitsSection_NilService(t *testing.T) {
 
 func TestGoalsSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:          queryDB,
-		Escape:         escapeSQLite,
+		Query:          db.Query,
+		Escape:         db.Escape,
 		GoalsAvailable: false,
 	})
 	sec := svc.GoalsSection("2026-02-23")
@@ -550,8 +553,8 @@ func TestGoalsSection_NilService(t *testing.T) {
 
 func TestContactsSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:  queryDB,
-		Escape: escapeSQLite,
+		Query:  db.Query,
+		Escape: db.Escape,
 		// GetUpcomingEvents is nil by default
 	})
 	sec := svc.ContactsSection()
@@ -562,8 +565,8 @@ func TestContactsSection_NilService(t *testing.T) {
 
 func TestSpendingSection_NilService(t *testing.T) {
 	svc := bpkg.New("/tmp/test.db", bpkg.Deps{
-		Query:            queryDB,
-		Escape:           escapeSQLite,
+		Query:            db.Query,
+		Escape:           db.Escape,
 		FinanceAvailable: false,
 	})
 	sec := svc.SpendingSection("2026-02-23")
@@ -573,7 +576,7 @@ func TestSpendingSection_NilService(t *testing.T) {
 }
 
 func TestDaySummarySection_NoDB(t *testing.T) {
-	svc := bpkg.New("", bpkg.Deps{Query: queryDB, Escape: escapeSQLite})
+	svc := bpkg.New("", bpkg.Deps{Query: db.Query, Escape: db.Escape})
 	sec := svc.DaySummarySection("2026-02-23")
 	if sec != nil {
 		t.Error("expected nil when dbPath is empty")

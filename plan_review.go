@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Plan Review System ---
@@ -43,7 +46,7 @@ CREATE TABLE IF NOT EXISTS plan_reviews (
 CREATE INDEX IF NOT EXISTS idx_plan_reviews_session ON plan_reviews(session_id);
 CREATE INDEX IF NOT EXISTS idx_plan_reviews_status ON plan_reviews(status);
 `
-	return execDB(dbPath, sql)
+	return db.Exec(dbPath, sql)
 }
 
 // insertPlanReview creates a new plan review record.
@@ -51,27 +54,27 @@ func insertPlanReview(dbPath string, review *PlanReview) error {
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO plan_reviews (id, session_id, worker_name, agent, plan_text, status, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','pending','%s')`,
-		escapeSQLite(review.ID),
-		escapeSQLite(review.SessionID),
-		escapeSQLite(review.WorkerName),
-		escapeSQLite(review.Agent),
-		escapeSQLite(review.PlanText),
-		escapeSQLite(review.CreatedAt),
+		db.Escape(review.ID),
+		db.Escape(review.SessionID),
+		db.Escape(review.WorkerName),
+		db.Escape(review.Agent),
+		db.Escape(review.PlanText),
+		db.Escape(review.CreatedAt),
 	)
-	return execDB(dbPath, sql)
+	return db.Exec(dbPath, sql)
 }
 
 // updatePlanReviewStatus marks a plan review as approved or rejected.
 func updatePlanReviewStatus(dbPath, id, status, reviewer, note string) error {
 	sql := fmt.Sprintf(
 		`UPDATE plan_reviews SET status='%s', reviewer='%s', review_note='%s', reviewed_at='%s' WHERE id='%s'`,
-		escapeSQLite(status),
-		escapeSQLite(reviewer),
-		escapeSQLite(note),
-		escapeSQLite(time.Now().Format(time.RFC3339)),
-		escapeSQLite(id),
+		db.Escape(status),
+		db.Escape(reviewer),
+		db.Escape(note),
+		db.Escape(time.Now().Format(time.RFC3339)),
+		db.Escape(id),
 	)
-	return execDB(dbPath, sql)
+	return db.Exec(dbPath, sql)
 }
 
 // listPendingPlanReviews returns all pending plan reviews.
@@ -90,7 +93,7 @@ func listRecentPlanReviews(dbPath string, limit int) ([]PlanReview, error) {
 }
 
 func queryPlanReviews(dbPath, sqlStr string) ([]PlanReview, error) {
-	rows, err := queryDB(dbPath, sqlStr)
+	rows, err := db.Query(dbPath, sqlStr)
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 )
@@ -410,7 +411,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		case http.MethodGet:
 			status := r.URL.Query().Get("status")
 			if status != "" {
-				tasks, err := getTasksByStatus(cfg.HistoryDB, status)
+				tasks, err := db.GetTasksByStatus(cfg.HistoryDB, status)
 				if err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 					return
@@ -418,7 +419,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(tasks)
 			} else {
-				stats, err := getTaskStats(cfg.HistoryDB)
+				stats, err := db.GetTaskStats(cfg.HistoryDB)
 				if err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 					return
@@ -437,7 +438,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}
-			if err := updateTaskStatus(cfg.HistoryDB, body.ID, body.Status, body.Error); err != nil {
+			if err := db.UpdateTaskStatus(cfg.HistoryDB, body.ID, body.Status, body.Error); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
 			}

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func setupHabitsTestDB(t *testing.T) (string, *HabitsService) {
@@ -26,7 +29,7 @@ func insertHabitLog(t *testing.T, dbPath, habitID string, at time.Time) {
 	t.Helper()
 	logID := newUUID()
 	sql := "INSERT INTO habit_logs (id, habit_id, logged_at, value) VALUES ('" +
-		escapeSQLite(logID) + "', '" + escapeSQLite(habitID) + "', '" +
+		db.Escape(logID) + "', '" + db.Escape(habitID) + "', '" +
 		at.Format(time.RFC3339) + "', 1.0)"
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	out, err := cmd.CombinedOutput()
@@ -41,9 +44,9 @@ func TestInitHabitsDB(t *testing.T) {
 		t.Fatalf("initHabitsDB: %v", err)
 	}
 	// Verify tables exist.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	names := make(map[string]bool)
 	for _, row := range rows {
@@ -72,9 +75,9 @@ func TestCreateHabit(t *testing.T) {
 	}
 
 	// Verify in DB.
-	rows, err := queryDB(dbPath, "SELECT id, name, frequency, target_count, category FROM habits")
+	rows, err := db.Query(dbPath, "SELECT id, name, frequency, target_count, category FROM habits")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
@@ -106,9 +109,9 @@ func TestCreateHabit_Defaults(t *testing.T) {
 		t.Fatalf("CreateHabit: %v", err)
 	}
 
-	rows, err := queryDB(dbPath, "SELECT frequency, target_count, category FROM habits WHERE id = '"+escapeSQLite(id)+"'")
+	rows, err := db.Query(dbPath, "SELECT frequency, target_count, category FROM habits WHERE id = '"+db.Escape(id)+"'")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
@@ -137,9 +140,9 @@ func TestLogHabit(t *testing.T) {
 		t.Fatalf("LogHabit: %v", err)
 	}
 
-	rows, err := queryDB(dbPath, "SELECT habit_id, note, value FROM habit_logs")
+	rows, err := db.Query(dbPath, "SELECT habit_id, note, value FROM habit_logs")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 log, got %d", len(rows))
@@ -378,9 +381,9 @@ func TestLogHealth(t *testing.T) {
 		t.Fatalf("LogHealth: %v", err)
 	}
 
-	rows, err := queryDB(dbPath, "SELECT metric, value, unit, source FROM health_data ORDER BY value ASC")
+	rows, err := db.Query(dbPath, "SELECT metric, value, unit, source FROM health_data ORDER BY value ASC")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("expected 2 rows, got %d", len(rows))

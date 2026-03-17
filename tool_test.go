@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+
+	"tetora/internal/db"
 )
 
 // initDB creates all required tables for tool tests.
@@ -344,7 +347,7 @@ func TestToolKnowledgeSearch(t *testing.T) {
 	initDB(tmpDB)
 
 	// Insert test knowledge.
-	_, err := queryDB(tmpDB, `INSERT INTO knowledge (filename, content, snippet, indexed_at)
+	_, err := db.Query(tmpDB, `INSERT INTO knowledge (filename, content, snippet, indexed_at)
 	                          VALUES ('doc.txt', 'machine learning algorithms', 'machine learning', datetime('now'))`)
 	if err != nil {
 		t.Fatalf("insert knowledge: %v", err)
@@ -373,7 +376,7 @@ func TestToolSessionList(t *testing.T) {
 	initDB(tmpDB)
 
 	// Insert test session.
-	_, err := queryDB(tmpDB, `INSERT INTO sessions (session_id, channel_type, channel_id, message_count, created_at, updated_at)
+	_, err := db.Query(tmpDB, `INSERT INTO sessions (session_id, channel_type, channel_id, message_count, created_at, updated_at)
 	                          VALUES ('sess1', 'telegram', '12345', 5, datetime('now'), datetime('now'))`)
 	if err != nil {
 		t.Fatalf("insert session: %v", err)

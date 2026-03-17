@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"tetora/internal/db"
 	"tetora/internal/export"
 	"time"
 )
@@ -112,7 +113,7 @@ func (mq *MessageQueueEngine) Enqueue(channel, target, text string, priority int
 	maxSize := mq.cfg.Ops.MessageQueue.MaxQueueSizeOrDefault()
 
 	// Check queue size limit.
-	rows, err := queryDB(mq.dbPath, "SELECT COUNT(*) as cnt FROM message_queue WHERE status IN ('pending','sending')")
+	rows, err := db.Query(mq.dbPath, "SELECT COUNT(*) as cnt FROM message_queue WHERE status IN ('pending','sending')")
 	if err == nil && len(rows) > 0 {
 		cnt := jsonInt(rows[0]["cnt"])
 		if cnt >= maxSize {
@@ -123,7 +124,7 @@ func (mq *MessageQueueEngine) Enqueue(channel, target, text string, priority int
 	now := time.Now().UTC().Format(time.RFC3339)
 	sql := fmt.Sprintf(
 		`INSERT INTO message_queue (channel, channel_target, message_text, priority, status, max_retries, created_at, updated_at) VALUES ('%s', '%s', '%s', %d, 'pending', %d, '%s', '%s')`,
-		escapeSQLite(channel), escapeSQLite(target), escapeSQLite(text),
+		db.Escape(channel), db.Escape(target), db.Escape(text),
 		priority, maxRetries, now, now,
 	)
 
@@ -148,7 +149,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 		now,
 	)
 
-	rows, err := queryDB(mq.dbPath, sql)
+	rows, err := db.Query(mq.dbPath, sql)
 	if err != nil {
 		logWarn("message queue: query failed", "error", err)
 		return
@@ -195,7 +196,7 @@ func (mq *MessageQueueEngine) ProcessQueue(ctx context.Context) {
 		} else {
 			// Failure.
 			retryCount++
-			errMsg := escapeSQLite(deliveryErr.Error())
+			errMsg := db.Escape(deliveryErr.Error())
 
 			if retryCount >= maxRetries {
 				// Max retries exceeded.
@@ -260,7 +261,7 @@ func (mq *MessageQueueEngine) QueueStats() map[string]int {
 		"failed":  0,
 	}
 
-	rows, err := queryDB(mq.dbPath, "SELECT status, COUNT(*) as cnt FROM message_queue GROUP BY status")
+	rows, err := db.Query(mq.dbPath, "SELECT status, COUNT(*) as cnt FROM message_queue GROUP BY status")
 	if err != nil {
 		return stats
 	}
@@ -280,14 +281,14 @@ func recordChannelHealth(dbPath, channel, status, lastError string) error {
 	if status == "healthy" {
 		sql = fmt.Sprintf(
 			`INSERT INTO channel_status (channel, status, last_success, failure_count, updated_at) VALUES ('%s', '%s', '%s', 0, '%s') ON CONFLICT(channel) DO UPDATE SET status='%s', last_success='%s', failure_count=0, updated_at='%s'`,
-			escapeSQLite(channel), status, now, now,
+			db.Escape(channel), status, now, now,
 			status, now, now,
 		)
 	} else {
 		sql = fmt.Sprintf(
 			`INSERT INTO channel_status (channel, status, last_error, failure_count, updated_at) VALUES ('%s', '%s', '%s', 1, '%s') ON CONFLICT(channel) DO UPDATE SET status='%s', last_error='%s', failure_count=failure_count+1, updated_at='%s'`,
-			escapeSQLite(channel), status, escapeSQLite(lastError), now,
-			status, escapeSQLite(lastError), now,
+			db.Escape(channel), status, db.Escape(lastError), now,
+			status, db.Escape(lastError), now,
 		)
 	}
 
@@ -301,7 +302,7 @@ func recordChannelHealth(dbPath, channel, status, lastError string) error {
 
 // getChannelHealth returns the health status of all channels.
 func getChannelHealth(dbPath string) ([]ChannelHealthStatus, error) {
-	rows, err := queryDB(dbPath, "SELECT channel, status, last_error, last_success, failure_count, updated_at FROM channel_status ORDER BY channel")
+	rows, err := db.Query(dbPath, "SELECT channel, status, last_error, last_success, failure_count, updated_at FROM channel_status ORDER BY channel")
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +331,7 @@ func getSystemHealth(cfg *Config) map[string]any {
 	// Check DB accessibility.
 	dbOK := false
 	if cfg.HistoryDB != "" {
-		rows, err := queryDB(cfg.HistoryDB, "SELECT 1 as ok")
+		rows, err := db.Query(cfg.HistoryDB, "SELECT 1 as ok")
 		if err == nil && len(rows) > 0 {
 			dbOK = true
 		}
@@ -482,7 +483,7 @@ func cleanupExpiredMessages(dbPath string, retainDays int) error {
 
 // queueStatusSummary returns a human-readable summary of the message queue.
 func queueStatusSummary(dbPath string) string {
-	rows, err := queryDB(dbPath, "SELECT status, COUNT(*) as cnt FROM message_queue GROUP BY status")
+	rows, err := db.Query(dbPath, "SELECT status, COUNT(*) as cnt FROM message_queue GROUP BY status")
 	if err != nil {
 		return "message queue: unavailable"
 	}

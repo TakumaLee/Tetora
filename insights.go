@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tetora/internal/automation/insights"
+	"tetora/internal/db"
 )
 
 // --- P24.3: Life Insights Engine ---
@@ -17,8 +18,8 @@ var globalInsightsEngine *insights.Engine
 // newInsightsEngine constructs an insights.Engine from Config + globals.
 func newInsightsEngine(cfg *Config) *insights.Engine {
 	deps := insights.Deps{
-		Query:   queryDB,
-		Escape:  escapeSQLite,
+		Query:   db.Query,
+		Escape:  db.Escape,
 		LogWarn: logWarn,
 		UUID:    newUUID,
 	}

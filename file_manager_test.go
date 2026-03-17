@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"tetora/internal/db"
 	"tetora/internal/storage"
 )
 
@@ -45,7 +46,7 @@ func TestInitFileManagerDB(t *testing.T) {
 	}
 
 	// Verify table exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='managed_files'")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='managed_files'")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestFindDuplicates(t *testing.T) {
 	// Since dedup returns existing, manually insert a second record.
 	hash := mf.ContentHash
 	id2 := newUUID()
-	queryDB(svc.DBPath(), "INSERT INTO managed_files (id, user_id, filename, original_name, category, mime_type, file_size, content_hash, storage_path, source, source_id, metadata, created_at, updated_at) VALUES ('"+id2+"','user1','dup2.txt','dup2.txt','docs','text/plain',20,'"+hash+"','/tmp/fake','','','{}','2025-01-01T00:00:00Z','2025-01-01T00:00:00Z')")
+	db.Query(svc.DBPath(), "INSERT INTO managed_files (id, user_id, filename, original_name, category, mime_type, file_size, content_hash, storage_path, source, source_id, metadata, created_at, updated_at) VALUES ('"+id2+"','user1','dup2.txt','dup2.txt','docs','text/plain',20,'"+hash+"','/tmp/fake','','','{}','2025-01-01T00:00:00Z','2025-01-01T00:00:00Z')")
 
 	svc.StoreFile("user1", "unique.txt", "docs", "", "", data2)
 

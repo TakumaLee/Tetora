@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"tetora/internal/db"
 	"tetora/internal/health"
 	"time"
 )
@@ -23,7 +24,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 	// DB check callback.
 	if cfg.HistoryDB != "" {
 		input.DBCheck = func() (int, error) {
-			rows, err := queryDB(cfg.HistoryDB, "SELECT count(*) as cnt FROM job_runs;")
+			rows, err := db.Query(cfg.HistoryDB, "SELECT count(*) as cnt FROM job_runs;")
 			if err != nil {
 				return 0, err
 			}

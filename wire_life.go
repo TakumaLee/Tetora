@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"tetora/internal/db"
 	"tetora/internal/nlp"
 	"tetora/internal/tool"
 
@@ -92,9 +93,9 @@ type Reminder = reminder.Reminder
 // makeLifeDB returns a lifedb.DB wired to the root package helpers.
 func makeLifeDB() lifedb.DB {
 	return lifedb.DB{
-		Query:   queryDB,
-		Exec:    execDB,
-		Escape:  escapeSQLite,
+		Query:   db.Query,
+		Exec:    db.Exec,
+		Escape:  db.Escape,
 		LogInfo: logInfo,
 		LogWarn: logWarn,
 	}

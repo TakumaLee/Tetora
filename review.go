@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // buildReviewDigest assembles a structured markdown digest of recent activity
@@ -188,9 +191,9 @@ func queryReviewMessages(dbPath, cutoff string, limit int) []SessionMessage {
 		 FROM session_messages
 		 WHERE created_at >= '%s' AND role IN ('user','assistant')
 		 ORDER BY created_at DESC LIMIT %d`,
-		escapeSQLite(cutoff), limit)
+		db.Escape(cutoff), limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		logWarn("review: query messages failed", "error", err)
 		return nil
@@ -210,9 +213,9 @@ func queryReviewReflections(dbPath, cutoff string, limit int) []ReflectionResult
 		 FROM reflections
 		 WHERE created_at >= '%s'
 		 ORDER BY created_at DESC LIMIT %d`,
-		escapeSQLite(cutoff), limit)
+		db.Escape(cutoff), limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		logWarn("review: query reflections failed", "error", err)
 		return nil
@@ -240,9 +243,9 @@ func queryReviewJobRuns(dbPath, cutoff string, limit int) []JobRun {
 		 FROM job_runs
 		 WHERE started_at >= '%s'
 		 ORDER BY started_at DESC LIMIT %d`,
-		escapeSQLite(cutoff), limit)
+		db.Escape(cutoff), limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		logWarn("review: query job runs failed", "error", err)
 		return nil

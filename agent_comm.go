@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tetora/internal/db"
 )
 
 // --- Agent Communication Tools ---
@@ -318,15 +320,15 @@ func toolAgentMessage(ctx context.Context, cfg *Config, input json.RawMessage) (
 	sql := fmt.Sprintf(
 		`INSERT INTO agent_messages (id, from_agent, to_agent, message, session_id, created_at)
 		 VALUES ('%s', '%s', '%s', '%s', '%s', '%s')`,
-		escapeSQLite(messageID),
-		escapeSQLite(fromAgent),
-		escapeSQLite(args.Agent),
-		escapeSQLite(args.Message),
-		escapeSQLite(args.SessionID),
+		db.Escape(messageID),
+		db.Escape(fromAgent),
+		db.Escape(args.Agent),
+		db.Escape(args.Message),
+		db.Escape(args.SessionID),
 		time.Now().Format(time.RFC3339),
 	)
 
-	if _, err := queryDB(cfg.HistoryDB, sql); err != nil {
+	if _, err := db.Query(cfg.HistoryDB, sql); err != nil {
 		return "", fmt.Errorf("store message: %w", err)
 	}
 
@@ -354,7 +356,7 @@ func initAgentCommDB(dbPath string) error {
 		`ALTER TABLE agent_messages RENAME COLUMN from_role TO from_agent;`,
 		`ALTER TABLE agent_messages RENAME COLUMN to_role TO to_agent;`,
 	} {
-		if err := execDB(dbPath, stmt); err != nil {
+		if err := db.Exec(dbPath, stmt); err != nil {
 			// Ignore expected errors (column already renamed or table doesn't exist yet).
 		}
 	}
@@ -373,7 +375,7 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent ON agent_messages(to_agent, read_at);
 CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id);
 `
-	_, err := queryDB(dbPath, sql)
+	_, err := db.Query(dbPath, sql)
 	return err
 }
 
@@ -385,10 +387,10 @@ func getAgentMessages(dbPath, role string, markAsRead bool) ([]map[string]any, e
 		 WHERE to_agent = '%s' AND read_at = ''
 		 ORDER BY created_at ASC
 		 LIMIT 50`,
-		escapeSQLite(role),
+		db.Escape(role),
 	)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -397,14 +399,14 @@ func getAgentMessages(dbPath, role string, markAsRead bool) ([]map[string]any, e
 	if markAsRead && len(rows) > 0 {
 		ids := make([]string, len(rows))
 		for i, row := range rows {
-			ids[i] = fmt.Sprintf("'%s'", escapeSQLite(fmt.Sprintf("%v", row["id"])))
+			ids[i] = fmt.Sprintf("'%s'", db.Escape(fmt.Sprintf("%v", row["id"])))
 		}
 		updateSQL := fmt.Sprintf(
 			`UPDATE agent_messages SET read_at = '%s' WHERE id IN (%s)`,
 			time.Now().Format(time.RFC3339),
 			strings.Join(ids, ", "),
 		)
-		queryDB(dbPath, updateSQL) // ignore error
+		db.Query(dbPath, updateSQL) // ignore error
 	}
 
 	return rows, nil

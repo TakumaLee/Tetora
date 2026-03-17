@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func tempQueueDB(t *testing.T) string {
@@ -123,7 +126,7 @@ func TestCleanupExpired(t *testing.T) {
 	oldTime := time.Now().Add(-2 * time.Hour).Format(time.RFC3339)
 
 	sql := "INSERT INTO offline_queue (task_json, agent, source, priority, status, retry_count, created_at, updated_at) " +
-		"VALUES ('" + escapeSQLite(string(taskBytes)) + "','','test',0,'pending',0,'" + oldTime + "','" + oldTime + "')"
+		"VALUES ('" + db.Escape(string(taskBytes)) + "','','test',0,'pending',0,'" + oldTime + "','" + oldTime + "')"
 	execSQL(dbPath, sql)
 
 	// Enqueue a recent item.

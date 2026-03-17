@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/upload"
 )
 
@@ -40,7 +41,7 @@ func cleanupWorkflowRuns(dbPath string, days int) (int, error) {
 	}
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM workflow_runs WHERE datetime(started_at) < datetime('now','-%d days')`, days)
-	rows, err := queryDB(dbPath, countSQL)
+	rows, err := db.Query(dbPath, countSQL)
 	count := 0
 	if err == nil && len(rows) > 0 {
 		count = jsonInt(rows[0]["cnt"])
@@ -62,7 +63,7 @@ func cleanupHandoffs(dbPath string, days int) (int, error) {
 	}
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM handoffs WHERE datetime(created_at) < datetime('now','-%d days')`, days)
-	rows, err := queryDB(dbPath, countSQL)
+	rows, err := db.Query(dbPath, countSQL)
 	count := 0
 	if err == nil && len(rows) > 0 {
 		count = jsonInt(rows[0]["cnt"])
@@ -90,7 +91,7 @@ func cleanupReflections(dbPath string, days int) (int, error) {
 	}
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM reflections WHERE datetime(created_at) < datetime('now','-%d days')`, days)
-	rows, err := queryDB(dbPath, countSQL)
+	rows, err := db.Query(dbPath, countSQL)
 	count := 0
 	if err == nil && len(rows) > 0 {
 		count = jsonInt(rows[0]["cnt"])
@@ -112,7 +113,7 @@ func cleanupSLAChecks(dbPath string, days int) (int, error) {
 	}
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM sla_checks WHERE datetime(checked_at) < datetime('now','-%d days')`, days)
-	rows, err := queryDB(dbPath, countSQL)
+	rows, err := db.Query(dbPath, countSQL)
 	count := 0
 	if err == nil && len(rows) > 0 {
 		count = jsonInt(rows[0]["cnt"])
@@ -134,7 +135,7 @@ func cleanupTrustEvents(dbPath string, days int) (int, error) {
 	}
 	countSQL := fmt.Sprintf(
 		`SELECT COUNT(*) as cnt FROM trust_events WHERE datetime(created_at) < datetime('now','-%d days')`, days)
-	rows, err := queryDB(dbPath, countSQL)
+	rows, err := db.Query(dbPath, countSQL)
 	count := 0
 	if err == nil && len(rows) > 0 {
 		count = jsonInt(rows[0]["cnt"])
@@ -472,7 +473,7 @@ func queryRetentionStats(dbPath string) map[string]int {
 	}
 	for _, t := range tables {
 		sql := fmt.Sprintf("SELECT COUNT(*) as cnt FROM %s", t)
-		rows, err := queryDB(dbPath, sql)
+		rows, err := db.Query(dbPath, sql)
 		if err == nil && len(rows) > 0 {
 			stats[t] = jsonInt(rows[0]["cnt"])
 		}
@@ -546,7 +547,7 @@ func queryReflectionsForExport(dbPath string) []ReflectionRow {
 	}
 	sql := `SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
 	        FROM reflections ORDER BY created_at DESC LIMIT 10000`
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil
 	}
@@ -598,8 +599,8 @@ func purgeDataBefore(cfg *Config, before string) ([]RetentionResult, error) {
 		// Count first.
 		countSQL := fmt.Sprintf(
 			`SELECT COUNT(*) as cnt FROM %s WHERE datetime(%s) < datetime('%s')`,
-			t.table, t.timeCol, escapeSQLite(before))
-		rows, err := queryDB(dbPath, countSQL)
+			t.table, t.timeCol, db.Escape(before))
+		rows, err := db.Query(dbPath, countSQL)
 		count := 0
 		if err == nil && len(rows) > 0 {
 			count = jsonInt(rows[0]["cnt"])
@@ -608,7 +609,7 @@ func purgeDataBefore(cfg *Config, before string) ([]RetentionResult, error) {
 		// Delete.
 		delSQL := fmt.Sprintf(
 			`DELETE FROM %s WHERE datetime(%s) < datetime('%s')`,
-			t.table, t.timeCol, escapeSQLite(before))
+			t.table, t.timeCol, db.Escape(before))
 		cmd := exec.Command("sqlite3", dbPath, delSQL)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			results = append(results, RetentionResult{

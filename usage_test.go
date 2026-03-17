@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func TestQueryUsageSummary(t *testing.T) {
@@ -179,7 +182,7 @@ func TestQueryExpensiveSessions(t *testing.T) {
 		"INSERT INTO sessions (id, agent, title, total_cost, message_count, total_tokens_in, total_tokens_out, created_at, updated_at) VALUES ('s3', 'hisui', 'Medium session', 0.50, 5, 2000, 1000, '" + now + "', '" + now + "')",
 	}
 	for _, sql := range queries {
-		queryDB(dbPath, sql)
+		db.Query(dbPath, sql)
 	}
 
 	sessions, err := queryExpensiveSessions(dbPath, 5, 30)

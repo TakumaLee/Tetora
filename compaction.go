@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"tetora/internal/db"
 )
 
 // --- Compaction helpers ---
@@ -117,8 +119,8 @@ func countSessionMessages(cfg *Config, sessionID string) int {
 	}
 
 	sql := fmt.Sprintf("SELECT COUNT(*) as count FROM session_messages WHERE session_id = '%s'",
-		escapeSQLite(sessionID))
-	rows, err := queryDB(dbPath, sql)
+		db.Escape(sessionID))
+	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
 		return 0
 	}
@@ -140,8 +142,8 @@ func getOldestMessages(cfg *Config, sessionID string, limit int) []sessionMessag
 	}
 
 	sql := fmt.Sprintf("SELECT id, session_id, role, content, created_at FROM session_messages WHERE session_id = '%s' ORDER BY id ASC LIMIT %d",
-		escapeSQLite(sessionID), limit)
-	rows, err := queryDB(dbPath, sql)
+		db.Escape(sessionID), limit)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil
 	}
@@ -252,16 +254,16 @@ func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMess
 		lastID := oldMessages[len(oldMessages)-1].ID
 
 		deleteSQL := fmt.Sprintf("DELETE FROM session_messages WHERE session_id = '%s' AND id >= %d AND id <= %d",
-			escapeSQLite(sessionID), firstID, lastID)
-		queryDB(dbPath, deleteSQL)
+			db.Escape(sessionID), firstID, lastID)
+		db.Query(dbPath, deleteSQL)
 
 		logDebug("deleted old messages for session %s (id range %d-%d, count %d)", sessionID, firstID, lastID, len(oldMessages))
 	}
 
 	// Insert compacted message as 'system' role.
 	insertSQL := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'system', '[COMPACTED] %s', datetime('now'))",
-		escapeSQLite(sessionID), escapeSQLite(summary))
-	queryDB(dbPath, insertSQL)
+		db.Escape(sessionID), db.Escape(summary))
+	db.Query(dbPath, insertSQL)
 
 	logDebug("inserted compacted summary for session %s (length %d)", sessionID, len(summary))
 
@@ -339,7 +341,7 @@ func compactAllSessions(cfg *Config) {
 		HAVING count > %d
 	`, compactionMaxMessages(cfg.Session.Compaction))
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		fmt.Printf("Query error: %v\n", err)
 		os.Exit(1)
@@ -392,8 +394,8 @@ func sessionExists(cfg *Config, sessionID string) bool {
 	}
 
 	sql := fmt.Sprintf("SELECT id FROM sessions WHERE id = '%s' LIMIT 1",
-		escapeSQLite(sessionID))
-	rows, err := queryDB(dbPath, sql)
+		db.Escape(sessionID))
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return false
 	}

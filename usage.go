@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"strings"
+
+
+	"tetora/internal/db"
 )
 
 // --- P18.1: Cost Dashboard + Usage Tracking ---
@@ -99,7 +102,7 @@ func queryUsageSummary(dbPath, period string) (*UsageSummary, error) {
 			COALESCE(SUM(tokens_out), 0) as total_tokens_out
 		 FROM job_runs WHERE %s`, dateFilter)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, fmt.Errorf("query usage summary: %w", err)
 	}
@@ -137,7 +140,7 @@ func queryUsageByModel(dbPath string, days int) ([]ModelUsage, error) {
 		 GROUP BY model
 		 ORDER BY cost DESC`, days)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, fmt.Errorf("query usage by model: %w", err)
 	}
@@ -189,7 +192,7 @@ func queryUsageByAgent(dbPath string, days int) ([]AgentUsage, error) {
 		 GROUP BY agent
 		 ORDER BY cost DESC`, days)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, fmt.Errorf("query usage by agent: %w", err)
 	}
@@ -242,7 +245,7 @@ func queryExpensiveSessions(dbPath string, limit, days int) ([]ExpensiveSession,
 		 ORDER BY total_cost DESC
 		 LIMIT %d`, days, limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, fmt.Errorf("query expensive sessions: %w", err)
 	}
@@ -285,7 +288,7 @@ func queryCostTrend(dbPath string, days int) ([]DayUsage, error) {
 		 GROUP BY day
 		 ORDER BY day ASC`, days)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, fmt.Errorf("query cost trend: %w", err)
 	}

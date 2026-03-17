@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // imageGenBaseURL can be overridden in tests.
@@ -261,10 +264,10 @@ func logImageGenUsage(cfg *Config, cost float64, model, quality, size string) {
 		size TEXT NOT NULL,
 		cost_usd REAL NOT NULL
 	)`
-	queryDB(dbPath, createSQL)
+	db.Query(dbPath, createSQL)
 
 	insertSQL := fmt.Sprintf(`INSERT INTO image_gen_usage (timestamp, model, quality, size, cost_usd) VALUES ('%s', '%s', '%s', '%s', %f)`,
 		time.Now().UTC().Format(time.RFC3339),
-		escapeSQLite(model), escapeSQLite(quality), escapeSQLite(size), cost)
-	queryDB(dbPath, insertSQL)
+		db.Escape(model), db.Escape(quality), db.Escape(size), cost)
+	db.Query(dbPath, insertSQL)
 }

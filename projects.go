@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Project Types ---
@@ -46,7 +49,7 @@ func initProjectsDB(dbPath string) error {
 	if dbPath == "" {
 		return fmt.Errorf("dbPath is empty")
 	}
-	if err := execDB(dbPath, projectsTableSQL); err != nil {
+	if err := db.Exec(dbPath, projectsTableSQL); err != nil {
 		return fmt.Errorf("init projects db: %w", err)
 	}
 	migrateProjectsDB(dbPath)
@@ -61,7 +64,7 @@ func migrateProjectsDB(dbPath string) {
 		"ALTER TABLE projects ADD COLUMN priority INTEGER DEFAULT 0",
 	}
 	for _, ddl := range cols {
-		execDB(dbPath, ddl)
+		db.Exec(dbPath, ddl)
 	}
 }
 
@@ -70,14 +73,14 @@ func migrateProjectsDB(dbPath string) {
 func listProjects(dbPath, status string) ([]Project, error) {
 	where := ""
 	if status != "" {
-		where = fmt.Sprintf("WHERE status = '%s'", escapeSQLite(status))
+		where = fmt.Sprintf("WHERE status = '%s'", db.Escape(status))
 	}
 	sql := fmt.Sprintf(
 		`SELECT id, name, description, status, workdir, tags, repo_url, category, priority, created_at, updated_at
 		 FROM projects %s ORDER BY priority DESC, name ASC`,
 		where,
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return []Project{}, nil
@@ -92,13 +95,13 @@ func listProjects(dbPath, status string) ([]Project, error) {
 }
 
 func getProject(dbPath, id string) (*Project, error) {
-	escaped := escapeSQLite(id)
+	escaped := db.Escape(id)
 	sql := fmt.Sprintf(
 		`SELECT id, name, description, status, workdir, tags, repo_url, category, priority, created_at, updated_at
 		 FROM projects WHERE id = '%s' OR name = '%s' LIMIT 1`,
 		escaped, escaped,
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -123,19 +126,19 @@ func createProject(dbPath string, p Project) error {
 	sql := fmt.Sprintf(
 		`INSERT INTO projects (id, name, description, status, workdir, tags, repo_url, category, priority, created_at, updated_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','%s',%d,'%s','%s')`,
-		escapeSQLite(p.ID),
-		escapeSQLite(p.Name),
-		escapeSQLite(p.Description),
-		escapeSQLite(p.Status),
-		escapeSQLite(p.Workdir),
-		escapeSQLite(p.Tags),
-		escapeSQLite(p.RepoURL),
-		escapeSQLite(p.Category),
+		db.Escape(p.ID),
+		db.Escape(p.Name),
+		db.Escape(p.Description),
+		db.Escape(p.Status),
+		db.Escape(p.Workdir),
+		db.Escape(p.Tags),
+		db.Escape(p.RepoURL),
+		db.Escape(p.Category),
 		p.Priority,
-		escapeSQLite(p.CreatedAt),
-		escapeSQLite(p.UpdatedAt),
+		db.Escape(p.CreatedAt),
+		db.Escape(p.UpdatedAt),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
 	return nil
@@ -146,18 +149,18 @@ func updateProject(dbPath string, p Project) error {
 	sql := fmt.Sprintf(
 		`UPDATE projects SET name='%s', description='%s', status='%s', workdir='%s', tags='%s', repo_url='%s', category='%s', priority=%d, updated_at='%s'
 		 WHERE id='%s'`,
-		escapeSQLite(p.Name),
-		escapeSQLite(p.Description),
-		escapeSQLite(p.Status),
-		escapeSQLite(p.Workdir),
-		escapeSQLite(p.Tags),
-		escapeSQLite(p.RepoURL),
-		escapeSQLite(p.Category),
+		db.Escape(p.Name),
+		db.Escape(p.Description),
+		db.Escape(p.Status),
+		db.Escape(p.Workdir),
+		db.Escape(p.Tags),
+		db.Escape(p.RepoURL),
+		db.Escape(p.Category),
 		p.Priority,
-		escapeSQLite(p.UpdatedAt),
-		escapeSQLite(p.ID),
+		db.Escape(p.UpdatedAt),
+		db.Escape(p.ID),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
 	return nil
@@ -166,9 +169,9 @@ func updateProject(dbPath string, p Project) error {
 func deleteProject(dbPath, id string) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM projects WHERE id = '%s'`,
-		escapeSQLite(id),
+		db.Escape(id),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
 	return nil

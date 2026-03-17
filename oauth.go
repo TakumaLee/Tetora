@@ -14,6 +14,9 @@ import (
 	"time"
 
 	tcrypto "tetora/internal/crypto"
+
+
+	"tetora/internal/db"
 )
 
 // --- P18.2: OAuth 2.0 Generic Framework ---
@@ -98,7 +101,7 @@ func initOAuthTable(dbPath string) error {
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	);`
-	_, err := queryDB(dbPath, sql)
+	_, err := db.Query(dbPath, sql)
 	return err
 }
 
@@ -137,16 +140,16 @@ func storeOAuthToken(dbPath string, token OAuthToken, encKey string) error {
 
 	sql := fmt.Sprintf(
 		`INSERT OR REPLACE INTO oauth_tokens (service_name, access_token, refresh_token, token_type, expires_at, scopes, created_at, updated_at) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')`,
-		escapeSQLite(token.ServiceName),
-		escapeSQLite(accessEnc),
-		escapeSQLite(refreshEnc),
-		escapeSQLite(token.TokenType),
-		escapeSQLite(token.ExpiresAt),
-		escapeSQLite(token.Scopes),
-		escapeSQLite(token.CreatedAt),
-		escapeSQLite(token.UpdatedAt),
+		db.Escape(token.ServiceName),
+		db.Escape(accessEnc),
+		db.Escape(refreshEnc),
+		db.Escape(token.TokenType),
+		db.Escape(token.ExpiresAt),
+		db.Escape(token.Scopes),
+		db.Escape(token.CreatedAt),
+		db.Escape(token.UpdatedAt),
 	)
-	_, err = queryDB(dbPath, sql)
+	_, err = db.Query(dbPath, sql)
 	return err
 }
 
@@ -154,9 +157,9 @@ func storeOAuthToken(dbPath string, token OAuthToken, encKey string) error {
 func loadOAuthToken(dbPath, serviceName, encKey string) (*OAuthToken, error) {
 	sql := fmt.Sprintf(
 		`SELECT service_name, access_token, refresh_token, token_type, expires_at, scopes, created_at, updated_at FROM oauth_tokens WHERE service_name = '%s'`,
-		escapeSQLite(serviceName),
+		db.Escape(serviceName),
 	)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -190,15 +193,15 @@ func loadOAuthToken(dbPath, serviceName, encKey string) (*OAuthToken, error) {
 func deleteOAuthToken(dbPath, serviceName string) error {
 	sql := fmt.Sprintf(
 		`DELETE FROM oauth_tokens WHERE service_name = '%s'`,
-		escapeSQLite(serviceName),
+		db.Escape(serviceName),
 	)
-	_, err := queryDB(dbPath, sql)
+	_, err := db.Query(dbPath, sql)
 	return err
 }
 
 // listOAuthTokenStatuses returns status info for all stored tokens (no secrets).
 func listOAuthTokenStatuses(dbPath, encKey string) ([]OAuthTokenStatus, error) {
-	rows, err := queryDB(dbPath, `SELECT service_name, expires_at, scopes, created_at FROM oauth_tokens ORDER BY service_name`)
+	rows, err := db.Query(dbPath, `SELECT service_name, expires_at, scopes, created_at FROM oauth_tokens ORDER BY service_name`)
 	if err != nil {
 		return nil, err
 	}

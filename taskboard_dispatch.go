@@ -12,6 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // TaskBoardDispatcher auto-dispatches tasks with status=todo and a non-empty assignee.
@@ -152,7 +155,7 @@ func (d *TaskBoardDispatcher) parseStuckThreshold() time.Duration {
 // resetting tasks that were killed mid-completion during a restart.
 func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 	sql := `SELECT id, title, completed_at, cost_usd, duration_ms, session_id, updated_at FROM tasks WHERE status = 'doing'`
-	rows, err := queryDB(d.engine.dbPath, sql)
+	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("taskboard dispatch: resetOrphanedDoing query failed", "error", err)
 		return
@@ -162,7 +165,7 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 	}
 
 	now := time.Now().UTC()
-	nowISO := escapeSQLite(now.Format(time.RFC3339))
+	nowISO := db.Escape(now.Format(time.RFC3339))
 	gracePeriod := 2 * time.Minute
 
 	for _, row := range rows {
@@ -184,9 +187,9 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 		if hasCompletionEvidence {
 			updateSQL := fmt.Sprintf(
 				`UPDATE tasks SET status = 'done', updated_at = '%s', completed_at = CASE WHEN completed_at = '' THEN '%s' ELSE completed_at END WHERE id = '%s' AND status = 'doing'`,
-				nowISO, nowISO, escapeSQLite(id),
+				nowISO, nowISO, db.Escape(id),
 			)
-			if err := execDB(d.engine.dbPath, updateSQL); err != nil {
+			if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
 				logWarn("taskboard dispatch: failed to restore completed task", "id", id, "error", err)
 				continue
 			}
@@ -213,9 +216,9 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 		// Truly orphaned: no completion evidence and not recent. Reset to todo.
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
-			nowISO, escapeSQLite(id),
+			nowISO, db.Escape(id),
 		)
-		if err := execDB(d.engine.dbPath, updateSQL); err != nil {
+		if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
 			logWarn("taskboard dispatch: failed to reset orphaned task", "id", id, "error", err)
 			continue
 		}
@@ -231,9 +234,9 @@ func (d *TaskBoardDispatcher) resetOrphanedDoing() {
 func findRunningWorkflowForTask(historyDB, taskID string) string {
 	sql := fmt.Sprintf(
 		`SELECT id FROM workflow_runs WHERE status = 'running' AND json_extract(variables, '$._taskId') = '%s' LIMIT 1`,
-		escapeSQLite(taskID),
+		db.Escape(taskID),
 	)
-	rows, err := queryDB(historyDB, sql)
+	rows, err := db.Query(historyDB, sql)
 	if err != nil || len(rows) == 0 {
 		return ""
 	}
@@ -250,8 +253,8 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 	threshold := d.parseStuckThreshold()
 	cutoff := time.Now().Add(-threshold).UTC().Format(time.RFC3339)
 
-	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, escapeSQLite(cutoff))
-	rows, err := queryDB(d.engine.dbPath, sql)
+	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, db.Escape(cutoff))
+	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("taskboard dispatch: resetStuckDoing query failed", "error", err)
 		return
@@ -271,11 +274,11 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 				if wfRun.Status == "resumed" {
 					newRunID := findRunningWorkflowForTask(d.cfg.HistoryDB, id)
 					if newRunID != "" {
-						execDB(d.engine.dbPath, fmt.Sprintf(
+						db.Exec(d.engine.dbPath, fmt.Sprintf(
 							`UPDATE tasks SET workflow_run_id = '%s', updated_at = '%s' WHERE id = '%s'`,
-							escapeSQLite(newRunID),
-							escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
-							escapeSQLite(id),
+							db.Escape(newRunID),
+							db.Escape(time.Now().UTC().Format(time.RFC3339)),
+							db.Escape(id),
 						))
 						logInfo("taskboard dispatch: task workflow_run_id updated to active run",
 							"id", id, "title", title, "oldRunId", wfRunID[:8], "newRunId", newRunID[:8])
@@ -284,10 +287,10 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 				}
 				touchSQL := fmt.Sprintf(
 					`UPDATE tasks SET updated_at = '%s' WHERE id = '%s'`,
-					escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
-					escapeSQLite(id),
+					db.Escape(time.Now().UTC().Format(time.RFC3339)),
+					db.Escape(id),
 				)
-				execDB(d.engine.dbPath, touchSQL)
+				db.Exec(d.engine.dbPath, touchSQL)
 				logInfo("taskboard dispatch: task has running workflow, refreshing timestamp",
 					"id", id, "title", title, "workflowRunId", wfRunID[:8])
 				continue
@@ -295,11 +298,11 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 			// Also check if there's a running workflow for this task even if pointed run is terminal.
 			activeRunID := findRunningWorkflowForTask(d.cfg.HistoryDB, id)
 			if activeRunID != "" {
-				execDB(d.engine.dbPath, fmt.Sprintf(
+				db.Exec(d.engine.dbPath, fmt.Sprintf(
 					`UPDATE tasks SET workflow_run_id = '%s', updated_at = '%s' WHERE id = '%s'`,
-					escapeSQLite(activeRunID),
-					escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
-					escapeSQLite(id),
+					db.Escape(activeRunID),
+					db.Escape(time.Now().UTC().Format(time.RFC3339)),
+					db.Escape(id),
 				))
 				logInfo("taskboard dispatch: found active workflow for task, updating link",
 					"id", id, "title", title, "activeRunId", activeRunID[:8])
@@ -309,10 +312,10 @@ func (d *TaskBoardDispatcher) resetStuckDoing() {
 
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
-			escapeSQLite(time.Now().UTC().Format(time.RFC3339)),
-			escapeSQLite(id),
+			db.Escape(time.Now().UTC().Format(time.RFC3339)),
+			db.Escape(id),
 		)
-		if err := execDB(d.engine.dbPath, updateSQL); err != nil {
+		if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
 			logWarn("taskboard dispatch: failed to reset stuck task", "id", id, "error", err)
 			continue
 		}
@@ -638,9 +641,9 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		evidenceSQL := fmt.Sprintf(
 			`UPDATE tasks SET cost_usd = %.6f, duration_ms = %d, session_id = '%s' WHERE id = '%s'`,
 			result.CostUSD, result.DurationMs,
-			escapeSQLite(result.SessionID), escapeSQLite(t.ID),
+			db.Escape(result.SessionID), db.Escape(t.ID),
 		)
-		if err := execDB(d.engine.dbPath, evidenceSQL); err != nil {
+		if err := db.Exec(d.engine.dbPath, evidenceSQL); err != nil {
 			logWarn("taskboard dispatch: failed to persist completion evidence", "id", t.ID, "error", err)
 		}
 	}
@@ -756,20 +759,20 @@ func (d *TaskBoardDispatcher) dispatchTask(t TaskBoard) {
 		session_id = '%s', updated_at = '%s', completed_at = '%s'
 		WHERE id = '%s'
 	`,
-		escapeSQLite(newStatus),
-		escapeSQLite(t.Assignee),
+		db.Escape(newStatus),
+		db.Escape(t.Assignee),
 		result.CostUSD,
 		result.DurationMs,
-		escapeSQLite(result.SessionID),
-		escapeSQLite(nowISO),
-		escapeSQLite(completedAt),
-		escapeSQLite(t.ID),
+		db.Escape(result.SessionID),
+		db.Escape(nowISO),
+		db.Escape(completedAt),
+		db.Escape(t.ID),
 	)
-	if err := execDB(d.engine.dbPath, combinedSQL); err != nil {
+	if err := db.Exec(d.engine.dbPath, combinedSQL); err != nil {
 		logError("taskboard dispatch: failed to update task status+cost", "id", t.ID, "error", err)
 		// Retry once after a short delay — transient SQLite lock errors are common.
 		time.Sleep(100 * time.Millisecond)
-		if err2 := execDB(d.engine.dbPath, combinedSQL); err2 != nil {
+		if err2 := db.Exec(d.engine.dbPath, combinedSQL); err2 != nil {
 			logError("taskboard dispatch: SQL retry also failed", "id", t.ID, "error", err2)
 			// Fallback: move back to todo so the task is not stuck in doing.
 			if _, ferr := d.engine.MoveTask(t.ID, "todo"); ferr != nil {
@@ -1177,9 +1180,9 @@ func (d *TaskBoardDispatcher) promoteUnblockedTasks(completedID string) {
 	// Find backlog tasks whose depends_on mentions the completed task.
 	sql := fmt.Sprintf(
 		`SELECT id, depends_on FROM tasks WHERE status = 'backlog' AND depends_on LIKE '%%%s%%'`,
-		escapeSQLite(completedID),
+		db.Escape(completedID),
 	)
-	rows, err := queryDB(d.engine.dbPath, sql)
+	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
 		logWarn("promoteUnblockedTasks: query failed", "error", err)
 		return
@@ -1280,9 +1283,9 @@ func (d *TaskBoardDispatcher) scanReviews() {
 			nowISO := time.Now().UTC().Format(time.RFC3339)
 			sql := fmt.Sprintf(
 				`UPDATE tasks SET status = 'done', completed_at = '%s', updated_at = '%s', cost_usd = cost_usd + %.6f WHERE id = '%s'`,
-				escapeSQLite(nowISO), escapeSQLite(nowISO), rv.CostUSD, escapeSQLite(t.ID),
+				db.Escape(nowISO), db.Escape(nowISO), rv.CostUSD, db.Escape(t.ID),
 			)
-			execDB(d.engine.dbPath, sql)
+			db.Exec(d.engine.dbPath, sql)
 			d.checkParentRollup(t.ID)
 			d.promoteUnblockedTasks(t.ID)
 

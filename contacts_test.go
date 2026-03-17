@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/life/contacts"
 )
 
@@ -89,9 +90,9 @@ func TestInitContactsDB(t *testing.T) {
 	}
 
 	// Verify tables exist.
-	rows, err := queryDB(dbPath, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+	rows, err := db.Query(dbPath, `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	tableNames := make(map[string]bool)
 	for _, row := range rows {

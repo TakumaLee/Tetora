@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tetora/internal/automation/insights"
+	"tetora/internal/db"
 )
 
 // setupInsightsTestDB creates a temp database with all required tables for testing.
@@ -131,8 +132,8 @@ CREATE TABLE IF NOT EXISTS expense_budgets (
 	}
 
 	deps := insights.Deps{
-		Query:          queryDB,
-		Escape:         escapeSQLite,
+		Query:          db.Query,
+		Escape:         db.Escape,
 		LogWarn:        logWarn,
 		UUID:           newUUID,
 		FinanceDBPath:  dbPath,
@@ -182,7 +183,7 @@ func insertExpense(t *testing.T, dbPath string, amount float64, category, descri
 	sql := fmt.Sprintf(
 		`INSERT INTO expenses (user_id, amount, currency, category, description, date, created_at)
 		 VALUES ('default', %f, 'TWD', '%s', '%s', '%s', '%s')`,
-		amount, escapeSQLite(category), escapeSQLite(description), escapeSQLite(date), now)
+		amount, db.Escape(category), db.Escape(description), db.Escape(date), now)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert expense: %v: %s", err, string(out))
@@ -198,8 +199,8 @@ func insertTask(t *testing.T, dbPath, id, title, status, dueAt, createdAt, compl
 	sql := fmt.Sprintf(
 		`INSERT INTO user_tasks (id, user_id, title, status, due_at, created_at, updated_at, completed_at)
 		 VALUES ('%s', 'default', '%s', '%s', '%s', '%s', '%s', '%s')`,
-		escapeSQLite(id), escapeSQLite(title), escapeSQLite(status),
-		escapeSQLite(dueAt), escapeSQLite(createdAt), now, escapeSQLite(completedAt))
+		db.Escape(id), db.Escape(title), db.Escape(status),
+		db.Escape(dueAt), db.Escape(createdAt), now, db.Escape(completedAt))
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert task: %v: %s", err, string(out))
@@ -211,7 +212,7 @@ func insertMoodLog(t *testing.T, dbPath string, score float64, createdAt string)
 	sql := fmt.Sprintf(
 		`INSERT INTO user_mood_log (user_id, channel, sentiment_score, created_at)
 		 VALUES ('default', 'test', %f, '%s')`,
-		score, escapeSQLite(createdAt))
+		score, db.Escape(createdAt))
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert mood: %v: %s", err, string(out))
@@ -224,7 +225,7 @@ func insertInteraction(t *testing.T, dbPath, contactID, interactionType, created
 	sql := fmt.Sprintf(
 		`INSERT INTO contact_interactions (id, contact_id, interaction_type, created_at)
 		 VALUES ('%s', '%s', '%s', '%s')`,
-		escapeSQLite(id), escapeSQLite(contactID), escapeSQLite(interactionType), escapeSQLite(createdAt))
+		db.Escape(id), db.Escape(contactID), db.Escape(interactionType), db.Escape(createdAt))
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert interaction: %v: %s", err, string(out))
@@ -237,7 +238,7 @@ func insertContact(t *testing.T, dbPath, id, name string) {
 	sql := fmt.Sprintf(
 		`INSERT INTO contacts (id, name, created_at, updated_at)
 		 VALUES ('%s', '%s', '%s', '%s')`,
-		escapeSQLite(id), escapeSQLite(name), now, now)
+		db.Escape(id), db.Escape(name), now, now)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert contact: %v: %s", err, string(out))
@@ -250,7 +251,7 @@ func insertHabit(t *testing.T, dbPath, id, name string) {
 	sql := fmt.Sprintf(
 		`INSERT INTO habits (id, name, frequency, target_count, created_at, archived_at)
 		 VALUES ('%s', '%s', 'daily', 1, '%s', '')`,
-		escapeSQLite(id), escapeSQLite(name), now)
+		db.Escape(id), db.Escape(name), now)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert habit: %v: %s", err, string(out))
@@ -263,7 +264,7 @@ func insightsInsertHabitLog(t *testing.T, dbPath, habitID, loggedAt string) {
 	sql := fmt.Sprintf(
 		`INSERT INTO habit_logs (id, habit_id, logged_at, value)
 		 VALUES ('%s', '%s', '%s', 1.0)`,
-		escapeSQLite(id), escapeSQLite(habitID), escapeSQLite(loggedAt))
+		db.Escape(id), db.Escape(habitID), db.Escape(loggedAt))
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("insert habit log: %v: %s", err, string(out))
@@ -280,18 +281,18 @@ func TestInitInsightsDB(t *testing.T) {
 	}
 
 	// Verify table exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='life_insights'")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='life_insights'")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) == 0 {
 		t.Fatal("life_insights table not created")
 	}
 
 	// Verify indices.
-	idxRows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_insights_%'")
+	idxRows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_insights_%'")
 	if err != nil {
-		t.Fatalf("queryDB indices: %v", err)
+		t.Fatalf("db.Query indices: %v", err)
 	}
 	if len(idxRows) < 2 {
 		t.Errorf("expected at least 2 indices, got %d", len(idxRows))
@@ -635,10 +636,10 @@ func TestAcknowledgeInsight(t *testing.T) {
 	}
 
 	// Verify it's acknowledged.
-	rows, err := queryDB(dbPath, fmt.Sprintf(
+	rows, err := db.Query(dbPath, fmt.Sprintf(
 		`SELECT acknowledged FROM life_insights WHERE id = '%s'`, id))
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) == 0 {
 		t.Fatal("insight not found")
@@ -719,8 +720,8 @@ func TestSpendingForecast_NoFinanceService(t *testing.T) {
 	dbPath, _ := setupInsightsTestDB(t)
 	// Create engine with no FinanceDBPath = finance service not available.
 	deps := insights.Deps{
-		Query:   queryDB,
-		Escape:  escapeSQLite,
+		Query:   db.Query,
+		Escape:  db.Escape,
 		LogWarn: logWarn,
 		UUID:    newUUID,
 	}
@@ -989,9 +990,9 @@ func TestInsightDedup(t *testing.T) {
 	engine.StoreInsightDedup(insight2)
 
 	// Should only have one insight of this type.
-	rows, err := queryDB(dbPath, `SELECT COUNT(*) as cnt FROM life_insights WHERE type = 'test_dedup'`)
+	rows, err := db.Query(dbPath, `SELECT COUNT(*) as cnt FROM life_insights WHERE type = 'test_dedup'`)
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	count := jsonInt(rows[0]["cnt"])
 	if count != 1 {
@@ -1072,8 +1073,8 @@ func TestGenerateReport_NilServices(t *testing.T) {
 	dbPath, _ := setupInsightsTestDB(t)
 	// Create engine with no service DB paths = all services unavailable.
 	deps := insights.Deps{
-		Query:   queryDB,
-		Escape:  escapeSQLite,
+		Query:   db.Query,
+		Escape:  db.Escape,
 		LogWarn: logWarn,
 		UUID:    newUUID,
 	}

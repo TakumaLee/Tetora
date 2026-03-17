@@ -1,44 +1,10 @@
-package main
+package db
 
-import (
-	"fmt"
+import "fmt"
 
-	"tetora/internal/db"
-)
-
-// --- SQLite Task Management ---
-// Uses the system `sqlite3` CLI (macOS built-in) to query the dashboard DB.
-// No cgo or external Go modules required.
-
-// DBTask is an alias for db.Task for backward compatibility.
-type DBTask = db.Task
-
-// TaskStats is an alias for db.TaskStats for backward compatibility.
-type TaskStats = db.TaskStats
-
-// execDB delegates to db.Exec.
-func execDB(dbPath, sql string) error {
-	return db.Exec(dbPath, sql)
-}
-
-// queryDB delegates to db.Query.
-func queryDB(dbPath, sql string) ([]map[string]any, error) {
-	return db.Query(dbPath, sql)
-}
-
-// pragmaDB delegates to db.Pragma.
-func pragmaDB(dbPath string) error {
-	return db.Pragma(dbPath)
-}
-
-// escapeSQLite delegates to db.Escape.
-func escapeSQLite(s string) string {
-	return db.Escape(s)
-}
-
-// getTaskStats returns aggregate task counts by status.
-func getTaskStats(dbPath string) (TaskStats, error) {
-	rows, err := queryDB(dbPath,
+// GetTaskStats returns aggregate task counts by status.
+func GetTaskStats(dbPath string) (TaskStats, error) {
+	rows, err := Query(dbPath,
 		`SELECT status, COUNT(*) as cnt FROM tasks GROUP BY status`)
 	if err != nil {
 		return TaskStats{}, err
@@ -47,7 +13,7 @@ func getTaskStats(dbPath string) (TaskStats, error) {
 	var stats TaskStats
 	for _, row := range rows {
 		status, _ := row["status"].(string)
-		cntVal, _ := row["cnt"].(float64) // JSON numbers are float64
+		cntVal, _ := row["cnt"].(float64)
 		cnt := int(cntVal)
 		switch status {
 		case "todo":
@@ -66,20 +32,20 @@ func getTaskStats(dbPath string) (TaskStats, error) {
 	return stats, nil
 }
 
-// getTasksByStatus returns tasks matching the given status.
-func getTasksByStatus(dbPath, status string) ([]DBTask, error) {
+// GetTasksByStatus returns tasks matching the given status.
+func GetTasksByStatus(dbPath, status string) ([]Task, error) {
 	sql := fmt.Sprintf(
 		`SELECT id, title, status, priority, created_at, COALESCE(error,'') as error
 		 FROM tasks WHERE status = '%s' ORDER BY priority DESC, created_at DESC LIMIT 20`,
-		escapeSQLite(status))
-	rows, err := queryDB(dbPath, sql)
+		Escape(status))
+	rows, err := Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
 
-	var tasks []DBTask
+	var tasks []Task
 	for _, row := range rows {
-		tasks = append(tasks, DBTask{
+		tasks = append(tasks, Task{
 			ID:        fmt.Sprintf("%v", row["id"]),
 			Title:     fmt.Sprintf("%v", row["title"]),
 			Status:    fmt.Sprintf("%v", row["status"]),
@@ -91,8 +57,8 @@ func getTasksByStatus(dbPath, status string) ([]DBTask, error) {
 	return tasks, nil
 }
 
-// getStuckTasks returns tasks that have been "running" for more than N minutes.
-func getStuckTasks(dbPath string, minutes int) ([]DBTask, error) {
+// GetStuckTasks returns tasks that have been "running" for more than N minutes.
+func GetStuckTasks(dbPath string, minutes int) ([]Task, error) {
 	sql := fmt.Sprintf(
 		`SELECT id, title, status, priority, created_at, COALESCE(error,'') as error
 		 FROM tasks
@@ -100,14 +66,14 @@ func getStuckTasks(dbPath string, minutes int) ([]DBTask, error) {
 		   AND datetime(created_at) < datetime('now', '-%d minutes')
 		 ORDER BY created_at ASC`,
 		minutes)
-	rows, err := queryDB(dbPath, sql)
+	rows, err := Query(dbPath, sql)
 	if err != nil {
 		return nil, err
 	}
 
-	var tasks []DBTask
+	var tasks []Task
 	for _, row := range rows {
-		tasks = append(tasks, DBTask{
+		tasks = append(tasks, Task{
 			ID:        fmt.Sprintf("%v", row["id"]),
 			Title:     fmt.Sprintf("%v", row["title"]),
 			Status:    fmt.Sprintf("%v", row["status"]),
@@ -119,11 +85,11 @@ func getStuckTasks(dbPath string, minutes int) ([]DBTask, error) {
 	return tasks, nil
 }
 
-// updateTaskStatus changes a task's status in the DB.
-func updateTaskStatus(dbPath string, id, status, errMsg string) error {
+// UpdateTaskStatus changes a task's status in the DB.
+func UpdateTaskStatus(dbPath string, id, status, errMsg string) error {
 	sql := fmt.Sprintf(
 		`UPDATE tasks SET status = '%s', error = '%s', updated_at = datetime('now')
 		 WHERE id = %s`,
-		escapeSQLite(status), escapeSQLite(errMsg), escapeSQLite(id))
-	return execDB(dbPath, sql)
+		Escape(status), Escape(errMsg), Escape(id))
+	return Exec(dbPath, sql)
 }

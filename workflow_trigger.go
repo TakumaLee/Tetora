@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- P18.3: Workflow Trigger Engine ---
@@ -533,12 +536,12 @@ func initTriggerRunsTable(dbPath string) {
 		return
 	}
 	// Migration: add workflow_run_id column if missing (for DBs created before this column existed).
-	if err := execDB(dbPath, `ALTER TABLE workflow_trigger_runs ADD COLUMN workflow_run_id TEXT DEFAULT '';`); err != nil {
+	if err := db.Exec(dbPath, `ALTER TABLE workflow_trigger_runs ADD COLUMN workflow_run_id TEXT DEFAULT '';`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
 			logWarn("workflow_trigger_runs migration failed", "error", err)
 		}
 	}
-	if _, err := queryDB(dbPath, triggerRunsTableSQL); err != nil {
+	if _, err := db.Query(dbPath, triggerRunsTableSQL); err != nil {
 		logWarn("init workflow_trigger_runs table failed", "error", err)
 	}
 }
@@ -551,16 +554,16 @@ func recordTriggerRun(dbPath, triggerName, workflowName, runID, status, startedA
 	sql := fmt.Sprintf(
 		`INSERT INTO workflow_trigger_runs (trigger_name, workflow_name, workflow_run_id, status, started_at, finished_at, error)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s')`,
-		escapeSQLite(triggerName),
-		escapeSQLite(workflowName),
-		escapeSQLite(runID),
-		escapeSQLite(status),
-		escapeSQLite(startedAt),
-		escapeSQLite(finishedAt),
-		escapeSQLite(errMsg),
+		db.Escape(triggerName),
+		db.Escape(workflowName),
+		db.Escape(runID),
+		db.Escape(status),
+		db.Escape(startedAt),
+		db.Escape(finishedAt),
+		db.Escape(errMsg),
 	)
 
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		logWarn("record trigger run failed", "error", err)
 	}
 }
@@ -572,7 +575,7 @@ func queryTriggerRuns(dbPath, triggerName string, limit int) ([]map[string]any, 
 
 	where := ""
 	if triggerName != "" {
-		where = fmt.Sprintf("WHERE trigger_name='%s'", escapeSQLite(triggerName))
+		where = fmt.Sprintf("WHERE trigger_name='%s'", db.Escape(triggerName))
 	}
 
 	sql := fmt.Sprintf(
@@ -581,7 +584,7 @@ func queryTriggerRuns(dbPath, triggerName string, limit int) ([]map[string]any, 
 		where, limit,
 	)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, nil

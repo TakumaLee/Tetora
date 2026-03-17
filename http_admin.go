@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
@@ -607,7 +610,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			}
 		}
 
-		rows, err := queryDB(cfg.HistoryDB,
+		rows, err := db.Query(cfg.HistoryDB,
 			fmt.Sprintf(`SELECT id, skill_name, event_type, task_prompt, role, created_at, status, duration_ms, source, session_id, error_msg FROM skill_usage ORDER BY id DESC LIMIT %d`, limit))
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
@@ -691,7 +694,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 		// Reminders count — query DB directly.
 		if cfg.HistoryDB != "" {
-			rows, err := queryDB(cfg.HistoryDB, "SELECT COUNT(*) as cnt FROM reminders WHERE status='pending'")
+			rows, err := db.Query(cfg.HistoryDB, "SELECT COUNT(*) as cnt FROM reminders WHERE status='pending'")
 			if err == nil && len(rows) > 0 {
 				if cnt, ok := rows[0]["cnt"]; ok {
 					switch v := cnt.(type) {
@@ -716,7 +719,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 		// Knowledge docs count.
 		if cfg.HistoryDB != "" {
-			rows, err := queryDB(cfg.HistoryDB, "SELECT COUNT(*) as cnt FROM knowledge_docs")
+			rows, err := db.Query(cfg.HistoryDB, "SELECT COUNT(*) as cnt FROM knowledge_docs")
 			if err == nil && len(rows) > 0 {
 				if cnt, ok := rows[0]["cnt"]; ok {
 					switch v := cnt.(type) {

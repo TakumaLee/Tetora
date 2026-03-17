@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"tetora/internal/db"
+)
 
 func TestEscapeSQLite(t *testing.T) {
 	tests := []struct {
@@ -23,9 +27,9 @@ func TestEscapeSQLite(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := escapeSQLite(tt.input)
+			got := db.Escape(tt.input)
 			if got != tt.want {
-				t.Errorf("escapeSQLite(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("db.Escape(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

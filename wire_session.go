@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"tetora/internal/crypto"
+	"tetora/internal/db"
 	"tetora/internal/session"
 )
 
@@ -202,8 +203,8 @@ Conversation (%d messages):
 	lastOldID := oldMsgs[len(oldMsgs)-1].ID
 	delSQL := fmt.Sprintf(
 		`DELETE FROM session_messages WHERE session_id = '%s' AND id <= %d`,
-		escapeSQLite(sessionID), lastOldID)
-	if err := execDB(dbPath, delSQL); err != nil {
+		db.Escape(sessionID), lastOldID)
+	if err := db.Exec(dbPath, delSQL); err != nil {
 		return fmt.Errorf("delete old messages: %w", err)
 	}
 
@@ -222,8 +223,8 @@ Conversation (%d messages):
 	newCount := keep + 1
 	updateSQL := fmt.Sprintf(
 		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
-		newCount, escapeSQLite(now), escapeSQLite(sessionID))
-	if err := execDB(dbPath, updateSQL); err != nil {
+		newCount, db.Escape(now), db.Escape(sessionID))
+	if err := db.Exec(dbPath, updateSQL); err != nil {
 		logWarn("session count update failed", "session", sessionID, "error", err)
 	}
 

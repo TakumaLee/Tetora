@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func TestDailyNotesConfig(t *testing.T) {
@@ -53,7 +56,7 @@ func TestGenerateDailyNote(t *testing.T) {
 		started_at TEXT,
 		finished_at TEXT
 	);`
-	if _, err := queryDB(dbPath, schema); err != nil {
+	if _, err := db.Query(dbPath, schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 
@@ -66,8 +69,8 @@ func TestGenerateDailyNote(t *testing.T) {
 	yesterday := time.Now().AddDate(0, 0, -1)
 	startedAt := yesterday.Format("2006-01-02 10:00:00")
 	sql := `INSERT INTO history (id, name, source, agent, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at, finished_at)
-	        VALUES ('test1', 'Test Task 1', 'cron', '琉璃', 'success', 1000, 0.05, 100, 200, '` + escapeSQLite(startedAt) + `', '` + escapeSQLite(startedAt) + `')`
-	if _, err := queryDB(dbPath, sql); err != nil {
+	        VALUES ('test1', 'Test Task 1', 'cron', '琉璃', 'success', 1000, 0.05, 100, 200, '` + db.Escape(startedAt) + `', '` + db.Escape(startedAt) + `')`
+	if _, err := db.Query(dbPath, sql); err != nil {
 		t.Fatalf("insert test data: %v", err)
 	}
 

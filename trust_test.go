@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"tetora/internal/db"
 	"tetora/internal/sla"
 	"time"
 )
@@ -183,9 +184,9 @@ func TestInitTrustDB(t *testing.T) {
 	dbPath := setupTrustTestDB(t)
 
 	// Verify trust_events table exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='trust_events'")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='trust_events'")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected trust_events table, got %d tables", len(rows))

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/tool"
 )
 
@@ -591,11 +592,11 @@ func toolSessionList(ctx context.Context, cfg *Config, input json.RawMessage) (s
 
 	query := `SELECT session_id, channel_type, channel_id, message_count, created_at, updated_at FROM sessions WHERE 1=1`
 	if args.Channel != "" {
-		query += fmt.Sprintf(` AND channel_type = '%s'`, escapeSQLite(args.Channel))
+		query += fmt.Sprintf(` AND channel_type = '%s'`, db.Escape(args.Channel))
 	}
 	query += ` ORDER BY updated_at DESC LIMIT 20`
 
-	rows, err := queryDB(cfg.HistoryDB, query)
+	rows, err := db.Query(cfg.HistoryDB, query)
 	if err != nil {
 		return "", fmt.Errorf("query failed: %w", err)
 	}

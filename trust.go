@@ -9,6 +9,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Trust Level Constants ---
@@ -128,9 +131,9 @@ func queryConsecutiveSuccess(dbPath, role string) int {
 		`SELECT status FROM job_runs
 		 WHERE agent = '%s'
 		 ORDER BY id DESC LIMIT 50`,
-		escapeSQLite(role))
+		db.Escape(role))
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		return 0
 	}
@@ -157,13 +160,13 @@ func recordTrustEvent(dbPath, role, eventType, fromLevel, toLevel string, consec
 	sql := fmt.Sprintf(
 		`INSERT INTO trust_events (agent, event_type, from_level, to_level, consecutive_success, created_at, note)
 		 VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s')`,
-		escapeSQLite(role),
-		escapeSQLite(eventType),
-		escapeSQLite(fromLevel),
-		escapeSQLite(toLevel),
+		db.Escape(role),
+		db.Escape(eventType),
+		db.Escape(fromLevel),
+		db.Escape(toLevel),
 		consecutiveSuccess,
 		time.Now().Format(time.RFC3339),
-		escapeSQLite(note))
+		db.Escape(note))
 
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -182,14 +185,14 @@ func queryTrustEvents(dbPath, role string, limit int) ([]map[string]any, error) 
 
 	where := ""
 	if role != "" {
-		where = fmt.Sprintf("WHERE agent = '%s'", escapeSQLite(role))
+		where = fmt.Sprintf("WHERE agent = '%s'", db.Escape(role))
 	}
 
 	sql := fmt.Sprintf(
 		`SELECT agent, event_type, from_level, to_level, consecutive_success, created_at, note
 		 FROM trust_events %s ORDER BY id DESC LIMIT %d`, where, limit)
 
-	return queryDB(dbPath, sql)
+	return db.Query(dbPath, sql)
 }
 
 // --- Trust Status Queries ---
@@ -205,8 +208,8 @@ func getTrustStatus(cfg *Config, role string) TrustStatus {
 	// Count total tasks.
 	totalTasks := 0
 	if cfg.HistoryDB != "" {
-		sql := fmt.Sprintf(`SELECT COUNT(*) as cnt FROM job_runs WHERE agent = '%s'`, escapeSQLite(role))
-		if rows, err := queryDB(cfg.HistoryDB, sql); err == nil && len(rows) > 0 {
+		sql := fmt.Sprintf(`SELECT COUNT(*) as cnt FROM job_runs WHERE agent = '%s'`, db.Escape(role))
+		if rows, err := db.Query(cfg.HistoryDB, sql); err == nil && len(rows) > 0 {
 			totalTasks = jsonInt(rows[0]["cnt"])
 		}
 	}

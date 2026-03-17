@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/trace"
 )
 
@@ -331,9 +332,9 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 				runCancellers.Delete(runID)
 			}
 			// Also update DB.
-			if _, err := queryDB(cfg.HistoryDB, fmt.Sprintf(
+			if _, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 				`UPDATE workflow_runs SET status='cancelled', finished_at=datetime('now') WHERE id='%s' AND status IN ('running','waiting')`,
-				escapeSQLite(runID),
+				db.Escape(runID),
 			)); err != nil {
 				logWarn("cancel workflow run failed", "runID", runID, "error", err)
 			}
@@ -399,8 +400,8 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 		// Query callbacks for this run.
 		var callbacks []map[string]any
 		cbSQL := fmt.Sprintf(`SELECT key, step_id, mode, auth_mode, status, timeout_at, created_at
-			FROM workflow_callbacks WHERE run_id='%s' ORDER BY created_at`, escapeSQLite(run.ID))
-		cbRows, _ := queryDB(cfg.HistoryDB, cbSQL)
+			FROM workflow_callbacks WHERE run_id='%s' ORDER BY created_at`, db.Escape(run.ID))
+		cbRows, _ := db.Query(cfg.HistoryDB, cbSQL)
 		if cbRows != nil {
 			callbacks = cbRows
 		} else {
@@ -624,7 +625,7 @@ func (s *Server) registerWorkflowRoutes(mux *http.ServeMux) {
 		}
 		sql := `SELECT key, run_id, step_id, mode, auth_mode, status, timeout_at, post_sent, created_at
 				FROM workflow_callbacks WHERE status='waiting' ORDER BY created_at DESC LIMIT 100`
-		rows, err := queryDB(cfg.HistoryDB, sql)
+		rows, err := db.Query(cfg.HistoryDB, sql)
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/sla"
 )
 
@@ -76,16 +77,16 @@ func TestInitSLADB(t *testing.T) {
 	sla.InitSLADB(dbPath)
 
 	// Verify sla_checks table exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='sla_checks'")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' AND name='sla_checks'")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("expected sla_checks table, got %d tables", len(rows))
 	}
 
 	// Verify agent column exists in job_runs.
-	_, err = queryDB(dbPath, "SELECT agent FROM job_runs LIMIT 0")
+	_, err = db.Query(dbPath, "SELECT agent FROM job_runs LIMIT 0")
 	if err != nil {
 		t.Fatalf("agent column not added to job_runs: %v", err)
 	}

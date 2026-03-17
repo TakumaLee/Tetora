@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Handoff Types ---
@@ -109,7 +112,7 @@ func initHandoffTables(dbPath string) {
 		`ALTER TABLE handoffs ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
 		`ALTER TABLE agent_messages ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
 	} {
-		if err := execDB(dbPath, col); err != nil {
+		if err := db.Exec(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
 				logWarn("handoff migration failed", "sql", col, "error", err)
 			}
@@ -122,13 +125,13 @@ func initHandoffTables(dbPath string) {
 		`ALTER TABLE agent_messages RENAME COLUMN from_role TO from_agent;`,
 		`ALTER TABLE agent_messages RENAME COLUMN to_role TO to_agent;`,
 	} {
-		if err := execDB(dbPath, stmt); err != nil {
+		if err := db.Exec(dbPath, stmt); err != nil {
 			if !strings.Contains(err.Error(), "no such column") && !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
 				logWarn("handoff rename migration", "sql", stmt, "error", err)
 			}
 		}
 	}
-	if _, err := queryDB(dbPath, handoffTablesSQL); err != nil {
+	if _, err := db.Query(dbPath, handoffTablesSQL); err != nil {
 		logWarn("init handoff tables failed", "error", err)
 	}
 }
@@ -144,20 +147,20 @@ func recordHandoff(dbPath string, h Handoff) error {
 	sql := fmt.Sprintf(
 		`INSERT INTO handoffs (id, workflow_run_id, from_agent, to_agent, from_step_id, to_step_id, from_session_id, to_session_id, context, instruction, status, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s')`,
-		escapeSQLite(h.ID),
-		escapeSQLite(h.WorkflowRunID),
-		escapeSQLite(h.FromAgent),
-		escapeSQLite(h.ToAgent),
-		escapeSQLite(h.FromStepID),
-		escapeSQLite(h.ToStepID),
-		escapeSQLite(h.FromSessionID),
-		escapeSQLite(h.ToSessionID),
-		escapeSQLite(h.Context),
-		escapeSQLite(h.Instruction),
-		escapeSQLite(h.Status),
-		escapeSQLite(h.CreatedAt),
+		db.Escape(h.ID),
+		db.Escape(h.WorkflowRunID),
+		db.Escape(h.FromAgent),
+		db.Escape(h.ToAgent),
+		db.Escape(h.FromStepID),
+		db.Escape(h.ToStepID),
+		db.Escape(h.FromSessionID),
+		db.Escape(h.ToSessionID),
+		db.Escape(h.Context),
+		db.Escape(h.Instruction),
+		db.Escape(h.Status),
+		db.Escape(h.CreatedAt),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("record handoff: %w", err)
 	}
 	return nil
@@ -169,9 +172,9 @@ func updateHandoffStatus(dbPath, id, status string) error {
 	}
 	sql := fmt.Sprintf(
 		`UPDATE handoffs SET status = '%s' WHERE id = '%s'`,
-		escapeSQLite(status), escapeSQLite(id),
+		db.Escape(status), db.Escape(id),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("update handoff status: %w", err)
 	}
 	return nil
@@ -185,7 +188,7 @@ func queryHandoffs(dbPath, workflowRunID string) ([]Handoff, error) {
 
 	where := ""
 	if workflowRunID != "" {
-		where = fmt.Sprintf("WHERE workflow_run_id = '%s'", escapeSQLite(workflowRunID))
+		where = fmt.Sprintf("WHERE workflow_run_id = '%s'", db.Escape(workflowRunID))
 	}
 
 	sql := fmt.Sprintf(
@@ -193,7 +196,7 @@ func queryHandoffs(dbPath, workflowRunID string) ([]Handoff, error) {
 		        from_session_id, to_session_id, context, instruction, status, created_at
 		 FROM handoffs %s ORDER BY created_at ASC`, where)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, nil
@@ -243,16 +246,16 @@ func sendAgentMessage(dbPath string, msg AgentMessage) error {
 	sql := fmt.Sprintf(
 		`INSERT INTO agent_messages (id, workflow_run_id, from_agent, to_agent, type, content, ref_id, created_at)
 		 VALUES ('%s','%s','%s','%s','%s','%s','%s','%s')`,
-		escapeSQLite(msg.ID),
-		escapeSQLite(msg.WorkflowRunID),
-		escapeSQLite(msg.FromAgent),
-		escapeSQLite(msg.ToAgent),
-		escapeSQLite(msg.Type),
-		escapeSQLite(msg.Content),
-		escapeSQLite(msg.RefID),
-		escapeSQLite(msg.CreatedAt),
+		db.Escape(msg.ID),
+		db.Escape(msg.WorkflowRunID),
+		db.Escape(msg.FromAgent),
+		db.Escape(msg.ToAgent),
+		db.Escape(msg.Type),
+		db.Escape(msg.Content),
+		db.Escape(msg.RefID),
+		db.Escape(msg.CreatedAt),
 	)
-	if _, err := queryDB(dbPath, sql); err != nil {
+	if _, err := db.Query(dbPath, sql); err != nil {
 		return fmt.Errorf("send agent message: %w", err)
 	}
 	return nil
@@ -270,11 +273,11 @@ func queryAgentMessages(dbPath, workflowRunID, role string, limit int) ([]AgentM
 
 	var conditions []string
 	if workflowRunID != "" {
-		conditions = append(conditions, fmt.Sprintf("workflow_run_id = '%s'", escapeSQLite(workflowRunID)))
+		conditions = append(conditions, fmt.Sprintf("workflow_run_id = '%s'", db.Escape(workflowRunID)))
 	}
 	if role != "" {
 		conditions = append(conditions, fmt.Sprintf("(from_agent = '%s' OR to_agent = '%s')",
-			escapeSQLite(role), escapeSQLite(role)))
+			db.Escape(role), db.Escape(role)))
 	}
 
 	where := ""
@@ -286,7 +289,7 @@ func queryAgentMessages(dbPath, workflowRunID, role string, limit int) ([]AgentM
 		`SELECT id, workflow_run_id, from_agent, to_agent, type, content, ref_id, created_at
 		 FROM agent_messages %s ORDER BY created_at ASC LIMIT %d`, where, limit)
 
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, nil

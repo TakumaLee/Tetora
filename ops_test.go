@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 func TestInitOpsDB(t *testing.T) {
@@ -25,7 +28,7 @@ func TestInitOpsDB(t *testing.T) {
 
 	// Verify tables exist.
 	for _, table := range []string{"message_queue", "backup_log", "channel_status"} {
-		rows, err := queryDB(dbPath, fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", table))
+		rows, err := db.Query(dbPath, fmt.Sprintf("SELECT name FROM sqlite_master WHERE type='table' AND name='%s'", table))
 		if err != nil {
 			t.Fatalf("query table %s failed: %v", table, err)
 		}
@@ -35,7 +38,7 @@ func TestInitOpsDB(t *testing.T) {
 	}
 
 	// Verify index exists.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_mq_status'")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_mq_status'")
 	if err != nil {
 		t.Fatalf("query index failed: %v", err)
 	}
@@ -79,7 +82,7 @@ func TestMessageQueue_Enqueue(t *testing.T) {
 	}
 
 	// Verify it's in the DB.
-	rows, err := queryDB(dbPath, "SELECT channel, channel_target, message_text, status, priority FROM message_queue")
+	rows, err := db.Query(dbPath, "SELECT channel, channel_target, message_text, status, priority FROM message_queue")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -135,7 +138,7 @@ func TestMessageQueue_EnqueuePriority(t *testing.T) {
 	mq.Enqueue("telegram", "user3", "Medium priority", 5)
 
 	// Verify order by priority DESC.
-	rows, err := queryDB(dbPath, "SELECT channel_target, priority FROM message_queue WHERE status='pending' ORDER BY priority DESC, id ASC")
+	rows, err := db.Query(dbPath, "SELECT channel_target, priority FROM message_queue WHERE status='pending' ORDER BY priority DESC, id ASC")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -217,7 +220,7 @@ func TestMessageQueue_ProcessQueue(t *testing.T) {
 	mq.ProcessQueue(ctx)
 
 	// All should be sent (attemptDelivery succeeds by default).
-	rows, err := queryDB(dbPath, "SELECT status FROM message_queue ORDER BY id")
+	rows, err := db.Query(dbPath, "SELECT status FROM message_queue ORDER BY id")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -264,7 +267,7 @@ func TestMessageQueue_ProcessQueueWithFutureRetry(t *testing.T) {
 	ctx := context.Background()
 	mq.ProcessQueue(ctx)
 
-	rows, err := queryDB(dbPath, "SELECT status FROM message_queue")
+	rows, err := db.Query(dbPath, "SELECT status FROM message_queue")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -291,7 +294,7 @@ func TestChannelHealth_Record(t *testing.T) {
 		t.Fatalf("recordChannelHealth (healthy) failed: %v", err)
 	}
 
-	rows, err := queryDB(dbPath, "SELECT channel, status, failure_count FROM channel_status WHERE channel='telegram'")
+	rows, err := db.Query(dbPath, "SELECT channel, status, failure_count FROM channel_status WHERE channel='telegram'")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -311,7 +314,7 @@ func TestChannelHealth_Record(t *testing.T) {
 		t.Fatalf("recordChannelHealth (degraded) failed: %v", err)
 	}
 
-	rows, err = queryDB(dbPath, "SELECT status, failure_count, last_error FROM channel_status WHERE channel='telegram'")
+	rows, err = db.Query(dbPath, "SELECT status, failure_count, last_error FROM channel_status WHERE channel='telegram'")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -324,14 +327,14 @@ func TestChannelHealth_Record(t *testing.T) {
 
 	// Record another failure.
 	recordChannelHealth(dbPath, "telegram", "degraded", "timeout again")
-	rows, _ = queryDB(dbPath, "SELECT failure_count FROM channel_status WHERE channel='telegram'")
+	rows, _ = db.Query(dbPath, "SELECT failure_count FROM channel_status WHERE channel='telegram'")
 	if jsonInt(rows[0]["failure_count"]) != 2 {
 		t.Errorf("expected failure_count=2, got %v", rows[0]["failure_count"])
 	}
 
 	// Record healthy resets failure count.
 	recordChannelHealth(dbPath, "telegram", "healthy", "")
-	rows, _ = queryDB(dbPath, "SELECT failure_count FROM channel_status WHERE channel='telegram'")
+	rows, _ = db.Query(dbPath, "SELECT failure_count FROM channel_status WHERE channel='telegram'")
 	if jsonInt(rows[0]["failure_count"]) != 0 {
 		t.Errorf("expected failure_count=0 after healthy, got %v", rows[0]["failure_count"])
 	}
@@ -543,7 +546,7 @@ func TestCleanupExpiredMessages(t *testing.T) {
 		t.Fatalf("cleanup failed: %v", err)
 	}
 
-	rows, err := queryDB(dbPath, "SELECT channel_target FROM message_queue")
+	rows, err := db.Query(dbPath, "SELECT channel_target FROM message_queue")
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
@@ -623,7 +626,7 @@ func TestSQLInjectionSafety(t *testing.T) {
 	}
 
 	// Table should still exist.
-	rows, err := queryDB(dbPath, "SELECT COUNT(*) as cnt FROM message_queue")
+	rows, err := db.Query(dbPath, "SELECT COUNT(*) as cnt FROM message_queue")
 	if err != nil {
 		t.Fatalf("table was dropped by SQL injection! query failed: %v", err)
 	}

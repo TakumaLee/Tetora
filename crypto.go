@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"tetora/internal/crypto"
+	"tetora/internal/db"
 )
 
 // globalEncKey holds the resolved encryption key for use by standalone functions
@@ -88,7 +89,7 @@ func cmdMigrateEncrypt() {
 	total := 0
 
 	// Encrypt session message content.
-	rows, err := queryDB(dbPath, `SELECT id, content FROM session_messages WHERE content != ''`)
+	rows, err := db.Query(dbPath, `SELECT id, content FROM session_messages WHERE content != ''`)
 	if err == nil {
 		for _, row := range rows {
 			content := jsonStr(row["content"])
@@ -105,8 +106,8 @@ func cmdMigrateEncrypt() {
 			}
 			id := int(jsonFloat(row["id"]))
 			updateSQL := fmt.Sprintf(`UPDATE session_messages SET content = '%s' WHERE id = %d`,
-				escapeSQLite(enc), id)
-			queryDB(dbPath, updateSQL)
+				db.Escape(enc), id)
+			db.Query(dbPath, updateSQL)
 			total++
 		}
 	}
@@ -114,7 +115,7 @@ func cmdMigrateEncrypt() {
 
 	// Encrypt contact PII.
 	contactCount := 0
-	rows, err = queryDB(dbPath, `SELECT id, email, phone, notes FROM contacts`)
+	rows, err = db.Query(dbPath, `SELECT id, email, phone, notes FROM contacts`)
 	if err == nil {
 		for _, row := range rows {
 			id := jsonStr(row["id"])
@@ -126,28 +127,28 @@ func cmdMigrateEncrypt() {
 			if email != "" {
 				if _, decErr := hex.DecodeString(email); decErr != nil {
 					if enc, err := crypto.Encrypt(email, key); err == nil {
-						updates = append(updates, fmt.Sprintf("email = '%s'", escapeSQLite(enc)))
+						updates = append(updates, fmt.Sprintf("email = '%s'", db.Escape(enc)))
 					}
 				}
 			}
 			if phone != "" {
 				if _, decErr := hex.DecodeString(phone); decErr != nil {
 					if enc, err := crypto.Encrypt(phone, key); err == nil {
-						updates = append(updates, fmt.Sprintf("phone = '%s'", escapeSQLite(enc)))
+						updates = append(updates, fmt.Sprintf("phone = '%s'", db.Escape(enc)))
 					}
 				}
 			}
 			if notes != "" {
 				if _, decErr := hex.DecodeString(notes); decErr != nil {
 					if enc, err := crypto.Encrypt(notes, key); err == nil {
-						updates = append(updates, fmt.Sprintf("notes = '%s'", escapeSQLite(enc)))
+						updates = append(updates, fmt.Sprintf("notes = '%s'", db.Escape(enc)))
 					}
 				}
 			}
 			if len(updates) > 0 {
 				sql := fmt.Sprintf("UPDATE contacts SET %s WHERE id = '%s'",
-					strings.Join(updates, ", "), escapeSQLite(id))
-				queryDB(dbPath, sql)
+					strings.Join(updates, ", "), db.Escape(id))
+				db.Query(dbPath, sql)
 				contactCount++
 			}
 		}
@@ -156,7 +157,7 @@ func cmdMigrateEncrypt() {
 
 	// Encrypt expense descriptions.
 	expenseCount := 0
-	rows, err = queryDB(dbPath, `SELECT rowid, description FROM expenses WHERE description != ''`)
+	rows, err = db.Query(dbPath, `SELECT rowid, description FROM expenses WHERE description != ''`)
 	if err == nil {
 		for _, row := range rows {
 			desc := jsonStr(row["description"])
@@ -172,8 +173,8 @@ func cmdMigrateEncrypt() {
 			}
 			id := int(jsonFloat(row["rowid"]))
 			updateSQL := fmt.Sprintf(`UPDATE expenses SET description = '%s' WHERE rowid = %d`,
-				escapeSQLite(enc), id)
-			queryDB(dbPath, updateSQL)
+				db.Escape(enc), id)
+			db.Query(dbPath, updateSQL)
 			expenseCount++
 		}
 	}
@@ -181,7 +182,7 @@ func cmdMigrateEncrypt() {
 
 	// Encrypt habit log notes.
 	habitCount := 0
-	rows, err = queryDB(dbPath, `SELECT id, note FROM habit_logs WHERE note != ''`)
+	rows, err = db.Query(dbPath, `SELECT id, note FROM habit_logs WHERE note != ''`)
 	if err == nil {
 		for _, row := range rows {
 			note := jsonStr(row["note"])
@@ -197,8 +198,8 @@ func cmdMigrateEncrypt() {
 			}
 			id := jsonStr(row["id"])
 			updateSQL := fmt.Sprintf(`UPDATE habit_logs SET note = '%s' WHERE id = '%s'`,
-				escapeSQLite(enc), escapeSQLite(id))
-			queryDB(dbPath, updateSQL)
+				db.Escape(enc), db.Escape(id))
+			db.Query(dbPath, updateSQL)
 			habitCount++
 		}
 	}

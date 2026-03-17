@@ -13,6 +13,7 @@ import (
 
 	"tetora/internal/cli"
 	"tetora/internal/completion"
+	"tetora/internal/db"
 	"tetora/internal/sla"
 	"tetora/internal/knowledge"
 	"tetora/internal/storage"
@@ -298,7 +299,7 @@ func main() {
 				}
 
 				// Set SQLite pragmas for reliability.
-				if err := pragmaDB(cfg.HistoryDB); err != nil {
+				if err := db.Pragma(cfg.HistoryDB); err != nil {
 					logWarn("set db pragmas failed", "error", err)
 				} else {
 					logInfo("db pragmas set", "mode", "WAL")

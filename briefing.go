@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tetora/internal/automation/briefing"
+	"tetora/internal/db"
 )
 
 // --- P24.7: Morning Briefing & Evening Wrap ---
@@ -16,8 +17,8 @@ var globalBriefingService *briefing.Service
 // newBriefingService constructs a briefing.Service from Config + globals.
 func newBriefingService(cfg *Config) *briefing.Service {
 	deps := briefing.Deps{
-		Query:  queryDB,
-		Escape: escapeSQLite,
+		Query:  db.Query,
+		Escape: db.Escape,
 	}
 	if globalSchedulingService != nil {
 		svc := globalSchedulingService

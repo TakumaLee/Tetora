@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+
+	"tetora/internal/db"
 )
 
 // registerMemoryTools registers memory and knowledge tools.
@@ -246,8 +249,8 @@ func toolKnowledgeSearch(ctx context.Context, cfg *Config, input json.RawMessage
 
 	// Use existing knowledge search function if available, otherwise fallback to simple DB query.
 	query := fmt.Sprintf(`SELECT filename, snippet FROM knowledge WHERE content LIKE '%%%s%%' ORDER BY indexed_at DESC LIMIT %d`,
-		escapeSQLite(args.Query), args.Limit)
-	rows, err := queryDB(cfg.HistoryDB, query)
+		db.Escape(args.Query), args.Limit)
+	rows, err := db.Query(cfg.HistoryDB, query)
 	if err != nil {
 		return "", fmt.Errorf("query failed: %w", err)
 	}

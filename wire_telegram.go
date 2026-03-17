@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/messaging"
 	"tetora/internal/upload"
 	tgbot "tetora/internal/messaging/telegram"
@@ -356,7 +357,7 @@ func (r *telegramRuntime) GetCostByJob() map[string]float64 {
 // --- Task Stats ---
 
 func (r *telegramRuntime) GetTaskStats() (*tgbot.TaskStats, error) {
-	stats, err := getTaskStats(r.cfg.HistoryDB)
+	stats, err := db.GetTaskStats(r.cfg.HistoryDB)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +372,7 @@ func (r *telegramRuntime) GetTaskStats() (*tgbot.TaskStats, error) {
 }
 
 func (r *telegramRuntime) GetStuckTasks(thresholdMin int) []tgbot.StuckTask {
-	tasks, err := getStuckTasks(r.cfg.HistoryDB, thresholdMin)
+	tasks, err := db.GetStuckTasks(r.cfg.HistoryDB, thresholdMin)
 	if err != nil {
 		return nil
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+
+	"tetora/internal/db"
 )
 
 func setupFinanceTestDB(t *testing.T) (string, *FinanceService) {
@@ -35,9 +37,9 @@ func TestInitFinanceDB(t *testing.T) {
 		t.Fatalf("initFinanceDB: %v", err)
 	}
 	// Verify tables exist.
-	rows, err := queryDB(dbPath, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	rows, err := db.Query(dbPath, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
 	if err != nil {
-		t.Fatalf("queryDB: %v", err)
+		t.Fatalf("db.Query: %v", err)
 	}
 	names := make(map[string]bool)
 	for _, row := range rows {

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/integration/drive"
 	"tetora/internal/integration/dropbox"
 	"tetora/internal/integration/gmail"
@@ -195,14 +196,14 @@ func newTwitterService(cfg *Config) *TwitterService {
 }
 
 func initPodcastDB(dbPath string) error {
-	return podcast.InitDB(dbPath, execDB)
+	return podcast.InitDB(dbPath, db.Exec)
 }
 
 func newPodcastService(dbPath string) *PodcastService {
 	return podcast.New(dbPath, podcast.DB{
-		Query:   queryDB,
-		Exec:    execDB,
-		Escape:  escapeSQLite,
+		Query:   db.Query,
+		Exec:    db.Exec,
+		Escape:  db.Escape,
 		LogInfo: logInfo,
 		LogWarn: logWarn,
 	})

@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // testTaskDB creates a temporary DB and initializes task manager tables.
@@ -528,7 +531,7 @@ func TestGenerateReview(t *testing.T) {
 		svc.UpdateTask(tasks[0].ID, map[string]any{"status": "done"})
 		// Manually set completed_at via raw SQL.
 		setCompleted := fmt.Sprintf(`UPDATE user_tasks SET completed_at = '%s' WHERE id = '%s';`,
-			escapeSQLite(past), escapeSQLite(tasks[0].ID))
+			db.Escape(past), db.Escape(tasks[0].ID))
 		exec.Command("sqlite3", svc.DBPath(), setCompleted).Run()
 	}
 

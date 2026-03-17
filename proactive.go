@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+
+	"tetora/internal/db"
 )
 
 // --- Proactive Engine Types ---
@@ -311,9 +314,9 @@ func (e *ProactiveEngine) getDailyCost() (float64, error) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	sql := fmt.Sprintf("SELECT COALESCE(SUM(cost_usd), 0) FROM job_runs WHERE started_at LIKE '%s%%'", escapeSQLite(today))
+	sql := fmt.Sprintf("SELECT COALESCE(SUM(cost_usd), 0) FROM job_runs WHERE started_at LIKE '%s%%'", db.Escape(today))
 
-	rows, err := queryDB(e.cfg.HistoryDB, sql)
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
 		return 0, err
 	}
@@ -340,7 +343,7 @@ func (e *ProactiveEngine) getQueueDepth() (float64, error) {
 	}
 
 	sql := "SELECT COUNT(*) FROM offline_queue"
-	rows, err := queryDB(e.cfg.HistoryDB, sql)
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
 		return 0, err
 	}
@@ -366,7 +369,7 @@ func (e *ProactiveEngine) getActiveSessions() (float64, error) {
 	}
 
 	sql := "SELECT COUNT(DISTINCT session_id) FROM sessions WHERE last_activity > datetime('now', '-1 hour')"
-	rows, err := queryDB(e.cfg.HistoryDB, sql)
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
 		return 0, err
 	}
@@ -392,9 +395,9 @@ func (e *ProactiveEngine) getFailedTasksToday() (float64, error) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status != 'success'", escapeSQLite(today))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status != 'success'", db.Escape(today))
 
-	rows, err := queryDB(e.cfg.HistoryDB, sql)
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
 		return 0, err
 	}
@@ -523,7 +526,7 @@ func (e *ProactiveEngine) buildAutonomousPrompt(rule ProactiveRule) string {
 		}
 
 		// Recent 5 completed tasks.
-		rows, err := queryDB(e.cfg.HistoryDB, "SELECT name, status, started_at FROM job_runs ORDER BY started_at DESC LIMIT 5")
+		rows, err := db.Query(e.cfg.HistoryDB, "SELECT name, status, started_at FROM job_runs ORDER BY started_at DESC LIMIT 5")
 		if err == nil && len(rows) > 0 {
 			b.WriteString("\nRecent tasks:\n")
 			for _, row := range rows {
@@ -537,7 +540,7 @@ func (e *ProactiveEngine) buildAutonomousPrompt(rule ProactiveRule) string {
 
 	// Recent reflections (self-assessments from past tasks).
 	if e.cfg.HistoryDB != "" {
-		refRows, err := queryDB(e.cfg.HistoryDB, "SELECT agent, score, feedback, improvement, created_at FROM reflections ORDER BY created_at DESC LIMIT 5")
+		refRows, err := db.Query(e.cfg.HistoryDB, "SELECT agent, score, feedback, improvement, created_at FROM reflections ORDER BY created_at DESC LIMIT 5")
 		if err == nil && len(refRows) > 0 {
 			b.WriteString("\nRecent reflections:\n")
 			for _, row := range refRows {
@@ -553,7 +556,7 @@ func (e *ProactiveEngine) buildAutonomousPrompt(rule ProactiveRule) string {
 
 	// Taskboard tickets (backlog, todo, doing, failed).
 	if e.cfg.HistoryDB != "" {
-		tbRows, err := queryDB(e.cfg.HistoryDB, `
+		tbRows, err := db.Query(e.cfg.HistoryDB, `
 			SELECT id, title, status, assignee, priority, project, updated_at
 			FROM tasks
 			WHERE status IN ('backlog', 'todo', 'doing', 'failed')

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/telemetry"
 )
 
@@ -22,7 +23,7 @@ func TestInitTokenTelemetry(t *testing.T) {
 	}
 
 	// Verify table exists by querying it.
-	rows, err := queryDB(dbPath, "SELECT COUNT(*) as cnt FROM token_telemetry;")
+	rows, err := db.Query(dbPath, "SELECT COUNT(*) as cnt FROM token_telemetry;")
 	if err != nil {
 		t.Fatalf("query token_telemetry failed: %v", err)
 	}

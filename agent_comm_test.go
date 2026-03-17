@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+
+	"tetora/internal/db"
 )
 
 func TestAgentList_ReturnsRoles(t *testing.T) {
@@ -300,9 +303,9 @@ func TestAgentCommDB_Init(t *testing.T) {
 
 	// Verify table exists.
 	sql := "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_messages'"
-	rows, err := queryDB(dbPath, sql)
+	rows, err := db.Query(dbPath, sql)
 	if err != nil {
-		t.Fatalf("queryDB failed: %v", err)
+		t.Fatalf("db.Query failed: %v", err)
 	}
 
 	if len(rows) != 1 {
