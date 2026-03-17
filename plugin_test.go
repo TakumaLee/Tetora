@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tetora/internal/config"
 )
 
 // createMockPluginScript creates a temporary shell script that acts as a mock plugin.
@@ -846,7 +848,7 @@ func resolvePluginSecretsForTest(cfg *Config) {
 	for name, pcfg := range cfg.Plugins {
 		if len(pcfg.Env) > 0 {
 			for k, v := range pcfg.Env {
-				pcfg.Env[k] = resolveEnvRef(v, fmt.Sprintf("plugins.%s.env.%s", name, k))
+				pcfg.Env[k] = config.ResolveEnvRef(v, fmt.Sprintf("plugins.%s.env.%s", name, k))
 			}
 			cfg.Plugins[name] = pcfg
 		}

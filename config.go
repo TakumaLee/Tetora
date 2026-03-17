@@ -348,10 +348,10 @@ func tryLoadConfig(path string) (*Config, error) {
 	cfg.TLSEnabled = cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""
 
 	// Resolve $ENV_VAR references in secret fields.
-	resolveSecrets(&cfg)
+	config.ResolveSecrets(&cfg)
 
 	// Write MCP configs to temp files for --mcp-config flag.
-	resolveMCPPaths(&cfg)
+	config.ResolveMCPPaths(&cfg)
 
 	// Validate config.
 	validateConfig(&cfg)
@@ -483,185 +483,6 @@ func validateConfig(cfg *Config) {
 	}
 }
 
-// resolveEnvRef resolves a value starting with $ to the environment variable.
-// Returns the original value if it doesn't start with $, or the env var value.
-// Logs a warning if the env var is not set.
-func resolveEnvRef(value, fieldName string) string {
-	if !strings.HasPrefix(value, "$") {
-		return value
-	}
-	envKey := value[1:]
-	if envKey == "" {
-		return value
-	}
-	envVal := os.Getenv(envKey)
-	if envVal == "" {
-		log.Warn("env var reference not set", "field", fieldName, "envVar", envKey)
-		return ""
-	}
-	return envVal
-}
-
-// resolveSecrets resolves $ENV_VAR references in secret config fields.
-func resolveSecrets(cfg *Config) {
-	cfg.APIToken = resolveEnvRef(cfg.APIToken, "apiToken")
-	cfg.Telegram.BotToken = resolveEnvRef(cfg.Telegram.BotToken, "telegram.botToken")
-	if cfg.DashboardAuth.Password != "" {
-		cfg.DashboardAuth.Password = resolveEnvRef(cfg.DashboardAuth.Password, "dashboardAuth.password")
-	}
-	if cfg.DashboardAuth.Token != "" {
-		cfg.DashboardAuth.Token = resolveEnvRef(cfg.DashboardAuth.Token, "dashboardAuth.token")
-	}
-	for i, wh := range cfg.Webhooks {
-		for k, v := range wh.Headers {
-			cfg.Webhooks[i].Headers[k] = resolveEnvRef(v, fmt.Sprintf("webhooks[%d].headers.%s", i, k))
-		}
-	}
-	for i := range cfg.Notifications {
-		cfg.Notifications[i].WebhookURL = resolveEnvRef(cfg.Notifications[i].WebhookURL, fmt.Sprintf("notifications[%d].webhookUrl", i))
-	}
-	// Resolve TLS paths (support $ENV_VAR).
-	if cfg.TLS.CertFile != "" {
-		cfg.TLS.CertFile = resolveEnvRef(cfg.TLS.CertFile, "tls.certFile")
-	}
-	if cfg.TLS.KeyFile != "" {
-		cfg.TLS.KeyFile = resolveEnvRef(cfg.TLS.KeyFile, "tls.keyFile")
-	}
-	// Resolve provider API keys.
-	for name, pc := range cfg.Providers {
-		if pc.APIKey != "" {
-			pc.APIKey = resolveEnvRef(pc.APIKey, fmt.Sprintf("providers.%s.apiKey", name))
-			cfg.Providers[name] = pc
-		}
-	}
-	// Resolve incoming webhook secrets.
-	for name, wh := range cfg.IncomingWebhooks {
-		if wh.Secret != "" {
-			wh.Secret = resolveEnvRef(wh.Secret, fmt.Sprintf("incomingWebhooks.%s.secret", name))
-			cfg.IncomingWebhooks[name] = wh
-		}
-	}
-	// Resolve Slack tokens.
-	if cfg.Slack.BotToken != "" {
-		cfg.Slack.BotToken = resolveEnvRef(cfg.Slack.BotToken, "slack.botToken")
-	}
-	if cfg.Slack.SigningSecret != "" {
-		cfg.Slack.SigningSecret = resolveEnvRef(cfg.Slack.SigningSecret, "slack.signingSecret")
-	}
-	if cfg.Slack.AppToken != "" {
-		cfg.Slack.AppToken = resolveEnvRef(cfg.Slack.AppToken, "slack.appToken")
-	}
-	// Resolve Discord token.
-	if cfg.Discord.BotToken != "" {
-		cfg.Discord.BotToken = resolveEnvRef(cfg.Discord.BotToken, "discord.botToken")
-	}
-	// Resolve Embedding API key.
-	if cfg.Embedding.APIKey != "" {
-		cfg.Embedding.APIKey = resolveEnvRef(cfg.Embedding.APIKey, "embedding.apiKey")
-	}
-	// Resolve WebSearch API key.
-	if cfg.Tools.WebSearch.APIKey != "" {
-		cfg.Tools.WebSearch.APIKey = resolveEnvRef(cfg.Tools.WebSearch.APIKey, "tools.webSearch.apiKey")
-	}
-	// Resolve Voice API keys.
-	if cfg.Voice.STT.APIKey != "" {
-		cfg.Voice.STT.APIKey = resolveEnvRef(cfg.Voice.STT.APIKey, "voice.stt.apiKey")
-	}
-	if cfg.Voice.TTS.APIKey != "" {
-		cfg.Voice.TTS.APIKey = resolveEnvRef(cfg.Voice.TTS.APIKey, "voice.tts.apiKey")
-	}
-	// Resolve WhatsApp credentials.
-	if cfg.WhatsApp.AccessToken != "" {
-		cfg.WhatsApp.AccessToken = resolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
-	}
-	if cfg.WhatsApp.AppSecret != "" {
-		cfg.WhatsApp.AppSecret = resolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
-	}
-	// Resolve Push VAPID keys.
-	if cfg.Push.VAPIDPublicKey != "" {
-		cfg.Push.VAPIDPublicKey = resolveEnvRef(cfg.Push.VAPIDPublicKey, "push.vapidPublicKey")
-	}
-	if cfg.Push.VAPIDPrivateKey != "" {
-		cfg.Push.VAPIDPrivateKey = resolveEnvRef(cfg.Push.VAPIDPrivateKey, "push.vapidPrivateKey")
-	}
-	// Resolve plugin env vars.
-	for name, pcfg := range cfg.Plugins {
-		if len(pcfg.Env) > 0 {
-			for k, v := range pcfg.Env {
-				pcfg.Env[k] = resolveEnvRef(v, fmt.Sprintf("plugins.%s.env.%s", name, k))
-			}
-			cfg.Plugins[name] = pcfg
-		}
-	}
-	// Resolve Vision API key.
-	if cfg.Tools.Vision.APIKey != "" {
-		cfg.Tools.Vision.APIKey = resolveEnvRef(cfg.Tools.Vision.APIKey, "tools.vision.apiKey")
-	}
-	// Resolve LINE credentials.
-	if cfg.LINE.ChannelSecret != "" {
-		cfg.LINE.ChannelSecret = resolveEnvRef(cfg.LINE.ChannelSecret, "line.channelSecret")
-	}
-	if cfg.LINE.ChannelAccessToken != "" {
-		cfg.LINE.ChannelAccessToken = resolveEnvRef(cfg.LINE.ChannelAccessToken, "line.channelAccessToken")
-	}
-	// Resolve Matrix access token.
-	if cfg.Matrix.AccessToken != "" {
-		cfg.Matrix.AccessToken = resolveEnvRef(cfg.Matrix.AccessToken, "matrix.accessToken")
-	}
-	// Resolve Teams credentials.
-	if cfg.Teams.AppID != "" {
-		cfg.Teams.AppID = resolveEnvRef(cfg.Teams.AppID, "teams.appId")
-	}
-	if cfg.Teams.AppPassword != "" {
-		cfg.Teams.AppPassword = resolveEnvRef(cfg.Teams.AppPassword, "teams.appPassword")
-	}
-	if cfg.Teams.TenantID != "" {
-		cfg.Teams.TenantID = resolveEnvRef(cfg.Teams.TenantID, "teams.tenantId")
-	}
-	// Resolve Signal credentials.
-	if cfg.Signal.PhoneNumber != "" {
-		cfg.Signal.PhoneNumber = resolveEnvRef(cfg.Signal.PhoneNumber, "signal.phoneNumber")
-	}
-	// Resolve Google Chat credentials.
-	if cfg.GoogleChat.ServiceAccountKey != "" {
-		cfg.GoogleChat.ServiceAccountKey = resolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
-	}
-	// Resolve Home Assistant token.
-	cfg.HomeAssistant.Token = resolveEnvRef(cfg.HomeAssistant.Token, "homeAssistant.token")
-	// Resolve iMessage via BlueBubbles password.
-	cfg.IMessage.Password = resolveEnvRef(cfg.IMessage.Password, "imessage.password")
-	// Resolve OAuth secrets.
-	cfg.OAuth.EncryptionKey = resolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
-	for name, svc := range cfg.OAuth.Services {
-		svc.ClientID = resolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))
-		svc.ClientSecret = resolveEnvRef(svc.ClientSecret, fmt.Sprintf("oauth.services.%s.clientSecret", name))
-		cfg.OAuth.Services[name] = svc
-	}
-	// Resolve Todoist/Notion API keys.
-	if cfg.TaskManager.Todoist.APIKey != "" {
-		cfg.TaskManager.Todoist.APIKey = resolveEnvRef(cfg.TaskManager.Todoist.APIKey, "taskManager.todoist.apiKey")
-	}
-	if cfg.TaskManager.Notion.APIKey != "" {
-		cfg.TaskManager.Notion.APIKey = resolveEnvRef(cfg.TaskManager.Notion.APIKey, "taskManager.notion.apiKey")
-	}
-}
-
-func resolveMCPPaths(cfg *Config) {
-	if len(cfg.MCPConfigs) == 0 {
-		return
-	}
-	dir := filepath.Join(cfg.BaseDir, "mcp")
-	os.MkdirAll(dir, 0o755)
-	cfg.MCPPaths = make(map[string]string)
-	for name, raw := range cfg.MCPConfigs {
-		path := filepath.Join(dir, name+".json")
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
-			log.Warn("write mcp config failed", "name", name, "error", err)
-			continue
-		}
-		cfg.MCPPaths[name] = path
-	}
-}
 
 // configFileMu serializes all read-modify-write operations on the config file
 // so concurrent HTTP handlers cannot interleave their reads and writes.
@@ -670,7 +491,7 @@ var configFileMu sync.Mutex
 // updateConfigMCPs updates a single MCP config in config.json.
 // If config is nil, the MCP entry is removed. Otherwise it is added/updated.
 // Preserves all other config fields by reading/modifying/writing the raw JSON.
-func updateConfigMCPs(configPath, mcpName string, config json.RawMessage) error {
+func updateConfigMCPs(configPath, mcpName string, mcpConfig json.RawMessage) error {
 	configFileMu.Lock()
 	defer configFileMu.Unlock()
 
@@ -690,10 +511,10 @@ func updateConfigMCPs(configPath, mcpName string, config json.RawMessage) error 
 		json.Unmarshal(mcpsRaw, &mcps)
 	}
 
-	if config == nil {
+	if mcpConfig == nil {
 		delete(mcps, mcpName)
 	} else {
-		mcps[mcpName] = config
+		mcps[mcpName] = mcpConfig
 	}
 
 	mcpsJSON, err := json.Marshal(mcps)
@@ -710,32 +531,12 @@ func updateConfigMCPs(configPath, mcpName string, config json.RawMessage) error 
 		return err
 	}
 	// Auto-snapshot config version after MCP change.
-	if cfg := tryLoadConfigForVersioning(configPath); cfg != nil {
+	if cfg := config.LoadForVersioning(configPath); cfg != nil {
 		snapshotConfig(cfg.HistoryDB, configPath, "cli", fmt.Sprintf("mcp %s", mcpName))
 	}
 	return nil
 }
 
-// tryLoadConfigForVersioning is a lightweight config loader for versioning hooks.
-// It only resolves historyDB path. Returns nil if loading fails.
-func tryLoadConfigForVersioning(configPath string) *Config {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil
-	}
-	var cfg Config
-	if json.Unmarshal(data, &cfg) != nil {
-		return nil
-	}
-	cfg.BaseDir = filepath.Dir(configPath)
-	if cfg.HistoryDB == "" {
-		cfg.HistoryDB = "history.db"
-	}
-	if !filepath.IsAbs(cfg.HistoryDB) {
-		cfg.HistoryDB = filepath.Join(cfg.BaseDir, cfg.HistoryDB)
-	}
-	return &cfg
-}
 
 // updateAgentModel updates an agent's model in config and returns the old model.
 func updateAgentModel(cfg *Config, agentName, model string) (string, error) {
