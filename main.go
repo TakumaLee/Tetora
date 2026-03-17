@@ -284,6 +284,7 @@ func main() {
 	serve := flag.Bool("serve", false, "run as daemon (Telegram bot + HTTP + cron)")
 	flag.Parse()
 
+	loadDotEnv()
 	cfg := loadConfig(*configPath)
 
 	// P27.2: Set global encryption key for standalone functions.
@@ -857,10 +858,17 @@ func main() {
 			}
 		}
 
+		// Initialize voice engine (before Discord so bot can use STT).
+		var voiceEngine *VoiceEngine
+		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
+			voiceEngine = newVoiceEngine(cfg)
+			log.Info("voice engine initialized")
+		}
+
 		// Initialize Discord bot.
 		var discordBot *DiscordBot
 		if cfg.Discord.Enabled && cfg.Discord.BotToken != "" {
-			discordBot = newDiscordBot(cfg, state, sem, childSem, cron)
+			discordBot = newDiscordBot(cfg, state, sem, childSem, cron, voiceEngine)
 			state.discordBot = discordBot       // P14.1: store for interaction handler
 			cfg.Runtime.DiscordBot = discordBot // provider approval routing
 			log.Info("discord bot enabled")
@@ -905,13 +913,6 @@ func main() {
 			rt := newMessagingRuntime(cfg, state, sem, childSem)
 			whatsappBot = whatsapp.NewBot(cfg.WhatsApp, rt)
 			log.Info("whatsapp bot enabled", "endpoint", "/api/whatsapp/webhook")
-		}
-
-		// Initialize voice engine.
-		var voiceEngine *VoiceEngine
-		if cfg.Voice.STT.Enabled || cfg.Voice.TTS.Enabled {
-			voiceEngine = newVoiceEngine(cfg)
-			log.Info("voice engine initialized")
 		}
 
 		// Initialize agent communication DB.
@@ -1822,6 +1823,39 @@ func loadConfig(path string) *Config {
 	return cfg
 }
 
+// loadDotEnv reads ~/.tetora/.env and sets any key=value pairs as environment
+// variables. Existing env vars are NOT overwritten (same semantics as dotenv).
+// Lines starting with # are ignored. Supports: KEY=value and export KEY=value.
+func loadDotEnv() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	envFile := filepath.Join(home, ".tetora", ".env")
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		return // .env is optional
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		v = strings.Trim(v, `"'`)
+		if k != "" && os.Getenv(k) == "" {
+			os.Setenv(k, v)
+		}
+	}
+	log.Info("loaded .env file", "file", envFile)
+}
+
 // tryLoadConfig loads and validates the config file, returning an error instead
 // of calling os.Exit. Used by SIGHUP hot-reload so a bad config doesn't kill
 // the daemon.
@@ -2644,6 +2678,7 @@ func cmdRestart() {
 // waitForHealthy polls /healthz for up to 10 seconds after a restart to confirm
 // the daemon is up. Prints version on success or a warning on timeout.
 func waitForHealthy() {
+	loadDotEnv()
 	cfg, err := tryLoadConfig("")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not load config: %v\n", err)
