@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"tetora/internal/log"
 )
 
 const defaultStateTemplate = `# Project State (RDD)
@@ -32,6 +34,7 @@ const defaultStateTemplate = `# Project State (RDD)
 // EnsureStateFile checks if the STATE.md file exists in the workdir.
 // If it does not exist, it creates a boilerplate STATE.md using the provided objective.
 func EnsureStateFile(workdir string, fileName string, objective string) error {
+	log.Info("EnsureStateFile called", "workdir", workdir, "fileName", fileName)
 	if workdir == "" {
 		return nil // Cannot ensure state file without a working directory
 	}
@@ -120,7 +123,7 @@ func BuildResumeContext(workdir string, stateFileName string) (string, error) {
 	
 	reqContent, err := ReadRequirements(workdir)
 	if err != nil {
-		logWarn("failed to read requirements for resume", "error", err)
+		log.Warn("failed to read requirements for resume", "error", err)
 	}
 	
 	var sb strings.Builder

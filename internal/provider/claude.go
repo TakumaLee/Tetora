@@ -51,7 +51,11 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 
 	// Pipe prompt via stdin to avoid OS ARG_MAX limits on long prompts.
 	if req.Prompt != "" {
-		cmd.Stdin = strings.NewReader(req.Prompt)
+		fullPrompt := req.Prompt
+		if req.SystemPrompt != "" {
+			fullPrompt = "SYSTEM PROMPT:\n" + req.SystemPrompt + "\n\nUSER PROMPT:\n" + req.Prompt
+		}
+		cmd.Stdin = strings.NewReader(fullPrompt)
 	}
 
 	// Streaming mode.
@@ -322,25 +326,19 @@ func BuildClaudeArgs(req Request, streaming bool) []string {
 	}
 	if resume && req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
-	} else {
-		args = append(args, "--session-id", req.SessionID)
-		if !req.PersistSession {
-			args = append(args, "--no-session-persistence")
-		}
 	}
 
-	for _, dir := range req.AddDirs {
-		args = append(args, "--add-dir", dir)
-	}
+	// NOTE: --max-budget-usd is intentionally NOT passed.
+	// Tetora uses a soft-limit approach: log when budget is exceeded, but don't hard-stop.
+	// This allows channel sessions and large tasks to complete naturally.
 
+	// MCP injection via temp config file.
 	if req.MCPPath != "" {
 		args = append(args, "--mcp-config", req.MCPPath)
 	}
 
-	if req.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", req.SystemPrompt)
-	}
-
+	// Prompt is NOT appended as a positional arg; it is piped via stdin
+	// in Execute() to avoid OS ARG_MAX limits and shell escaping issues.
 	return args
 }
 

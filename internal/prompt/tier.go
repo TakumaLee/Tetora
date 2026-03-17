@@ -10,6 +10,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
 	"tetora/internal/knowledge"
+	"tetora/internal/log"
 )
 
 // Deps holds root-level function callbacks required by BuildTieredPrompt.
@@ -190,6 +191,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	}
 
 	// --- 9.5. RDD (Requirement-Driven Development) Engine ---
+	log.Info("RDD engine check", "enabled", cfg.RDDEngine.Enabled, "complexity", complexity, "workdir", task.Workdir)
 	if cfg.RDDEngine.Enabled && complexity == ComplexityComplex && task.Workdir != "" {
 		stateFileName := cfg.RDDEngine.stateFileNameOrDefault()
 		
