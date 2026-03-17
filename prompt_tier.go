@@ -174,6 +174,7 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity Req
 	}
 
 	// --- 9.5. RDD (Requirement-Driven Development) Engine ---
+	logInfo("RDD engine check", "enabled", cfg.RDDEngine.Enabled, "complexity", complexity, "workdir", task.Workdir)
 	if cfg.RDDEngine.Enabled && complexity == ComplexityComplex && task.Workdir != "" {
 		stateFileName := cfg.RDDEngine.stateFileNameOrDefault()
 		

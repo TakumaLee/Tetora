@@ -101,6 +101,14 @@ var complexKeywordsJA = []string{
 	"認証", "暗号化", "関数", "設計",
 }
 
+// Coding-related keywords (Chinese). Matched as substrings.
+var complexKeywordsZH = []string{
+	"程式", "代码", "实做", "实作", "实现", "除错", "调试", "重构", "部署",
+	"資料庫", "数据库", "演算法", "算法", "编译", "測試", "测试",
+	"遷移", "遷移", "架構", "架构", "優化", "优化", "併行", "並行",
+	"認證", "认证", "加密", "函數", "函数", "設計", "设计",
+}
+
 // classifyComplexity determines the complexity of a user request based on
 // the prompt text and the message source (e.g. "discord", "cron").
 func classifyComplexity(prompt string, source string) RequestComplexity {
@@ -138,8 +146,8 @@ func classifyComplexity(prompt string, source string) RequestComplexity {
 	if containsAnyComplexWord(promptLower, complexKeywordsEN) {
 		return ComplexityComplex
 	}
-	// Japanese keywords: substring match is correct since Japanese has no word boundaries.
-	if containsAnySubstring(prompt, complexKeywordsJA) {
+	// Japanese/Chinese keywords: substring match is correct since these have no word boundaries.
+	if containsAnySubstring(prompt, complexKeywordsJA) || containsAnySubstring(prompt, complexKeywordsZH) {
 		return ComplexityComplex
 	}
 

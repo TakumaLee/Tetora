@@ -32,6 +32,7 @@ const defaultStateTemplate = `# Project State (RDD)
 // EnsureStateFile checks if the STATE.md file exists in the workdir.
 // If it does not exist, it creates a boilerplate STATE.md using the provided objective.
 func EnsureStateFile(workdir string, fileName string, objective string) error {
+	logInfo("EnsureStateFile called", "workdir", workdir, "fileName", fileName)
 	if workdir == "" {
 		return nil // Cannot ensure state file without a working directory
 	}
