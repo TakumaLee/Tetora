@@ -257,8 +257,8 @@ func applyTriageResult(tb *TaskBoardEngine, t TaskBoard, tr *triageResult, valid
 		if _, err := tb.AddComment(t.ID, "triage", comment); err != nil {
 			logWarn("triage: add comment failed", "taskId", t.ID, "error", err)
 		}
-		if _, err := tb.MoveTask(t.ID, "doing"); err != nil {
-			logWarn("triage: move decomposed task to doing failed", "taskId", t.ID, "error", err)
+		if _, err := tb.MoveTask(t.ID, "todo"); err != nil {
+			logWarn("triage: move decomposed task to todo failed", "taskId", t.ID, "error", err)
 		}
 		logInfo("triage: task decomposed", "taskId", t.ID, "subtasks", len(created))
 

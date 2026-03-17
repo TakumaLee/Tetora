@@ -403,10 +403,10 @@ func toolTaskboardDecompose(cfg *Config) ToolHandler {
 			existingTitles[sub.Title] = true
 		}
 
-		// Move parent to "doing" (waiting for children) if it was backlog/todo.
-		if created > 0 && (parent.Status == "backlog" || parent.Status == "todo") {
-			if _, err := tb.MoveTask(args.ParentID, "doing"); err != nil {
-				logWarn("taskboard_decompose: failed to move parent to doing", "parentId", args.ParentID, "error", err)
+		// Move parent to "todo" (ready, waiting for children) if it was in backlog.
+		if created > 0 && parent.Status == "backlog" {
+			if _, err := tb.MoveTask(args.ParentID, "todo"); err != nil {
+				logWarn("taskboard_decompose: failed to move parent to todo", "parentId", args.ParentID, "error", err)
 			}
 		}
 
