@@ -43,9 +43,9 @@ func testConfigWithTools(tools ...*ToolDef) *Config {
 	cfg := &Config{
 		DefaultProvider: "mock",
 	}
-	r := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	r := newEmptyRegistry()
 	for _, t := range tools {
-		r.tools[t.Name] = t
+		r.Register(t)
 	}
 	cfg.Runtime.ToolRegistry = r
 	return cfg

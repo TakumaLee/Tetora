@@ -367,7 +367,7 @@ func (rs *realtimeSession) buildToolDefinitions() []map[string]any {
 	var tools []map[string]any
 
 	// Add built-in tools.
-	for _, tool := range rs.toolRegistry.tools {
+	for _, tool := range rs.toolRegistry.List() {
 		// Parse InputSchema to extract parameters.
 		var schema map[string]any
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
@@ -471,8 +471,8 @@ func (rs *realtimeSession) executeToolCall(callID, name, argsJSON string) {
 		return
 	}
 
-	tool := rs.toolRegistry.tools[name]
-	if tool == nil {
+	tool, ok := rs.toolRegistry.Get(name)
+	if !ok {
 		rs.sendToolResult(callID, "", fmt.Errorf("tool not found: %s", name))
 		return
 	}

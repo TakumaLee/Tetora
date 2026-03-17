@@ -252,11 +252,11 @@ func TestToolRegistrationDisabled(t *testing.T) {
 			Enabled: false,
 		},
 	}
-	r := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	r := newEmptyRegistry()
 	registerDeviceTools(r, cfg)
 
-	if len(r.tools) != 0 {
-		t.Errorf("expected 0 tools when disabled, got %d", len(r.tools))
+	if len(r.List()) != 0 {
+		t.Errorf("expected 0 tools when disabled, got %d", len(r.List()))
 	}
 }
 
@@ -267,11 +267,11 @@ func TestToolRegistrationEnabledNoFeatures(t *testing.T) {
 			// All features disabled.
 		},
 	}
-	r := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	r := newEmptyRegistry()
 	registerDeviceTools(r, cfg)
 
-	if len(r.tools) != 0 {
-		t.Errorf("expected 0 tools when no features enabled, got %d", len(r.tools))
+	if len(r.List()) != 0 {
+		t.Errorf("expected 0 tools when no features enabled, got %d", len(r.List()))
 	}
 }
 
@@ -283,19 +283,19 @@ func TestToolRegistrationPlatformAware(t *testing.T) {
 			LocationEnabled: true,
 		},
 	}
-	r := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	r := newEmptyRegistry()
 	registerDeviceTools(r, cfg)
 
 	// On macOS, osascript should be available, so notification_send should register.
 	if runtime.GOOS == "darwin" {
-		if _, ok := r.tools["notification_send"]; !ok {
+		if _, ok := r.Get("notification_send"); !ok {
 			t.Error("expected notification_send to be registered on darwin")
 		}
 	}
 
 	// location_get is macOS-only.
 	if runtime.GOOS != "darwin" {
-		if _, ok := r.tools["location_get"]; ok {
+		if _, ok := r.Get("location_get"); ok {
 			t.Error("expected location_get NOT to be registered on non-darwin")
 		}
 	}

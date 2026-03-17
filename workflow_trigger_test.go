@@ -102,9 +102,7 @@ func TestTriggerEnabled(t *testing.T) {
 func TestToolCallStep(t *testing.T) {
 	// Create a minimal config with a tool registry and a mock tool.
 	cfg := &Config{}
-	cfg.Runtime.ToolRegistry = &ToolRegistry{
-		tools: make(map[string]*ToolDef),
-	}
+	cfg.Runtime.ToolRegistry = newEmptyRegistry()
 
 	// Register a mock tool.
 	cfg.Runtime.ToolRegistry.(*ToolRegistry).Register(&ToolDef{
@@ -146,9 +144,7 @@ func TestToolCallStep(t *testing.T) {
 
 func TestToolCallStepWithVarExpansion(t *testing.T) {
 	cfg := &Config{}
-	cfg.Runtime.ToolRegistry = &ToolRegistry{
-		tools: make(map[string]*ToolDef),
-	}
+	cfg.Runtime.ToolRegistry = newEmptyRegistry()
 
 	cfg.Runtime.ToolRegistry.(*ToolRegistry).Register(&ToolDef{
 		Name: "echo_tool",

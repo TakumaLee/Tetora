@@ -776,7 +776,7 @@ func TestListFiltered_EmptyAllowed(t *testing.T) {
 }
 
 func TestListFiltered_PopulatedAllowed(t *testing.T) {
-	reg := &ToolRegistry{tools: make(map[string]*ToolDef)}
+	reg := newEmptyRegistry()
 	reg.Register(&ToolDef{Name: "alpha"})
 	reg.Register(&ToolDef{Name: "beta"})
 	reg.Register(&ToolDef{Name: "gamma"})
