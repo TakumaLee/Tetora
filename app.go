@@ -7,6 +7,7 @@ import (
 	"tetora/internal/automation/insights"
 	imessagebot "tetora/internal/messaging/imessage"
 	"tetora/internal/storage"
+	"tetora/internal/tools"
 )
 
 // globalIMessageBot is the package-level iMessage bot instance.
@@ -69,7 +70,7 @@ type App struct {
 	// Infrastructure
 	SpawnTracker        *spawnTracker
 	JudgeCache          *judgeCache
-	ImageGenLimiter     *imageGenLimiter
+	ImageGenLimiter     *tools.ImageGenLimiter
 	Presence            *presenceManager
 	Reminder            *ReminderEngine
 }

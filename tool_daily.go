@@ -164,36 +164,7 @@ func registerDailyTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 		})
 	}
 
-	// --- P22.3: Image Generation ---
-	if enabled("image_generate") && cfg.ImageGen.Enabled {
-		r.Register(&ToolDef{
-			Name:        "image_generate",
-			Description: "Generate an image using DALL-E (costs $0.04-0.12 per image)",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"prompt": {"type": "string", "description": "Image description prompt"},
-					"size": {"type": "string", "description": "Image size: 1024x1024 (default), 1024x1792, 1792x1024"},
-					"quality": {"type": "string", "description": "Quality: standard (default) or hd"}
-				},
-				"required": ["prompt"]
-			}`),
-			Handler: toolImageGenerate,
-			Builtin: true,
-		})
-	}
-	if enabled("image_generate_status") && cfg.ImageGen.Enabled {
-		r.Register(&ToolDef{
-			Name:        "image_generate_status",
-			Description: "Check today's image generation usage and remaining quota",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {}
-			}`),
-			Handler: toolImageGenerateStatus,
-			Builtin: true,
-		})
-	}
+	// Image generation tools are registered by tools.RegisterImageGenTools in registerBuiltins.
 
 	// --- P19.4: Notes/Obsidian Integration ---
 	if enabled("note_create") && cfg.Notes.Enabled {

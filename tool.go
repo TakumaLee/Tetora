@@ -43,12 +43,13 @@ func registerBuiltins(r *ToolRegistry, cfg *Config) {
 		return !ok || e
 	}
 	registerCoreTools(r, cfg, enabled)
-	registerMemoryTools(r, cfg, enabled)
+	tools.RegisterMemoryTools(r, cfg, enabled, buildMemoryDeps())
 	registerLifeTools(r, cfg, enabled)
 	registerIntegrationTools(r, cfg, enabled)
 	registerDailyTools(r, cfg, enabled)
 	registerAdminTools(r, cfg, enabled)
-	registerTaskboardTools(r, cfg, enabled)
+	tools.RegisterTaskboardTools(r, cfg, enabled, buildTaskboardDeps(cfg))
+	tools.RegisterImageGenTools(r, cfg, enabled, buildImageGenDeps())
 }
 
 // registerAdminTools registers admin/ops tools (backup, export, health,

@@ -209,9 +209,9 @@ func TestToolImageGenerateDailyLimit(t *testing.T) {
 	}
 
 	// Simulate 2 previous generations.
-	globalImageGenLimiter.date = timeNowFormatDate()
-	globalImageGenLimiter.count = 2
-	globalImageGenLimiter.costUSD = 0.08
+	globalImageGenLimiter.Date = timeNowFormatDate()
+	globalImageGenLimiter.Count = 2
+	globalImageGenLimiter.CostUSD = 0.08
 
 	input, _ := json.Marshal(map[string]string{"prompt": "test"})
 	_, err := toolImageGenerate(context.Background(), cfg, input)
@@ -236,9 +236,9 @@ func TestToolImageGenerateCostLimit(t *testing.T) {
 	}
 
 	// Simulate cost already exceeded.
-	globalImageGenLimiter.date = timeNowFormatDate()
-	globalImageGenLimiter.count = 1
-	globalImageGenLimiter.costUSD = 0.06
+	globalImageGenLimiter.Date = timeNowFormatDate()
+	globalImageGenLimiter.Count = 1
+	globalImageGenLimiter.CostUSD = 0.06
 
 	input, _ := json.Marshal(map[string]string{"prompt": "test"})
 	_, err := toolImageGenerate(context.Background(), cfg, input)
@@ -263,19 +263,19 @@ func TestToolImageGenerateDailyLimitReset(t *testing.T) {
 	}
 
 	// Set a past date - should reset on check.
-	globalImageGenLimiter.date = "2020-01-01"
-	globalImageGenLimiter.count = 100
-	globalImageGenLimiter.costUSD = 999.00
+	globalImageGenLimiter.Date = "2020-01-01"
+	globalImageGenLimiter.Count = 100
+	globalImageGenLimiter.CostUSD = 999.00
 
-	ok, _ := globalImageGenLimiter.check(cfg)
+	ok, _ := globalImageGenLimiter.Check(cfg)
 	if !ok {
 		t.Fatal("expected limit to reset for new day")
 	}
-	if globalImageGenLimiter.count != 0 {
-		t.Errorf("expected count reset to 0, got %d", globalImageGenLimiter.count)
+	if globalImageGenLimiter.Count != 0 {
+		t.Errorf("expected count reset to 0, got %d", globalImageGenLimiter.Count)
 	}
-	if globalImageGenLimiter.costUSD != 0 {
-		t.Errorf("expected cost reset to 0, got %f", globalImageGenLimiter.costUSD)
+	if globalImageGenLimiter.CostUSD != 0 {
+		t.Errorf("expected cost reset to 0, got %f", globalImageGenLimiter.CostUSD)
 	}
 }
 
@@ -291,9 +291,9 @@ func TestToolImageGenerateStatus(t *testing.T) {
 	}
 
 	// Set some usage.
-	globalImageGenLimiter.date = timeNowFormatDate()
-	globalImageGenLimiter.count = 3
-	globalImageGenLimiter.costUSD = 0.160
+	globalImageGenLimiter.Date = timeNowFormatDate()
+	globalImageGenLimiter.Count = 3
+	globalImageGenLimiter.CostUSD = 0.160
 
 	result, err := toolImageGenerateStatus(context.Background(), cfg, nil)
 	if err != nil {
@@ -485,15 +485,15 @@ func TestToolImageGenerateRecordUsage(t *testing.T) {
 		}
 	}
 
-	globalImageGenLimiter.mu.Lock()
-	if globalImageGenLimiter.count != 3 {
-		t.Errorf("expected count=3, got %d", globalImageGenLimiter.count)
+	globalImageGenLimiter.Mu.Lock()
+	if globalImageGenLimiter.Count != 3 {
+		t.Errorf("expected count=3, got %d", globalImageGenLimiter.Count)
 	}
 	expectedCost := 0.040 * 3
-	if globalImageGenLimiter.costUSD < expectedCost-0.001 || globalImageGenLimiter.costUSD > expectedCost+0.001 {
-		t.Errorf("expected cost ~$%.3f, got $%.3f", expectedCost, globalImageGenLimiter.costUSD)
+	if globalImageGenLimiter.CostUSD < expectedCost-0.001 || globalImageGenLimiter.CostUSD > expectedCost+0.001 {
+		t.Errorf("expected cost ~$%.3f, got $%.3f", expectedCost, globalImageGenLimiter.CostUSD)
 	}
-	globalImageGenLimiter.mu.Unlock()
+	globalImageGenLimiter.Mu.Unlock()
 }
 
 func TestToolImageGenerateQualityOverride(t *testing.T) {
@@ -584,15 +584,15 @@ func TestImageGenLimiterCheck(t *testing.T) {
 	l := &imageGenLimiter{}
 
 	// Fresh limiter should pass.
-	ok, reason := l.check(cfg)
+	ok, reason := l.Check(cfg)
 	if !ok {
 		t.Fatalf("expected ok, got blocked: %s", reason)
 	}
 
 	// At limit should block.
-	l.date = timeNowFormatDate()
-	l.count = 5
-	ok, reason = l.check(cfg)
+	l.Date = timeNowFormatDate()
+	l.Count = 5
+	ok, reason = l.Check(cfg)
 	if ok {
 		t.Fatal("expected blocked at daily limit")
 	}
@@ -601,9 +601,9 @@ func TestImageGenLimiterCheck(t *testing.T) {
 	}
 
 	// Cost limit should block.
-	l.count = 1
-	l.costUSD = 0.55
-	ok, reason = l.check(cfg)
+	l.Count = 1
+	l.CostUSD = 0.55
+	ok, reason = l.Check(cfg)
 	if ok {
 		t.Fatal("expected blocked at cost limit")
 	}
@@ -614,14 +614,14 @@ func TestImageGenLimiterCheck(t *testing.T) {
 
 func TestImageGenLimiterRecord(t *testing.T) {
 	l := &imageGenLimiter{}
-	l.record(0.040)
-	l.record(0.080)
+	l.Record(0.040)
+	l.Record(0.080)
 
-	if l.count != 2 {
-		t.Errorf("expected count=2, got %d", l.count)
+	if l.Count != 2 {
+		t.Errorf("expected count=2, got %d", l.Count)
 	}
-	if l.costUSD < 0.119 || l.costUSD > 0.121 {
-		t.Errorf("expected cost ~$0.120, got $%.3f", l.costUSD)
+	if l.CostUSD < 0.119 || l.CostUSD > 0.121 {
+		t.Errorf("expected cost ~$0.120, got $%.3f", l.CostUSD)
 	}
 }
 
