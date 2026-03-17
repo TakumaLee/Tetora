@@ -14,6 +14,7 @@ import (
 	"tetora/internal/cli"
 	"tetora/internal/log"
 	"tetora/internal/completion"
+	"tetora/internal/messaging/groupchat"
 	"tetora/internal/db"
 	"tetora/internal/sla"
 	"tetora/internal/knowledge"
@@ -717,9 +718,25 @@ func main() {
 		}
 
 		// Group chat engine.
-		var groupChatEngine *GroupChatEngine
+		var groupChatEngine *groupchat.Engine
 		if cfg.GroupChat.Activation != "" {
-			groupChatEngine = newGroupChatEngine(cfg)
+			var agentNames []string
+			for name := range cfg.Agents {
+				agentNames = append(agentNames, name)
+			}
+			groupChatEngine = groupchat.New(&groupchat.Config{
+				Activation:    cfg.GroupChat.Activation,
+				Keywords:      cfg.GroupChat.Keywords,
+				ContextWindow: cfg.GroupChat.ContextWindow,
+				RateLimit: groupchat.RateLimitConfig{
+					MaxPerMin: cfg.GroupChat.RateLimit.MaxPerMin,
+					PerGroup:  cfg.GroupChat.RateLimit.PerGroup,
+				},
+				AllowedGroups: cfg.GroupChat.AllowedGroups,
+				ThreadReply:   cfg.GroupChat.ThreadReply,
+				MentionNames:  cfg.GroupChat.MentionNames,
+				AgentNames:    agentNames,
+			})
 			log.Info("group chat engine started", "activation", cfg.GroupChat.Activation)
 		}
 

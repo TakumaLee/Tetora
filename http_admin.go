@@ -11,6 +11,7 @@ import (
 	"time"
 
 
+	"tetora/internal/backup"
 	"tetora/internal/log"
 	"tetora/internal/db"
 )
@@ -220,7 +221,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		tmpFile.Close()
 		defer os.Remove(tmpPath)
 
-		if err := createBackup(cfg.BaseDir, tmpPath); err != nil {
+		if err := backup.Create(cfg.BaseDir, tmpPath); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"create backup: %v"}`, err), http.StatusInternalServerError)
 			return
 		}

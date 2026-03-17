@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"tetora/internal/messaging/gchat"
+	"tetora/internal/messaging/groupchat"
 	"tetora/internal/messaging/imessage"
 	"tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
@@ -25,7 +26,7 @@ type Server struct {
 	secMon          *securityMonitor
 	mcpHost         *MCPHost
 	proactiveEngine *ProactiveEngine
-	groupChatEngine *GroupChatEngine
+	groupChatEngine *groupchat.Engine
 	voiceEngine     *VoiceEngine
 	slackBot        *slackbot.Bot
 	whatsappBot     *whatsapp.Bot
