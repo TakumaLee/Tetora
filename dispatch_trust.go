@@ -1,176 +1,26 @@
 package main
 
 import (
-	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	dtypes "tetora/internal/dispatch"
+	"tetora/internal/trace"
 )
 
-// --- UUID ---
+// --- Forwarding functions (canonical implementations in internal/dispatch + internal/trace) ---
 
-func newUUID() string {
-	var b [16]byte
-	rand.Read(b[:])
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
-// --- Task Defaults ---
-
-// estimateTimeout infers an appropriate task timeout from the prompt content.
-// This prevents long-running development tasks from being killed prematurely.
-// The caller can always override by setting Task.Timeout explicitly.
-func estimateTimeout(prompt string) string {
-	p := strings.ToLower(prompt)
-
-	// Heaviest tasks — large-scale refactors, migrations, multi-phase builds.
-	heavyKeywords := []string{
-		"refactor", "migrate", "migration", "全部", "整個", "整合", "架構",
-		"rewrite", "overhaul", "all ", "entire", "全面",
-	}
-	for _, kw := range heavyKeywords {
-		if strings.Contains(p, kw) {
-			return "3h"
-		}
-	}
-
-	// Medium-heavy — implementation, multi-file changes, feature builds.
-	buildKeywords := []string{
-		"implement", "build", "create", "add ", "新增", "建立", "實作",
-		"feature", "功能", "develop", "設計", "規劃",
-	}
-	for _, kw := range buildKeywords {
-		if strings.Contains(p, kw) {
-			return "2h"
-		}
-	}
-
-	// Light fixes — targeted bug fixes and updates.
-	fixKeywords := []string{
-		"fix", "bug", "修復", "update", "更新", "debug", "patch", "調整",
-	}
-	for _, kw := range fixKeywords {
-		if strings.Contains(p, kw) {
-			return "30m"
-		}
-	}
-
-	// Read-only / query tasks.
-	queryKeywords := []string{
-		"check", "查", "show", "list", "search", "analyze", "分析", "查看",
-	}
-	for _, kw := range queryKeywords {
-		if strings.Contains(p, kw) {
-			return "15m"
-		}
-	}
-
-	// Default: 2h — increased from 1h because complex tasks often exceed 1h.
-	return "2h"
-}
-
-func fillDefaults(cfg *Config, t *Task) {
-	if t.ID == "" {
-		t.ID = newUUID()
-	}
-	if t.SessionID == "" {
-		t.SessionID = newUUID()
-	}
-	if t.Model == "" {
-		t.Model = cfg.DefaultModel
-	}
-	if t.Timeout == "" {
-		// Use smart estimation from prompt; fall back to config default.
-		if t.Prompt != "" {
-			t.Timeout = estimateTimeout(t.Prompt)
-		} else {
-			t.Timeout = cfg.DefaultTimeout
-		}
-	}
-	if t.Budget == 0 {
-		t.Budget = cfg.DefaultBudget
-	}
-	if t.PermissionMode == "" {
-		t.PermissionMode = cfg.DefaultPermissionMode
-	}
-	if t.Workdir == "" {
-		t.Workdir = cfg.DefaultWorkdir
-	}
-	// Expand ~ in workdir.
-	if strings.HasPrefix(t.Workdir, "~/") {
-		home, _ := os.UserHomeDir()
-		t.Workdir = filepath.Join(home, t.Workdir[2:])
-	}
-	if t.Name == "" {
-		t.Name = fmt.Sprintf("task-%s", t.ID[:8])
-	}
-	// Sanitize prompt.
-	if t.Prompt != "" {
-		t.Prompt = sanitizePrompt(t.Prompt, cfg.MaxPromptLen)
-	}
-	// Resolve agent from system-wide default (not SmartDispatch — that's handled by the routing engine).
-	if t.Agent == "" && cfg.DefaultAgent != "" {
-		t.Agent = cfg.DefaultAgent
-	}
-	// Apply agent-specific overrides.
-	applyAgentDefaults(cfg, t)
-}
-
-// applyAgentDefaults applies agent-specific model and permission overrides to a task,
-// but only if the task still has the global defaults (i.e. not explicitly set).
-func applyAgentDefaults(cfg *Config, t *Task) {
-	if t.Agent == "" {
-		return
-	}
-	rc, ok := cfg.Agents[t.Agent]
-	if !ok {
-		return
-	}
-	if rc.Model != "" && t.Model == cfg.DefaultModel {
-		t.Model = rc.Model
-	}
-	if rc.PermissionMode != "" && t.PermissionMode == cfg.DefaultPermissionMode {
-		t.PermissionMode = rc.PermissionMode
-	}
-}
-
-// --- Prompt Sanitization ---
-
-// ansiEscapeRe matches ANSI escape sequences.
+// ansiEscapeRe matches ANSI escape sequences (used by discord_progress.go, discord_terminal.go).
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
-// sanitizePrompt removes potentially dangerous content from prompt text.
-// This performs structural sanitization only (null bytes, ANSI escapes, length).
-// Content filtering is the LLM's responsibility.
-func sanitizePrompt(input string, maxLen int) string {
-	if maxLen <= 0 {
-		maxLen = 102400
-	}
-
-	// Strip null bytes.
-	result := strings.ReplaceAll(input, "\x00", "")
-
-	// Strip ANSI escape sequences.
-	result = ansiEscapeRe.ReplaceAllString(result, "")
-
-	// Enforce max length.
-	if len(result) > maxLen {
-		result = result[:maxLen]
-		logWarn("prompt truncated", "from", len(input), "to", maxLen)
-	}
-
-	if result != input && len(result) == len(input) {
-		logWarn("prompt sanitized, removed control characters")
-	}
-
-	return result
-}
+func newUUID() string                        { return trace.NewUUID() }
+func fillDefaults(cfg *Config, t *Task)      { dtypes.FillDefaults(cfg, t) }
+func estimateTimeout(prompt string) string   { return dtypes.EstimateTimeout(prompt) }
+func sanitizePrompt(input string, maxLen int) string { return dtypes.SanitizePrompt(input, maxLen) }
 
 // --- P21.2: Writing Style ---
 
