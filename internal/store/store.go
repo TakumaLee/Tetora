@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"encoding/json"
@@ -6,10 +6,30 @@ import (
 	"strings"
 )
 
-// --- Store Browse API (local-first, remote-ready) ---
+// WorkflowInfo is the subset of workflow data needed by Browse.
+type WorkflowInfo struct {
+	Name        string
+	Description string
+	StepCount   int
+}
 
-// StoreItem represents a template in the store browse view.
-type StoreItem struct {
+// TemplateInfo is the subset of template data needed by Browse.
+type TemplateInfo struct {
+	Name        string
+	Description string
+	Category    string
+	StepCount   int
+	Variables   []string
+}
+
+// Deps holds the data-access functions Browse depends on.
+type Deps struct {
+	ListWorkflows func() ([]WorkflowInfo, error)
+	ListTemplates func() []TemplateInfo
+}
+
+// Item represents a template in the store browse view.
+type Item struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Category    string   `json:"category"`
@@ -20,29 +40,29 @@ type StoreItem struct {
 	Installed   bool     `json:"installed"`
 }
 
-// StoreCategory groups items by category.
-type StoreCategory struct {
+// Category groups items by category.
+type Category struct {
 	Name  string `json:"name"`
 	Count int    `json:"count"`
 }
 
-// storeBrowse returns all available templates (local built-in + installed), grouped and categorized.
-func storeBrowse(cfg *Config) ([]StoreItem, []StoreCategory) {
-	var items []StoreItem
+// Browse returns all available templates (local built-in + installed), grouped and categorized.
+func Browse(deps Deps) ([]Item, []Category) {
+	var items []Item
 	categoryCount := map[string]int{}
 
 	// 1. Built-in templates from embedded gallery.
 	installedNames := map[string]bool{}
-	if wfs, _ := listWorkflows(cfg); wfs != nil {
+	if wfs, _ := deps.ListWorkflows(); wfs != nil {
 		for _, wf := range wfs {
 			installedNames[wf.Name] = true
 		}
 	}
 
-	for _, t := range listTemplates() {
+	for _, t := range deps.ListTemplates() {
 		name := strings.TrimPrefix(t.Name, "tpl-")
-		tags := deriveTags(t.Name, t.Description, t.Category)
-		items = append(items, StoreItem{
+		tags := DeriveTags(t.Name, t.Description, t.Category)
+		items = append(items, Item{
 			Name:        t.Name,
 			Description: t.Description,
 			Category:    t.Category,
@@ -56,13 +76,13 @@ func storeBrowse(cfg *Config) ([]StoreItem, []StoreCategory) {
 	}
 
 	// 2. Installed workflows not from templates.
-	if wfs, _ := listWorkflows(cfg); wfs != nil {
+	if wfs, _ := deps.ListWorkflows(); wfs != nil {
 		for _, wf := range wfs {
 			// Skip if already listed as a builtin template.
 			alreadyListed := false
 			for _, item := range items {
-				name := strings.TrimPrefix(item.Name, "tpl-")
-				if name == wf.Name || item.Name == wf.Name {
+				tplName := strings.TrimPrefix(item.Name, "tpl-")
+				if tplName == wf.Name || item.Name == wf.Name {
 					alreadyListed = true
 					break
 				}
@@ -70,14 +90,14 @@ func storeBrowse(cfg *Config) ([]StoreItem, []StoreCategory) {
 			if alreadyListed {
 				continue
 			}
-			cat := deriveCategory(wf.Name)
-			tags := deriveTags(wf.Name, wf.Description, cat)
-			items = append(items, StoreItem{
+			cat := DeriveCategory(wf.Name)
+			tags := DeriveTags(wf.Name, wf.Description, cat)
+			items = append(items, Item{
 				Name:        wf.Name,
 				Description: wf.Description,
 				Category:    cat,
 				Tags:        tags,
-				StepCount:   len(wf.Steps),
+				StepCount:   wf.StepCount,
 				Source:      "installed",
 				Installed:   true,
 			})
@@ -86,21 +106,20 @@ func storeBrowse(cfg *Config) ([]StoreItem, []StoreCategory) {
 	}
 
 	// Build sorted category list.
-	var cats []StoreCategory
+	var cats []Category
 	for name, count := range categoryCount {
 		if name == "" {
 			name = "other"
 		}
-		cats = append(cats, StoreCategory{Name: name, Count: count})
+		cats = append(cats, Category{Name: name, Count: count})
 	}
 	sort.Slice(cats, func(i, j int) bool { return cats[i].Count > cats[j].Count })
 
 	return items, cats
 }
 
-// deriveCategory extracts category from workflow name.
-func deriveCategory(name string) string {
-	// Map common prefixes to categories.
+// DeriveCategory extracts category from workflow name.
+func DeriveCategory(name string) string {
 	prefixMap := map[string]string{
 		"standard-dev": "dev", "cicd": "devops", "content": "marketing",
 		"resume": "hr", "employee": "hr", "performance": "hr",
@@ -126,13 +145,12 @@ func deriveCategory(name string) string {
 	return "other"
 }
 
-// deriveTags generates tags from name, description, and category.
-func deriveTags(name, desc, category string) []string {
+// DeriveTags generates tags from name, description, and category.
+func DeriveTags(name, desc, category string) []string {
 	tags := []string{}
 	if category != "" {
 		tags = append(tags, category)
 	}
-	// Extract keywords from name.
 	parts := strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' })
 	for _, p := range parts {
 		p = strings.ToLower(p)
@@ -152,8 +170,8 @@ func deriveTags(name, desc, category string) []string {
 	return unique
 }
 
-// storeItemsToJSON is a helper for the HTTP handler.
-func storeItemsToJSON(items []StoreItem, cats []StoreCategory) ([]byte, error) {
+// ItemsToJSON serialises items and categories for the HTTP handler.
+func ItemsToJSON(items []Item, cats []Category) ([]byte, error) {
 	resp := map[string]any{
 		"items":      items,
 		"categories": cats,

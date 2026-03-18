@@ -1,4 +1,4 @@
-package main
+package project
 
 import (
 	"os/exec"
@@ -14,8 +14,8 @@ func tempProjectsDB(t *testing.T) string {
 	}
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test_projects.db")
-	if err := initProjectsDB(dbPath); err != nil {
-		t.Fatalf("initProjectsDB: %v", err)
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("InitDB: %v", err)
 	}
 	return dbPath
 }
@@ -26,13 +26,13 @@ func TestInitProjectsDB(t *testing.T) {
 	}
 	dbPath := tempProjectsDB(t)
 	// Idempotent: calling again should not error.
-	if err := initProjectsDB(dbPath); err != nil {
-		t.Fatalf("initProjectsDB second call: %v", err)
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("InitDB second call: %v", err)
 	}
 }
 
 func TestInitProjectsDB_EmptyPath(t *testing.T) {
-	if err := initProjectsDB(""); err == nil {
+	if err := InitDB(""); err == nil {
 		t.Error("expected error for empty dbPath")
 	}
 }
@@ -48,16 +48,16 @@ func TestProjectCreateAndGet(t *testing.T) {
 		Workdir:     "/tmp/test",
 		Tags:        "go,test",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-001")
+	got, err := Get(dbPath, "proj-001")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil")
+		t.Fatal("Get returned nil")
 	}
 	if got.ID != "proj-001" {
 		t.Errorf("ID = %q, want %q", got.ID, "proj-001")
@@ -88,9 +88,9 @@ func TestProjectCreateAndGet(t *testing.T) {
 func TestProjectGet_NotFound(t *testing.T) {
 	dbPath := tempProjectsDB(t)
 
-	got, err := getProject(dbPath, "nonexistent-id")
+	got, err := Get(dbPath, "nonexistent-id")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil for nonexistent ID, got %+v", got)
@@ -104,16 +104,16 @@ func TestProjectCreate_DefaultStatus(t *testing.T) {
 		ID:   "proj-defaults",
 		Name: "Defaults Project",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-defaults")
+	got, err := Get(dbPath, "proj-defaults")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil")
+		t.Fatal("Get returned nil")
 	}
 	if got.Status != "active" {
 		t.Errorf("default Status = %q, want %q", got.Status, "active")
@@ -129,24 +129,24 @@ func TestProjectList(t *testing.T) {
 		{ID: "p3", Name: "Gamma", Status: "archived"},
 	}
 	for _, p := range projects {
-		if err := createProject(dbPath, p); err != nil {
-			t.Fatalf("createProject %s: %v", p.ID, err)
+		if err := Create(dbPath, p); err != nil {
+			t.Fatalf("Create %s: %v", p.ID, err)
 		}
 	}
 
 	// List all.
-	all, err := listProjects(dbPath, "")
+	all, err := List(dbPath, "")
 	if err != nil {
-		t.Fatalf("listProjects all: %v", err)
+		t.Fatalf("List all: %v", err)
 	}
 	if len(all) != 3 {
 		t.Fatalf("expected 3 projects, got %d", len(all))
 	}
 
 	// List by status.
-	active, err := listProjects(dbPath, "active")
+	active, err := List(dbPath, "active")
 	if err != nil {
-		t.Fatalf("listProjects active: %v", err)
+		t.Fatalf("List active: %v", err)
 	}
 	if len(active) != 2 {
 		t.Fatalf("expected 2 active projects, got %d", len(active))
@@ -157,9 +157,9 @@ func TestProjectList(t *testing.T) {
 		}
 	}
 
-	archived, err := listProjects(dbPath, "archived")
+	archived, err := List(dbPath, "archived")
 	if err != nil {
-		t.Fatalf("listProjects archived: %v", err)
+		t.Fatalf("List archived: %v", err)
 	}
 	if len(archived) != 1 {
 		t.Fatalf("expected 1 archived project, got %d", len(archived))
@@ -169,9 +169,9 @@ func TestProjectList(t *testing.T) {
 func TestProjectList_Empty(t *testing.T) {
 	dbPath := tempProjectsDB(t)
 
-	all, err := listProjects(dbPath, "")
+	all, err := List(dbPath, "")
 	if err != nil {
-		t.Fatalf("listProjects: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 	if len(all) != 0 {
 		t.Errorf("expected 0 projects, got %d", len(all))
@@ -187,23 +187,23 @@ func TestProjectUpdate(t *testing.T) {
 		Description: "Original description",
 		Status:      "active",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
 	p.Name = "After Update"
 	p.Description = "Updated description"
 	p.Status = "archived"
-	if err := updateProject(dbPath, p); err != nil {
-		t.Fatalf("updateProject: %v", err)
+	if err := Update(dbPath, p); err != nil {
+		t.Fatalf("Update: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-update")
+	got, err := Get(dbPath, "proj-update")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil after update")
+		t.Fatal("Get returned nil after update")
 	}
 	if got.Name != "After Update" {
 		t.Errorf("Name = %q, want %q", got.Name, "After Update")
@@ -223,17 +223,17 @@ func TestProjectDelete(t *testing.T) {
 		ID:   "proj-delete",
 		Name: "To Delete",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
-	if err := deleteProject(dbPath, "proj-delete"); err != nil {
-		t.Fatalf("deleteProject: %v", err)
+	if err := Delete(dbPath, "proj-delete"); err != nil {
+		t.Fatalf("Delete: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-delete")
+	got, err := Get(dbPath, "proj-delete")
 	if err != nil {
-		t.Fatalf("getProject after delete: %v", err)
+		t.Fatalf("Get after delete: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil after delete, got %+v", got)
@@ -249,16 +249,16 @@ func TestProjectCreate_SpecialChars(t *testing.T) {
 		Description: `She said "hello" and it's fine`,
 		Status:      "active",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject with special chars: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create with special chars: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-special")
+	got, err := Get(dbPath, "proj-special")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil")
+		t.Fatal("Get returned nil")
 	}
 	if got.Name != p.Name {
 		t.Errorf("Name = %q, want %q", got.Name, p.Name)
@@ -280,16 +280,16 @@ func TestProjectNewFields(t *testing.T) {
 		Tags:     "go,ai",
 		Workdir:  "/tmp/test-new",
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-new-fields")
+	got, err := Get(dbPath, "proj-new-fields")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil")
+		t.Fatal("Get returned nil")
 	}
 	if got.RepoURL != "https://github.com/test/repo" {
 		t.Errorf("RepoURL = %q, want %q", got.RepoURL, "https://github.com/test/repo")
@@ -312,14 +312,14 @@ func TestProjectListOrder(t *testing.T) {
 		{ID: "p4", Name: "Delta", Priority: 0},
 	}
 	for _, p := range projects {
-		if err := createProject(dbPath, p); err != nil {
-			t.Fatalf("createProject %s: %v", p.ID, err)
+		if err := Create(dbPath, p); err != nil {
+			t.Fatalf("Create %s: %v", p.ID, err)
 		}
 	}
 
-	all, err := listProjects(dbPath, "")
+	all, err := List(dbPath, "")
 	if err != nil {
-		t.Fatalf("listProjects: %v", err)
+		t.Fatalf("List: %v", err)
 	}
 	if len(all) != 4 {
 		t.Fatalf("expected 4 projects, got %d", len(all))
@@ -343,23 +343,23 @@ func TestProjectUpdateNewFields(t *testing.T) {
 		Category: "Old Category",
 		Priority: 1,
 	}
-	if err := createProject(dbPath, p); err != nil {
-		t.Fatalf("createProject: %v", err)
+	if err := Create(dbPath, p); err != nil {
+		t.Fatalf("Create: %v", err)
 	}
 
 	p.RepoURL = "https://github.com/new/repo"
 	p.Category = "New Category"
 	p.Priority = 99
-	if err := updateProject(dbPath, p); err != nil {
-		t.Fatalf("updateProject: %v", err)
+	if err := Update(dbPath, p); err != nil {
+		t.Fatalf("Update: %v", err)
 	}
 
-	got, err := getProject(dbPath, "proj-upd-new")
+	got, err := Get(dbPath, "proj-upd-new")
 	if err != nil {
-		t.Fatalf("getProject: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got == nil {
-		t.Fatal("getProject returned nil")
+		t.Fatal("Get returned nil")
 	}
 	if got.RepoURL != "https://github.com/new/repo" {
 		t.Errorf("RepoURL = %q, want %q", got.RepoURL, "https://github.com/new/repo")
@@ -378,10 +378,10 @@ func TestProjectList_NoTable(t *testing.T) {
 	}
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "empty.db")
-	// Don't init — listProjects should return empty slice gracefully.
-	all, err := listProjects(dbPath, "")
+	// Don't init — List should return empty slice gracefully.
+	all, err := List(dbPath, "")
 	if err != nil {
-		t.Fatalf("listProjects on missing table: %v", err)
+		t.Fatalf("List on missing table: %v", err)
 	}
 	if len(all) != 0 {
 		t.Errorf("expected 0, got %d", len(all))

@@ -31,6 +31,7 @@ import (
 	"tetora/internal/pwa"
 	"tetora/internal/quickaction"
 	"tetora/internal/sla"
+	"tetora/internal/store"
 	"tetora/internal/trace"
 )
 
@@ -1521,8 +1522,39 @@ func startHTTPServer(s *Server) *http.Server {
 			return wf.Name, len(wf.Steps), nil, nil
 		},
 		StoreBrowse: func() ([]byte, error) {
-			items, cats := storeBrowse(cfg)
-			return storeItemsToJSON(items, cats)
+			deps := store.Deps{
+				ListWorkflows: func() ([]store.WorkflowInfo, error) {
+					wfs, err := listWorkflows(cfg)
+					if err != nil || wfs == nil {
+						return nil, err
+					}
+					infos := make([]store.WorkflowInfo, len(wfs))
+					for i, wf := range wfs {
+						infos[i] = store.WorkflowInfo{
+							Name:        wf.Name,
+							Description: wf.Description,
+							StepCount:   len(wf.Steps),
+						}
+					}
+					return infos, nil
+				},
+				ListTemplates: func() []store.TemplateInfo {
+					ts := listTemplates()
+					infos := make([]store.TemplateInfo, len(ts))
+					for i, t := range ts {
+						infos[i] = store.TemplateInfo{
+							Name:        t.Name,
+							Description: t.Description,
+							Category:    t.Category,
+							StepCount:   t.StepCount,
+							Variables:   t.Variables,
+						}
+					}
+					return infos
+				},
+			}
+			items, cats := store.Browse(deps)
+			return store.ItemsToJSON(items, cats)
 		},
 		ListTemplates: func() (any, int) {
 			ts := listTemplates()
