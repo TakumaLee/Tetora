@@ -1,4 +1,6 @@
-package main
+// Package sandbox provides Docker-based sandboxing helpers and the SandboxManager
+// which bridges the core dispatch system with the sandbox plugin.
+package sandbox
 
 import (
 	"context"
@@ -10,14 +12,16 @@ import (
 	"strings"
 	"sync"
 
+	"tetora/internal/config"
 	"tetora/internal/log"
+	"tetora/internal/plugin"
 )
 
-// buildDockerCmd wraps a claude CLI invocation in `docker run`.
+// BuildDockerCmd wraps a claude CLI invocation in `docker run`.
 // The workdir is mounted at /workspace inside the container.
 // addDirs get unique mount points under /mnt/.
 // MCPPath is mounted at /tmp/mcp.json if set.
-func buildDockerCmd(ctx context.Context, dcfg DockerConfig, workdir string, claudePath string, claudeArgs []string, addDirs []string, mcpPath string, envVars []string) *exec.Cmd {
+func BuildDockerCmd(ctx context.Context, dcfg config.DockerConfig, workdir string, claudePath string, claudeArgs []string, addDirs []string, mcpPath string, envVars []string) *exec.Cmd {
 	args := []string{"run", "--rm", "-i"}
 
 	// Resource limits.
@@ -70,10 +74,10 @@ func buildDockerCmd(ctx context.Context, dcfg DockerConfig, workdir string, clau
 	return exec.CommandContext(ctx, "docker", args...)
 }
 
-// dockerEnvFilter returns KEY=VALUE pairs for whitelisted environment variables.
+// DockerEnvFilter returns KEY=VALUE pairs for whitelisted environment variables.
 // Default whitelist: ANTHROPIC_API_KEY, HOME, PATH.
 // Additional vars from DockerConfig.EnvPass are included.
-func dockerEnvFilter(dcfg DockerConfig) []string {
+func DockerEnvFilter(dcfg config.DockerConfig) []string {
 	whitelist := map[string]bool{
 		"ANTHROPIC_API_KEY": true,
 		"HOME":              true,
@@ -93,11 +97,11 @@ func dockerEnvFilter(dcfg DockerConfig) []string {
 	return result
 }
 
-// rewriteDockerArgs adjusts claude CLI arguments for Docker context.
+// RewriteDockerArgs adjusts claude CLI arguments for Docker context.
 // - Rewrites --add-dir paths to /mnt/<basename>
 // - Rewrites --mcp-config path to /tmp/mcp.json
 // - Rewrites workdir-relative references
-func rewriteDockerArgs(claudeArgs []string, addDirs []string, mcpPath string) []string {
+func RewriteDockerArgs(claudeArgs []string, addDirs []string, mcpPath string) []string {
 	rewritten := make([]string, len(claudeArgs))
 	copy(rewritten, claudeArgs)
 
@@ -122,8 +126,8 @@ func rewriteDockerArgs(claudeArgs []string, addDirs []string, mcpPath string) []
 	return rewritten
 }
 
-// checkDockerAvailable verifies that docker CLI is in PATH and the daemon is accessible.
-func checkDockerAvailable() error {
+// CheckDockerAvailable verifies that docker CLI is in PATH and the daemon is accessible.
+func CheckDockerAvailable() error {
 	dockerPath, err := exec.LookPath("docker")
 	if err != nil {
 		return fmt.Errorf("docker not found in PATH")
@@ -142,8 +146,8 @@ func checkDockerAvailable() error {
 	return nil
 }
 
-// checkDockerImage verifies that a Docker image exists locally.
-func checkDockerImage(image string) error {
+// CheckDockerImage verifies that a Docker image exists locally.
+func CheckDockerImage(image string) error {
 	err := exec.Command("docker", "image", "inspect", image).Run()
 	if err != nil {
 		return fmt.Errorf("image %q not found locally (docker pull %s)", image, image)
@@ -151,15 +155,13 @@ func checkDockerImage(image string) error {
 	return nil
 }
 
-// --- P13.2: Sandbox Plugin ---
-
 // --- Sandbox Manager ---
 
 // SandboxManager bridges the core dispatch system with the sandbox plugin.
 // It manages per-session sandboxes via JSON-RPC calls to the plugin.
 type SandboxManager struct {
-	host   *PluginHost
-	cfg    *Config
+	host   *plugin.Host
+	cfg    *config.Config
 	plugin string            // resolved plugin name
 	active map[string]string // sessionID -> sandboxID
 	mu     sync.RWMutex
@@ -167,7 +169,7 @@ type SandboxManager struct {
 
 // NewSandboxManager creates a SandboxManager. It resolves the sandbox plugin
 // name from config or auto-discovers the first "sandbox" type plugin.
-func NewSandboxManager(cfg *Config, host *PluginHost) *SandboxManager {
+func NewSandboxManager(cfg *config.Config, host *plugin.Host) *SandboxManager {
 	sm := &SandboxManager{
 		host:   host,
 		cfg:    cfg,
@@ -450,9 +452,9 @@ func (sm *SandboxManager) DestroyAll() {
 
 // --- Sandbox Dispatch Helpers ---
 
-// sandboxPolicyForAgent returns the sandbox policy setting for an agent.
+// PolicyForAgent returns the sandbox policy setting for an agent.
 // Returns "required", "optional", or "never" (default).
-func sandboxPolicyForAgent(cfg *Config, agentName string) string {
+func PolicyForAgent(cfg *config.Config, agentName string) string {
 	if agentName == "" {
 		return "never"
 	}
@@ -468,9 +470,9 @@ func sandboxPolicyForAgent(cfg *Config, agentName string) string {
 	}
 }
 
-// sandboxImageForAgent returns the sandbox image for an agent.
+// ImageForAgent returns the sandbox image for an agent.
 // Priority: agent SandboxImage -> config Sandbox.DefaultImage -> "ubuntu:22.04"
-func sandboxImageForAgent(cfg *Config, agentName string) string {
+func ImageForAgent(cfg *config.Config, agentName string) string {
 	if agentName != "" {
 		if rc, ok := cfg.Agents[agentName]; ok {
 			if rc.ToolPolicy.SandboxImage != "" {
@@ -481,12 +483,12 @@ func sandboxImageForAgent(cfg *Config, agentName string) string {
 	return cfg.Sandbox.DefaultImageOrDefault()
 }
 
-// shouldUseSandbox determines whether a task should use a sandbox,
+// ShouldUseSandbox determines whether a task should use a sandbox,
 // given the agent policy and sandbox availability.
 // Returns (useSandbox bool, err error).
 // err is non-nil only when sandbox is required but unavailable.
-func shouldUseSandbox(cfg *Config, agentName string, sm *SandboxManager) (bool, error) {
-	policy := sandboxPolicyForAgent(cfg, agentName)
+func ShouldUseSandbox(cfg *config.Config, agentName string, sm *SandboxManager) (bool, error) {
+	policy := PolicyForAgent(cfg, agentName)
 
 	switch policy {
 	case "required":

@@ -19,6 +19,7 @@ import (
 	dtypes "tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/log"
+	"tetora/internal/sandbox"
 	"tetora/internal/telemetry"
 	"tetora/internal/trace"
 	"tetora/internal/webhook"
@@ -71,7 +72,7 @@ type dispatchState struct {
 	draining    bool             // graceful shutdown: stop accepting new tasks
 	cancel      context.CancelFunc
 	broker      *sseBroker       // SSE event broker for streaming progress
-	sandboxMgr        *SandboxManager              // --- P13.2: Sandbox Plugin ---
+	sandboxMgr        *sandbox.SandboxManager       // --- P13.2: Sandbox Plugin ---
 	discordBot        *DiscordBot                  // --- P14.1: Discord Components v2 ---
 	discordActivities map[string]*discordActivity  // task ID -> active Discord task
 }
@@ -694,7 +695,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	// --- P13.2: Sandbox Plugin --- Check sandbox policy for this agent.
-	useSandbox, sandboxErr := shouldUseSandbox(cfg, agentName, state.sandboxMgr)
+	useSandbox, sandboxErr := sandbox.ShouldUseSandbox(cfg, agentName, state.sandboxMgr)
 	if sandboxErr != nil {
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -703,12 +704,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 	var sandboxID string
 	if useSandbox && state.sandboxMgr != nil {
-		image := sandboxImageForAgent(cfg, agentName)
+		image := sandbox.ImageForAgent(cfg, agentName)
 		sbID, err := state.sandboxMgr.EnsureSandboxWithImage(task.SessionID, task.Workdir, image)
 		if err != nil {
 			log.WarnCtx(ctx, "sandbox creation failed", "taskId", task.ID[:8], "error", err)
 			// If policy is "required", this is fatal; if "optional", fall through.
-			if sandboxPolicyForAgent(cfg, agentName) == "required" {
+			if sandbox.PolicyForAgent(cfg, agentName) == "required" {
 				return TaskResult{
 					ID: task.ID, Name: task.Name, Status: "error",
 					Error: fmt.Sprintf("sandbox required but creation failed: %v", err),

@@ -17,6 +17,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/log"
 	"tetora/internal/migrate"
+	"tetora/internal/sandbox"
 	"tetora/internal/version"
 )
 
@@ -484,7 +485,7 @@ func validateConfig(cfg *Config) {
 		if cfg.Docker.Image == "" {
 			log.Warn("docker.enabled=true but docker.image is empty")
 		}
-		if err := checkDockerAvailable(); err != nil {
+		if err := sandbox.CheckDockerAvailable(); err != nil {
 			log.Warn("docker sandbox enabled but unavailable", "error", err)
 		}
 	}

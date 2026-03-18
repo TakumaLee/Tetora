@@ -9,6 +9,7 @@ import (
 	"tetora/internal/circuit"
 	"tetora/internal/log"
 	"tetora/internal/provider"
+	"tetora/internal/sandbox"
 	"tetora/internal/tmux"
 )
 
@@ -450,9 +451,9 @@ func newDockerRunner(cfg DockerConfig) provider.DockerRunner {
 }
 
 func (d *dockerRunnerAdapter) BuildCmd(ctx context.Context, binaryPath, workdir string, args, addDirs []string, mcpPath string) *exec.Cmd {
-	dockerArgs := rewriteDockerArgs(args, addDirs, mcpPath)
-	envVars := dockerEnvFilter(d.cfg)
-	return buildDockerCmd(ctx, d.cfg, workdir, binaryPath, dockerArgs, addDirs, mcpPath, envVars)
+	dockerArgs := sandbox.RewriteDockerArgs(args, addDirs, mcpPath)
+	envVars := sandbox.DockerEnvFilter(d.cfg)
+	return sandbox.BuildDockerCmd(ctx, d.cfg, workdir, binaryPath, dockerArgs, addDirs, mcpPath, envVars)
 }
 
 // --- Tmux Ops Adapter ---

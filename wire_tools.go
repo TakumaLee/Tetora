@@ -326,7 +326,7 @@ func buildIntegrationDeps(cfg *Config) tools.IntegrationDeps {
 			return string(b), nil
 		},
 
-		RegisterDeviceTools: registerDeviceTools,
+		RegisterDeviceTools: tools.RegisterDeviceTools,
 
 		SpotifyPlay:       toolSpotifyPlay,
 		SpotifySearch:     toolSpotifySearch,

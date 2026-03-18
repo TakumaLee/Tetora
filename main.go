@@ -38,8 +38,10 @@ import (
 	tgbot "tetora/internal/messaging/telegram"
 	"tetora/internal/messaging/whatsapp"
 	"tetora/internal/metrics"
+	"tetora/internal/sandbox"
 	"tetora/internal/scheduling"
 	"tetora/internal/telemetry"
+	"tetora/internal/tools"
 	"tetora/internal/trace"
 	"tetora/internal/version"
 )
@@ -913,7 +915,7 @@ func main() {
 
 		// --- P13.2: Sandbox Plugin --- Initialize sandbox manager.
 		if pluginHost != nil {
-			sm := NewSandboxManager(cfg, pluginHost)
+			sm := sandbox.NewSandboxManager(cfg, pluginHost)
 			if sm.PluginName() != "" {
 				state.sandboxMgr = sm
 				log.Info("sandbox manager initialized", "plugin", sm.PluginName())
@@ -1032,7 +1034,7 @@ func main() {
 
 		// --- P20.4: Device Actions --- Ensure output dir exists.
 		if cfg.Device.Enabled {
-			ensureDeviceOutputDir(cfg)
+			tools.EnsureDeviceOutputDir(cfg)
 		}
 
 		// --- P19.1: Gmail Integration ---
