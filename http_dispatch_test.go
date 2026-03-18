@@ -13,6 +13,8 @@ import (
 	"testing"
 )
 
+// --- from incoming_webhook_test.go ---
+
 // --- Signature Verification Tests ---
 
 func TestVerifyWebhookSignature_NoSecret(t *testing.T) {
@@ -141,10 +143,10 @@ func TestExpandPayloadTemplate_Missing(t *testing.T) {
 
 func TestExpandPayloadTemplate_Types(t *testing.T) {
 	payload := map[string]any{
-		"count":   float64(42),
-		"rate":    float64(3.14),
-		"active":  true,
-		"tags":    []any{"a", "b"},
+		"count":  float64(42),
+		"rate":   float64(3.14),
+		"active": true,
+		"tags":   []any{"a", "b"},
 	}
 
 	tests := []struct {
@@ -276,7 +278,7 @@ func TestIsTruthy(t *testing.T) {
 		{"", false},
 		{float64(1), true},
 		{float64(0), false},
-		{map[string]any{}, true},     // non-nil non-basic type = true
+		{map[string]any{}, true},  // non-nil non-basic type = true
 		{[]any{"a"}, true},
 	}
 	for _, tt := range tests {
@@ -515,7 +517,7 @@ func TestWebhookListEndpoint(t *testing.T) {
 		for name, wh := range cfg.IncomingWebhooks {
 			list = append(list, webhookInfo{
 				Name:      name,
-				Agent:      wh.Agent,
+				Agent:     wh.Agent,
 				Enabled:   wh.IsEnabled(),
 				HasSecret: wh.Secret != "",
 			})
@@ -545,7 +547,7 @@ func TestTriggerWebhookWorkflow_NotFound(t *testing.T) {
 		BaseDir: t.TempDir(),
 	}
 	whCfg := IncomingWebhookConfig{
-		Agent:     "黒曜",
+		Agent:    "黒曜",
 		Workflow: "nonexistent",
 	}
 	result := triggerWebhookWorkflow(context.Background(), cfg, "test", whCfg,
@@ -579,7 +581,7 @@ func TestHandleIncomingWebhook_LargeBody(t *testing.T) {
 func TestHandleIncomingWebhook_FilterPassAndTemplateExpand(t *testing.T) {
 	cfg := testWebhookConfig(map[string]IncomingWebhookConfig{
 		"gh": {
-			Agent:     "黒曜",
+			Agent:    "黒曜",
 			Filter:   "payload.action == 'opened'",
 			Template: "Review PR: {{payload.pull_request.title}} ({{payload.pull_request.html_url}})",
 		},

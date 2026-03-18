@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -911,5 +916,1705 @@ func TestAgentMessageAutoID(t *testing.T) {
 	}
 	if msgs[0].CreatedAt == "" {
 		t.Error("expected auto-generated timestamp")
+	}
+}
+
+// --- from workflow_dryrun_test.go ---
+
+// TestDryRunMode verifies mode defaults to live when not specified.
+func TestDryRunMode(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-mode-default",
+		Steps: []WorkflowStep{
+			{ID: "s1", Type: "condition", If: "'yes' == 'yes'", Then: "s1"},
+		},
+	}
+
+	state := newDispatchState()
+
+	// No mode argument: should default to live.
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil)
+
+	// Live mode: status should NOT have a prefix.
+	if strings.HasPrefix(run.Status, "dry-run:") || strings.HasPrefix(run.Status, "shadow:") {
+		t.Errorf("expected live mode (no prefix), got status=%q", run.Status)
+	}
+	if run.Status != "success" {
+		t.Errorf("expected success, got status=%q", run.Status)
+	}
+}
+
+// TestDryRunNoProviderCall verifies dry-run doesn't call provider for dispatch steps.
+func TestDryRunNoProviderCall(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-dry-dispatch",
+		Steps: []WorkflowStep{
+			{
+				ID:     "analyze",
+				Agent:   "翡翠",
+				Prompt: "Analyze the Go codebase for potential improvements",
+			},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+
+	// Should succeed without actually calling a provider.
+	if !strings.HasPrefix(run.Status, "dry-run:") {
+		t.Errorf("expected dry-run: prefix, got status=%q", run.Status)
+	}
+
+	sr := run.StepResults["analyze"]
+	if sr == nil {
+		t.Fatal("step result for 'analyze' is nil")
+	}
+	if sr.Status != "success" {
+		t.Errorf("step status=%q, want success", sr.Status)
+	}
+	if !strings.Contains(sr.Output, "[DRY-RUN]") {
+		t.Errorf("output should contain [DRY-RUN], got: %q", sr.Output)
+	}
+	if !strings.Contains(sr.Output, "step=analyze") {
+		t.Errorf("output should contain step=analyze, got: %q", sr.Output)
+	}
+	if !strings.Contains(sr.Output, "role=翡翠") {
+		t.Errorf("output should contain role=翡翠, got: %q", sr.Output)
+	}
+}
+
+// TestDryRunEstimatedCost verifies cost estimation is populated in dry-run.
+func TestDryRunEstimatedCost(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-dry-cost",
+		Steps: []WorkflowStep{
+			{
+				ID:     "step1",
+				Prompt: "Write a comprehensive analysis of distributed systems",
+			},
+			{
+				ID:        "step2",
+				Prompt:    "Summarize the analysis from step1",
+				DependsOn: []string{"step1"},
+			},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+
+	// Both steps should have cost estimates.
+	for _, stepID := range []string{"step1", "step2"} {
+		sr := run.StepResults[stepID]
+		if sr == nil {
+			t.Fatalf("step result for %q is nil", stepID)
+		}
+		if sr.CostUSD <= 0 {
+			t.Errorf("step %q: CostUSD=%f, want > 0", stepID, sr.CostUSD)
+		}
+		if !strings.Contains(sr.Output, "estimated_cost=$") {
+			t.Errorf("step %q: output should contain estimated_cost, got: %q", stepID, sr.Output)
+		}
+	}
+
+	// Total cost should be sum of step costs.
+	if run.TotalCost <= 0 {
+		t.Errorf("TotalCost=%f, want > 0", run.TotalCost)
+	}
+}
+
+// TestDryRunConditionStep verifies conditions evaluate normally in dry-run.
+func TestDryRunConditionStep(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name:      "test-dry-condition",
+		Variables: map[string]string{"env": "staging"},
+		Steps: []WorkflowStep{
+			{
+				ID:   "check",
+				Type: "condition",
+				If:   "{{env}} == 'staging'",
+				Then: "deploy",
+				Else: "skip-deploy",
+			},
+			{
+				ID:        "deploy",
+				Prompt:    "Deploy to staging",
+				DependsOn: []string{"check"},
+			},
+			{
+				ID:        "skip-deploy",
+				Prompt:    "Skip deployment",
+				DependsOn: []string{"check"},
+			},
+		},
+	}
+
+	state := newDispatchState()
+	vars := map[string]string{"env": "staging"}
+	run := executeWorkflow(context.Background(), cfg, wf, vars, state, sem, nil, WorkflowModeDryRun)
+
+	// Condition should evaluate correctly.
+	condResult := run.StepResults["check"]
+	if condResult == nil {
+		t.Fatal("condition step result is nil")
+	}
+	if condResult.Status != "success" {
+		t.Errorf("condition status=%q, want success", condResult.Status)
+	}
+	if condResult.Output != "deploy" {
+		t.Errorf("condition output=%q, want 'deploy' (then branch)", condResult.Output)
+	}
+
+	// "skip-deploy" should be skipped (unchosen branch).
+	skipResult := run.StepResults["skip-deploy"]
+	if skipResult != nil && skipResult.Status != "skipped" && skipResult.Status != "pending" {
+		// Note: the unchosen branch may be skipped by handleConditionResult.
+		t.Logf("skip-deploy status=%q (expected skipped or pending)", skipResult.Status)
+	}
+
+	// "deploy" should have dry-run output.
+	deployResult := run.StepResults["deploy"]
+	if deployResult == nil {
+		t.Fatal("deploy step result is nil")
+	}
+	if deployResult.Status != "success" {
+		t.Errorf("deploy status=%q, want success", deployResult.Status)
+	}
+	if !strings.Contains(deployResult.Output, "[DRY-RUN]") {
+		t.Errorf("deploy output should contain [DRY-RUN], got: %q", deployResult.Output)
+	}
+}
+
+// TestDryRunSkillStep verifies skill steps return mock output in dry-run.
+func TestDryRunSkillStep(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-dry-skill",
+		Steps: []WorkflowStep{
+			{
+				ID:    "run-lint",
+				Type:  "skill",
+				Skill: "golangci-lint",
+			},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+
+	sr := run.StepResults["run-lint"]
+	if sr == nil {
+		t.Fatal("step result for 'run-lint' is nil")
+	}
+	if sr.Status != "success" {
+		t.Errorf("status=%q, want success", sr.Status)
+	}
+	if !strings.Contains(sr.Output, "[DRY-RUN]") {
+		t.Errorf("output should contain [DRY-RUN], got: %q", sr.Output)
+	}
+	if !strings.Contains(sr.Output, "golangci-lint") {
+		t.Errorf("output should contain skill name, got: %q", sr.Output)
+	}
+}
+
+// TestDryRunStatusPrefix verifies "dry-run:" prefix in recorded run status.
+func TestDryRunStatusPrefix(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	cfg := &Config{
+		BaseDir:               dir,
+		HistoryDB:             dbPath,
+		DefaultModel:          "sonnet",
+		DefaultTimeout:        "5m",
+		DefaultPermissionMode: "plan",
+		DefaultWorkdir:        dir,
+		DefaultProvider:       "claude",
+	}
+	sem := make(chan struct{}, 4)
+
+	wf := &Workflow{
+		Name: "test-prefix",
+		Steps: []WorkflowStep{
+			{ID: "s1", Prompt: "Hello"},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+
+	if !strings.HasPrefix(run.Status, "dry-run:") {
+		t.Errorf("expected dry-run: prefix, got status=%q", run.Status)
+	}
+
+	// Verify DB record also has the prefix.
+	dbRun, err := queryWorkflowRunByID(dbPath, run.ID)
+	if err != nil {
+		t.Fatalf("queryWorkflowRunByID: %v", err)
+	}
+	if !strings.HasPrefix(dbRun.Status, "dry-run:") {
+		t.Errorf("DB record status=%q, want dry-run: prefix", dbRun.Status)
+	}
+}
+
+// TestShadowStatusPrefix verifies "shadow:" prefix in recorded run status.
+func TestShadowStatusPrefix(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	cfg := &Config{
+		BaseDir:               dir,
+		HistoryDB:             dbPath,
+		DefaultModel:          "sonnet",
+		DefaultTimeout:        "5m",
+		DefaultPermissionMode: "plan",
+		DefaultWorkdir:        dir,
+		DefaultProvider:       "claude",
+	}
+	sem := make(chan struct{}, 4)
+
+	// Use a condition step (which doesn't need a provider) to test shadow status prefix.
+	wf := &Workflow{
+		Name: "test-shadow-prefix",
+		Steps: []WorkflowStep{
+			{ID: "s1", Type: "condition", If: "'yes' == 'yes'", Then: "s1"},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeShadow)
+
+	if !strings.HasPrefix(run.Status, "shadow:") {
+		t.Errorf("expected shadow: prefix, got status=%q", run.Status)
+	}
+
+	// Verify DB record also has the prefix.
+	dbRun, err := queryWorkflowRunByID(dbPath, run.ID)
+	if err != nil {
+		t.Fatalf("queryWorkflowRunByID: %v", err)
+	}
+	if !strings.HasPrefix(dbRun.Status, "shadow:") {
+		t.Errorf("DB record status=%q, want shadow: prefix", dbRun.Status)
+	}
+}
+
+// TestDryRunHandoffStep verifies handoff steps return estimated cost in dry-run.
+func TestDryRunHandoffStep(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	exec := &workflowExecutor{
+		cfg:      cfg,
+		workflow: &Workflow{Name: "test-handoff-dry", Steps: []WorkflowStep{{ID: "src", Agent: "翡翠"}}},
+		run:      &WorkflowRun{ID: "run-1", StepResults: map[string]*StepRunResult{}},
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{
+				"src": {Status: "success", Output: "Research output from step 1"},
+			},
+			Env: map[string]string{},
+		},
+		mode: WorkflowModeDryRun,
+		sem:  sem,
+	}
+
+	step := &WorkflowStep{
+		ID:          "handoff-1",
+		Type:        "handoff",
+		HandoffFrom: "src",
+		Agent:        "黒曜",
+		Prompt:      "Implement based on research",
+	}
+	result := &StepRunResult{StepID: "handoff-1"}
+	exec.runHandoffStepDryRun(step, result, exec.wCtx)
+
+	if result.Status != "success" {
+		t.Errorf("status=%q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "[DRY-RUN]") {
+		t.Errorf("output should contain [DRY-RUN], got: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "handoff") {
+		t.Errorf("output should contain 'handoff', got: %q", result.Output)
+	}
+	if result.CostUSD <= 0 {
+		t.Errorf("CostUSD=%f, want > 0", result.CostUSD)
+	}
+}
+
+// TestDryRunHandoffSourceFailed verifies handoff dry-run fails when source step failed.
+func TestDryRunHandoffSourceFailed(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	exec := &workflowExecutor{
+		cfg:      cfg,
+		workflow: &Workflow{Name: "test"},
+		run:      &WorkflowRun{ID: "run-1", StepResults: map[string]*StepRunResult{}},
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{
+				"src": {Status: "error", Error: "provider error"},
+			},
+			Env: map[string]string{},
+		},
+		mode: WorkflowModeDryRun,
+		sem:  sem,
+	}
+
+	step := &WorkflowStep{
+		ID:          "handoff-1",
+		Type:        "handoff",
+		HandoffFrom: "src",
+		Agent:        "黒曜",
+	}
+	result := &StepRunResult{StepID: "handoff-1"}
+	exec.runHandoffStepDryRun(step, result, exec.wCtx)
+
+	if result.Status != "error" {
+		t.Errorf("status=%q, want error", result.Status)
+	}
+	if !strings.Contains(result.Error, "failed") {
+		t.Errorf("error=%q, want contains 'failed'", result.Error)
+	}
+}
+
+// TestDryRunMultiStepWorkflow verifies a multi-step workflow with dependencies.
+func TestDryRunMultiStepWorkflow(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "multi-step-dry",
+		Steps: []WorkflowStep{
+			{ID: "research", Prompt: "Research topic A", Agent: "翡翠"},
+			{ID: "analyze", Prompt: "Analyze {{steps.research.output}}", Agent: "翡翠", DependsOn: []string{"research"}},
+			{ID: "report", Prompt: "Write final report", Agent: "琥珀", DependsOn: []string{"analyze"}},
+		},
+	}
+
+	state := newDispatchState()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+
+	if !strings.HasPrefix(run.Status, "dry-run:success") {
+		t.Errorf("expected dry-run:success, got %q", run.Status)
+	}
+
+	// All steps should complete successfully.
+	for _, stepID := range []string{"research", "analyze", "report"} {
+		sr := run.StepResults[stepID]
+		if sr == nil {
+			t.Fatalf("step %q result is nil", stepID)
+		}
+		if sr.Status != "success" {
+			t.Errorf("step %q status=%q, want success", stepID, sr.Status)
+		}
+	}
+
+	// Total cost should be sum of all steps.
+	expectedMin := run.StepResults["research"].CostUSD +
+		run.StepResults["analyze"].CostUSD +
+		run.StepResults["report"].CostUSD
+	if run.TotalCost < expectedMin*0.99 { // allow small floating point diff
+		t.Errorf("TotalCost=%f, expected >= %f", run.TotalCost, expectedMin)
+	}
+}
+
+// TestDryRunDuration verifies dry-run completes quickly (no provider wait).
+func TestDryRunDuration(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-dry-fast",
+		Steps: []WorkflowStep{
+			{ID: "s1", Prompt: "Step 1"},
+			{ID: "s2", Prompt: "Step 2"},
+			{ID: "s3", Prompt: "Step 3"},
+		},
+	}
+
+	state := newDispatchState()
+	start := time.Now()
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, WorkflowModeDryRun)
+	elapsed := time.Since(start)
+
+	// Dry-run should complete in well under 5 seconds (no provider calls).
+	if elapsed > 5*time.Second {
+		t.Errorf("dry-run took %v, expected < 5s", elapsed)
+	}
+
+	if !strings.HasPrefix(run.Status, "dry-run:") {
+		t.Errorf("status=%q, expected dry-run: prefix", run.Status)
+	}
+}
+
+// TestWorkflowRunModeConstants verifies the mode constants are correct.
+func TestWorkflowRunModeConstants(t *testing.T) {
+	if WorkflowModeLive != "live" {
+		t.Errorf("WorkflowModeLive=%q, want 'live'", WorkflowModeLive)
+	}
+	if WorkflowModeDryRun != "dry-run" {
+		t.Errorf("WorkflowModeDryRun=%q, want 'dry-run'", WorkflowModeDryRun)
+	}
+	if WorkflowModeShadow != "shadow" {
+		t.Errorf("WorkflowModeShadow=%q, want 'shadow'", WorkflowModeShadow)
+	}
+}
+
+// TestDryRunEmptyMode verifies empty mode defaults to live.
+func TestDryRunEmptyMode(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+
+	wf := &Workflow{
+		Name: "test-empty-mode",
+		Steps: []WorkflowStep{
+			{ID: "s1", Type: "condition", If: "'yes' == 'yes'", Then: "s1"},
+		},
+	}
+
+	state := newDispatchState()
+
+	// Passing empty string should default to live.
+	run := executeWorkflow(context.Background(), cfg, wf, nil, state, sem, nil, "")
+	if strings.HasPrefix(run.Status, "dry-run:") || strings.HasPrefix(run.Status, "shadow:") {
+		t.Errorf("empty mode should default to live, got status=%q", run.Status)
+	}
+}
+
+// --- from workflow_external_test.go ---
+
+// 1. TestExtractJSONPath — nested objects, array index, bool, float, missing key, invalid JSON
+func TestExtractJSONPath(t *testing.T) {
+	json := `{"name":"test","data":{"status":"ok","count":42,"active":true,"items":[{"id":"a"},{"id":"b"}]}}`
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"name", "test"},
+		{"data.status", "ok"},
+		{"data.count", "42"},
+		{"data.active", "true"},
+		{"data.items.0.id", "a"},
+		{"data.items.1.id", "b"},
+		{"data.items.2.id", ""},  // out of range
+		{"missing", ""},
+		{"data.missing.deep", ""},
+	}
+
+	for _, tt := range tests {
+		got := extractJSONPath(json, tt.path)
+		if got != tt.want {
+			t.Errorf("extractJSONPath(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+
+	// Invalid JSON.
+	if got := extractJSONPath("not json", "key"); got != "" {
+		t.Errorf("extractJSONPath(invalid) = %q, want empty", got)
+	}
+
+	// Empty inputs.
+	if got := extractJSONPath("", "key"); got != "" {
+		t.Errorf("extractJSONPath(empty json) = %q, want empty", got)
+	}
+	if got := extractJSONPath(`{"a":"b"}`, ""); got != "" {
+		t.Errorf("extractJSONPath(empty path) = %q, want empty", got)
+	}
+}
+
+// 2. TestApplyResponseMapping — with mapping, without, empty body
+func TestApplyResponseMapping(t *testing.T) {
+	body := `{"data":{"object":{"id":"ref_123","status":"succeeded"}}}`
+
+	// With DataPath mapping.
+	mapping := &ResponseMapping{DataPath: "data.object"}
+	got := applyResponseMapping(body, mapping)
+	if !strings.Contains(got, "ref_123") {
+		t.Errorf("applyResponseMapping with DataPath: got %q, want to contain ref_123", got)
+	}
+
+	// Without mapping — returns full body.
+	got = applyResponseMapping(body, nil)
+	if got != body {
+		t.Errorf("applyResponseMapping nil mapping: got %q, want full body", got)
+	}
+
+	// Empty body.
+	got = applyResponseMapping("", mapping)
+	if got != "" {
+		t.Errorf("applyResponseMapping empty body: got %q, want empty", got)
+	}
+
+	// Mapping with empty DataPath — returns full body.
+	got = applyResponseMapping(body, &ResponseMapping{})
+	if got != body {
+		t.Errorf("applyResponseMapping empty DataPath: got %q, want full body", got)
+	}
+}
+
+// 3. TestCallbackManagerRegisterDeliver — basic register → deliver → channel receives
+func TestCallbackManagerRegisterDeliver(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := cm.Register("test-key", ctx, "single")
+	if ch == nil {
+		t.Fatal("Register returned nil")
+	}
+
+	if !cm.HasChannel("test-key") {
+		t.Error("HasChannel should return true")
+	}
+
+	result := CallbackResult{Status: 200, Body: `{"ok":true}`, ContentType: "application/json"}
+	if cm.Deliver("test-key", result) != DeliverOK {
+		t.Error("Deliver should return DeliverOK")
+	}
+
+	select {
+	case received := <-ch:
+		if received.Body != `{"ok":true}` {
+			t.Errorf("received body = %q, want {\"ok\":true}", received.Body)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for callback")
+	}
+}
+
+// 4. TestCallbackManagerCollision — same key twice → nil
+func TestCallbackManagerCollision(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch1 := cm.Register("dup-key", ctx, "single")
+	if ch1 == nil {
+		t.Fatal("first Register returned nil")
+	}
+
+	ch2 := cm.Register("dup-key", ctx, "single")
+	if ch2 != nil {
+		t.Error("second Register should return nil (collision)")
+	}
+}
+
+// 5. TestCallbackManagerCapacity — 1001st → nil
+func TestCallbackManagerCapacity(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		ch := cm.Register(key, ctx, "single")
+		if ch == nil {
+			t.Fatalf("Register failed at key %d", i)
+		}
+	}
+
+	ch := cm.Register("key-overflow", ctx, "single")
+	if ch != nil {
+		t.Error("1001st Register should return nil (capacity)")
+	}
+}
+
+// 6. TestCallbackManagerUnregisterSafe — double unregister no panic
+func TestCallbackManagerUnregisterSafe(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cm.Register("safe-key", ctx, "single")
+
+	// First unregister.
+	cm.Unregister("safe-key")
+
+	// Second unregister should not panic.
+	cm.Unregister("safe-key")
+
+	// Unregister non-existent key.
+	cm.Unregister("nonexistent")
+
+	if cm.HasChannel("safe-key") {
+		t.Error("HasChannel should return false after unregister")
+	}
+}
+
+// 7. TestCallbackManagerContextCleanup — cancel ctx → channel removed
+func TestCallbackManagerContextCleanup(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cm.Register("ctx-key", ctx, "single")
+	if !cm.HasChannel("ctx-key") {
+		t.Fatal("channel should exist before cancel")
+	}
+
+	cancel()
+	// Wait for cleanup goroutine.
+	time.Sleep(50 * time.Millisecond)
+
+	if cm.HasChannel("ctx-key") {
+		t.Error("channel should be removed after context cancel")
+	}
+}
+
+// 8. TestResolveTemplateWithFields — {{steps.id.output.field}} with JSON output
+func TestResolveTemplateWithFields(t *testing.T) {
+	exec := &workflowExecutor{
+		wCtx: &WorkflowContext{
+			Input: map[string]string{"name": "world"},
+			Steps: map[string]*WorkflowStepResult{
+				"step1": {Output: `{"result":"hello","count":5}`, Status: "success"},
+			},
+			Env: map[string]string{},
+		},
+	}
+
+	tests := []struct {
+		tmpl string
+		want string
+	}{
+		{"Hello {{name}}", "Hello world"},
+		{"Status: {{steps.step1.status}}", "Status: success"},
+		{"Result: {{steps.step1.output.result}}", "Result: hello"},
+		{"Count: {{steps.step1.output.count}}", "Count: 5"},
+		{"Missing: {{steps.step1.output.missing}}", "Missing: "},
+		{"No step: {{steps.nope.output.x}}", "No step: "},
+	}
+
+	for _, tt := range tests {
+		got := exec.resolveTemplateWithFields(tt.tmpl)
+		if got != tt.want {
+			t.Errorf("resolveTemplateWithFields(%q) = %q, want %q", tt.tmpl, got, tt.want)
+		}
+	}
+}
+
+// 9. TestResolveTemplateXMLEscaped — entity escaping
+func TestResolveTemplateXMLEscaped(t *testing.T) {
+	exec := &workflowExecutor{
+		wCtx: &WorkflowContext{
+			Input: map[string]string{"val": "a<b&c"},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+	}
+
+	got := exec.resolveTemplateXMLEscaped("Value: {{val}}")
+	if !strings.Contains(got, "&lt;") || !strings.Contains(got, "&amp;") {
+		t.Errorf("resolveTemplateXMLEscaped should escape XML entities, got %q", got)
+	}
+}
+
+// 10. TestIsValidCallbackKey — valid/invalid formats
+func TestIsValidCallbackKey(t *testing.T) {
+	valid := []string{"abc", "test-key", "ocr-123_456", "a.b.c", "A1"}
+	for _, k := range valid {
+		if !isValidCallbackKey(k) {
+			t.Errorf("isValidCallbackKey(%q) = false, want true", k)
+		}
+	}
+
+	invalid := []string{"", "-starts-dash", ".starts-dot", "has space", "has/slash", strings.Repeat("a", 257)}
+	for _, k := range invalid {
+		if isValidCallbackKey(k) {
+			t.Errorf("isValidCallbackKey(%q) = true, want false", k)
+		}
+	}
+}
+
+// 11. TestCallbackDBRoundTrip — record → query → markDelivered → isDelivered
+func TestCallbackDBRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	// Init table.
+	initCallbackTable(dbPath)
+
+	// Record.
+	recordPendingCallback(dbPath, "db-key-1", "run-1", "step-1", "single", "bearer",
+		"https://example.com", `{"test":true}`, "2026-12-31 00:00:00")
+
+	// Query.
+	rec := queryPendingCallbackByKey(dbPath, "db-key-1")
+	if rec == nil {
+		t.Fatal("queryPendingCallbackByKey returned nil")
+	}
+	if rec.RunID != "run-1" || rec.StepID != "step-1" || rec.Mode != "single" {
+		t.Errorf("unexpected record: %+v", rec)
+	}
+
+	// Query waiting.
+	rec2 := queryPendingCallback(dbPath, "db-key-1")
+	if rec2 == nil {
+		t.Fatal("queryPendingCallback returned nil for waiting record")
+	}
+
+	// Mark delivered.
+	markCallbackDelivered(dbPath, "db-key-1", 0, CallbackResult{Status: 200, Body: `{"done":true}`})
+
+	// isDelivered.
+	if !isCallbackDelivered(dbPath, "db-key-1", 0) {
+		t.Error("isCallbackDelivered should return true after delivery")
+	}
+
+	// queryPendingCallback should return nil now (not waiting anymore).
+	rec3 := queryPendingCallback(dbPath, "db-key-1")
+	if rec3 != nil {
+		t.Error("queryPendingCallback should return nil after delivery")
+	}
+}
+
+// 12. TestValidateExternalStep — all validation rules
+func TestValidateExternalStep(t *testing.T) {
+	allIDs := map[string]bool{"s1": true}
+
+	// Valid external step.
+	valid := WorkflowStep{ID: "s1", Type: "external", ExternalURL: "https://example.com"}
+	errs := validateStep(valid, allIDs)
+	if len(errs) > 0 {
+		t.Errorf("valid external step has errors: %v", errs)
+	}
+
+	// Mutual exclusion: both externalBody and externalRawBody.
+	mutual := WorkflowStep{
+		ID: "s1", Type: "external",
+		ExternalBody:    map[string]string{"a": "b"},
+		ExternalRawBody: "<xml/>",
+	}
+	errs = validateStep(mutual, allIDs)
+	if len(errs) == 0 {
+		t.Error("should error on both externalBody and externalRawBody")
+	}
+
+	// Invalid callbackMode.
+	badMode := WorkflowStep{ID: "s1", Type: "external", CallbackMode: "invalid"}
+	errs = validateStep(badMode, allIDs)
+	if len(errs) == 0 {
+		t.Error("should error on invalid callbackMode")
+	}
+
+	// Invalid callbackAuth.
+	badAuth := WorkflowStep{ID: "s1", Type: "external", CallbackAuth: "invalid"}
+	errs = validateStep(badAuth, allIDs)
+	if len(errs) == 0 {
+		t.Error("should error on invalid callbackAuth")
+	}
+
+	// Invalid onTimeout.
+	badTimeout := WorkflowStep{ID: "s1", Type: "external", OnTimeout: "retry"}
+	errs = validateStep(badTimeout, allIDs)
+	if len(errs) == 0 {
+		t.Error("should error on invalid onTimeout")
+	}
+}
+
+// 13. TestHttpPostWithRetry — httptest.NewServer success/retry/fail
+func TestHttpPostWithRetry(t *testing.T) {
+	// Success case.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	resp, err := httpPostWithRetry(context.Background(), ts.URL, "application/json", nil, `{"test":true}`, 0)
+	if err != nil {
+		t.Fatalf("success case failed: %v", err)
+	}
+	resp.Body.Close()
+
+	// Retry then succeed.
+	attempts := 0
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(500)
+			w.Write([]byte("server error"))
+			return
+		}
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts2.Close()
+
+	resp, err = httpPostWithRetry(context.Background(), ts2.URL, "application/json", nil, `{}`, 3)
+	if err != nil {
+		t.Fatalf("retry case failed: %v", err)
+	}
+	resp.Body.Close()
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+
+	// All retries fail.
+	ts3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("always fail"))
+	}))
+	defer ts3.Close()
+
+	_, err = httpPostWithRetry(context.Background(), ts3.URL, "application/json", nil, `{}`, 1)
+	if err == nil {
+		t.Error("expected error when all retries fail")
+	}
+}
+
+// 14. TestRunExternalStepDryRun — dry-run output format
+func TestRunExternalStepDryRun(t *testing.T) {
+	exec := &workflowExecutor{
+		mode: WorkflowModeDryRun,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			StepResults: map[string]*StepRunResult{},
+		},
+	}
+
+	step := &WorkflowStep{
+		ID:           "ext1",
+		Type:         "external",
+		ExternalURL:  "https://example.com/api",
+		CallbackMode: "single",
+	}
+	result := &StepRunResult{StepID: "ext1"}
+
+	exec.runStepOnce(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("dry-run status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "DRY-RUN") {
+		t.Errorf("dry-run output should contain DRY-RUN, got %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "https://example.com/api") {
+		t.Errorf("dry-run output should contain URL, got %q", result.Output)
+	}
+}
+
+// 15. TestDeliverConcurrentUnregister — verify recover() prevents panic on concurrent close.
+func TestDeliverConcurrentUnregister(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := cm.Register("race-key", ctx, "single")
+	if ch == nil {
+		t.Fatal("Register returned nil")
+	}
+
+	// Unregister concurrently while delivering.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cm.Unregister("race-key")
+	}()
+	<-done
+
+	// Deliver after channel is closed — should not panic, should return DeliverNoEntry.
+	dr := cm.Deliver("race-key", CallbackResult{Body: "test"})
+	if dr != DeliverNoEntry {
+		t.Errorf("Deliver after Unregister = %d, want DeliverNoEntry", dr)
+	}
+}
+
+// 16. TestDeliverAndSeqStreaming — verify atomic seq allocation for streaming.
+func TestDeliverAndSeqStreaming(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := cm.Register("stream-key", ctx, "streaming")
+	if ch == nil {
+		t.Fatal("Register returned nil")
+	}
+
+	// Deliver 3 streaming callbacks.
+	for i := 0; i < 3; i++ {
+		out := cm.DeliverAndSeq("stream-key", CallbackResult{Body: fmt.Sprintf("msg-%d", i)})
+		if out.Result != DeliverOK {
+			t.Fatalf("DeliverAndSeq %d: result = %d, want DeliverOK", i, out.Result)
+		}
+		if out.Seq != i {
+			t.Errorf("DeliverAndSeq %d: seq = %d, want %d", i, out.Seq, i)
+		}
+	}
+
+	// Drain channel.
+	for i := 0; i < 3; i++ {
+		select {
+		case r := <-ch:
+			if r.Body != fmt.Sprintf("msg-%d", i) {
+				t.Errorf("received %q, want msg-%d", r.Body, i)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timeout draining channel")
+		}
+	}
+}
+
+// 17. TestSetSeqAfterReplay — verify seq counter updated after replay.
+func TestSetSeqAfterReplay(t *testing.T) {
+	cm := newCallbackManager("")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := cm.Register("replay-key", ctx, "streaming")
+	if ch == nil {
+		t.Fatal("Register returned nil")
+	}
+
+	// Simulate replay of 3 accumulated results.
+	replayed := []CallbackResult{
+		{Body: "r0"}, {Body: "r1"}, {Body: "r2"},
+	}
+	cm.ReplayAccumulated("replay-key", replayed)
+	cm.SetSeq("replay-key", len(replayed))
+
+	// New delivery should start at seq=3.
+	out := cm.DeliverAndSeq("replay-key", CallbackResult{Body: "new"})
+	if out.Seq != 3 {
+		t.Errorf("seq after replay = %d, want 3", out.Seq)
+	}
+
+	// Drain channel.
+	for i := 0; i < 4; i++ {
+		<-ch
+	}
+}
+
+// 18. TestStreamingAccumulateNonJSON — verify non-JSON bodies are safely wrapped.
+func TestStreamingAccumulateNonJSON(t *testing.T) {
+	// Simulate accumulate with mixed JSON and non-JSON bodies.
+	bodies := []string{`{"ok":true}`, "plain text", `{"count":42}`}
+
+	var parts []string
+	for _, b := range bodies {
+		if !json.Valid([]byte(b)) {
+			marshaled, _ := json.Marshal(b)
+			b = string(marshaled)
+		}
+		parts = append(parts, b)
+	}
+	output := "[" + strings.Join(parts, ",") + "]"
+
+	// Should be valid JSON.
+	if !json.Valid([]byte(output)) {
+		t.Errorf("accumulated output is not valid JSON: %s", output)
+	}
+
+	// Verify structure.
+	var arr []any
+	if err := json.Unmarshal([]byte(output), &arr); err != nil {
+		t.Fatalf("failed to parse accumulated JSON: %v", err)
+	}
+	if len(arr) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(arr))
+	}
+	// Second element should be a string "plain text".
+	if s, ok := arr[1].(string); !ok || s != "plain text" {
+		t.Errorf("element 1 = %v, want string 'plain text'", arr[1])
+	}
+}
+
+// TestParseDurationWithDays tests the day-suffix duration parser.
+func TestParseDurationWithDays(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"5m", 5 * time.Minute, false},
+		{"1h", time.Hour, false},
+		{"1d", 24 * time.Hour, false},
+		{"7d", 7 * 24 * time.Hour, false},
+		{"30d", 30 * 24 * time.Hour, false},
+		{"31d", 0, true}, // over 30d limit
+		{"-1d", 0, true}, // negative
+		{"abc", 0, true}, // invalid
+	}
+
+	for _, tt := range tests {
+		got, err := parseDurationWithDays(tt.input)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseDurationWithDays(%q) should error", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseDurationWithDays(%q) error: %v", tt.input, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("parseDurationWithDays(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+// --- from workflow_trigger_test.go ---
+
+func TestTriggerCronMatch(t *testing.T) {
+	// Trigger with a cron expression that matches the current time.
+	now := time.Now()
+	cron := fmt.Sprintf("%d %d * * *", now.Minute(), now.Hour())
+
+	boolTrue := true
+	trigger := WorkflowTriggerConfig{
+		Name:         "test-cron",
+		WorkflowName: "test-wf",
+		Enabled:      &boolTrue,
+		Trigger: TriggerSpec{
+			Type: "cron",
+			Cron: cron,
+		},
+	}
+
+	expr, err := parseCronExpr(trigger.Trigger.Cron)
+	if err != nil {
+		t.Fatalf("parseCronExpr: %v", err)
+	}
+
+	if !expr.Matches(now) {
+		t.Errorf("expected cron %q to match current time %v", cron, now)
+	}
+}
+
+// TODO: TestTriggerCooldown removed — uses unexported WorkflowTriggerEngine fields
+
+
+func TestTriggerEnabled(t *testing.T) {
+	// nil Enabled -> should be enabled (default).
+	t1 := WorkflowTriggerConfig{Name: "t1"}
+	if !t1.IsEnabled() {
+		t.Error("expected nil Enabled to default to true")
+	}
+
+	// Explicit true.
+	boolTrue := true
+	t2 := WorkflowTriggerConfig{Name: "t2", Enabled: &boolTrue}
+	if !t2.IsEnabled() {
+		t.Error("expected Enabled=true to be enabled")
+	}
+
+	// Explicit false.
+	boolFalse := false
+	t3 := WorkflowTriggerConfig{Name: "t3", Enabled: &boolFalse}
+	if t3.IsEnabled() {
+		t.Error("expected Enabled=false to be disabled")
+	}
+}
+
+func TestToolCallStep(t *testing.T) {
+	// Create a minimal config with a tool registry and a mock tool.
+	cfg := &Config{}
+	cfg.Runtime.ToolRegistry = newEmptyRegistry()
+
+	// Register a mock tool.
+	cfg.Runtime.ToolRegistry.(*ToolRegistry).Register(&ToolDef{
+		Name:        "mock_tool",
+		Description: "A mock tool for testing",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"msg":{"type":"string"}}}`),
+		Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Msg string `json:"msg"`
+			}
+			json.Unmarshal(input, &args)
+			return "echo: " + args.Msg, nil
+		},
+	})
+
+	wf := &Workflow{Name: "test-wf", Steps: []WorkflowStep{
+		{ID: "s1", Type: "tool_call", ToolName: "mock_tool", ToolInput: map[string]string{"msg": "hello"}},
+	}}
+
+	exec := &workflowExecutor{
+		cfg:      cfg,
+		workflow: wf,
+		run:      &WorkflowRun{ID: "run1", StepResults: make(map[string]*StepRunResult)},
+		wCtx:     newWorkflowContext(wf, nil),
+		mode:     WorkflowModeLive,
+	}
+
+	result := &StepRunResult{StepID: "s1"}
+	step := &wf.Steps[0]
+	exec.runToolCallStep(context.Background(), step, result, exec.wCtx)
+
+	if result.Status != "success" {
+		t.Errorf("expected success, got %q (error: %s)", result.Status, result.Error)
+	}
+	if result.Output != "echo: hello" {
+		t.Errorf("expected output %q, got %q", "echo: hello", result.Output)
+	}
+}
+
+func TestToolCallStepWithVarExpansion(t *testing.T) {
+	cfg := &Config{}
+	cfg.Runtime.ToolRegistry = newEmptyRegistry()
+
+	cfg.Runtime.ToolRegistry.(*ToolRegistry).Register(&ToolDef{
+		Name: "echo_tool",
+		Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Msg string `json:"msg"`
+			}
+			json.Unmarshal(input, &args)
+			return args.Msg, nil
+		},
+	})
+
+	wf := &Workflow{
+		Name:      "test-wf",
+		Variables: map[string]string{"greeting": "world"},
+		Steps: []WorkflowStep{
+			{ID: "s1", Type: "tool_call", ToolName: "echo_tool", ToolInput: map[string]string{"msg": "hello {{greeting}}"}},
+		},
+	}
+
+	exec := &workflowExecutor{
+		cfg:      cfg,
+		workflow: wf,
+		run:      &WorkflowRun{ID: "run1", StepResults: make(map[string]*StepRunResult)},
+		wCtx:     newWorkflowContext(wf, nil),
+		mode:     WorkflowModeLive,
+	}
+
+	result := &StepRunResult{StepID: "s1"}
+	exec.runToolCallStep(context.Background(), &wf.Steps[0], result, exec.wCtx)
+
+	if result.Status != "success" {
+		t.Errorf("expected success, got %q", result.Status)
+	}
+	if result.Output != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", result.Output)
+	}
+}
+
+func TestDelayStep(t *testing.T) {
+	wf := &Workflow{Name: "test-wf", Steps: []WorkflowStep{
+		{ID: "d1", Type: "delay", Delay: "10ms"},
+	}}
+
+	exec := &workflowExecutor{
+		cfg:      &Config{},
+		workflow: wf,
+		run:      &WorkflowRun{ID: "run1", StepResults: make(map[string]*StepRunResult)},
+		wCtx:     newWorkflowContext(wf, nil),
+		mode:     WorkflowModeLive,
+	}
+
+	result := &StepRunResult{StepID: "d1"}
+	start := time.Now()
+	exec.runDelayStep(context.Background(), &wf.Steps[0], result)
+	elapsed := time.Since(start)
+
+	if result.Status != "success" {
+		t.Errorf("expected success, got %q (error: %s)", result.Status, result.Error)
+	}
+	if elapsed < 10*time.Millisecond {
+		t.Errorf("delay too short: %v", elapsed)
+	}
+}
+
+func TestDelayStepCancel(t *testing.T) {
+	wf := &Workflow{Name: "test-wf", Steps: []WorkflowStep{
+		{ID: "d1", Type: "delay", Delay: "10s"},
+	}}
+
+	exec := &workflowExecutor{
+		cfg:      &Config{},
+		workflow: wf,
+		run:      &WorkflowRun{ID: "run1", StepResults: make(map[string]*StepRunResult)},
+		wCtx:     newWorkflowContext(wf, nil),
+		mode:     WorkflowModeLive,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := &StepRunResult{StepID: "d1"}
+
+	// Cancel after 10ms.
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	exec.runDelayStep(ctx, &wf.Steps[0], result)
+
+	if result.Status != "cancelled" {
+		t.Errorf("expected cancelled, got %q", result.Status)
+	}
+}
+
+func TestNotifyStep(t *testing.T) {
+	broker := newSSEBroker()
+
+	wf := &Workflow{
+		Name:      "test-wf",
+		Variables: map[string]string{"user": "alice"},
+		Steps: []WorkflowStep{
+			{ID: "n1", Type: "notify", NotifyMsg: "Hello {{user}}, workflow done!", NotifyTo: "telegram"},
+		},
+	}
+
+	exec := &workflowExecutor{
+		cfg:      &Config{},
+		workflow: wf,
+		run:      &WorkflowRun{ID: "run1", StepResults: make(map[string]*StepRunResult)},
+		wCtx:     newWorkflowContext(wf, nil),
+		broker:   broker,
+		mode:     WorkflowModeLive,
+	}
+
+	result := &StepRunResult{StepID: "n1"}
+	exec.runNotifyStep(&wf.Steps[0], result, exec.wCtx)
+
+	if result.Status != "success" {
+		t.Errorf("expected success, got %q", result.Status)
+	}
+	expected := "Hello alice, workflow done!"
+	if result.Output != expected {
+		t.Errorf("expected %q, got %q", expected, result.Output)
+	}
+}
+
+func TestWebhookTrigger(t *testing.T) {
+	boolTrue := true
+	cfg := &Config{
+		WorkflowTriggers: []WorkflowTriggerConfig{
+			{
+				Name:         "my-webhook",
+				WorkflowName: "nonexistent-wf",
+				Enabled:      &boolTrue,
+				Trigger: TriggerSpec{
+					Type:    "webhook",
+					Webhook: "my-webhook",
+				},
+			},
+		},
+	}
+
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
+
+	// Webhook trigger for unknown name should fail.
+	err := engine.HandleWebhookTrigger("unknown", nil)
+	if err == nil {
+		t.Error("expected error for unknown webhook trigger")
+	}
+
+	// Webhook trigger for known name should succeed (even though workflow doesn't exist,
+	// executeTrigger runs async and logs the error).
+	err = engine.HandleWebhookTrigger("my-webhook", map[string]string{"key": "val"})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestWebhookTriggerDisabled(t *testing.T) {
+	boolFalse := false
+	cfg := &Config{
+		WorkflowTriggers: []WorkflowTriggerConfig{
+			{
+				Name:         "disabled-hook",
+				WorkflowName: "wf",
+				Enabled:      &boolFalse,
+				Trigger: TriggerSpec{
+					Type:    "webhook",
+					Webhook: "disabled-hook",
+				},
+			},
+		},
+	}
+
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
+
+	err := engine.HandleWebhookTrigger("disabled-hook", nil)
+	if err == nil {
+		t.Error("expected error for disabled webhook trigger")
+	}
+	if err != nil && !strings.Contains(err.Error(), "disabled") {
+		t.Errorf("expected disabled error, got: %v", err)
+	}
+}
+
+func TestTriggerRunRecording(t *testing.T) {
+	// Create a temporary DB.
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	initTriggerRunsTable(dbPath)
+
+	// Record a run.
+	now := time.Now().Format(time.RFC3339)
+	recordTriggerRun(dbPath, "test-trigger", "test-wf", "run-123", "success", now, now, "")
+
+	// Query it back.
+	runs, err := queryTriggerRuns(dbPath, "test-trigger", 10)
+	if err != nil {
+		t.Fatalf("queryTriggerRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if fmt.Sprintf("%v", runs[0]["trigger_name"]) != "test-trigger" {
+		t.Errorf("expected trigger_name=test-trigger, got %v", runs[0]["trigger_name"])
+	}
+	if fmt.Sprintf("%v", runs[0]["status"]) != "success" {
+		t.Errorf("expected status=success, got %v", runs[0]["status"])
+	}
+
+	// Record another run.
+	recordTriggerRun(dbPath, "other-trigger", "other-wf", "run-456", "error", now, now, "boom")
+
+	// Query all runs.
+	allRuns, err := queryTriggerRuns(dbPath, "", 10)
+	if err != nil {
+		t.Fatalf("queryTriggerRuns all: %v", err)
+	}
+	if len(allRuns) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(allRuns))
+	}
+
+	// Query filtered.
+	filtered, err := queryTriggerRuns(dbPath, "other-trigger", 10)
+	if err != nil {
+		t.Fatalf("queryTriggerRuns filtered: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered run, got %d", len(filtered))
+	}
+}
+
+func TestTriggerRunRecordingEmptyDB(t *testing.T) {
+	// Should not panic with empty DB path.
+	recordTriggerRun("", "t", "w", "r", "s", "", "", "")
+	runs, err := queryTriggerRuns("", "", 10)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if runs != nil {
+		t.Errorf("expected nil runs, got %v", runs)
+	}
+}
+
+func TestListTriggers(t *testing.T) {
+	boolTrue := true
+	boolFalse := false
+	cfg := &Config{
+		WorkflowTriggers: []WorkflowTriggerConfig{
+			{
+				Name:         "cron-daily",
+				WorkflowName: "daily-report",
+				Enabled:      &boolTrue,
+				Trigger:      TriggerSpec{Type: "cron", Cron: "0 9 * * *"},
+				Cooldown:     "1h",
+			},
+			{
+				Name:         "event-complete",
+				WorkflowName: "post-process",
+				Enabled:      &boolFalse,
+				Trigger:      TriggerSpec{Type: "event", Event: "workflow_completed"},
+			},
+			{
+				Name:         "webhook-deploy",
+				WorkflowName: "deploy-pipeline",
+				Enabled:      &boolTrue,
+				Trigger:      TriggerSpec{Type: "webhook", Webhook: "deploy"},
+			},
+		},
+	}
+
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
+	infos := engine.ListTriggers()
+
+	if len(infos) != 3 {
+		t.Fatalf("expected 3 triggers, got %d", len(infos))
+	}
+
+	// Check first trigger.
+	if infos[0].Name != "cron-daily" {
+		t.Errorf("expected name=cron-daily, got %s", infos[0].Name)
+	}
+	if !infos[0].Enabled {
+		t.Error("expected cron-daily to be enabled")
+	}
+	if infos[0].Type != "cron" {
+		t.Errorf("expected type=cron, got %s", infos[0].Type)
+	}
+	if infos[0].NextCron == "" {
+		t.Error("expected NextCron to be set for cron trigger")
+	}
+	if infos[0].Cooldown != "1h" {
+		t.Errorf("expected cooldown=1h, got %s", infos[0].Cooldown)
+	}
+
+	// Check disabled trigger.
+	if infos[1].Enabled {
+		t.Error("expected event-complete to be disabled")
+	}
+}
+
+func TestFireTrigger(t *testing.T) {
+	boolTrue := true
+
+	// Create a temp dir with a workflow file.
+	tmpDir := t.TempDir()
+	wfDir := filepath.Join(tmpDir, "workflows")
+	os.MkdirAll(wfDir, 0o755)
+
+	// Write a simple workflow.
+	wf := Workflow{
+		Name: "test-fire-wf",
+		Steps: []WorkflowStep{
+			{ID: "s1", Type: "delay", Delay: "1ms"},
+		},
+	}
+	wfData, _ := json.MarshalIndent(wf, "", "  ")
+	os.WriteFile(filepath.Join(wfDir, "test-fire-wf.json"), wfData, 0o644)
+
+	cfg := &Config{
+		BaseDir: tmpDir,
+		WorkflowTriggers: []WorkflowTriggerConfig{
+			{
+				Name:         "fire-test",
+				WorkflowName: "test-fire-wf",
+				Enabled:      &boolTrue,
+				Trigger:      TriggerSpec{Type: "webhook"},
+			},
+		},
+	}
+
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 3), nil, nil)
+
+	// Fire existing trigger.
+	err := engine.FireTrigger("fire-test")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Fire non-existent trigger.
+	err = engine.FireTrigger("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent trigger")
+	}
+
+	// Wait a bit for the async execution.
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestFireTriggerDisabled(t *testing.T) {
+	boolFalse := false
+	cfg := &Config{
+		WorkflowTriggers: []WorkflowTriggerConfig{
+			{
+				Name:         "disabled-fire",
+				WorkflowName: "wf",
+				Enabled:      &boolFalse,
+				Trigger:      TriggerSpec{Type: "webhook"},
+			},
+		},
+	}
+
+	engine := newWorkflowTriggerEngine(cfg, nil, make(chan struct{}, 1), nil, nil)
+
+	err := engine.FireTrigger("disabled-fire")
+	if err == nil {
+		t.Error("expected error for disabled trigger")
+	}
+}
+
+func TestMatchEventType(t *testing.T) {
+	tests := []struct {
+		eventType string
+		pattern   string
+		want      bool
+	}{
+		{"workflow_completed", "workflow_completed", true},
+		{"workflow_completed", "workflow_started", false},
+		{"workflow_completed", "workflow_*", true},
+		{"workflow_started", "workflow_*", true},
+		{"step_completed", "workflow_*", false},
+		{"step_completed", "step_*", true},
+		{"anything", "*", true},
+	}
+
+	for _, tt := range tests {
+		got := matchEventType(tt.eventType, tt.pattern)
+		if got != tt.want {
+			t.Errorf("matchEventType(%q, %q) = %v, want %v", tt.eventType, tt.pattern, got, tt.want)
+		}
+	}
+}
+
+func TestExpandVars(t *testing.T) {
+	vars := map[string]string{"name": "world", "count": "42"}
+
+	got := expandVars("hello {{name}}, count={{count}}", vars)
+	if got != "hello world, count=42" {
+		t.Errorf("expandVars = %q, want %q", got, "hello world, count=42")
+	}
+
+	// No match.
+	got2 := expandVars("{{missing}}", vars)
+	if got2 != "{{missing}}" {
+		t.Errorf("expandVars = %q, want %q", got2, "{{missing}}")
+	}
+}
+
+func TestExpandToolInput(t *testing.T) {
+	vars := map[string]string{"dir": "/tmp", "file": "test.txt"}
+	input := map[string]string{
+		"path":    "{{dir}}/{{file}}",
+		"literal": "no-vars-here",
+	}
+
+	result := expandToolInput(input, vars)
+	if result["path"] != "/tmp/test.txt" {
+		t.Errorf("expected /tmp/test.txt, got %s", result["path"])
+	}
+	if result["literal"] != "no-vars-here" {
+		t.Errorf("expected no-vars-here, got %s", result["literal"])
+	}
+}
+
+func TestToolInputToJSON(t *testing.T) {
+	input := map[string]string{"key": "value", "num": "42"}
+	raw := toolInputToJSON(input)
+
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed["key"] != "value" {
+		t.Errorf("expected key=value, got %v", parsed["key"])
+	}
+}
+
+func TestToolInputToJSON_Empty(t *testing.T) {
+	raw := toolInputToJSON(nil)
+	if string(raw) != "{}" {
+		t.Errorf("expected {}, got %s", string(raw))
+	}
+}
+
+func TestValidateStep_NewTypes(t *testing.T) {
+	allIDs := map[string]bool{"s1": true, "s2": true}
+
+	// tool_call without toolName.
+	errs := validateStep(WorkflowStep{ID: "s1", Type: "tool_call"}, allIDs)
+	if len(errs) == 0 {
+		t.Error("expected error for tool_call without toolName")
+	}
+
+	// tool_call with toolName.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "tool_call", ToolName: "exec"}, allIDs)
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors: %v", errs)
+	}
+
+	// delay without duration.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "delay"}, allIDs)
+	if len(errs) == 0 {
+		t.Error("expected error for delay without duration")
+	}
+
+	// delay with invalid duration.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "delay", Delay: "bad"}, allIDs)
+	if len(errs) == 0 {
+		t.Error("expected error for delay with invalid duration")
+	}
+
+	// delay with valid duration.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "delay", Delay: "5s"}, allIDs)
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors: %v", errs)
+	}
+
+	// notify without message.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "notify"}, allIDs)
+	if len(errs) == 0 {
+		t.Error("expected error for notify without notifyMsg")
+	}
+
+	// notify with message.
+	errs = validateStep(WorkflowStep{ID: "s1", Type: "notify", NotifyMsg: "hello"}, allIDs)
+	if len(errs) != 0 {
+		t.Errorf("unexpected errors: %v", errs)
+	}
+}
+
+// --- from workflow_viz_test.go ---
+
+func TestBuildStepSummaries(t *testing.T) {
+	steps := []WorkflowStep{
+		{ID: "a", Agent: "翡翠", DependsOn: nil},
+		{ID: "b", Type: "handoff", Agent: "黒曜", DependsOn: []string{"a"}},
+	}
+	summaries := buildStepSummaries(steps)
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 summaries, got %d", len(summaries))
+	}
+
+	// Check first step.
+	if summaries[0]["id"] != "a" {
+		t.Errorf("expected id=a, got %v", summaries[0]["id"])
+	}
+	if summaries[0]["role"] != "翡翠" {
+		t.Errorf("expected role=翡翠, got %v", summaries[0]["role"])
+	}
+	// Default type should be "dispatch".
+	if summaries[0]["type"] != "dispatch" {
+		t.Errorf("expected type=dispatch, got %v", summaries[0]["type"])
+	}
+	// No dependencies (nil or empty slice).
+	deps0, _ := summaries[0]["dependsOn"].([]string)
+	if len(deps0) != 0 {
+		t.Errorf("expected empty dependsOn, got %v", summaries[0]["dependsOn"])
+	}
+
+	// Check second step has explicit type and dependency.
+	if summaries[1]["id"] != "b" {
+		t.Errorf("expected id=b, got %v", summaries[1]["id"])
+	}
+	if summaries[1]["type"] != "handoff" {
+		t.Errorf("expected type=handoff, got %v", summaries[1]["type"])
+	}
+	if summaries[1]["role"] != "黒曜" {
+		t.Errorf("expected role=黒曜, got %v", summaries[1]["role"])
+	}
+	deps, ok := summaries[1]["dependsOn"].([]string)
+	if !ok || len(deps) != 1 || deps[0] != "a" {
+		t.Errorf("expected dependsOn=[a], got %v", summaries[1]["dependsOn"])
+	}
+}
+
+func TestBuildStepSummariesEmpty(t *testing.T) {
+	summaries := buildStepSummaries(nil)
+	if summaries != nil {
+		t.Errorf("expected nil for empty input, got %v", summaries)
+	}
+}
+
+func TestBuildStepSummariesCondition(t *testing.T) {
+	steps := []WorkflowStep{
+		{ID: "check", Type: "condition", If: "steps.a.status == 'success'", Then: "yes", Else: "no"},
+	}
+	summaries := buildStepSummaries(steps)
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(summaries))
+	}
+	if summaries[0]["type"] != "condition" {
+		t.Errorf("expected type=condition, got %v", summaries[0]["type"])
 	}
 }

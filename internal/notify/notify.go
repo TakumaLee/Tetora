@@ -414,16 +414,16 @@ func (ne *Engine) batchLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			ne.flushBatch()
+			ne.FlushBatch()
 		case <-ne.stopCh:
-			ne.flushBatch() // final flush
+			ne.FlushBatch() // final flush
 			return
 		}
 	}
 }
 
-// flushBatch sends all buffered messages as a digest.
-func (ne *Engine) flushBatch() {
+// FlushBatch sends all buffered messages as a digest.
+func (ne *Engine) FlushBatch() {
 	ne.mu.Lock()
 	if len(ne.buffer) == 0 {
 		// Clean up old dedup entries.

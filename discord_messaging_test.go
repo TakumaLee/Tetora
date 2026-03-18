@@ -8,12 +8,14 @@ import (
 	"time"
 )
 
+// --- from presence_test.go ---
+
 // mockPresenceSetter is a test double for PresenceSetter.
 type mockPresenceSetter struct {
-	name     string
-	calls    atomic.Int64
-	lastRef  string
-	mu       sync.Mutex
+	name    string
+	calls   atomic.Int64
+	lastRef string
+	mu      sync.Mutex
 }
 
 func (m *mockPresenceSetter) SetTyping(ctx context.Context, channelRef string) error {

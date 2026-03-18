@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tetora/internal/classify"
 )
 
 // --- newUUID tests ---
@@ -884,5 +886,1084 @@ func TestTokenAccumulation(t *testing.T) {
 	}
 	if finalResult.ProviderMs != 530 {
 		t.Errorf("ProviderMs = %d, want 530", finalResult.ProviderMs)
+	}
+}
+
+// --- from route_test.go ---
+
+// --- classifyByKeywords ---
+
+func TestClassifyByKeywords_RuleMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Rules: []RoutingRule{
+				{Agent: "黒曜", Keywords: []string{"security", "code review"}},
+				{Agent: "琥珀", Keywords: []string{"寫文", "content"}},
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"黒曜": {Model: "sonnet"},
+			"琥珀": {Model: "opus"},
+		},
+	}
+
+	tests := []struct {
+		prompt   string
+		wantRole string
+		wantNil  bool
+	}{
+		{"Please do a security audit", "黒曜", false},
+		{"Can you do a code review?", "黒曜", false},
+		{"寫文章給 Medium", "琥珀", false},
+		{"Create content for the blog", "琥珀", false},
+		{"SECURITY check please", "黒曜", false}, // case insensitive
+		{"random unmatched prompt", "", true},
+	}
+
+	for _, tt := range tests {
+		result := classifyByKeywords(cfg, tt.prompt)
+		if tt.wantNil {
+			if result != nil {
+				t.Errorf("classifyByKeywords(%q) = %+v, want nil", tt.prompt, result)
+			}
+			continue
+		}
+		if result == nil {
+			t.Errorf("classifyByKeywords(%q) = nil, want role=%q", tt.prompt, tt.wantRole)
+			continue
+		}
+		if result.Agent != tt.wantRole {
+			t.Errorf("classifyByKeywords(%q).Agent = %q, want %q", tt.prompt, result.Agent, tt.wantRole)
+		}
+		if result.Method != "keyword" {
+			t.Errorf("classifyByKeywords(%q).Method = %q, want keyword", tt.prompt, result.Method)
+		}
+	}
+}
+
+func TestClassifyByKeywords_PatternMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Rules: []RoutingRule{
+				{Agent: "翡翠", Patterns: []string{`market\s+research`, `competitor\s+analysis`}},
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"翡翠": {Model: "sonnet"},
+		},
+	}
+
+	tests := []struct {
+		prompt   string
+		wantRole string
+		wantNil  bool
+	}{
+		{"Do market research on AI tools", "翡翠", false},
+		{"Run competitor analysis", "翡翠", false},
+		{"Market Research please", "翡翠", false}, // case insensitive
+		{"marketresearch", "", true},               // no space = no match
+	}
+
+	for _, tt := range tests {
+		result := classifyByKeywords(cfg, tt.prompt)
+		if tt.wantNil {
+			if result != nil {
+				t.Errorf("classifyByKeywords(%q) = %+v, want nil", tt.prompt, result)
+			}
+			continue
+		}
+		if result == nil {
+			t.Errorf("classifyByKeywords(%q) = nil, want role=%q", tt.prompt, tt.wantRole)
+			continue
+		}
+		if result.Agent != tt.wantRole {
+			t.Errorf("classifyByKeywords(%q).Agent = %q, want %q", tt.prompt, result.Agent, tt.wantRole)
+		}
+	}
+}
+
+func TestClassifyByKeywords_RoleKeywords(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Rules: []RoutingRule{}, // no explicit rules
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet", Keywords: []string{"管理", "status"}},
+			"翡翠": {Model: "sonnet", Keywords: []string{"情報", "research"}},
+		},
+	}
+
+	result := classifyByKeywords(cfg, "show me the system status")
+	if result == nil {
+		t.Fatal("classifyByKeywords returned nil, want role=琉璃")
+	}
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃", result.Agent)
+	}
+	if result.Confidence != "medium" {
+		t.Errorf("Confidence = %q, want medium (role keyword match)", result.Confidence)
+	}
+}
+
+func TestClassifyByKeywords_RulePriorityOverRole(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Rules: []RoutingRule{
+				{Agent: "黒曜", Keywords: []string{"security"}},
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet", Keywords: []string{"security"}}, // same keyword on role
+			"黒曜": {Model: "sonnet"},
+		},
+	}
+
+	result := classifyByKeywords(cfg, "run a security audit")
+	if result == nil {
+		t.Fatal("classifyByKeywords returned nil")
+	}
+	// Rule should take priority over role keyword.
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (rule priority)", result.Agent)
+	}
+	if result.Confidence != "high" {
+		t.Errorf("Confidence = %q, want high (rule match)", result.Confidence)
+	}
+}
+
+// --- parseLLMRouteResult ---
+
+func TestParseLLMRouteResult_ValidJSON(t *testing.T) {
+	output := `{"agent":"翡翠","confidence":"high","reason":"market analysis task"}`
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Agent != "翡翠" {
+		t.Errorf("Role = %q, want 翡翠", result.Agent)
+	}
+	if result.Confidence != "high" {
+		t.Errorf("Confidence = %q, want high", result.Confidence)
+	}
+	if result.Method != "llm" {
+		t.Errorf("Method = %q, want llm", result.Method)
+	}
+}
+
+func TestParseLLMRouteResult_WrappedJSON(t *testing.T) {
+	output := `Here's my analysis:
+{"agent":"黒曜","confidence":"medium","reason":"looks like code"}
+That's my recommendation.`
+
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜", result.Agent)
+	}
+}
+
+func TestParseLLMRouteResult_Garbage(t *testing.T) {
+	output := "I think you should use the engineering team"
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should fall back to default.
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default)", result.Agent)
+	}
+	if result.Confidence != "low" {
+		t.Errorf("Confidence = %q, want low", result.Confidence)
+	}
+}
+
+func TestParseLLMRouteResult_EmptyRole(t *testing.T) {
+	output := `{"role":"","confidence":"medium","reason":"unclear"}`
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default when empty)", result.Agent)
+	}
+}
+
+func TestParseLLMRouteResult_InvalidJSON(t *testing.T) {
+	output := `{role: broken json}`
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (default on parse error)", result.Agent)
+	}
+	if result.Confidence != "low" {
+		t.Errorf("Confidence = %q, want low", result.Confidence)
+	}
+}
+
+func TestParseLLMRouteResult_MissingConfidence(t *testing.T) {
+	output := `{"role":"翡翠","reason":"research task"}`
+	result, err := parseLLMRouteResult(output, "琉璃")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Confidence != "medium" {
+		t.Errorf("Confidence = %q, want medium (default)", result.Confidence)
+	}
+}
+
+// --- checkBindings ---
+
+func TestCheckBindings_UserIDMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Bindings: []RoutingBinding{
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
+				{Channel: "slack", UserID: "U999", Agent: "翡翠"},
+			},
+		},
+	}
+
+	tests := []struct {
+		req      RouteRequest
+		wantRole string
+		wantNil  bool
+	}{
+		{RouteRequest{Source: "telegram", UserID: "12345"}, "黒曜", false},
+		{RouteRequest{Source: "slack", UserID: "U999"}, "翡翠", false},
+		{RouteRequest{Source: "telegram", UserID: "99999"}, "", true}, // no match
+		{RouteRequest{Source: "discord", UserID: "12345"}, "", true},  // wrong channel
+	}
+
+	for _, tt := range tests {
+		result := checkBindings(cfg, tt.req)
+		if tt.wantNil {
+			if result != nil {
+				t.Errorf("checkBindings(%+v) = %+v, want nil", tt.req, result)
+			}
+			continue
+		}
+		if result == nil {
+			t.Errorf("checkBindings(%+v) = nil, want role=%q", tt.req, tt.wantRole)
+			continue
+		}
+		if result.Agent != tt.wantRole {
+			t.Errorf("checkBindings(%+v).Agent = %q, want %q", tt.req, result.Agent, tt.wantRole)
+		}
+		if result.Method != "binding" {
+			t.Errorf("checkBindings(%+v).Method = %q, want binding", tt.req, result.Method)
+		}
+		if result.Confidence != "high" {
+			t.Errorf("checkBindings(%+v).Confidence = %q, want high", tt.req, result.Confidence)
+		}
+	}
+}
+
+func TestCheckBindings_ChannelIDMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Bindings: []RoutingBinding{
+				{Channel: "slack", ChannelID: "C123", Agent: "翡翠"},
+				{Channel: "telegram", ChannelID: "-1001234567890", Agent: "琥珀"},
+			},
+		},
+	}
+
+	tests := []struct {
+		req      RouteRequest
+		wantRole string
+		wantNil  bool
+	}{
+		{RouteRequest{Source: "slack", ChannelID: "C123"}, "翡翠", false},
+		{RouteRequest{Source: "telegram", ChannelID: "-1001234567890"}, "琥珀", false},
+		{RouteRequest{Source: "slack", ChannelID: "C999"}, "", true},
+	}
+
+	for _, tt := range tests {
+		result := checkBindings(cfg, tt.req)
+		if tt.wantNil {
+			if result != nil {
+				t.Errorf("checkBindings(%+v) = %+v, want nil", tt.req, result)
+			}
+			continue
+		}
+		if result == nil {
+			t.Errorf("checkBindings(%+v) = nil, want role=%q", tt.req, tt.wantRole)
+			continue
+		}
+		if result.Agent != tt.wantRole {
+			t.Errorf("checkBindings(%+v).Agent = %q, want %q", tt.req, result.Agent, tt.wantRole)
+		}
+	}
+}
+
+func TestCheckBindings_GuildIDMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Bindings: []RoutingBinding{
+				{Channel: "discord", GuildID: "G456", Agent: "琥珀"},
+			},
+		},
+	}
+
+	result := checkBindings(cfg, RouteRequest{Source: "discord", GuildID: "G456"})
+	if result == nil {
+		t.Fatal("checkBindings returned nil, want role=琥珀")
+	}
+	if result.Agent != "琥珀" {
+		t.Errorf("Role = %q, want 琥珀", result.Agent)
+	}
+}
+
+func TestCheckBindings_MultipleIDFields(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Bindings: []RoutingBinding{
+				{Channel: "telegram", UserID: "12345", ChannelID: "-100999", Agent: "黒曜"},
+			},
+		},
+	}
+
+	// Should match if ANY of the ID fields match.
+	result1 := checkBindings(cfg, RouteRequest{Source: "telegram", UserID: "12345"})
+	if result1 == nil || result1.Agent != "黒曜" {
+		t.Errorf("checkBindings with UserID match failed")
+	}
+
+	result2 := checkBindings(cfg, RouteRequest{Source: "telegram", ChannelID: "-100999"})
+	if result2 == nil || result2.Agent != "黒曜" {
+		t.Errorf("checkBindings with ChannelID match failed")
+	}
+
+	result3 := checkBindings(cfg, RouteRequest{Source: "telegram", UserID: "12345", ChannelID: "-100999"})
+	if result3 == nil || result3.Agent != "黒曜" {
+		t.Errorf("checkBindings with both IDs match failed")
+	}
+}
+
+func TestCheckBindings_NoMatch(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			Bindings: []RoutingBinding{
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
+			},
+		},
+	}
+
+	result := checkBindings(cfg, RouteRequest{Source: "slack", UserID: "12345"})
+	if result != nil {
+		t.Errorf("checkBindings returned %+v, want nil (channel mismatch)", result)
+	}
+}
+
+// --- routeTask with bindings ---
+
+func TestRouteTask_BindingPriority(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			DefaultAgent: "琉璃",
+			Coordinator: "琉璃",
+			Bindings: []RoutingBinding{
+				{Channel: "telegram", UserID: "12345", Agent: "黒曜"},
+			},
+			Rules: []RoutingRule{
+				{Agent: "翡翠", Keywords: []string{"research"}}, // this keyword will be in prompt
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet"},
+			"黒曜": {Model: "opus"},
+			"翡翠": {Model: "sonnet"},
+		},
+	}
+
+	// Even though prompt contains "research" keyword, binding should take priority.
+	ctx := context.Background()
+	req := RouteRequest{
+		Prompt: "do some research please",
+		Source: "telegram",
+		UserID: "12345",
+	}
+
+	result := routeTask(ctx, cfg, req)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (binding should override keyword)", result.Agent)
+	}
+	if result.Method != "binding" {
+		t.Errorf("Method = %q, want binding", result.Method)
+	}
+}
+
+func TestRouteTask_FallbackCoordinator(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			DefaultAgent: "琉璃",
+			Coordinator: "琉璃",
+			Fallback:    "coordinator", // bypass LLM routing
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet"},
+		},
+	}
+
+	ctx := context.Background()
+	req := RouteRequest{
+		Prompt: "random task with no keywords or bindings",
+		Source: "http",
+	}
+
+	result := routeTask(ctx, cfg, req)
+	if result.Agent != "琉璃" {
+		t.Errorf("Role = %q, want 琉璃 (fallback coordinator)", result.Agent)
+	}
+	if result.Method != "coordinator" {
+		t.Errorf("Method = %q, want coordinator", result.Method)
+	}
+	if result.Confidence != "high" {
+		t.Errorf("Confidence = %q, want high (coordinator fallback)", result.Confidence)
+	}
+}
+
+func TestRouteTask_FallbackSmartWithKeyword(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			DefaultAgent: "琉璃",
+			Coordinator: "琉璃",
+			Fallback:    "smart",
+			Rules: []RoutingRule{
+				{Agent: "翡翠", Keywords: []string{"research"}},
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet"},
+			"翡翠": {Model: "sonnet"},
+		},
+	}
+
+	ctx := context.Background()
+	req := RouteRequest{
+		Prompt: "do research please",
+		Source: "http",
+	}
+
+	// With fallback="smart", keyword matching should still work.
+	result := routeTask(ctx, cfg, req)
+	if result.Agent != "翡翠" {
+		t.Errorf("Role = %q, want 翡翠 (keyword should work with smart fallback)", result.Agent)
+	}
+	if result.Method != "keyword" {
+		t.Errorf("Method = %q, want keyword", result.Method)
+	}
+}
+
+func TestRouteTask_NoBindingsUsesKeywords(t *testing.T) {
+	cfg := &Config{
+		SmartDispatch: SmartDispatchConfig{
+			DefaultAgent: "琉璃",
+			Rules: []RoutingRule{
+				{Agent: "黒曜", Keywords: []string{"security"}},
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"琉璃": {Model: "sonnet"},
+			"黒曜": {Model: "opus"},
+		},
+	}
+
+	ctx := context.Background()
+	req := RouteRequest{
+		Prompt: "run a security check",
+		Source: "telegram",
+		// No bindings defined, so should fall through to keyword matching.
+	}
+
+	result := routeTask(ctx, cfg, req)
+	if result.Agent != "黒曜" {
+		t.Errorf("Role = %q, want 黒曜 (keyword match)", result.Agent)
+	}
+	if result.Method != "keyword" {
+		t.Errorf("Method = %q, want keyword", result.Method)
+	}
+}
+
+// --- from sandbox_test.go ---
+// NOTE: buildDockerCmd, dockerEnvFilter, rewriteDockerArgs were extracted to internal/sandbox.
+// Tests for those functions now live in the internal package.
+
+// --- from sandbox_plugin_test.go ---
+// NOTE: SandboxManager, sandboxPolicyForAgent, sandboxImageForAgent, shouldUseSandbox
+// were extracted to internal/sandbox. Tests now live in the internal package.
+// Keeping only tests for types that remain in root (SandboxConfig, AgentToolPolicy JSON).
+
+func TestSandboxConfig_DefaultImage(t *testing.T) {
+	sc := SandboxConfig{}
+	if sc.DefaultImageOrDefault() != "ubuntu:22.04" {
+		t.Errorf("expected ubuntu:22.04, got %s", sc.DefaultImageOrDefault())
+	}
+}
+
+func TestSandboxConfig_CustomImage(t *testing.T) {
+	sc := SandboxConfig{DefaultImage: "alpine:3.19"}
+	if sc.DefaultImageOrDefault() != "alpine:3.19" {
+		t.Errorf("expected alpine:3.19, got %s", sc.DefaultImageOrDefault())
+	}
+}
+
+func TestSandboxConfig_DefaultNetwork(t *testing.T) {
+	sc := SandboxConfig{}
+	if sc.NetworkOrDefault() != "none" {
+		t.Errorf("expected none, got %s", sc.NetworkOrDefault())
+	}
+}
+
+func TestSandboxConfig_CustomNetwork(t *testing.T) {
+	sc := SandboxConfig{Network: "bridge"}
+	if sc.NetworkOrDefault() != "bridge" {
+		t.Errorf("expected bridge, got %s", sc.NetworkOrDefault())
+	}
+}
+
+// --- AgentToolPolicy JSON serialization ---
+
+func TestAgentToolPolicy_SandboxJSON(t *testing.T) {
+	policy := AgentToolPolicy{
+		Profile:      "standard",
+		Sandbox:      "required",
+		SandboxImage: "node:20",
+	}
+	data, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var decoded AgentToolPolicy
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if decoded.Sandbox != "required" {
+		t.Errorf("expected sandbox=required, got %s", decoded.Sandbox)
+	}
+	if decoded.SandboxImage != "node:20" {
+		t.Errorf("expected sandboxImage=node:20, got %s", decoded.SandboxImage)
+	}
+}
+
+// --- SandboxConfig JSON serialization ---
+
+func TestSandboxConfig_JSON(t *testing.T) {
+	sc := SandboxConfig{
+		Plugin:       "docker-sandbox",
+		DefaultImage: "alpine:3.19",
+		MemLimit:     "512m",
+		CPULimit:     "1.0",
+		Network:      "bridge",
+	}
+	data, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	var decoded SandboxConfig
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if decoded.Plugin != "docker-sandbox" {
+		t.Errorf("expected docker-sandbox, got %s", decoded.Plugin)
+	}
+	if decoded.DefaultImage != "alpine:3.19" {
+		t.Errorf("expected alpine:3.19, got %s", decoded.DefaultImage)
+	}
+	if decoded.MemLimit != "512m" {
+		t.Errorf("expected 512m, got %s", decoded.MemLimit)
+	}
+	if decoded.CPULimit != "1.0" {
+		t.Errorf("expected 1.0, got %s", decoded.CPULimit)
+	}
+	if decoded.Network != "bridge" {
+		t.Errorf("expected bridge, got %s", decoded.Network)
+	}
+}
+
+// --- from circuit_test.go ---
+
+// Circuit breaker tests are in internal/circuit/circuit_test.go.
+// This file tests provider helpers that remain in package main.
+
+// --- Provider Helpers ---
+
+func TestIsTransientError(t *testing.T) {
+	tests := []struct {
+		errMsg string
+		want   bool
+	}{
+		// Transient errors.
+		{"connection refused", true},
+		{"Connection Refused on port 443", true},
+		{"request timed out", true},
+		{"context deadline exceeded", true},
+		{"unexpected EOF while reading response", true},
+		{"broken pipe", true},
+		{"connection reset by peer", true},
+		{"HTTP 502 Bad Gateway", true},
+		{"http 503 service unavailable", true},
+		{"status 500: internal server error", true},
+		{"temporarily unavailable, try again later", true},
+		{"service unavailable", true},
+		{"too many requests", true},
+		{"rate limit exceeded", true},
+		{"timeout waiting for response", true},
+
+		// Non-transient errors (should NOT trigger failover).
+		{"invalid API key", false},
+		{"model not found", false},
+		{"permission denied", false},
+		{"bad request: prompt too long", false},
+		{"authentication failed", false},
+		{"", false},
+		{"unknown error occurred", false},
+		{"content policy violation", false},
+	}
+
+	for _, tc := range tests {
+		got := isTransientError(tc.errMsg)
+		if got != tc.want {
+			t.Errorf("isTransientError(%q) = %v, want %v", tc.errMsg, got, tc.want)
+		}
+	}
+}
+
+func TestBuildProviderCandidates(t *testing.T) {
+	t.Run("primary only", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "claude",
+			Agents:          map[string]AgentConfig{},
+		}
+		task := Task{Provider: ""}
+		candidates := buildProviderCandidates(cfg, task, "")
+		if len(candidates) != 1 {
+			t.Fatalf("expected 1 candidate, got %d: %v", len(candidates), candidates)
+		}
+		if candidates[0] != "claude" {
+			t.Errorf("expected primary 'claude', got %q", candidates[0])
+		}
+	})
+
+	t.Run("task provider overrides default", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "claude",
+			Agents:          map[string]AgentConfig{},
+		}
+		task := Task{Provider: "openai"}
+		candidates := buildProviderCandidates(cfg, task, "")
+		if candidates[0] != "openai" {
+			t.Errorf("expected primary 'openai', got %q", candidates[0])
+		}
+	})
+
+	t.Run("role provider overrides config default", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "claude",
+			Agents: map[string]AgentConfig{
+				"dev": {Provider: "gemini"},
+			},
+		}
+		task := Task{}
+		candidates := buildProviderCandidates(cfg, task, "dev")
+		if candidates[0] != "gemini" {
+			t.Errorf("expected primary 'gemini' from role, got %q", candidates[0])
+		}
+	})
+
+	t.Run("role fallbacks appended", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider: "claude",
+			Agents: map[string]AgentConfig{
+				"dev": {
+					Provider:          "openai",
+					FallbackProviders: []string{"gemini", "local"},
+				},
+			},
+		}
+		task := Task{}
+		candidates := buildProviderCandidates(cfg, task, "dev")
+		expected := []string{"openai", "gemini", "local"}
+		if len(candidates) != len(expected) {
+			t.Fatalf("expected %v, got %v", expected, candidates)
+		}
+		for i, want := range expected {
+			if candidates[i] != want {
+				t.Errorf("candidates[%d] = %q, want %q", i, candidates[i], want)
+			}
+		}
+	})
+
+	t.Run("config fallbacks appended", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider:   "claude",
+			FallbackProviders: []string{"openai", "gemini"},
+			Agents:            map[string]AgentConfig{},
+		}
+		task := Task{}
+		candidates := buildProviderCandidates(cfg, task, "")
+		expected := []string{"claude", "openai", "gemini"}
+		if len(candidates) != len(expected) {
+			t.Fatalf("expected %v, got %v", expected, candidates)
+		}
+		for i, want := range expected {
+			if candidates[i] != want {
+				t.Errorf("candidates[%d] = %q, want %q", i, candidates[i], want)
+			}
+		}
+	})
+
+	t.Run("dedup across role and config fallbacks", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider:   "claude",
+			FallbackProviders: []string{"openai", "gemini", "claude"},
+			Agents: map[string]AgentConfig{
+				"dev": {
+					Provider:          "openai",
+					FallbackProviders: []string{"gemini", "local"},
+				},
+			},
+		}
+		task := Task{}
+		candidates := buildProviderCandidates(cfg, task, "dev")
+		expected := []string{"openai", "gemini", "local", "claude"}
+		if len(candidates) != len(expected) {
+			t.Fatalf("expected %v, got %v", expected, candidates)
+		}
+		for i, want := range expected {
+			if candidates[i] != want {
+				t.Errorf("candidates[%d] = %q, want %q", i, candidates[i], want)
+			}
+		}
+	})
+
+	t.Run("empty fallbacks", func(t *testing.T) {
+		cfg := &Config{
+			DefaultProvider:   "claude",
+			FallbackProviders: []string{},
+			Agents: map[string]AgentConfig{
+				"dev": {
+					FallbackProviders: []string{},
+				},
+			},
+		}
+		task := Task{}
+		candidates := buildProviderCandidates(cfg, task, "dev")
+		if len(candidates) != 1 || candidates[0] != "claude" {
+			t.Errorf("expected [claude], got %v", candidates)
+		}
+	})
+}
+
+// --- from classify_test.go ---
+
+// --- String method ---
+
+func TestRequestComplexityString(t *testing.T) {
+	tests := []struct {
+		c    classify.Complexity
+		want string
+	}{
+		{classify.Simple, "simple"},
+		{classify.Standard, "standard"},
+		{classify.Complex, "complex"},
+		{classify.Complexity(99), "standard"}, // unknown falls back
+	}
+	for _, tt := range tests {
+		if got := tt.c.String(); got != tt.want {
+			t.Errorf("classify.Complexity(%d).String() = %q, want %q", int(tt.c), got, tt.want)
+		}
+	}
+}
+
+// --- Simple greeting detection ---
+
+func TestClassifySimpleGreeting(t *testing.T) {
+	cases := []struct {
+		prompt string
+		source string
+	}{
+		{"hello", "discord"},
+		{"hi there!", "telegram"},
+		{"おはよう", "line"},
+		{"hey", "slack"},
+		{"good morning", "whatsapp"},
+		{"yo", "matrix"},
+		{"sup", "teams"},
+		{"hi", "signal"},
+		{"hey there", "gchat"},
+		{"hello!", "imessage"},
+		{"How are you?", "chat"},
+	}
+	for _, tc := range cases {
+		got := classify.Classify(tc.prompt, tc.source)
+		if got != classify.Simple {
+			t.Errorf("classify.Classify(%q, %q) = %v, want simple", tc.prompt, tc.source, got)
+		}
+	}
+}
+
+// --- Complex code task detection ---
+
+func TestClassifyComplexCodingKeywords(t *testing.T) {
+	cases := []struct {
+		prompt string
+	}{
+		{"Please implement a new feature"},
+		{"Debug the login endpoint"},
+		{"Refactor the database schema"},
+		{"Build an API for user management"},
+		{"Write a function to sort the list"},
+		{"Deploy the application to production"},
+		{"Optimize the algorithm for speed"},
+		{"Fix the SQL query performance"},
+		{"Set up authentication and authorization"},
+		{"Create a migration for the new table"},
+		{"CODE review this pull request"},          // case-insensitive
+		{"The DATABASE needs a new index"},         // case-insensitive
+		{"please compile this project"},            // lowercase keyword
+		{"Run the benchmark for concurrency test"}, // multiple keywords
+	}
+	for _, tc := range cases {
+		got := classify.Classify(tc.prompt, "discord")
+		if got != classify.Complex {
+			t.Errorf("classify.Classify(%q, discord) = %v, want complex", tc.prompt, got)
+		}
+	}
+}
+
+func TestClassifyComplexJapaneseKeywords(t *testing.T) {
+	cases := []struct {
+		prompt string
+	}{
+		{"この関数を実装してください"},
+		{"デバッグをお願いします"},
+		{"リファクタリングが必要です"},  // contains リファクタ
+		{"データベースのスキーマを更新して"},
+		{"アルゴリズムを最適化して"},
+		{"認証の仕組みを設計して"},
+		{"コードレビューして"},
+		{"パイプラインを構築して"},
+	}
+	for _, tc := range cases {
+		got := classify.Classify(tc.prompt, "discord")
+		if got != classify.Complex {
+			t.Errorf("classify.Classify(%q, discord) = %v, want complex", tc.prompt, got)
+		}
+	}
+}
+
+// --- Standard middle-ground ---
+
+func TestClassifyStandard(t *testing.T) {
+	cases := []struct {
+		prompt string
+		source string
+	}{
+		// > 100 runes from a chat source, no coding keywords → standard
+		{"Tell me about the weather in Tokyo tomorrow and what I should wear for the upcoming outdoor occasion this weekend", "discord"},
+		{"Can you summarize the latest news about climate change?", "http"},
+		{"What is the capital of France?", "http"},
+		// Long-ish prompt from chat source but no keywords, > 100 runes
+		{"I was wondering if you could help me understand the general process of how things work around here in more detail please", "discord"},
+	}
+	for _, tc := range cases {
+		got := classify.Classify(tc.prompt, tc.source)
+		if got != classify.Standard {
+			t.Errorf("classify.Classify(%q, %q) = %v, want standard", tc.prompt, tc.source, got)
+		}
+	}
+}
+
+// --- CJK character length handling ---
+
+func TestClassifyCJKLength(t *testing.T) {
+	// 99 CJK characters should be < 100 rune threshold → simple from chat source
+	short := strings.Repeat("あ", 99)
+	if got := classify.Classify(short, "discord"); got != classify.Simple {
+		t.Errorf("99 CJK runes from discord = %v, want simple", got)
+	}
+
+	// 100 CJK characters should be >= 100 → standard (no keywords, chat source)
+	exact100 := strings.Repeat("あ", 100)
+	if got := classify.Classify(exact100, "discord"); got != classify.Standard {
+		t.Errorf("100 CJK runes from discord = %v, want standard", got)
+	}
+
+	// 2001 CJK characters should be > 2000 → complex
+	long := strings.Repeat("漢", 2001)
+	if got := classify.Classify(long, "discord"); got != classify.Complex {
+		t.Errorf("2001 CJK runes from discord = %v, want complex", got)
+	}
+}
+
+// --- Source-based overrides ---
+
+func TestClassifySourceCronKeywordBased(t *testing.T) {
+	// Short cron prompt → Simple (keyword-based, not auto-Complex).
+	got := classify.Classify("hello", "cron")
+	if got != classify.Simple {
+		t.Errorf("classify.Classify(hello, cron) = %v, want simple", got)
+	}
+}
+
+func TestClassifySourceWorkflowKeywordBased(t *testing.T) {
+	// Short workflow prompt → Simple (keyword-based, not auto-Complex).
+	got := classify.Classify("check status", "workflow")
+	if got != classify.Simple {
+		t.Errorf("classify.Classify(check status, workflow) = %v, want simple", got)
+	}
+}
+
+func TestClassifySourceOverrideAgentComm(t *testing.T) {
+	got := classify.Classify("ping", "agent-comm")
+	if got != classify.Complex {
+		t.Errorf("classify.Classify(ping, agent-comm) = %v, want complex", got)
+	}
+}
+
+func TestClassifySourceCaseInsensitive(t *testing.T) {
+	// Source matching should be case-insensitive.
+	got := classify.Classify("hi", "Discord")
+	if got != classify.Simple {
+		t.Errorf("classify.Classify(hi, Discord) = %v, want simple", got)
+	}
+
+	// Short cron prompt → Simple (keyword-based, not auto-Complex).
+	got2 := classify.Classify("hi", "CRON")
+	if got2 != classify.Simple {
+		t.Errorf("classify.Classify(hi, CRON) = %v, want simple", got2)
+	}
+}
+
+// --- Edge cases ---
+
+func TestClassifyEmptyString(t *testing.T) {
+	// Empty prompt from chat source: length 0 < 100 → simple
+	got := classify.Classify("", "discord")
+	if got != classify.Simple {
+		t.Errorf("classify.Classify(empty, discord) = %v, want simple", got)
+	}
+
+	// Empty prompt from unknown source: no keywords, length 0 < 100, but source not in ChatSources
+	got2 := classify.Classify("", "http")
+	if got2 != classify.Standard {
+		t.Errorf("classify.Classify(empty, http) = %v, want standard", got2)
+	}
+
+	// Empty prompt and empty source
+	got3 := classify.Classify("", "")
+	if got3 != classify.Standard {
+		t.Errorf("classify.Classify(empty, empty) = %v, want standard", got3)
+	}
+}
+
+func TestClassifyExactly100Chars(t *testing.T) {
+	// Exactly 100 ASCII characters, no keywords, chat source → standard (not simple; threshold is < 100)
+	prompt := strings.Repeat("a", 100)
+	got := classify.Classify(prompt, "discord")
+	if got != classify.Standard {
+		t.Errorf("100 ascii chars from discord = %v, want standard", got)
+	}
+
+	// 99 ASCII characters, no keywords, chat source → simple
+	prompt99 := strings.Repeat("a", 99)
+	got2 := classify.Classify(prompt99, "discord")
+	if got2 != classify.Simple {
+		t.Errorf("99 ascii chars from discord = %v, want simple", got2)
+	}
+}
+
+func TestClassifyExactly2000Chars(t *testing.T) {
+	// Exactly 2000 characters → not > 2000, so not auto-complex
+	prompt := strings.Repeat("x", 2000)
+	got := classify.Classify(prompt, "discord")
+	if got != classify.Standard {
+		t.Errorf("2000 chars from discord = %v, want standard", got)
+	}
+
+	// 2001 characters → complex
+	prompt2001 := strings.Repeat("x", 2001)
+	got2 := classify.Classify(prompt2001, "discord")
+	if got2 != classify.Complex {
+		t.Errorf("2001 chars from discord = %v, want complex", got2)
+	}
+}
+
+// --- Helper functions ---
+
+func TestComplexityMaxSessionMessages(t *testing.T) {
+	tests := []struct {
+		c    classify.Complexity
+		want int
+	}{
+		{classify.Simple, 5},
+		{classify.Standard, 10},
+		{classify.Complex, 20},
+		{classify.Complexity(99), 10}, // unknown falls back
+	}
+	for _, tt := range tests {
+		if got := classify.MaxSessionMessages(tt.c); got != tt.want {
+			t.Errorf("classify.MaxSessionMessages(%v) = %d, want %d", tt.c, got, tt.want)
+		}
+	}
+}
+
+func TestComplexityMaxSessionChars(t *testing.T) {
+	tests := []struct {
+		c    classify.Complexity
+		want int
+	}{
+		{classify.Simple, 4000},
+		{classify.Standard, 8000},
+		{classify.Complex, 16000},
+		{classify.Complexity(99), 8000}, // unknown falls back
+	}
+	for _, tt := range tests {
+		if got := classify.MaxSessionChars(tt.c); got != tt.want {
+			t.Errorf("classify.MaxSessionChars(%v) = %d, want %d", tt.c, got, tt.want)
+		}
+	}
+}
+
+// --- Keyword case insensitivity ---
+
+func TestClassifyKeywordCaseInsensitive(t *testing.T) {
+	cases := []string{
+		"Please IMPLEMENT this",
+		"DEBUG the issue",
+		"The Api is broken",
+		"Fix the DATABASE",
+		"SQL injection vulnerability",
+		"ALGORITHM complexity",
+	}
+	for _, prompt := range cases {
+		got := classify.Classify(prompt, "discord")
+		if got != classify.Complex {
+			t.Errorf("classify.Classify(%q, discord) = %v, want complex", prompt, got)
+		}
+	}
+}
+
+// --- Mixed scenarios ---
+
+func TestClassifyShortWithKeyword(t *testing.T) {
+	// Short prompt but contains a keyword → complex wins over simple.
+	got := classify.Classify("fix the code", "discord")
+	if got != classify.Complex {
+		t.Errorf("classify.Classify(fix the code, discord) = %v, want complex", got)
+	}
+}
+
+func TestClassifyLongFromChatNoKeywords(t *testing.T) {
+	// >100 runes from a chat source, no keywords → standard.
+	prompt := "I would really appreciate it if you could tell me what the weather forecast looks like for the next few days because I am planning a trip"
+	got := classify.Classify(prompt, "discord")
+	if got != classify.Standard {
+		t.Errorf("classify.Classify(long no-keyword, discord) = %v, want standard", got)
 	}
 }

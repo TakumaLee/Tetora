@@ -10,9 +10,146 @@ import (
 	"testing"
 	"time"
 
-
+	"tetora/internal/cli"
 	"tetora/internal/db"
+	"tetora/internal/version"
 )
+
+// --- from cli_upgrade_test.go ---
+
+func TestParseVersion(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []int
+	}{
+		{"2.0.3", []int{2, 0, 3}},
+		{"2.0.3.1", []int{2, 0, 3, 1}},
+		{"2.0.2.12", []int{2, 0, 2, 12}},
+		{"dev", nil},
+		{"", nil},
+		{"v2.0.3", []int{2, 0, 3}},
+		{"abc", nil},
+	}
+	for _, tt := range tests {
+		got := parseVersion(tt.input)
+		if tt.want == nil {
+			if got != nil {
+				t.Errorf("parseVersion(%q) = %v, want nil", tt.input, got)
+			}
+			continue
+		}
+		if len(got) != len(tt.want) {
+			t.Errorf("parseVersion(%q) = %v, want %v", tt.input, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("parseVersion(%q)[%d] = %d, want %d", tt.input, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+func TestIsDevVersion(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"2.0.3", false},
+		{"2.0.3.1", true},
+		{"2.0.2.12", true},
+		{"dev", false},
+	}
+	for _, tt := range tests {
+		if got := isDevVersion(tt.input); got != tt.want {
+			t.Errorf("isDevVersion(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestVersionNewerThan(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		// Release vs release
+		{"2.0.3", "2.0.2", true},
+		{"2.0.3", "2.0.3", false},
+		{"2.0.2", "2.0.3", false},
+		{"2.1.0", "2.0.9", true},
+		{"3.0.0", "2.9.9", true},
+
+		// Release vs dev
+		{"2.0.3", "2.0.2.12", true},  // newer release > older dev
+		{"2.0.3", "2.0.3.1", false},  // same base release vs dev: release is NOT "newer" (0 < 1 at segment 4)
+		{"2.0.4", "2.0.3.1", true},   // newer release > dev
+
+		// Dev vs dev
+		{"2.0.3.2", "2.0.3.1", true},
+		{"2.0.3.1", "2.0.3.2", false},
+	}
+	for _, tt := range tests {
+		if got := versionNewerThan(tt.a, tt.b); got != tt.want {
+			t.Errorf("versionNewerThan(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestDevBaseVersion(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"2.0.3.1", "2.0.3"},
+		{"2.0.2.12", "2.0.2"},
+		{"2.0.3", "2.0.3"},
+	}
+	for _, tt := range tests {
+		if got := devBaseVersion(tt.input); got != tt.want {
+			t.Errorf("devBaseVersion(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// TestUpgradeScenarios verifies the upgrade decision logic for key scenarios.
+func TestUpgradeScenarios(t *testing.T) {
+	type scenario struct {
+		name    string
+		current string // tetoraVersion
+		latest  string // GitHub release
+		should  string // "upgrade" or "skip"
+	}
+	scenarios := []scenario{
+		{"dev to newer release", "2.0.2.12", "2.0.3", "upgrade"},
+		{"dev to same base release", "2.0.3.1", "2.0.3", "upgrade"},
+		{"dev to older release", "2.0.4.1", "2.0.3", "skip"},
+		{"release to same release", "2.0.3", "2.0.3", "skip"},
+		{"release to newer release", "2.0.2", "2.0.3", "upgrade"},
+		{"release to older release", "2.0.4", "2.0.3", "skip"},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			shouldUpgrade := false
+			if s.latest == s.current {
+				shouldUpgrade = false
+			} else if isDevVersion(s.current) {
+				base := devBaseVersion(s.current)
+				if base == s.latest || versionNewerThan(s.latest, base) {
+					shouldUpgrade = true
+				}
+			} else if versionNewerThan(s.latest, s.current) {
+				shouldUpgrade = true
+			}
+
+			expected := s.should == "upgrade"
+			if shouldUpgrade != expected {
+				t.Errorf("current=%s latest=%s: got upgrade=%v, want %v", s.current, s.latest, shouldUpgrade, expected)
+			}
+		})
+	}
+}
+
+// --- from ops_test.go ---
 
 func TestInitOpsDB(t *testing.T) {
 	dir := t.TempDir()
@@ -451,7 +588,7 @@ func TestSystemHealth(t *testing.T) {
 		MaxConcurrent: 3,
 		DefaultModel:  "sonnet",
 		Providers:     map[string]ProviderConfig{"claude": {Type: "claude-cli"}},
-		Agents:         map[string]AgentConfig{"test": {}},
+		Agents:        map[string]AgentConfig{"test": {}},
 	}
 
 	health := getSystemHealth(cfg)
@@ -652,5 +789,119 @@ func TestInitOpsDB_FileCreation(t *testing.T) {
 	// File should now exist.
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("db file should exist after initOpsDB: %v", err)
+	}
+}
+
+// --- from version_test.go ---
+
+// setupVersionTestDB is a helper used by tests that exercise root-level wrappers
+// or functions that depend on root package types (Workflow, Config, etc.).
+func setupVersionTestDB(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	if err := version.InitDB(dbPath); err != nil {
+		t.Fatalf("version.InitDB: %v", err)
+	}
+	return dbPath
+}
+
+// TestHandleConfigVersionSubcommands verifies the root-level CLI dispatch
+// function that depends on root types (Config, etc.).
+func TestHandleConfigVersionSubcommands(t *testing.T) {
+	// Just test that unknown actions return false.
+	if cli.HandleConfigVersionSubcommands("unknown-action", nil) {
+		t.Error("unknown action should return false")
+	}
+}
+
+func TestHandleWorkflowVersionSubcommands(t *testing.T) {
+	if cli.HandleWorkflowVersionSubcommands("unknown-action", nil) {
+		t.Error("unknown action should return false")
+	}
+}
+
+// TestRestoreWorkflowVersion exercises restoreWorkflowVersion, which stays in
+// the root package because it depends on Workflow, Config, loadWorkflowByName,
+// and saveWorkflow.
+func TestRestoreWorkflowVersion(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	version.InitDB(dbPath)
+
+	cfg := &Config{
+		BaseDir:   dir,
+		HistoryDB: dbPath,
+	}
+
+	// Create workflow dir.
+	os.MkdirAll(filepath.Join(dir, "workflows"), 0o755)
+
+	// Write initial workflow.
+	wf1 := &Workflow{Name: "test-wf", Steps: []WorkflowStep{{ID: "s1", Prompt: "v1"}}}
+	saveWorkflow(cfg, wf1)
+
+	// Get v1 ID.
+	versions, _ := version.QueryVersions(dbPath, "workflow", "test-wf", 10)
+	if len(versions) == 0 {
+		t.Fatal("no workflow versions")
+	}
+	v1ID := versions[0].VersionID
+
+	// Update workflow.
+	wf2 := &Workflow{Name: "test-wf", Steps: []WorkflowStep{{ID: "s1", Prompt: "v2"}, {ID: "s2", Prompt: "new"}}}
+	saveWorkflow(cfg, wf2)
+
+	// Restore to v1.
+	if err := restoreWorkflowVersion(dbPath, cfg, v1ID); err != nil {
+		t.Fatalf("restoreWorkflowVersion: %v", err)
+	}
+
+	// Verify restored content.
+	restored, err := loadWorkflowByName(cfg, "test-wf")
+	if err != nil {
+		t.Fatalf("loadWorkflowByName: %v", err)
+	}
+	if len(restored.Steps) != 1 {
+		t.Errorf("expected 1 step after restore, got %d", len(restored.Steps))
+	}
+	if restored.Steps[0].Prompt != "v1" {
+		t.Errorf("prompt: got %q, want %q", restored.Steps[0].Prompt, "v1")
+	}
+}
+
+// TestRestoreConfigVersionInvalidType is kept here because it uses the root
+// wrapper, which exercises the full call path including the type alias.
+func TestRestoreConfigVersionInvalidType(t *testing.T) {
+	dbPath := setupVersionTestDB(t)
+
+	version.SnapshotEntity(dbPath, "workflow", "my-wf", `{"name":"my-wf"}`, "test", "")
+	versions, _ := version.QueryVersions(dbPath, "workflow", "my-wf", 10)
+	vid := versions[0].VersionID
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	os.WriteFile(configPath, []byte(`{}`), 0o644)
+
+	_, err := version.RestoreConfig(dbPath, configPath, vid)
+	if err == nil {
+		t.Error("expected error for wrong entity type")
+	}
+	if !strings.Contains(err.Error(), "not a config") {
+		t.Errorf("error should mention type mismatch: %v", err)
+	}
+}
+
+// TestSnapshotEntityEmptyDB verifies the empty-dbPath short-circuit through
+// the internal version package (snapshotConfig, snapshotWorkflow, snapshotPrompt).
+func TestSnapshotEntityEmptyDB(t *testing.T) {
+	if err := version.SnapshotConfig("", "/nonexistent/config.json", "test", ""); err != nil {
+		t.Errorf("expected nil error for empty dbPath, got %v", err)
+	}
+	if err := version.SnapshotWorkflow("", "wf", "{}", "test", ""); err != nil {
+		t.Errorf("expected nil error for empty dbPath, got %v", err)
+	}
+	if err := version.SnapshotPrompt("", "prompt", "hello", "test", ""); err != nil {
+		t.Errorf("expected nil error for empty dbPath, got %v", err)
 	}
 }

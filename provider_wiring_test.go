@@ -5,10 +5,12 @@ import (
 	"testing"
 )
 
+// --- from provider_test.go ---
+
 // mockProvider is a minimal Provider for registry tests.
 type mockProvider struct{ name string }
 
-func (m *mockProvider) Name() string                                              { return m.name }
+func (m *mockProvider) Name() string { return m.name }
 func (m *mockProvider) Execute(_ context.Context, _ ProviderRequest) (*ProviderResult, error) {
 	return &ProviderResult{}, nil
 }
@@ -173,4 +175,3 @@ func TestInitProviders_ClaudeCLIProvider(t *testing.T) {
 		t.Errorf("expected claude, got %s", p.Name())
 	}
 }
-

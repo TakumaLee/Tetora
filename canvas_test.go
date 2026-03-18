@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-
-	"tetora/internal/canvas"
 )
 
 func TestCanvasEngine_NewSession(t *testing.T) {
@@ -18,9 +16,9 @@ func TestCanvasEngine_NewSession(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test Canvas", "<p>Hello World</p>", "800px", "600px")
+	session, err := ce.renderCanvas("Test Canvas", "<p>Hello World</p>", "800px", "600px")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
 	if session.ID == "" {
@@ -52,19 +50,19 @@ func TestCanvasEngine_UpdateSession(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test", "<p>Original</p>", "", "")
+	session, err := ce.renderCanvas("Test", "<p>Original</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
-	err = ce.Update(session.ID, "<p>Updated</p>")
+	err = ce.updateCanvas(session.ID, "<p>Updated</p>")
 	if err != nil {
-		t.Fatalf("Update failed: %v", err)
+		t.Fatalf("updateCanvas failed: %v", err)
 	}
 
-	updated, err := ce.Get(session.ID)
+	updated, err := ce.getCanvas(session.ID)
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("getCanvas failed: %v", err)
 	}
 
 	if updated.Content != "<p>Updated</p>" {
@@ -80,17 +78,17 @@ func TestCanvasEngine_CloseSession(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test", "<p>Test</p>", "", "")
+	session, err := ce.renderCanvas("Test", "<p>Test</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
-	err = ce.Close(session.ID)
+	err = ce.closeCanvas(session.ID)
 	if err != nil {
-		t.Fatalf("Close failed: %v", err)
+		t.Fatalf("closeCanvas failed: %v", err)
 	}
 
-	_, err = ce.Get(session.ID)
+	_, err = ce.getCanvas(session.ID)
 	if err == nil {
 		t.Error("expected error when getting closed session, got nil")
 	}
@@ -104,11 +102,11 @@ func TestCanvasEngine_ListSessions(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	ce.Render("Canvas 1", "<p>Test 1</p>", "", "")
-	ce.Render("Canvas 2", "<p>Test 2</p>", "", "")
-	ce.Render("Canvas 3", "<p>Test 3</p>", "", "")
+	ce.renderCanvas("Canvas 1", "<p>Test 1</p>", "", "")
+	ce.renderCanvas("Canvas 2", "<p>Test 2</p>", "", "")
+	ce.renderCanvas("Canvas 3", "<p>Test 3</p>", "", "")
 
-	sessions := ce.List()
+	sessions := ce.listCanvasSessions()
 	if len(sessions) != 3 {
 		t.Errorf("expected 3 sessions, got %d", len(sessions))
 	}
@@ -122,14 +120,14 @@ func TestCanvasEngine_GetSession(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test", "<p>Test</p>", "", "")
+	session, err := ce.renderCanvas("Test", "<p>Test</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
-	retrieved, err := ce.Get(session.ID)
+	retrieved, err := ce.getCanvas(session.ID)
 	if err != nil {
-		t.Fatalf("Get failed: %v", err)
+		t.Fatalf("getCanvas failed: %v", err)
 	}
 
 	if retrieved.ID != session.ID {
@@ -145,17 +143,17 @@ func TestCanvasEngine_NotFound(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	_, err := ce.Get("nonexistent")
+	_, err := ce.getCanvas("nonexistent")
 	if err == nil {
 		t.Error("expected error when getting nonexistent session, got nil")
 	}
 
-	err = ce.Update("nonexistent", "<p>Test</p>")
+	err = ce.updateCanvas("nonexistent", "<p>Test</p>")
 	if err == nil {
 		t.Error("expected error when updating nonexistent session, got nil")
 	}
 
-	err = ce.Close("nonexistent")
+	err = ce.closeCanvas("nonexistent")
 	if err == nil {
 		t.Error("expected error when closing nonexistent session, got nil")
 	}
@@ -170,7 +168,7 @@ func TestCanvasRender_Tool(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	handler := canvas.HandlerRender(ce)
+	handler := toolCanvasRender(context.Background(), ce)
 
 	input := json.RawMessage(`{
 		"title": "Test Canvas",
@@ -179,7 +177,7 @@ func TestCanvasRender_Tool(t *testing.T) {
 		"height": "500px"
 	}`)
 
-	result, err := handler(context.Background(), input)
+	result, err := handler(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("canvas_render handler failed: %v", err)
 	}
@@ -205,19 +203,19 @@ func TestCanvasUpdate_Tool(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test", "<p>Original</p>", "", "")
+	session, err := ce.renderCanvas("Test", "<p>Original</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
-	handler := canvas.HandlerUpdate(ce)
+	handler := toolCanvasUpdate(context.Background(), ce)
 
 	input := json.RawMessage(fmt.Sprintf(`{
 		"id": "%s",
 		"content": "<p>Updated Content</p>"
 	}`, session.ID))
 
-	result, err := handler(context.Background(), input)
+	result, err := handler(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("canvas_update handler failed: %v", err)
 	}
@@ -231,7 +229,7 @@ func TestCanvasUpdate_Tool(t *testing.T) {
 		t.Errorf("expected id %q, got %v", session.ID, res["id"])
 	}
 
-	updated, _ := ce.Get(session.ID)
+	updated, _ := ce.getCanvas(session.ID)
 	if updated.Content != "<p>Updated Content</p>" {
 		t.Errorf("expected updated content, got %q", updated.Content)
 	}
@@ -245,18 +243,18 @@ func TestCanvasClose_Tool(t *testing.T) {
 	}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("Test", "<p>Test</p>", "", "")
+	session, err := ce.renderCanvas("Test", "<p>Test</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
-	handler := canvas.HandlerClose(ce)
+	handler := toolCanvasClose(context.Background(), ce)
 
 	input := json.RawMessage(fmt.Sprintf(`{
 		"id": "%s"
 	}`, session.ID))
 
-	result, err := handler(context.Background(), input)
+	result, err := handler(context.Background(), cfg, input)
 	if err != nil {
 		t.Fatalf("canvas_close handler failed: %v", err)
 	}
@@ -270,7 +268,7 @@ func TestCanvasClose_Tool(t *testing.T) {
 		t.Errorf("expected id %q, got %v", session.ID, res["id"])
 	}
 
-	_, err = ce.Get(session.ID)
+	_, err = ce.getCanvas(session.ID)
 	if err == nil {
 		t.Error("expected error when getting closed session")
 	}
@@ -280,9 +278,9 @@ func TestCanvasConfig_Default(t *testing.T) {
 	cfg := &Config{}
 	ce := newCanvasEngine(cfg, nil)
 
-	session, err := ce.Render("", "<p>Test</p>", "", "")
+	session, err := ce.renderCanvas("", "<p>Test</p>", "", "")
 	if err != nil {
-		t.Fatalf("Render failed: %v", err)
+		t.Fatalf("renderCanvas failed: %v", err)
 	}
 
 	if session.Title != "Canvas" {

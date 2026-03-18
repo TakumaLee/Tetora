@@ -66,11 +66,11 @@ type Process struct {
 	Cmd      *exec.Cmd
 	Stdin    io.WriteCloser
 	Stdout   *bufio.Scanner
-	mu       sync.Mutex
+	Mu       sync.Mutex
 	pending  map[int]chan json.RawMessage
 	nextID   int32
 	done     chan struct{}
-	onNotify func(method string, params json.RawMessage)
+	OnNotify func(method string, params json.RawMessage)
 }
 
 func newProcess(name string, pcfg config.PluginConfig) *Process {
@@ -133,12 +133,12 @@ func (p *Process) stop() error {
 		p.Cmd.Wait()
 	}
 
-	p.mu.Lock()
+	p.Mu.Lock()
 	for id, ch := range p.pending {
 		close(ch)
 		delete(p.pending, id)
 	}
-	p.mu.Unlock()
+	p.Mu.Unlock()
 
 	return nil
 }
@@ -159,23 +159,23 @@ func (p *Process) call(method string, params any, timeout time.Duration) (json.R
 	}
 
 	ch := make(chan json.RawMessage, 1)
-	p.mu.Lock()
+	p.Mu.Lock()
 	p.pending[id] = ch
-	p.mu.Unlock()
+	p.Mu.Unlock()
 
 	defer func() {
-		p.mu.Lock()
+		p.Mu.Lock()
 		delete(p.pending, id)
-		p.mu.Unlock()
+		p.Mu.Unlock()
 	}()
 
-	p.mu.Lock()
+	p.Mu.Lock()
 	if p.Stdin == nil {
-		p.mu.Unlock()
+		p.Mu.Unlock()
 		return nil, fmt.Errorf("plugin %s not started", p.Name)
 	}
 	_, err = p.Stdin.Write(append(data, '\n'))
-	p.mu.Unlock()
+	p.Mu.Unlock()
 
 	if err != nil {
 		return nil, fmt.Errorf("write to plugin %s: %w", p.Name, err)
@@ -207,8 +207,8 @@ func (p *Process) notify(method string, params any) error {
 		return fmt.Errorf("marshal notification: %w", err)
 	}
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.Mu.Lock()
+	defer p.Mu.Unlock()
 
 	if p.Stdin == nil {
 		return fmt.Errorf("plugin %s not started", p.Name)
@@ -234,9 +234,9 @@ func (p *Process) readLoop() {
 		}
 
 		if resp.ID > 0 {
-			p.mu.Lock()
+			p.Mu.Lock()
 			ch, ok := p.pending[resp.ID]
-			p.mu.Unlock()
+			p.Mu.Unlock()
 
 			if ok {
 				if resp.Error != nil {
@@ -255,9 +255,9 @@ func (p *Process) readLoop() {
 		} else {
 			var notif jsonRPCNotification
 			if err := json.Unmarshal([]byte(line), &notif); err == nil && notif.Method != "" {
-				p.mu.Lock()
-				fn := p.onNotify
-				p.mu.Unlock()
+				p.Mu.Lock()
+				fn := p.OnNotify
+				p.Mu.Unlock()
 				if fn != nil {
 					fn(notif.Method, notif.Params)
 				}
@@ -266,7 +266,7 @@ func (p *Process) readLoop() {
 	}
 }
 
-func (p *Process) isRunning() bool {
+func (p *Process) IsRunning() bool {
 	if p.Cmd == nil || p.Cmd.Process == nil {
 		return false
 	}
@@ -282,8 +282,8 @@ func (p *Process) isRunning() bool {
 
 // Host manages all plugin processes.
 type Host struct {
-	mu       sync.RWMutex
-	plugins  map[string]*Process
+	Mu       sync.RWMutex
+	Plugins  map[string]*Process
 	cfg      *config.Config
 	registrar ToolRegistrar
 }
@@ -291,7 +291,7 @@ type Host struct {
 // NewHost creates a new plugin host. registrar may be nil if no tool plugins are used.
 func NewHost(cfg *config.Config, registrar ToolRegistrar) *Host {
 	return &Host{
-		plugins:   make(map[string]*Process),
+		Plugins:   make(map[string]*Process),
 		cfg:       cfg,
 		registrar: registrar,
 	}
@@ -312,16 +312,16 @@ func (h *Host) Start(name string) error {
 		return fmt.Errorf("plugin %q has invalid type %q", name, pcfg.Type)
 	}
 
-	h.mu.Lock()
-	if existing, ok := h.plugins[name]; ok && existing.isRunning() {
-		h.mu.Unlock()
+	h.Mu.Lock()
+	if existing, ok := h.Plugins[name]; ok && existing.IsRunning() {
+		h.Mu.Unlock()
 		return fmt.Errorf("plugin %q is already running", name)
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 
 	proc := newProcess(name, pcfg)
 
-	proc.onNotify = func(method string, params json.RawMessage) {
+	proc.OnNotify = func(method string, params json.RawMessage) {
 		log.Debug("plugin notification", "plugin", name, "method", method)
 	}
 
@@ -329,9 +329,9 @@ func (h *Host) Start(name string) error {
 		return err
 	}
 
-	h.mu.Lock()
-	h.plugins[name] = proc
-	h.mu.Unlock()
+	h.Mu.Lock()
+	h.Plugins[name] = proc
+	h.Mu.Unlock()
 
 	log.Info("plugin started", "name", name, "type", pcfg.Type, "command", pcfg.Command)
 
@@ -351,14 +351,14 @@ func (h *Host) Start(name string) error {
 
 // Stop stops a named plugin.
 func (h *Host) Stop(name string) error {
-	h.mu.Lock()
-	proc, ok := h.plugins[name]
+	h.Mu.Lock()
+	proc, ok := h.Plugins[name]
 	if !ok {
-		h.mu.Unlock()
+		h.Mu.Unlock()
 		return fmt.Errorf("plugin %q is not running", name)
 	}
-	delete(h.plugins, name)
-	h.mu.Unlock()
+	delete(h.Plugins, name)
+	h.Mu.Unlock()
 
 	log.Info("plugin stopping", "name", name)
 	return proc.stop()
@@ -366,12 +366,12 @@ func (h *Host) Stop(name string) error {
 
 // StopAll stops all running plugins.
 func (h *Host) StopAll() {
-	h.mu.Lock()
-	names := make([]string, 0, len(h.plugins))
-	for name := range h.plugins {
+	h.Mu.Lock()
+	names := make([]string, 0, len(h.Plugins))
+	for name := range h.Plugins {
 		names = append(names, name)
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 
 	for _, name := range names {
 		if err := h.Stop(name); err != nil {
@@ -382,15 +382,15 @@ func (h *Host) StopAll() {
 
 // Call sends a synchronous JSON-RPC call to a plugin.
 func (h *Host) Call(name, method string, params any) (json.RawMessage, error) {
-	h.mu.RLock()
-	proc, ok := h.plugins[name]
-	h.mu.RUnlock()
+	h.Mu.RLock()
+	proc, ok := h.Plugins[name]
+	h.Mu.RUnlock()
 
 	if !ok {
 		return nil, fmt.Errorf("plugin %q is not running", name)
 	}
 
-	if !proc.isRunning() {
+	if !proc.IsRunning() {
 		return nil, fmt.Errorf("plugin %q process has exited", name)
 	}
 
@@ -404,9 +404,9 @@ func (h *Host) Call(name, method string, params any) (json.RawMessage, error) {
 
 // Notify sends an async JSON-RPC notification to a plugin.
 func (h *Host) Notify(name, method string, params any) error {
-	h.mu.RLock()
-	proc, ok := h.plugins[name]
-	h.mu.RUnlock()
+	h.Mu.RLock()
+	proc, ok := h.Plugins[name]
+	h.Mu.RUnlock()
 
 	if !ok {
 		return fmt.Errorf("plugin %q is not running", name)
@@ -417,13 +417,13 @@ func (h *Host) Notify(name, method string, params any) error {
 
 // List returns information about all configured plugins and their status.
 func (h *Host) List() []map[string]any {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.Mu.RLock()
+	defer h.Mu.RUnlock()
 
 	var result []map[string]any
 	for name, pcfg := range h.cfg.Plugins {
 		status := "stopped"
-		if proc, ok := h.plugins[name]; ok && proc.isRunning() {
+		if proc, ok := h.Plugins[name]; ok && proc.IsRunning() {
 			status = "running"
 		}
 		entry := map[string]any{
@@ -443,15 +443,15 @@ func (h *Host) List() []map[string]any {
 
 // Health checks if a plugin is running and responsive.
 func (h *Host) Health(name string) map[string]any {
-	h.mu.RLock()
-	proc, ok := h.plugins[name]
-	h.mu.RUnlock()
+	h.Mu.RLock()
+	proc, ok := h.Plugins[name]
+	h.Mu.RUnlock()
 
 	if !ok {
 		return map[string]any{"name": name, "status": "not_running", "healthy": false}
 	}
 
-	if !proc.isRunning() {
+	if !proc.IsRunning() {
 		return map[string]any{"name": name, "status": "exited", "healthy": false}
 	}
 
