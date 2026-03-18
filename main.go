@@ -678,12 +678,12 @@ func main() {
 
 		// Cron engine.
 		cron := newCronEngine(cfg, sem, childSem, notifyFn)
-		if err := cron.loadJobs(); err != nil {
+		if err := cron.LoadJobs(); err != nil {
 			log.Warn("cron load error, continuing without cron", "error", err)
 		} else {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
-			cron.start(ctx)
+			cron.Start(ctx)
 		}
 
 		// Startup disk check.
@@ -738,7 +738,7 @@ func main() {
 			go heartbeatMon.Start(ctx)
 
 			// Wire heartbeat into cron engine for idle-trigger jobs.
-			cron.SetHeartbeatMonitor(heartbeatMon)
+			cron.SetIdleChecker(heartbeatMon)
 		}
 
 		// Proactive engine.
@@ -1077,7 +1077,7 @@ func main() {
 		}
 
 		// Initialize callback manager for external workflow steps.
-		callbackMgr = NewCallbackManager(cfg.HistoryDB)
+		callbackMgr = newCallbackManager(cfg.HistoryDB)
 
 		// Backfill global vars from App for callers that haven't migrated yet.
 		app.SyncToGlobals()
@@ -1154,9 +1154,11 @@ func main() {
 			tgrt := newTelegramRuntime(cfg, state, sem, childSem, cron)
 			bot = tgbot.NewBot(cfg.Telegram, tgrt)
 			// Wire up keyboard notification for approval gate.
-			cron.notifyKeyboardFn = func(text string, keyboard [][]tgInlineButton) {
-				bot.ReplyWithKeyboard(bot.ChatID(), text, keyboard)
-			}
+			cron.SetTelegramKeyboardFn(func(text string, keyboard any) {
+				if kb, ok := keyboard.([][]tgInlineButton); ok {
+					bot.ReplyWithKeyboard(bot.ChatID(), text, kb)
+				}
+			})
 			// Register Telegram bot for presence/typing indicators.
 			if app.Presence != nil {
 				app.Presence.RegisterSetter("telegram", bot)
@@ -1253,7 +1255,7 @@ func main() {
 		}
 
 		// Stop cron scheduler (waits for running jobs up to 30s).
-		cron.stop()
+		cron.Stop()
 
 		// Stop MCP host.
 		if mcpHost != nil {

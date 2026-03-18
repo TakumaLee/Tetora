@@ -1,16 +1,16 @@
 package main
 
+// cron_expr.go — thin shim for cron expression parsing + root-only standalone helpers.
+// All CronEngine methods live in internal/cron/engine.go.
+
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"tetora/internal/cron"
-	"tetora/internal/history"
-	"tetora/internal/log"
 )
 
 // cronExpr is an alias for cron.Expr for backward compatibility.
@@ -115,136 +115,11 @@ func cronDiscordSendBotChannel(botToken, channelID, msg string) error {
 	return nil
 }
 
-// --- Startup Replay ---
-
-// startupReplay detects cron jobs that should have run while the daemon was down
-// and schedules a single catch-up run (the most recent missed slot only) after a
-// 30-second delay to avoid startup conflicts.
-//
-// A job is considered "missed" when:
-//   - Its schedule expression places at least one trigger in [now-replayHours, now]
-//   - cron_execution_log has no entry for that job near the computed scheduled time
-//   - job_runs also has no entry (backward-compat fallback for existing DBs)
-//
-// Jobs with RequireApproval, IdleMinHours>0, or the built-in special jobs
-// (daily_notes, backlog-triage) are excluded from replay.
-func (ce *CronEngine) startupReplay(ctx context.Context) {
-	hours := ce.cfg.CronReplayHours
-	if hours <= 0 {
-		hours = 2
-	}
-	if ce.cfg.HistoryDB == "" {
-		return
-	}
-
-	now := time.Now()
-	from := now.Add(-time.Duration(hours) * time.Hour)
-
-	ce.mu.RLock()
-	jobs := make([]*cronJob, len(ce.jobs))
-	copy(jobs, ce.jobs)
-	ce.mu.RUnlock()
-
-	var missed []*cronJob
-	for _, j := range jobs {
-		if !j.Enabled {
-			continue
-		}
-		// Skip jobs that shouldn't run unsupervised.
-		if j.IdleMinHours > 0 || j.RequireApproval || j.Trigger == "idle" {
-			continue
-		}
-		// Skip built-in special jobs with custom dispatch logic.
-		if j.ID == "daily_notes" || j.ID == "backlog-triage" {
-			continue
-		}
-
-		scheduledAt := ce.mostRecentScheduledTime(j, from, now)
-		if scheduledAt.IsZero() {
-			continue // no trigger in window
-		}
-
-		// Check cron_execution_log first (authoritative from this version onwards).
-		if history.CronExecLogExists(ce.cfg.HistoryDB, j.ID, scheduledAt) {
-			continue // job ran or was a zombie — skip
-		}
-		// Fallback: check job_runs for DBs upgraded before cron_execution_log existed.
-		if history.JobRunExistsNear(ce.cfg.HistoryDB, j.ID, scheduledAt) {
-			continue
-		}
-
-		log.Info("cron startup replay: missed run detected",
-			"jobId", j.ID, "name", j.Name, "scheduledAt", scheduledAt.Format(time.RFC3339))
-		missed = append(missed, j)
-	}
-
-	if len(missed) == 0 {
-		return
-	}
-
-	log.Info("cron startup replay: scheduling missed jobs", "count", len(missed))
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(30 * time.Second):
-		}
-
-		for _, j := range missed {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			ce.mu.Lock()
-			maxRuns := j.effectiveMaxConcurrentRuns()
-			if j.runCount >= maxRuns {
-				ce.mu.Unlock()
-				log.Info("cron startup replay: job already running max instances, skipping",
-					"jobId", j.ID, "running", j.runCount, "maxConcurrentRuns", maxRuns)
-				continue
-			}
-			j.runCount++
-			j.running = true
-			j.replayed = true
-			jobCtx, jobCancel := context.WithCancel(ctx)
-			j.cancelFn = jobCancel
-			ce.mu.Unlock()
-
-			log.Info("cron startup replay: launching missed job", "jobId", j.ID, "name", j.Name)
-			ce.jobWg.Add(1)
-			go func(jj *cronJob) {
-				defer ce.jobWg.Done()
-				ce.runJob(jobCtx, jj)
-				ce.mu.Lock()
-				jj.replayed = false
-				ce.mu.Unlock()
-			}(j)
-		}
-	}()
-}
-
-// mostRecentScheduledTime returns the most recent time in [from, to] that the
-// job's cron expression would have triggered. Returns zero time if none.
-func (ce *CronEngine) mostRecentScheduledTime(j *cronJob, from, to time.Time) time.Time {
-	var last time.Time
-	// nextRunAfter starts from t+1min, so subtract 1min to include 'from' itself.
-	t := from.In(j.loc).Add(-time.Minute)
-	for {
-		next := nextRunAfter(j.expr, j.loc, t)
-		if next.IsZero() || next.After(to) {
-			break
-		}
-		last = next
-		t = next // nextRunAfter will advance by 1min internally on next call
-	}
-	return last
-}
-
-// cronDiscordSendWebhook sends a plain message to a Discord webhook URL.
+// cronDiscordSendWebhook sends a message via Discord webhook URL.
 func cronDiscordSendWebhook(webhookURL, msg string) error {
+	if len(msg) > 2000 {
+		msg = msg[:1997] + "..."
+	}
 	payload, err := json.Marshal(map[string]string{"content": msg})
 	if err != nil {
 		return err

@@ -172,28 +172,19 @@ func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEng
 	}
 
 	schedule := cfg.DailyNotes.ScheduleOrDefault()
-	expr, err := parseCronExpr(schedule)
-	if err != nil {
-		log.Warn("daily notes schedule invalid", "schedule", schedule, "error", err)
+
+	// Add a synthetic cron job for daily notes via the public API.
+	// AddJob validates the schedule internally.
+	if err := cronEngine.AddJob(CronJobConfig{
+		ID:       "daily_notes",
+		Name:     "Daily Notes Generator",
+		Enabled:  true,
+		Schedule: schedule,
+	}); err != nil {
+		// Already exists is fine (idempotent).
+		log.Info("daily notes job register", "schedule", schedule, "note", err)
 		return
 	}
-
-	// Add a synthetic cron job for daily notes.
-	job := &cronJob{
-		CronJobConfig: CronJobConfig{
-			ID:      "daily_notes",
-			Name:    "Daily Notes Generator",
-			Enabled: true,
-			Schedule: schedule,
-		},
-		expr:    expr,
-		loc:     time.Local,
-		nextRun: nextRunAfter(expr, time.Local, time.Now()),
-	}
-
-	cronEngine.mu.Lock()
-	cronEngine.jobs = append(cronEngine.jobs, job)
-	cronEngine.mu.Unlock()
 
 	log.Info("daily notes job registered", "schedule", schedule)
 }
