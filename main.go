@@ -1148,6 +1148,15 @@ func main() {
 				srvInstance.cfgMu.RUnlock()
 				newCfg.Runtime.ToolRegistry = oldCfg.Runtime.ToolRegistry
 
+				// Rebuild ProviderRegistry if providers config changed.
+				if providersChanged(oldCfg, newCfg) {
+					log.Info("providers config changed, rebuilding provider registry")
+					newReg := initProviders(newCfg)
+					newCfg.Runtime.ProviderRegistry = newReg
+				} else {
+					newCfg.Runtime.ProviderRegistry = oldCfg.Runtime.ProviderRegistry
+				}
+
 				// Log config diff.
 				logConfigDiff(oldCfg, newCfg)
 

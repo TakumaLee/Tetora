@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
+	"tetora/internal/handoff"
 	"tetora/internal/log"
 )
 
@@ -36,12 +38,96 @@ type reviewResult struct {
 	CostUSD float64
 }
 
+// triageResult holds the commander's delegation decision.
+type triageResult struct {
+	TargetAgent string  `json:"targetAgent"`
+	Workflow    string  `json:"workflow,omitempty"`
+	Instruction string  `json:"instruction"`
+	CostUSD     float64 `json:"-"`
+}
+
 // devQALoopResult holds the outcome of the Dev↔QA retry loop.
 type devQALoopResult struct {
 	Result     dispatch.TaskResult
 	QAApproved bool    // true if QA review passed
 	Attempts   int     // total execution attempts
 	TotalCost  float64 // accumulated cost across all attempts (dev + QA)
+}
+
+// =============================================================================
+// Section: Workflow routing
+// =============================================================================
+
+// routeWorkflow selects a workflow name based on the configured routing rules.
+// Returns "" if routing is disabled or no rule matches.
+func (d *Dispatcher) routeWorkflow(t TaskBoard) string {
+	routing := d.engine.config.AutoDispatch.WorkflowRouting
+	if !routing.Enabled || len(routing.Rules) == 0 {
+		return routing.Fallback
+	}
+
+	// Look up project info for isPublic matching.
+	var proj *ProjectInfo
+	if t.Project != "" && t.Project != "default" && d.deps.GetProject != nil {
+		proj = d.deps.GetProject(d.cfg.HistoryDB, t.Project)
+	}
+
+	for i, rule := range routing.Rules {
+		if !matchRoutingRule(rule, t, proj) {
+			continue
+		}
+		log.Info("workflow routing: matched rule",
+			"task", t.ID, "rule", i, "workflow", rule.Workflow,
+			"type", t.Type, "priority", t.Priority)
+		return rule.Workflow
+	}
+
+	if routing.Fallback != "" {
+		log.Info("workflow routing: using fallback", "task", t.ID, "workflow", routing.Fallback)
+		return routing.Fallback
+	}
+	return ""
+}
+
+// matchRoutingRule checks whether a single routing rule matches the given task.
+func matchRoutingRule(rule config.WorkflowRoutingRule, t TaskBoard, proj *ProjectInfo) bool {
+	// Types filter.
+	if len(rule.Types) > 0 && !containsStr(rule.Types, t.Type) {
+		return false
+	}
+	// Priority filter.
+	if len(rule.Priority) > 0 && !containsStr(rule.Priority, t.Priority) {
+		return false
+	}
+	// Projects filter.
+	if len(rule.Projects) > 0 && !containsStr(rule.Projects, t.Project) {
+		return false
+	}
+	// IsPublic filter (heuristic: github.com or gitlab.com in RepoURL → public).
+	if rule.IsPublic != nil && proj != nil {
+		isPublic := strings.Contains(proj.RepoURL, "github.com") ||
+			strings.Contains(proj.RepoURL, "gitlab.com")
+		if *rule.IsPublic != isPublic {
+			return false
+		}
+	}
+	return true
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, v := range ss {
+		if strings.EqualFold(v, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncStr(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 // =============================================================================
@@ -185,11 +271,71 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	}
 
 	// Determine workflow.
-	workflowName := t.Workflow
+	workflowName := t.Workflow // per-task override wins
 	if workflowName == "" {
-		workflowName = d.engine.config.DefaultWorkflow
+		workflowName = d.routeWorkflow(t) // smart routing
+	}
+	if workflowName == "" {
+		workflowName = d.engine.config.DefaultWorkflow // final fallback
 	}
 	usedWorkflow := workflowName != "" && workflowName != "none"
+
+	// Triage: commander decides delegation before execution.
+	var handoffID string
+	triageCost := 0.0
+	triageAgent := d.engine.config.AutoDispatch.DefaultAgent
+	if triageAgent == "" {
+		triageAgent = "ruri"
+	}
+
+	shouldTriage := d.engine.config.AutoDispatch.TriageEnabled &&
+		d.deps.Executor != nil &&
+		t.Assignee == triageAgent &&
+		t.RetryCount == 0
+
+	if shouldTriage {
+		tr := d.triageTask(ctx, t, prompt)
+		if tr != nil {
+			triageCost = tr.CostUSD
+			handoffID = d.recordTriageHandoff(t, tr, triageAgent, prompt)
+
+			task.Agent = tr.TargetAgent
+			t.Assignee = tr.TargetAgent
+
+			if tr.Workflow != "" {
+				workflowName = tr.Workflow
+				usedWorkflow = workflowName != "" && workflowName != "none"
+			}
+			if tr.Instruction != "" {
+				task.Prompt = "[Commander Briefing]\n" + tr.Instruction +
+					"\n\n[Original Task]\n" + prompt
+				// Also update t.Description so workflow vars pick up the briefing.
+				t.Description = "[Commander Briefing]\n" + tr.Instruction + "\n\n" + t.Description
+			}
+
+			// Re-apply defaults for new agent.
+			if d.deps.FillDefaults != nil {
+				d.deps.FillDefaults(d.cfg, &task)
+			}
+			task.PermissionMode = "bypassPermissions"
+
+			// Re-apply per-task model/budget overrides (FillDefaults may have overwritten them).
+			if t.Model != "" {
+				task.Model = t.Model
+			} else if dispatchCfg.DefaultModel != "" {
+				task.Model = dispatchCfg.DefaultModel
+			}
+			if dispatchCfg.MaxBudget > 0 && (task.Budget == 0 || task.Budget > dispatchCfg.MaxBudget) {
+				task.Budget = dispatchCfg.MaxBudget
+			}
+
+			d.engine.AddComment(t.ID, triageAgent,
+				fmt.Sprintf("[triage] → %s: %s", tr.TargetAgent, truncStr(tr.Instruction, 200)))
+
+			log.Info("triage: delegating task", "task", t.ID, "from", triageAgent,
+				"to", tr.TargetAgent, "workflow", tr.Workflow, "cost", triageCost)
+		}
+	}
 
 	start := time.Now()
 	var result dispatch.TaskResult
@@ -212,6 +358,27 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		}
 	}
 	duration := time.Since(start)
+
+	// Complete handoff record if triage was used.
+	if handoffID != "" {
+		status := "completed"
+		if result.Status != "success" {
+			status = "error"
+		}
+		if err := handoff.UpdateStatus(d.cfg.HistoryDB, handoffID, status); err != nil {
+			log.Warn("triage: failed to update handoff status", "handoffId", handoffID, "error", err)
+		}
+		if err := handoff.SendAgentMessage(d.cfg.HistoryDB, handoff.AgentMessage{
+			FromAgent: t.Assignee,
+			ToAgent:   triageAgent,
+			Type:      "response",
+			Content:   truncStr(result.Output, 2000),
+			RefID:     handoffID,
+		}, d.deps.NewID); err != nil {
+			log.Warn("triage: failed to send response message", "handoffId", handoffID, "error", err)
+		}
+	}
+	result.CostUSD += triageCost
 
 	// Persist completion evidence immediately.
 	if result.CostUSD > 0 || result.DurationMs > 0 || result.SessionID != "" {
@@ -271,6 +438,8 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 				d.engine.AddComment(t.ID, "system",
 					fmt.Sprintf("[auto-review] Sending back to %s for fix (attempt %d/%d)", t.Assignee, t.RetryCount, maxRetries))
 
+				// Intentionally uses direct Executor (not workflow) for review-fix retries.
+				// The retry is a targeted fix — re-running the full workflow would be wasteful.
 				retryPrompt := prompt + "\n\n## Review Feedback (MUST FIX)\n\n" + rv.Comment +
 					"\n\nFix ALL issues listed above. Do not skip any."
 				task.Prompt = retryPrompt
@@ -316,13 +485,13 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Atomic status + cost update.
 	nowISO := time.Now().UTC().Format(time.RFC3339)
-	completedAt := ""
+	completedAtClause := "completed_at" // preserve existing value
 	if newStatus == "done" {
-		completedAt = nowISO
+		completedAtClause = fmt.Sprintf("'%s'", db.Escape(nowISO))
 	}
 	combinedSQL := fmt.Sprintf(`
 		UPDATE tasks SET status = '%s', assignee = '%s', cost_usd = %.6f, duration_ms = %d,
-		session_id = '%s', updated_at = '%s', completed_at = '%s'
+		session_id = '%s', updated_at = '%s', completed_at = %s
 		WHERE id = '%s'
 	`,
 		db.Escape(newStatus),
@@ -331,7 +500,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		result.DurationMs,
 		db.Escape(result.SessionID),
 		db.Escape(nowISO),
-		db.Escape(completedAt),
+		completedAtClause,
 		db.Escape(t.ID),
 	)
 	if err := db.Exec(d.engine.dbPath, combinedSQL); err != nil {
@@ -348,14 +517,18 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			updatedTask := t
 			updatedTask.Status = newStatus
 			updatedTask.UpdatedAt = nowISO
-			updatedTask.CompletedAt = completedAt
+			if newStatus == "done" {
+				updatedTask.CompletedAt = nowISO
+			}
 			go d.engine.FireWebhook("task.moved", updatedTask)
 		}
 	} else {
 		updatedTask := t
 		updatedTask.Status = newStatus
 		updatedTask.UpdatedAt = nowISO
-		updatedTask.CompletedAt = completedAt
+		if newStatus == "done" {
+			updatedTask.CompletedAt = nowISO
+		}
 		go d.engine.FireWebhook("task.moved", updatedTask)
 	}
 
@@ -647,6 +820,138 @@ func (d *Dispatcher) loadSkillFailureContext(task dispatch.Task) string {
 func (d *Dispatcher) reviewTaskOutput(ctx context.Context, originalPrompt, output, agentRole, reviewer string) (bool, string, float64) {
 	r := d.thoroughReview(ctx, originalPrompt, output, agentRole, reviewer)
 	return r.Verdict == reviewApprove, r.Comment, r.CostUSD
+}
+
+// =============================================================================
+// Section: Triage (commander delegation)
+// =============================================================================
+
+// triageTask runs a lightweight LLM call to decide which agent should execute the task.
+func (d *Dispatcher) triageTask(ctx context.Context, t TaskBoard, prompt string) *triageResult {
+	truncate := func(s string, n int) string {
+		if d.deps.Truncate != nil {
+			return d.deps.Truncate(s, n)
+		}
+		if len(s) > n {
+			return s[:n]
+		}
+		return s
+	}
+
+	// Build agent list.
+	var agentList strings.Builder
+	for name, ac := range d.cfg.Agents {
+		fmt.Fprintf(&agentList, "- %s: %s\n", name, ac.Description)
+	}
+
+	triagePrompt := fmt.Sprintf(
+		`You are the commander agent. Analyze this task and decide how to delegate it.
+
+## Task
+Title: %s
+Description: %s
+Type: %s
+Priority: %s
+Project: %s
+
+## Available Agents
+%s
+Reply with ONLY a JSON object:
+{"targetAgent":"agent_name","workflow":"","instruction":"Refined instructions for the executor..."}
+
+- targetAgent: which agent should execute (must be from the list above)
+- workflow: optional workflow override (empty = use default routing)
+- instruction: briefing for the executor — clarify approach, priorities, gotchas`,
+		t.Title,
+		truncate(t.Description, 2000),
+		t.Type,
+		t.Priority,
+		t.Project,
+		agentList.String(),
+	)
+
+	budget := d.engine.config.AutoDispatch.TriageBudgetOrDefault()
+	task := dispatch.Task{
+		Prompt:  triagePrompt,
+		Timeout: "30s",
+		Budget:  budget,
+		Source:  "triage",
+	}
+	if d.deps.FillDefaults != nil {
+		d.deps.FillDefaults(d.cfg, &task)
+	}
+	task.Model = "sonnet"
+	task.PermissionMode = "plan"
+
+	// Load commander SOUL.
+	triageAgent := d.engine.config.AutoDispatch.DefaultAgent
+	if triageAgent == "" {
+		triageAgent = "ruri"
+	}
+	if d.deps.LoadAgentPrompt != nil {
+		if soulPrompt, err := d.deps.LoadAgentPrompt(d.cfg, triageAgent); err == nil && soulPrompt != "" {
+			task.SystemPrompt = soulPrompt
+		}
+	}
+
+	result := d.deps.Executor.RunTask(ctx, task, triageAgent)
+	if result.Status != "success" {
+		log.Warn("triage: execution failed, falling back to direct dispatch", "task", t.ID, "error", result.Output)
+		return nil
+	}
+
+	// Parse JSON from output.
+	start := strings.Index(result.Output, "{")
+	end := strings.LastIndex(result.Output, "}")
+	if start < 0 || end <= start {
+		log.Warn("triage: no JSON in output, falling back", "task", t.ID)
+		return nil
+	}
+
+	var tr triageResult
+	if err := json.Unmarshal([]byte(result.Output[start:end+1]), &tr); err != nil {
+		log.Warn("triage: JSON parse failed, falling back", "task", t.ID, "error", err)
+		return nil
+	}
+
+	// Validate target agent exists.
+	if _, ok := d.cfg.Agents[tr.TargetAgent]; !ok {
+		log.Warn("triage: unknown target agent, falling back", "task", t.ID, "agent", tr.TargetAgent)
+		return nil
+	}
+
+	tr.CostUSD = result.CostUSD
+	return &tr
+}
+
+// recordTriageHandoff writes the handoff record and agent message for a triage delegation.
+func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAgent, prompt string) string {
+	id := ""
+	if d.deps.NewID != nil {
+		id = d.deps.NewID()
+	}
+	if id == "" {
+		id = fmt.Sprintf("ho-%s-%d", t.ID, time.Now().UnixMilli())
+	}
+
+	_ = handoff.RecordHandoff(d.cfg.HistoryDB, handoff.Handoff{
+		ID:          id,
+		FromAgent:   triageAgent,
+		ToAgent:     tr.TargetAgent,
+		Context:     prompt,
+		Instruction: tr.Instruction,
+		Status:      "pending",
+	})
+
+	_ = handoff.SendAgentMessage(d.cfg.HistoryDB, handoff.AgentMessage{
+		FromAgent: triageAgent,
+		ToAgent:   tr.TargetAgent,
+		Type:      "handoff",
+		Content:   tr.Instruction,
+		RefID:     id,
+	}, d.deps.NewID)
+
+	return id
 }
 
 func (d *Dispatcher) thoroughReview(ctx context.Context, originalPrompt, output, agentRole, reviewer string) reviewResult {

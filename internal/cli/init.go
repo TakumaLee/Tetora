@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"tetora/internal/config"
 	"tetora/internal/i18n"
+	"tetora/internal/provider"
 )
 
 // InitDeps holds the root-package callbacks that CmdInit needs to invoke.
@@ -37,27 +37,6 @@ const (
 	menuKeyQuit  = 4
 )
 
-func menuSetRawMode() (string, error) {
-	cmd := exec.Command("stty", "-g")
-	cmd.Stdin = os.Stdin
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	saved := strings.TrimSpace(string(out))
-	raw := exec.Command("stty", "raw", "-echo")
-	raw.Stdin = os.Stdin
-	if err := raw.Run(); err != nil {
-		return "", err
-	}
-	return saved, nil
-}
-
-func menuRestoreMode(saved string) {
-	cmd := exec.Command("stty", saved)
-	cmd.Stdin = os.Stdin
-	cmd.Run()
-}
 
 func menuReadKey() int {
 	buf := make([]byte, 4)
@@ -301,17 +280,21 @@ func CmdInit(deps InitDeps) {
 	fmt.Println()
 	fmt.Println(L.Step2Title)
 	fmt.Println()
-	providerIdx := choose("Provider", []string{
-		L.ProviderOptions[0],
-		L.ProviderOptions[1],
-		L.ProviderOptions[2],
-	}, 0)
+
+	// Build provider options: Claude CLI first, then presets.
+	providerLabels := []string{L.ProviderOptions[0]} // "Claude CLI (local binary)"
+	for _, p := range provider.Presets {
+		providerLabels = append(providerLabels, p.DisplayName)
+	}
+	providerIdx := choose("Provider", providerLabels, 0)
 
 	claudePath := ""
-	var claudeAPIKey, openaiEndpoint, openaiAPIKey, defaultModel string
+	var defaultModel string
+	var selectedPreset *provider.Preset
+	var presetAPIKey string
 
-	switch providerIdx {
-	case 0: // Claude CLI
+	if providerIdx == 0 {
+		// Claude CLI (existing flow).
 		fmt.Println()
 		fmt.Printf("  \033[2m%s\n", L.ClaudeCLIHint1)
 		fmt.Printf("  %s\n", L.ClaudeCLIHint2)
@@ -322,18 +305,40 @@ func CmdInit(deps InitDeps) {
 		detected := DetectClaude()
 		claudePath = prompt(L.ClaudeCLIPathPrompt, detected)
 		defaultModel = prompt(L.DefaultModelPrompt, "sonnet")
-	case 1: // Claude API
+	} else {
+		// Preset-based provider.
+		preset := provider.Presets[providerIdx-1]
+		selectedPreset = &preset
 		fmt.Println()
-		fmt.Printf("  \033[2m%s\n", L.ClaudeAPIHint1)
-		fmt.Printf("  %s\n", L.ClaudeAPIHint2)
-		fmt.Printf("  %s\033[0m\n", L.ClaudeAPIHint3)
-		fmt.Println()
-		claudeAPIKey = prompt(L.ClaudeAPIKeyPrompt, "")
-		defaultModel = prompt(L.DefaultModelPrompt, "claude-sonnet-4-5-20250929")
-	case 2: // OpenAI-compatible
-		openaiEndpoint = prompt(L.OpenAIEndpointPrompt, "https://api.openai.com/v1")
-		openaiAPIKey = prompt(L.OpenAIKeyPrompt, "")
-		defaultModel = prompt(L.DefaultModelPrompt, "gpt-4o")
+
+		if preset.RequiresKey {
+			presetAPIKey = prompt(fmt.Sprintf("  %s API key:", preset.DisplayName), "")
+		}
+
+		if preset.BaseURL == "" {
+			// Custom preset — ask for base URL.
+			selectedPreset.BaseURL = prompt("  Base URL:", "https://api.openai.com/v1")
+		}
+
+		// Model selection.
+		modelDefault := ""
+		models := preset.Models
+		if preset.Dynamic {
+			fmt.Printf("  \033[2mFetching models from %s...\033[0m\n", preset.BaseURL)
+			if fetched, err := provider.FetchPresetModels(preset); err == nil && len(fetched) > 0 {
+				models = fetched
+			} else if err != nil {
+				fmt.Printf("  \033[33mCould not fetch models: %v\033[0m\n", err)
+			}
+		}
+		if len(models) > 0 {
+			fmt.Println("  Available models:")
+			modelIdx := interactiveChoose(models, 0)
+			if modelIdx >= 0 && modelIdx < len(models) {
+				modelDefault = models[modelIdx]
+			}
+		}
+		defaultModel = prompt(L.DefaultModelPrompt, modelDefault)
 	}
 
 	// --- Step 3: Directory Access ---
@@ -463,26 +468,19 @@ func CmdInit(deps InitDeps) {
 	}
 
 	// Provider config.
-	switch providerIdx {
-	case 1: // Claude API
-		cfg["providers"] = map[string]any{
-			"claude-api": map[string]any{
-				"type":   "claude",
-				"apiKey": claudeAPIKey,
-				"model":  defaultModel,
-			},
+	if selectedPreset != nil {
+		pc := map[string]any{
+			"type":    selectedPreset.Type,
+			"baseUrl": selectedPreset.BaseURL,
+			"model":   defaultModel,
 		}
-		cfg["defaultProvider"] = "claude-api"
-	case 2: // OpenAI-compatible
-		cfg["providers"] = map[string]any{
-			"openai": map[string]any{
-				"type":     "openai",
-				"endpoint": openaiEndpoint,
-				"apiKey":   openaiAPIKey,
-				"model":    defaultModel,
-			},
+		if presetAPIKey != "" {
+			pc["apiKey"] = presetAPIKey
 		}
-		cfg["defaultProvider"] = "openai"
+		cfg["providers"] = map[string]any{
+			selectedPreset.Name: pc,
+		}
+		cfg["defaultProvider"] = selectedPreset.Name
 	}
 
 	// TaskBoard toggle.

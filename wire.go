@@ -10477,6 +10477,16 @@ func newProviderRegistry() *provider.Registry {
 	return provider.NewRegistry()
 }
 
+// providersChanged returns true if the providers configuration differs between two configs.
+func providersChanged(oldCfg, newCfg *Config) bool {
+	if len(oldCfg.Providers) != len(newCfg.Providers) {
+		return true
+	}
+	oldJSON, _ := json.Marshal(oldCfg.Providers)
+	newJSON, _ := json.Marshal(newCfg.Providers)
+	return string(oldJSON) != string(newJSON)
+}
+
 // --- initProviders creates provider instances from config ---
 // Stays in root because it depends on Config and root-level Docker/Tmux adapters.
 

@@ -23,6 +23,7 @@ import (
 
 	"tetora/internal/audit"
 	"tetora/internal/backup"
+	tetoraConfig "tetora/internal/config"
 	"tetora/internal/classify"
 	"tetora/internal/cli"
 	"tetora/internal/cost"
@@ -35,6 +36,7 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/messaging/webhook"
 	"tetora/internal/pairing"
+	"tetora/internal/provider"
 	"tetora/internal/pwa"
 	"tetora/internal/quickaction"
 	"tetora/internal/sla"
@@ -3602,6 +3604,140 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.Write([]byte(fmt.Sprintf(`{"status":"ok","key":"%s","value":%s}`, req.Key, respVal)))
+	})
+
+	// --- Provider Presets ---
+	mux.HandleFunc("/api/provider-presets", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		type presetResponse struct {
+			provider.Preset
+			Available     bool     `json:"available"`
+			FetchedModels []string `json:"fetchedModels,omitempty"`
+		}
+
+		results := make([]presetResponse, 0, len(provider.Presets))
+		for _, p := range provider.Presets {
+			pr := presetResponse{Preset: p, Available: true}
+			if p.Dynamic {
+				models, err := provider.FetchPresetModels(p)
+				if err != nil {
+					pr.Available = false
+				} else {
+					pr.FetchedModels = models
+				}
+			}
+			results = append(results, pr)
+		}
+		json.NewEncoder(w).Encode(results)
+	})
+
+	// --- Provider Test ---
+	mux.HandleFunc("/api/provider-test", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Type    string `json:"type"`
+			BaseURL string `json:"baseUrl"`
+			APIKey  string `json:"apiKey"`
+			Model   string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.BaseURL == "" || req.Model == "" {
+			http.Error(w, `{"error":"baseUrl and model are required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Build a minimal chat completion request to ping the provider.
+		payload := map[string]any{
+			"model": req.Model,
+			"messages": []map[string]string{
+				{"role": "user", "content": "ping"},
+			},
+			"max_tokens": 1,
+		}
+		body, _ := json.Marshal(payload)
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			strings.TrimRight(req.BaseURL, "/")+"/chat/completions",
+			strings.NewReader(string(body)))
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		if req.APIKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+		}
+
+		start := time.Now()
+		resp, err := http.DefaultClient.Do(httpReq)
+		latency := time.Since(start).Milliseconds()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error(), "latencyMs": latency})
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			respBody, _ := io.ReadAll(resp.Body)
+			errMsg := string(respBody)
+			if len(errMsg) > 300 {
+				errMsg = errMsg[:300]
+			}
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, errMsg), "latencyMs": latency})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "latencyMs": latency})
+	})
+
+	// --- Provider Config Save ---
+	mux.HandleFunc("/api/config/providers", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, `{"error":"PUT only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		var req struct {
+			Name   string                    `json:"name"`
+			Config tetoraConfig.ProviderConfig `json:"config"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		configPath := findConfigPath()
+		if err := tetoraConfig.SaveProviders(configPath, req.Name, req.Config); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+			return
+		}
+
+		signalSelfReload()
+
+		audit.Log(cfg.HistoryDB, "config.provider.save", "dashboard",
+			fmt.Sprintf("provider=%s type=%s", req.Name, req.Config.Type), "")
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": req.Name})
 	})
 
 	// --- P18.2: OAuth 2.0 Framework ---

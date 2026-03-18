@@ -15,6 +15,9 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://tetora.dev/banner.png">
 <link rel="icon" href="logo-gem.png" type="image/png">
+<!-- Google Analytics (replace G-XXXXXXXXXX with your measurement ID) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-XXXXXXXXXX');</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -159,29 +162,29 @@ footer a:hover{color:var(--accent2)}
 
 <section id="download">
   <h2 data-i18n-html="dl_title"></h2>
-  <p style="text-align:center;color:var(--muted);margin-bottom:8px">v2.1.0 — <span data-i18n="latest"></span></p>
+  <p style="text-align:center;color:var(--muted);margin-bottom:8px">v2.2.0 — <span data-i18n="latest"></span></p>
   <div class="download-grid">
-    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.1.0/tetora-darwin-arm64" class="dl-card">
+    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.2.0/tetora-darwin-arm64" class="dl-card">
       <span class="os">🍎</span>
       <span class="label">macOS</span>
       <span class="arch">Apple Silicon (M1+)</span>
     </a>
-    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.1.0/tetora-darwin-amd64" class="dl-card">
+    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.2.0/tetora-darwin-amd64" class="dl-card">
       <span class="os">🍎</span>
       <span class="label">macOS</span>
       <span class="arch">Intel</span>
     </a>
-    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.1.0/tetora-linux-amd64" class="dl-card">
+    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.2.0/tetora-linux-amd64" class="dl-card">
       <span class="os">🐧</span>
       <span class="label">Linux</span>
       <span class="arch">x86_64</span>
     </a>
-    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.1.0/tetora-linux-arm64" class="dl-card">
+    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.2.0/tetora-linux-arm64" class="dl-card">
       <span class="os">🐧</span>
       <span class="label">Linux</span>
       <span class="arch">ARM64</span>
     </a>
-    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.1.0/tetora-windows-amd64.exe" class="dl-card">
+    <a href="https://github.com/TakumaLee/Tetora/releases/download/v2.2.0/tetora-windows-amd64.exe" class="dl-card">
       <span class="os">🪟</span>
       <span class="label">Windows</span>
       <span class="arch">x86_64</span>
@@ -198,7 +201,7 @@ footer a:hover{color:var(--accent2)}
     <a href="https://github.com/TakumaLee/Tetora">GitHub</a> ·
     <a href="https://github.com/TakumaLee/Tetora/releases">Releases</a> ·
     <a href="https://github.com/TakumaLee/Tetora/blob/main/CHANGELOG.md">Changelog</a> ·
-    <a href="blog/v2-1-0-release.html">Blog</a>
+    <a href="blog/">Blog</a>
   </p>
   <p style="margin-top:8px">Built by <a href="https://github.com/TakumaLee">Takuma</a> & the 宝石團</p>
 </footer>
@@ -207,7 +210,7 @@ footer a:hover{color:var(--accent2)}
 var I18N = {
   en: {
     tagline: "AI Agent Orchestration Platform \u2014 workflows, taskboards, and multi-agent collaboration in a single binary.",
-    download_btn: "Download v2.1.0",
+    download_btn: "Download v2.2.0",
     copy: "click to copy", copied: "copied!",
     why_title: "Why <span>Tetora</span>?",
     how_title: "How it <span>works</span>",
@@ -228,7 +231,7 @@ var I18N = {
   },
   "zh-TW": {
     tagline: "AI Agent \u7de8\u6392\u5e73\u53f0 \u2014 \u5de5\u4f5c\u6d41\u3001\u4efb\u52d9\u770b\u677f\u3001\u591a Agent \u5354\u4f5c\uff0c\u55ae\u4e00\u57f7\u884c\u6a94\u5373\u53ef\u904b\u884c\u3002",
-    download_btn: "\u4e0b\u8f09 v2.1.0",
+    download_btn: "\u4e0b\u8f09 v2.2.0",
     copy: "\u9ede\u64ca\u8907\u88fd", copied: "\u5df2\u8907\u88fd!",
     why_title: "\u70ba\u4ec0\u9ebc\u9078 <span>Tetora</span>\uff1f",
     how_title: "\u904b\u4f5c<span>\u6d41\u7a0b</span>",
@@ -249,7 +252,7 @@ var I18N = {
   },
   ja: {
     tagline: "AI\u30a8\u30fc\u30b8\u30a7\u30f3\u30c8\u30aa\u30fc\u30b1\u30b9\u30c8\u30ec\u30fc\u30b7\u30e7\u30f3\u30d7\u30e9\u30c3\u30c8\u30d5\u30a9\u30fc\u30e0 \u2014 \u30ef\u30fc\u30af\u30d5\u30ed\u30fc\u3001\u30bf\u30b9\u30af\u30dc\u30fc\u30c9\u3001\u30de\u30eb\u30c1\u30a8\u30fc\u30b8\u30a7\u30f3\u30c8\u5354\u8abf\u3092\u5358\u4e00\u30d0\u30a4\u30ca\u30ea\u3067\u3002",
-    download_btn: "\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9 v2.1.0",
+    download_btn: "\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9 v2.2.0",
     copy: "\u30af\u30ea\u30c3\u30af\u3067\u30b3\u30d4\u30fc", copied: "\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f!",
     why_title: "\u306a\u305c <span>Tetora</span>\uff1f",
     how_title: "\u52d5\u4f5c\u306e<span>\u4ed5\u7d44\u307f</span>",
@@ -270,7 +273,7 @@ var I18N = {
   },
   ko: {
     tagline: "AI \uc5d0\uc774\uc804\ud2b8 \uc624\ucf00\uc2a4\ud2b8\ub808\uc774\uc158 \ud50c\ub7ab\ud3fc \u2014 \uc6cc\ud06c\ud50c\ub85c\uc6b0, \ud0dc\uc2a4\ud06c\ubcf4\ub4dc, \uba40\ud2f0 \uc5d0\uc774\uc804\ud2b8 \ud611\uc5c5\uc744 \ub2e8\uc77c \ubc14\uc774\ub108\ub9ac\ub85c.",
-    download_btn: "\ub2e4\uc6b4\ub85c\ub4dc v2.1.0",
+    download_btn: "\ub2e4\uc6b4\ub85c\ub4dc v2.2.0",
     copy: "\ud074\ub9ad\ud558\uc5ec \ubcf5\uc0ac", copied: "\ubcf5\uc0ac\ub428!",
     why_title: "\uc65c <span>Tetora</span>?",
     how_title: "\uc791\ub3d9 <span>\ubc29\uc2dd</span>",
@@ -291,7 +294,7 @@ var I18N = {
   },
   es: {
     tagline: "Plataforma de orquestaci\u00f3n de agentes IA \u2014 flujos de trabajo, tableros de tareas y colaboraci\u00f3n multi-agente en un solo binario.",
-    download_btn: "Descargar v2.1.0",
+    download_btn: "Descargar v2.2.0",
     copy: "clic para copiar", copied: "\u00a1copiado!",
     why_title: "\u00bfPor qu\u00e9 <span>Tetora</span>?",
     how_title: "C\u00f3mo <span>funciona</span>",
@@ -312,7 +315,7 @@ var I18N = {
   },
   fr: {
     tagline: "Plateforme d'orchestration d'agents IA \u2014 workflows, tableaux de t\u00e2ches et collaboration multi-agents dans un seul binaire.",
-    download_btn: "T\u00e9l\u00e9charger v2.1.0",
+    download_btn: "T\u00e9l\u00e9charger v2.2.0",
     copy: "cliquer pour copier", copied: "copi\u00e9 !",
     why_title: "Pourquoi <span>Tetora</span> ?",
     how_title: "Comment \u00e7a <span>fonctionne</span>",
@@ -333,7 +336,7 @@ var I18N = {
   },
   de: {
     tagline: "KI-Agenten-Orchestrierungsplattform \u2014 Workflows, Taskboards und Multi-Agenten-Kollaboration in einer einzigen Bin\u00e4rdatei.",
-    download_btn: "Download v2.1.0",
+    download_btn: "Download v2.2.0",
     copy: "Klicken zum Kopieren", copied: "Kopiert!",
     why_title: "Warum <span>Tetora</span>?",
     how_title: "So <span>funktioniert's</span>",
@@ -354,7 +357,7 @@ var I18N = {
   },
   th: {
     tagline: "\u0e41\u0e1e\u0e25\u0e15\u0e1f\u0e2d\u0e23\u0e4c\u0e21\u0e08\u0e31\u0e14\u0e01\u0e32\u0e23 AI Agent \u2014 \u0e40\u0e27\u0e34\u0e23\u0e4c\u0e01\u0e42\u0e1f\u0e25\u0e27\u0e4c, \u0e17\u0e32\u0e2a\u0e01\u0e4c\u0e1a\u0e2d\u0e23\u0e4c\u0e14 \u0e41\u0e25\u0e30\u0e01\u0e32\u0e23\u0e17\u0e33\u0e07\u0e32\u0e19\u0e23\u0e48\u0e27\u0e21\u0e01\u0e31\u0e19\u0e02\u0e2d\u0e07\u0e2b\u0e25\u0e32\u0e22 Agent \u0e43\u0e19\u0e44\u0e1f\u0e25\u0e4c\u0e40\u0e14\u0e35\u0e22\u0e27",
-    download_btn: "\u0e14\u0e32\u0e27\u0e19\u0e4c\u0e42\u0e2b\u0e25\u0e14 v2.1.0",
+    download_btn: "\u0e14\u0e32\u0e27\u0e19\u0e4c\u0e42\u0e2b\u0e25\u0e14 v2.2.0",
     copy: "\u0e04\u0e25\u0e34\u0e01\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e04\u0e31\u0e14\u0e25\u0e2d\u0e01", copied: "\u0e04\u0e31\u0e14\u0e25\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27!",
     why_title: "\u0e17\u0e33\u0e44\u0e21\u0e15\u0e49\u0e2d\u0e07 <span>Tetora</span>?",
     how_title: "\u0e27\u0e34\u0e18\u0e35\u0e01\u0e32\u0e23<span>\u0e17\u0e33\u0e07\u0e32\u0e19</span>",
@@ -375,7 +378,7 @@ var I18N = {
   },
   id: {
     tagline: "Platform orkestrasi AI Agent \u2014 workflow, taskboard, dan kolaborasi multi-agen dalam satu binary.",
-    download_btn: "Unduh v2.1.0",
+    download_btn: "Unduh v2.2.0",
     copy: "klik untuk salin", copied: "tersalin!",
     why_title: "Mengapa <span>Tetora</span>?",
     how_title: "Cara <span>kerja</span>",
@@ -396,7 +399,7 @@ var I18N = {
   },
   fil: {
     tagline: "AI Agent Orchestration Platform \u2014 workflows, taskboards, at multi-agent collaboration sa iisang binary.",
-    download_btn: "I-download v2.1.0",
+    download_btn: "I-download v2.2.0",
     copy: "i-click para kopyahin", copied: "nakopya na!",
     why_title: "Bakit <span>Tetora</span>?",
     how_title: "Paano <span>gumagana</span>",

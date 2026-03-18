@@ -1021,18 +1021,42 @@ func (c TaskBoardConfig) MaxRetriesOrDefault() int {
 }
 
 type TaskBoardDispatchConfig struct {
-	Enabled               bool    `json:"enabled"`
-	Interval              string  `json:"interval,omitempty"`
-	DefaultModel          string  `json:"defaultModel,omitempty"`
-	MaxBudget             float64 `json:"maxBudget,omitempty"`
-	DefaultAgent          string  `json:"defaultAgent,omitempty"`
-	BacklogAgent          string  `json:"backlogAgent,omitempty"`
-	ReviewAgent           string  `json:"reviewAgent,omitempty"`
-	EscalateAssignee      string  `json:"escalateAssignee,omitempty"`
-	StuckThreshold        string  `json:"stuckThreshold,omitempty"`
-	MaxConcurrentTasks    int     `json:"maxConcurrentTasks,omitempty"`
-	BacklogTriageInterval string  `json:"backlogTriageInterval,omitempty"`
-	ReviewLoop            bool    `json:"reviewLoop,omitempty"`
+	Enabled               bool                  `json:"enabled"`
+	Interval              string                `json:"interval,omitempty"`
+	DefaultModel          string                `json:"defaultModel,omitempty"`
+	MaxBudget             float64               `json:"maxBudget,omitempty"`
+	DefaultAgent          string                `json:"defaultAgent,omitempty"`
+	BacklogAgent          string                `json:"backlogAgent,omitempty"`
+	ReviewAgent           string                `json:"reviewAgent,omitempty"`
+	EscalateAssignee      string                `json:"escalateAssignee,omitempty"`
+	StuckThreshold        string                `json:"stuckThreshold,omitempty"`
+	MaxConcurrentTasks    int                   `json:"maxConcurrentTasks,omitempty"`
+	BacklogTriageInterval string                `json:"backlogTriageInterval,omitempty"`
+	ReviewLoop            bool                  `json:"reviewLoop,omitempty"`
+	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
+	TriageBudget          float64               `json:"triageBudget,omitempty"`
+	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
+}
+
+func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
+	if c.TriageBudget > 0 {
+		return c.TriageBudget
+	}
+	return 0.05
+}
+
+type WorkflowRoutingConfig struct {
+	Enabled  bool                  `json:"enabled"`
+	Rules    []WorkflowRoutingRule `json:"rules,omitempty"`
+	Fallback string                `json:"fallback,omitempty"`
+}
+
+type WorkflowRoutingRule struct {
+	Workflow string   `json:"workflow"`
+	Types    []string `json:"types,omitempty"`
+	Priority []string `json:"priority,omitempty"`
+	Projects []string `json:"projects,omitempty"`
+	IsPublic *bool    `json:"isPublic,omitempty"`
 }
 
 type GitWorkflowConfig struct {

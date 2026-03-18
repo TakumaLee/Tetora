@@ -67,7 +67,11 @@ type WorkflowRunInfo struct {
 
 // IsResumable returns true when the run status permits resumption.
 func (r WorkflowRunInfo) IsResumable() bool {
-	return r.Status == "paused" || r.Status == "partial" || r.Status == "error"
+	switch r.Status {
+	case "paused", "partial", "error", "resumed":
+		return true
+	}
+	return false
 }
 
 // SkillsProvider abstracts skill selection and failure context operations.
@@ -88,8 +92,10 @@ type ProjectLookup func(historyDB, id string) *ProjectInfo
 
 // ProjectInfo holds the relevant fields from a project record.
 type ProjectInfo struct {
-	Name    string
-	Workdir string
+	Name     string
+	Workdir  string
+	RepoURL  string
+	Category string
 }
 
 // AutoDelegation is an agent-to-agent delegation directive parsed from output.
@@ -213,6 +219,7 @@ func (d *Dispatcher) Start() {
 	d.running = true
 	d.mu.Unlock()
 
+	d.resetOrphanedWorkflowRuns()
 	d.resetOrphanedDoing()
 
 	interval := d.parseInterval()
@@ -292,6 +299,31 @@ func (d *Dispatcher) parseTriageInterval() time.Duration {
 	return dur
 }
 
+// resetOrphanedWorkflowRuns marks any "running" workflow_runs as "error" on startup.
+// After a daemon restart no workflow process can still be alive, so these are zombies.
+func (d *Dispatcher) resetOrphanedWorkflowRuns() {
+	if d.cfg.HistoryDB == "" {
+		return
+	}
+	// Count before update to get accurate number.
+	rows, _ := db.Query(d.cfg.HistoryDB,
+		`SELECT COUNT(*) as cnt FROM workflow_runs WHERE status = 'running'`)
+	cnt := "0"
+	if len(rows) > 0 {
+		cnt = fmt.Sprintf("%v", rows[0]["cnt"])
+	}
+	if cnt == "0" {
+		return
+	}
+
+	sql := `UPDATE workflow_runs SET status = 'error', error = 'daemon restart: orphaned running workflow' WHERE status = 'running'`
+	if err := db.Exec(d.cfg.HistoryDB, sql); err != nil {
+		log.Warn("resetOrphanedWorkflowRuns: failed", "error", err)
+		return
+	}
+	log.Info("resetOrphanedWorkflowRuns: marked zombie runs as error", "count", cnt)
+}
+
 func (d *Dispatcher) resetOrphanedDoing() {
 	sql := `SELECT id, title, completed_at, cost_usd, duration_ms, session_id, updated_at FROM tasks WHERE status = 'doing'`
 	rows, err := db.Query(d.engine.dbPath, sql)
@@ -316,23 +348,41 @@ func (d *Dispatcher) resetOrphanedDoing() {
 		sessionID := fmt.Sprintf("%v", row["session_id"])
 		updatedAt := fmt.Sprintf("%v", row["updated_at"])
 
-		hasCompletionEvidence := (completedAt != "" && completedAt != "<nil>") || costUSD > 0.001
+		// completedAt is only set by the final atomic update, which runs AFTER review.
+		// If completedAt is set → task genuinely completed (including review) → restore to "done".
+		// If only cost is set → task was mid-execution or mid-review → restore to "review" for re-review.
+		hasCompletedAt := completedAt != "" && completedAt != "<nil>"
+		hasCostOnly := !hasCompletedAt && costUSD > 0.001
 
-		if hasCompletionEvidence {
+		if hasCompletedAt {
 			updateSQL := fmt.Sprintf(
-				`UPDATE tasks SET status = 'done', updated_at = '%s', completed_at = CASE WHEN completed_at = '' THEN '%s' ELSE completed_at END WHERE id = '%s' AND status = 'doing'`,
-				nowISO, nowISO, db.Escape(id),
+				`UPDATE tasks SET status = 'done', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
+				nowISO, db.Escape(id),
 			)
 			if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
 				log.Warn("taskboard dispatch: failed to restore completed task", "id", id, "error", err)
 				continue
 			}
-			comment := fmt.Sprintf("[auto-restore] Task had completion evidence (cost=$%.4f, duration=%dms, session=%s) but was in 'doing' at startup. Restored to 'done'.",
+			comment := fmt.Sprintf("[auto-restore] Task had completed_at set (cost=$%.4f, duration=%dms, session=%s). Restored to 'done'.",
 				costUSD, int64(durationMs), sessionID)
-			if _, err := d.engine.AddComment(id, "system", comment); err != nil {
-				log.Warn("taskboard dispatch: failed to add restore comment", "id", id, "error", err)
-			}
+			d.engine.AddComment(id, "system", comment)
 			log.Info("taskboard dispatch: restored completed task from doing", "id", id, "title", title)
+			continue
+		}
+
+		if hasCostOnly {
+			updateSQL := fmt.Sprintf(
+				`UPDATE tasks SET status = 'review', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
+				nowISO, db.Escape(id),
+			)
+			if err := db.Exec(d.engine.dbPath, updateSQL); err != nil {
+				log.Warn("taskboard dispatch: failed to restore task to review", "id", id, "error", err)
+				continue
+			}
+			comment := fmt.Sprintf("[auto-restore] Task had cost evidence ($%.4f) but no completed_at — may not have been reviewed. Restored to 'review'.",
+				costUSD)
+			d.engine.AddComment(id, "system", comment)
+			log.Info("taskboard dispatch: restored task to review (cost-only evidence)", "id", id, "title", title)
 			continue
 		}
 

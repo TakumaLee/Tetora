@@ -3468,7 +3468,7 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 			if err != nil || p == nil {
 				return nil
 			}
-			return &taskboard.ProjectInfo{Name: p.Name, Workdir: p.Workdir}
+			return &taskboard.ProjectInfo{Name: p.Name, Workdir: p.Workdir, RepoURL: p.RepoURL, Category: p.Category}
 		},
 
 		Skills: &rootSkillsProvider{cfg: cfg},
