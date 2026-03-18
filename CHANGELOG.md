@@ -1,4 +1,9 @@
-## [Unreleased]
+## [v2.1.0] - 2026-03-18
+
+### Highlights
+- **Massive codebase consolidation**: 28 root source files → 9 domain files. 111 test files → 22. Cleaner, easier to navigate.
+- **Workflow Engine & Marketplace**: DAG pipeline execution, dynamic model routing, Store tab, Import/Export
+- **Dashboard improvements**: Workflow progress tracking, Capabilities tab, DAG visualization
 
 ### Added
 - **Git Workflow Pipeline — configurable branch convention**: Branch naming for agent dispatch is now template-based (`{type}/{agent}-{description}`), configurable via `taskBoard.gitWorkflow` in config
