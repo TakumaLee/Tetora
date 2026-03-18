@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"tetora/internal/classify"
 	dtypes "tetora/internal/dispatch"
+	iproactive "tetora/internal/proactive"
 	"tetora/internal/prompt"
 	"tetora/internal/tool"
 	"tetora/internal/tools"
@@ -582,4 +584,83 @@ func truncateToChars(s string, maxChars int) string {
 
 func truncateLessonsToRecent(content string, n int) string {
 	return prompt.TruncateLessonsToRecent(content, n)
+}
+
+// ============================================================
+// Merged shim: proactive
+// ============================================================
+
+type ProactiveEngine = iproactive.Engine
+type ProactiveRuleInfo = iproactive.RuleInfo
+
+func newProactiveEngine(cfg *Config, broker *sseBroker, sem, childSem chan struct{}) *ProactiveEngine {
+	deps := iproactive.Deps{
+		RunTask: func(ctx context.Context, task Task, sem, childSem chan struct{}, agentName string) TaskResult {
+			return runSingleTask(ctx, cfg, task, sem, childSem, agentName)
+		},
+		RecordHistory: func(dbPath string, task Task, result TaskResult, agentName, startedAt, finishedAt, outputFile string) {
+			recordHistory(dbPath, task.ID, task.Name, task.Source, agentName, task, result, startedAt, finishedAt, outputFile)
+		},
+		FillDefaults: func(c *Config, t *Task) {
+			fillDefaults(c, t)
+		},
+	}
+	return iproactive.New(cfg, broker, sem, childSem, deps)
+}
+
+func runProactive(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: tetora proactive <subcommand>")
+		fmt.Println()
+		fmt.Println("Subcommands:")
+		fmt.Println("  list          List all proactive rules")
+		fmt.Println("  trigger <name> Manually trigger a rule")
+		fmt.Println("  status        Show engine status")
+		return
+	}
+
+	cfg := loadConfig("")
+
+	switch args[0] {
+	case "list":
+		iproactive.CmdList(cfg)
+	case "trigger":
+		if len(args) < 2 {
+			fmt.Println("Usage: tetora proactive trigger <rule-name>")
+			return
+		}
+		iproactive.CmdTrigger(cfg, args[1])
+	case "status":
+		iproactive.CmdStatus(cfg)
+	default:
+		fmt.Printf("Unknown subcommand: %s\n", args[0])
+	}
+}
+
+func cmdProactiveTrigger(cfg *Config, ruleName string) {
+	apiURL := fmt.Sprintf("http://%s/api/proactive/rules/%s/trigger", cfg.ListenAddr, ruleName)
+
+	req, err := http.NewRequest("POST", apiURL, nil)
+	if err != nil {
+		fmt.Printf("Error creating request: %v\n", err)
+		return
+	}
+
+	if cfg.APIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIToken)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		fmt.Printf("Rule %q triggered successfully.\n", ruleName)
+		return
+	}
+	fmt.Printf("Error: HTTP %d\n", resp.StatusCode)
 }

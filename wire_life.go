@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"tetora/internal/automation/insights"
+	"tetora/internal/config"
 	"tetora/internal/db"
 	idispatch "tetora/internal/dispatch"
 	"tetora/internal/log"
@@ -20,9 +23,13 @@ import (
 	"tetora/internal/project"
 	"tetora/internal/push"
 	"tetora/internal/reflection"
+	"tetora/internal/retention"
 	"tetora/internal/review"
 	"tetora/internal/roles"
+	"tetora/internal/session"
 	"tetora/internal/tool"
+	"tetora/internal/trust"
+	"tetora/internal/usage"
 	"tetora/internal/workspace"
 
 	"tetora/internal/life/calendar"
@@ -627,3 +634,152 @@ func buildReflectionContext(dbPath, role string, limit int) string {
 	return reflection.BuildContext(dbPath, role, limit)
 }
 func reflectionBudgetOrDefault(cfg *Config) float64 { return reflection.BudgetOrDefault(cfg) }
+
+// ============================================================
+// Merged shims: usage, trust, retention
+// ============================================================
+
+// --- Usage (from usage.go) ---
+
+type UsageSummary = usage.UsageSummary
+type ModelUsage = usage.ModelUsage
+type AgentUsage = usage.AgentUsage
+type ExpensiveSession = usage.ExpensiveSession
+type DayUsage = usage.DayUsage
+
+func queryUsageSummary(dbPath, period string) (*UsageSummary, error) { return usage.QuerySummary(dbPath, period) }
+func queryUsageByModel(dbPath string, days int) ([]ModelUsage, error) { return usage.QueryByModel(dbPath, days) }
+func queryUsageByAgent(dbPath string, days int) ([]AgentUsage, error) { return usage.QueryByAgent(dbPath, days) }
+func queryExpensiveSessions(dbPath string, limit, days int) ([]ExpensiveSession, error) {
+	return usage.QueryExpensiveSessions(dbPath, limit, days)
+}
+func queryCostTrend(dbPath string, days int) ([]DayUsage, error) { return usage.QueryCostTrend(dbPath, days) }
+func formatUsageSummary(summary *UsageSummary) string             { return usage.FormatSummary(summary) }
+func formatModelBreakdown(models []ModelUsage) string             { return usage.FormatModelBreakdown(models) }
+func formatAgentBreakdown(roles []AgentUsage) string              { return usage.FormatAgentBreakdown(roles) }
+
+func formatResponseCostFooter(cfg *Config, result *ProviderResult) string {
+	if cfg == nil || !cfg.Usage.ShowFooter || result == nil {
+		return ""
+	}
+	tmpl := cfg.Usage.FooterTemplate
+	if tmpl == "" {
+		tmpl = "{{.tokensIn}}in/{{.tokensOut}}out ~${{.cost}}"
+	}
+	footer := tmpl
+	footer = strings.ReplaceAll(footer, "{{.tokensIn}}", fmt.Sprintf("%d", result.TokensIn))
+	footer = strings.ReplaceAll(footer, "{{.tokensOut}}", fmt.Sprintf("%d", result.TokensOut))
+	footer = strings.ReplaceAll(footer, "{{.cost}}", fmt.Sprintf("%.4f", result.CostUSD))
+	return footer
+}
+
+func formatResultCostFooter(cfg *Config, result *TaskResult) string {
+	if cfg == nil || !cfg.Usage.ShowFooter || result == nil {
+		return ""
+	}
+	pr := &ProviderResult{
+		TokensIn:  result.TokensIn,
+		TokensOut: result.TokensOut,
+		CostUSD:   result.CostUSD,
+	}
+	return formatResponseCostFooter(cfg, pr)
+}
+
+// --- Trust (from trust.go) ---
+
+const (
+	TrustObserve = trust.Observe
+	TrustSuggest = trust.Suggest
+	TrustAuto    = trust.Auto
+)
+
+var validTrustLevels = trust.ValidLevels
+
+type TrustStatus = trust.Status
+
+func isValidTrustLevel(level string) bool                            { return trust.IsValidLevel(level) }
+func trustLevelIndex(level string) int                               { return trust.LevelIndex(level) }
+func nextTrustLevel(current string) string                           { return trust.NextLevel(current) }
+func initTrustDB(dbPath string)                                      { trust.InitDB(dbPath) }
+func resolveTrustLevel(cfg *config.Config, agentName string) string  { return trust.ResolveLevel(cfg, agentName) }
+func queryConsecutiveSuccess(dbPath, role string) int                 { return trust.QueryConsecutiveSuccess(dbPath, role) }
+func recordTrustEvent(dbPath, role, eventType, fromLevel, toLevel string, consecutiveSuccess int, note string) {
+	trust.RecordEvent(dbPath, role, eventType, fromLevel, toLevel, consecutiveSuccess, note)
+}
+func queryTrustEvents(dbPath, role string, limit int) ([]map[string]any, error) {
+	return trust.QueryEvents(dbPath, role, limit)
+}
+func getTrustStatus(cfg *Config, role string) TrustStatus         { return trust.GetStatus(cfg, role) }
+func getAllTrustStatuses(cfg *Config) []TrustStatus                { return trust.GetAllStatuses(cfg) }
+func applyTrustToTask(cfg *Config, task *Task, agentName string) (level string, needsConfirm bool) {
+	return trust.ApplyToTask(cfg, &task.PermissionMode, agentName)
+}
+func checkTrustPromotion(ctx context.Context, cfg *Config, agentName string) string {
+	return trust.CheckPromotion(ctx, cfg, agentName)
+}
+func updateAgentTrustLevel(cfg *Config, agentName, newLevel string) error {
+	return trust.UpdateAgentLevel(cfg, agentName, newLevel)
+}
+func saveAgentTrustLevel(configPath, agentName, newLevel string) error {
+	return trust.SaveAgentLevel(configPath, agentName, newLevel)
+}
+func updateConfigField(configPath string, mutate func(raw map[string]any)) error {
+	return trust.UpdateConfigField(configPath, mutate)
+}
+
+// --- Retention (from retention.go) ---
+
+type RetentionResult = retention.Result
+type ReflectionRow = retention.ReflectionRow
+type DataExport = retention.DataExport
+
+func retentionHooks(cfg *Config) retention.Hooks {
+	return retention.Hooks{
+		CleanupSessions:      cleanupSessions,
+		CleanupOldQueueItems: cleanupOldQueueItems,
+		CleanupOutputs:       cleanupOutputs,
+		ListMemory: func(workspaceDir string) ([]retention.MemoryEntry, error) {
+			entries, err := listMemory(cfg, "")
+			if err != nil {
+				return nil, err
+			}
+			out := make([]retention.MemoryEntry, len(entries))
+			for i, e := range entries {
+				out[i] = retention.MemoryEntry{
+					Key:       e.Key,
+					Value:     e.Value,
+					Priority:  e.Priority,
+					UpdatedAt: e.UpdatedAt,
+				}
+			}
+			return out, nil
+		},
+		QuerySessions: func(dbPath string, limit int) ([]session.Session, error) {
+			sessions, _, err := querySessions(dbPath, SessionQuery{Limit: limit})
+			return sessions, err
+		},
+		LoadMemoryAccessLog:    func(workspaceDir string) map[string]string { return loadMemoryAccessLog(cfg) },
+		SaveMemoryAccessLog:    func(workspaceDir string, log map[string]string) { saveMemoryAccessLog(cfg, log) },
+		ParseMemoryFrontmatter: parseMemoryFrontmatter,
+		BuildMemoryFrontmatter: buildMemoryFrontmatter,
+	}
+}
+
+func retentionDays(configured, fallback int) int       { return retention.Days(configured, fallback) }
+func runRetention(cfg *Config) []RetentionResult       { return retention.Run(cfg, retentionHooks(cfg)) }
+func compilePIIPatterns(patterns []string) []*regexp.Regexp { return retention.CompilePIIPatterns(patterns) }
+func redactPII(text string, patterns []*regexp.Regexp) string { return retention.RedactPII(text, patterns) }
+func queryRetentionStats(dbPath string) map[string]int { return retention.QueryStats(dbPath) }
+func exportData(cfg *Config) ([]byte, error)           { return retention.Export(cfg, retentionHooks(cfg)) }
+func queryReflectionsForExport(dbPath string) []ReflectionRow { return retention.QueryReflectionsForExport(dbPath) }
+func purgeDataBefore(cfg *Config, before string) ([]RetentionResult, error) {
+	return retention.PurgeBefore(cfg.HistoryDB, before)
+}
+func cleanupWorkflowRuns(dbPath string, days int) (int, error)   { return retention.CleanupWorkflowRuns(dbPath, days) }
+func cleanupHandoffs(dbPath string, days int) (int, error)       { return retention.CleanupHandoffs(dbPath, days) }
+func cleanupReflections(dbPath string, days int) (int, error)    { return retention.CleanupReflections(dbPath, days) }
+func cleanupSLAChecks(dbPath string, days int) (int, error)      { return retention.CleanupSLAChecks(dbPath, days) }
+func cleanupTrustEvents(dbPath string, days int) (int, error)    { return retention.CleanupTrustEvents(dbPath, days) }
+func cleanupLogFiles(logDir string, days int) int                { return retention.CleanupLogFiles(logDir, days) }
+func cleanupClaudeSessions(days int) int                         { return retention.CleanupClaudeSessions(days) }
+func cleanupStaleMemory(cfg *Config, days int) (int, error)      { return retention.CleanupStaleMemory(cfg.WorkspaceDir, days, retentionHooks(cfg)) }
