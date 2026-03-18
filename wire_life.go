@@ -13,10 +13,16 @@ import (
 	"strings"
 	"time"
 
+	"os"
+	"sort"
+	"strconv"
+
 	"tetora/internal/automation/insights"
 	"tetora/internal/config"
 	"tetora/internal/db"
 	idispatch "tetora/internal/dispatch"
+	"tetora/internal/history"
+	"tetora/internal/lifecycle"
 	"tetora/internal/log"
 	"tetora/internal/nlp"
 	"tetora/internal/notify"
@@ -26,6 +32,7 @@ import (
 	"tetora/internal/retention"
 	"tetora/internal/review"
 	"tetora/internal/roles"
+	"tetora/internal/scheduling"
 	"tetora/internal/session"
 	"tetora/internal/tool"
 	"tetora/internal/trust"
@@ -783,3 +790,920 @@ func cleanupTrustEvents(dbPath string, days int) (int, error)    { return retent
 func cleanupLogFiles(logDir string, days int) int                { return retention.CleanupLogFiles(logDir, days) }
 func cleanupClaudeSessions(days int) int                         { return retention.CleanupClaudeSessions(days) }
 func cleanupStaleMemory(cfg *Config, days int) (int, error)      { return retention.CleanupStaleMemory(cfg.WorkspaceDir, days, retentionHooks(cfg)) }
+
+// ============================================================
+// Merged from lifecycle.go
+// ============================================================
+
+// LifecycleEngine wraps the internal lifecycle engine for package main.
+type LifecycleEngine struct {
+	cfg    *Config
+	engine *lifecycle.Engine
+}
+
+// globalLifecycleEngine is the singleton lifecycle engine.
+var globalLifecycleEngine *LifecycleEngine
+
+// newLifecycleEngine creates a new LifecycleEngine, wiring current globals.
+func newLifecycleEngine(cfg *Config) *LifecycleEngine {
+	le := &LifecycleEngine{cfg: cfg}
+	le.rebuildEngine()
+	return le
+}
+
+// rebuildEngine constructs the internal engine from current global services.
+func (le *LifecycleEngine) rebuildEngine() {
+	lcCfg := lifecycle.Config{
+		Lifecycle: lifecycle.LifecycleConfig{
+			AutoHabitSuggest:   le.cfg.Lifecycle.AutoHabitSuggest,
+			AutoInsightAction:  le.cfg.Lifecycle.AutoInsightAction,
+			AutoBirthdayRemind: le.cfg.Lifecycle.AutoBirthdayRemind,
+		},
+	}
+	if le.cfg.Notes.Enabled {
+		lcCfg.NotesEnabled = true
+		lcCfg.VaultPath = le.cfg.Notes.VaultPathResolved(le.cfg.BaseDir)
+	}
+	le.engine = lifecycle.New(lcCfg, globalInsightsEngine, globalContactsService, globalGoalsService, globalReminderEngine)
+}
+
+// SuggestHabitForGoal returns habit suggestions based on goal title and category.
+func (le *LifecycleEngine) SuggestHabitForGoal(title, category string) []string {
+	le.rebuildEngine()
+	return le.engine.SuggestHabitForGoal(title, category)
+}
+
+// RunInsightActions detects anomalies and creates reminders/notifications.
+func (le *LifecycleEngine) RunInsightActions() ([]string, error) {
+	le.rebuildEngine()
+	return le.engine.RunInsightActions()
+}
+
+// SyncBirthdayReminders creates annual reminders for contact birthdays.
+func (le *LifecycleEngine) SyncBirthdayReminders() (int, error) {
+	le.rebuildEngine()
+	return le.engine.SyncBirthdayReminders()
+}
+
+// OnGoalCompleted logs a celebration note when a goal is completed.
+func (le *LifecycleEngine) OnGoalCompleted(goalID string) error {
+	le.rebuildEngine()
+	return le.engine.OnGoalCompleted(goalID)
+}
+
+// --- Lifecycle Tool Handlers ---
+
+func toolLifecycleSync(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Lifecycle == nil {
+		return "", fmt.Errorf("lifecycle engine not initialized")
+	}
+
+	var args struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Action == "" {
+		args.Action = "all"
+	}
+
+	result := map[string]any{}
+
+	switch args.Action {
+	case "birthdays":
+		n, err := app.Lifecycle.SyncBirthdayReminders()
+		if err != nil {
+			return "", err
+		}
+		result["birthdays_synced"] = n
+
+	case "insights":
+		actions, err := app.Lifecycle.RunInsightActions()
+		if err != nil {
+			return "", err
+		}
+		result["insight_actions"] = actions
+
+	case "all":
+		if cfg.Lifecycle.AutoBirthdayRemind {
+			n, err := app.Lifecycle.SyncBirthdayReminders()
+			if err != nil {
+				result["birthday_error"] = err.Error()
+			} else {
+				result["birthdays_synced"] = n
+			}
+		}
+		if cfg.Lifecycle.AutoInsightAction {
+			actions, err := app.Lifecycle.RunInsightActions()
+			if err != nil {
+				result["insight_error"] = err.Error()
+			} else {
+				result["insight_actions"] = actions
+			}
+		}
+
+	default:
+		return "", fmt.Errorf("unknown action: %s (use birthdays, insights, or all)", args.Action)
+	}
+
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return string(out), nil
+}
+
+func toolLifecycleSuggest(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Lifecycle == nil {
+		return "", fmt.Errorf("lifecycle engine not initialized")
+	}
+
+	var args struct {
+		GoalTitle    string `json:"goal_title"`
+		GoalCategory string `json:"goal_category"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.GoalTitle == "" {
+		return "", fmt.Errorf("goal_title is required")
+	}
+
+	suggestions := app.Lifecycle.SuggestHabitForGoal(args.GoalTitle, args.GoalCategory)
+	result := map[string]any{
+		"goal_title":  args.GoalTitle,
+		"suggestions": suggestions,
+	}
+	out, _ := json.MarshalIndent(result, "", "  ")
+	return string(out), nil
+}
+
+// ============================================================
+// Merged from scheduling.go
+// ============================================================
+
+// --- Scheduling Type aliases ---
+
+type TimeSlot = scheduling.TimeSlot
+type DaySchedule = scheduling.DaySchedule
+type ScheduleEvent = scheduling.ScheduleEvent
+type ScheduleSuggestion = scheduling.ScheduleSuggestion
+
+// --- Scheduling Global ---
+
+var globalSchedulingService *scheduling.Service
+
+// newSchedulingService constructs a scheduling.Service wired to root globals.
+func newSchedulingService(cfg *Config) *scheduling.Service {
+	return scheduling.New(
+		&schedulingCalendarAdapter{},
+		&schedulingTaskAdapter{},
+		log.Warn,
+	)
+}
+
+// --- Scheduling Adapter types ---
+
+// schedulingCalendarAdapter implements scheduling.CalendarProvider using globalCalendarService.
+type schedulingCalendarAdapter struct{}
+
+func (a *schedulingCalendarAdapter) ListEvents(ctx context.Context, timeMin, timeMax string, maxResults int) ([]scheduling.CalendarEvent, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return nil, nil
+	}
+	events, err := app.Calendar.ListEvents(ctx, timeMin, timeMax, maxResults)
+	if err != nil {
+		return nil, err
+	}
+	var result []scheduling.CalendarEvent
+	for _, ev := range events {
+		result = append(result, scheduling.CalendarEvent{
+			Summary: ev.Summary,
+			Start:   ev.Start,
+			End:     ev.End,
+			AllDay:  ev.AllDay,
+		})
+	}
+	return result, nil
+}
+
+// schedulingTaskAdapter implements scheduling.TaskProvider using globalTaskManager.
+type schedulingTaskAdapter struct{}
+
+func (a *schedulingTaskAdapter) ListTasks(userID string, filter scheduling.TaskFilter) ([]scheduling.Task, error) {
+	if globalTaskManager == nil {
+		return nil, nil
+	}
+	tasks, err := globalTaskManager.ListTasks(userID, TaskFilter{
+		DueDate: filter.DueDate,
+		Status:  filter.Status,
+		Limit:   filter.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var result []scheduling.Task
+	for _, t := range tasks {
+		result = append(result, scheduling.Task{
+			Title:    t.Title,
+			Priority: t.Priority,
+			DueAt:    t.DueAt,
+			Project:  t.Project,
+		})
+	}
+	return result, nil
+}
+
+// --- Scheduling Tool Handlers ---
+
+func toolScheduleView(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
+		return "", fmt.Errorf("scheduling service not initialized")
+	}
+
+	var args struct {
+		Date string `json:"date"`
+		Days int    `json:"days"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Days <= 0 {
+		args.Days = 1
+	}
+	if args.Days > 30 {
+		args.Days = 30
+	}
+
+	schedules, err := app.Scheduling.ViewSchedule(args.Date, args.Days)
+	if err != nil {
+		return "", err
+	}
+
+	out, err := json.MarshalIndent(schedules, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal result: %w", err)
+	}
+	return string(out), nil
+}
+
+func toolScheduleSuggest(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
+		return "", fmt.Errorf("scheduling service not initialized")
+	}
+
+	var args struct {
+		DurationMinutes int  `json:"duration_minutes"`
+		PreferMorning   bool `json:"prefer_morning"`
+		Days            int  `json:"days"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.DurationMinutes <= 0 {
+		args.DurationMinutes = 60
+	}
+	if args.Days <= 0 {
+		args.Days = 5
+	}
+	if args.Days > 14 {
+		args.Days = 14
+	}
+
+	suggestions, err := app.Scheduling.SuggestSlots(args.DurationMinutes, args.PreferMorning, args.Days)
+	if err != nil {
+		return "", err
+	}
+
+	if len(suggestions) == 0 {
+		return "No available time slots found for the requested duration.", nil
+	}
+
+	out, err := json.MarshalIndent(suggestions, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal result: %w", err)
+	}
+	return fmt.Sprintf("Found %d suggested slots:\n%s", len(suggestions), string(out)), nil
+}
+
+func toolSchedulePlan(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.Scheduling == nil {
+		return "", fmt.Errorf("scheduling service not initialized")
+	}
+
+	var args struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.UserID == "" {
+		args.UserID = "default"
+	}
+
+	plan, err := app.Scheduling.PlanWeek(args.UserID)
+	if err != nil {
+		return "", err
+	}
+
+	out, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal result: %w", err)
+	}
+	return string(out), nil
+}
+
+// ============================================================
+// Merged from daily_notes.go
+// ============================================================
+
+// generateDailyNote creates a markdown summary of the previous day's activity.
+func generateDailyNote(cfg *Config, date time.Time) (string, error) {
+	if cfg.HistoryDB == "" {
+		return "", fmt.Errorf("historyDB not configured")
+	}
+
+	startOfDay := date.Format("2006-01-02 00:00:00")
+	endOfDay := date.Add(24 * time.Hour).Format("2006-01-02 00:00:00")
+
+	sql := fmt.Sprintf(`
+		SELECT id, name, source, agent, status, duration_ms, cost_usd, tokens_in, tokens_out, started_at
+		FROM history
+		WHERE started_at >= '%s' AND started_at < '%s'
+		ORDER BY started_at
+	`, db.Escape(startOfDay), db.Escape(endOfDay))
+
+	rows, err := db.Query(cfg.HistoryDB, sql)
+	if err != nil {
+		return "", fmt.Errorf("query history: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Daily Summary — %s\n\n", date.Format("2006-01-02")))
+
+	if len(rows) == 0 {
+		sb.WriteString("No tasks executed on this day.\n")
+		return sb.String(), nil
+	}
+
+	totalCost := 0.0
+	totalTokensIn := 0
+	totalTokensOut := 0
+	successCount := 0
+	errorCount := 0
+	roleMap := make(map[string]int)
+	sourceMap := make(map[string]int)
+
+	for _, row := range rows {
+		status := toString(row["status"])
+		costUSD := toFloat(row["cost_usd"])
+		tokensIn := toInt(row["tokens_in"])
+		tokensOut := toInt(row["tokens_out"])
+		role := toString(row["agent"])
+		source := toString(row["source"])
+
+		totalCost += costUSD
+		totalTokensIn += tokensIn
+		totalTokensOut += tokensOut
+
+		if status == "success" {
+			successCount++
+		} else {
+			errorCount++
+		}
+
+		if role != "" {
+			roleMap[role]++
+		}
+		if source != "" {
+			sourceMap[source]++
+		}
+	}
+
+	sb.WriteString("## Summary\n\n")
+	sb.WriteString(fmt.Sprintf("- **Total Tasks**: %d\n", len(rows)))
+	sb.WriteString(fmt.Sprintf("- **Success**: %d\n", successCount))
+	sb.WriteString(fmt.Sprintf("- **Errors**: %d\n", errorCount))
+	sb.WriteString(fmt.Sprintf("- **Total Cost**: $%.4f\n", totalCost))
+	sb.WriteString(fmt.Sprintf("- **Total Tokens**: %d in / %d out\n\n", totalTokensIn, totalTokensOut))
+
+	if len(roleMap) > 0 {
+		sb.WriteString("## Tasks by Agent\n\n")
+		for role, count := range roleMap {
+			if role == "" {
+				role = "(none)"
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: %d\n", role, count))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(sourceMap) > 0 {
+		sb.WriteString("## Tasks by Source\n\n")
+		for source, count := range sourceMap {
+			if source == "" {
+				source = "(unknown)"
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: %d\n", source, count))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("## Recent Tasks\n\n")
+	maxShow := 10
+	if len(rows) < maxShow {
+		maxShow = len(rows)
+	}
+	for i := len(rows) - maxShow; i < len(rows); i++ {
+		row := rows[i]
+		name := toString(row["name"])
+		status := toString(row["status"])
+		costUSD := toFloat(row["cost_usd"])
+		durationMs := toInt(row["duration_ms"])
+		startedAt := toString(row["started_at"])
+		role := toString(row["agent"])
+
+		statusEmoji := "✅"
+		if status != "success" {
+			statusEmoji = "❌"
+		}
+
+		sb.WriteString(fmt.Sprintf("- %s **%s** (agent: %s)\n", statusEmoji, name, role))
+		sb.WriteString(fmt.Sprintf("  - Started: %s\n", startedAt))
+		sb.WriteString(fmt.Sprintf("  - Duration: %dms, Cost: $%.4f\n", durationMs, costUSD))
+	}
+
+	return sb.String(), nil
+}
+
+func writeDailyNote(cfg *Config, date time.Time, content string) error {
+	if !cfg.DailyNotes.Enabled {
+		return nil
+	}
+
+	notesDir := cfg.DailyNotes.DirOrDefault(cfg.BaseDir)
+	if err := os.MkdirAll(notesDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir notes: %w", err)
+	}
+
+	filename := date.Format("2006-01-02") + ".md"
+	filePath := filepath.Join(notesDir, filename)
+
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write note: %w", err)
+	}
+
+	log.Info("daily note written", "date", date.Format("2006-01-02"), "path", filePath)
+	return nil
+}
+
+func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEngine) {
+	if !cfg.DailyNotes.Enabled {
+		return
+	}
+
+	schedule := cfg.DailyNotes.ScheduleOrDefault()
+
+	if err := cronEngine.AddJob(CronJobConfig{
+		ID:       "daily_notes",
+		Name:     "Daily Notes Generator",
+		Enabled:  true,
+		Schedule: schedule,
+	}); err != nil {
+		log.Info("daily notes job register", "schedule", schedule, "note", err)
+		return
+	}
+
+	log.Info("daily notes job registered", "schedule", schedule)
+}
+
+func runDailyNotesJob(ctx context.Context, cfg *Config) error {
+	yesterday := time.Now().AddDate(0, 0, -1)
+	content, err := generateDailyNote(cfg, yesterday)
+	if err != nil {
+		return fmt.Errorf("generate note: %w", err)
+	}
+
+	if err := writeDailyNote(cfg, yesterday, content); err != nil {
+		return fmt.Errorf("write note: %w", err)
+	}
+
+	return nil
+}
+
+func toString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func toFloat(v any) float64 {
+	if v == nil {
+		return 0
+	}
+	switch x := v.(type) {
+	case float64:
+		return x
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	}
+	return 0
+}
+
+func toInt(v any) int {
+	if v == nil {
+		return 0
+	}
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	}
+	return 0
+}
+
+// ============================================================
+// Merged from task_manager.go
+// ============================================================
+
+// globalTaskManager is the singleton task manager service.
+var globalTaskManager *TaskManagerService
+
+func toolTaskCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
+		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
+	}
+	var args struct {
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Project     string   `json:"project"`
+		Priority    int      `json:"priority"`
+		DueAt       string   `json:"dueAt"`
+		Tags        []string `json:"tags"`
+		UserID      string   `json:"userId"`
+		Decompose   bool     `json:"decompose"`
+		Subtasks    []string `json:"subtasks"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Title == "" {
+		return "", fmt.Errorf("title is required")
+	}
+	if args.UserID == "" {
+		args.UserID = "default"
+	}
+
+	task := UserTask{
+		UserID:      args.UserID,
+		Title:       args.Title,
+		Description: args.Description,
+		Project:     args.Project,
+		Priority:    args.Priority,
+		DueAt:       args.DueAt,
+		Tags:        args.Tags,
+	}
+
+	created, err := app.TaskManager.CreateTask(task)
+	if err != nil {
+		return "", err
+	}
+
+	if args.Decompose && len(args.Subtasks) > 0 {
+		subs, err := app.TaskManager.DecomposeTask(created.ID, args.Subtasks)
+		if err != nil {
+			return "", fmt.Errorf("task created but decomposition failed: %w", err)
+		}
+		result := map[string]any{
+			"task":     created,
+			"subtasks": subs,
+		}
+		out, _ := json.MarshalIndent(result, "", "  ")
+		return string(out), nil
+	}
+
+	out, _ := json.MarshalIndent(created, "", "  ")
+	return string(out), nil
+}
+
+func toolTaskList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
+		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
+	}
+	var args struct {
+		Status   string `json:"status"`
+		Project  string `json:"project"`
+		Priority int    `json:"priority"`
+		DueDate  string `json:"dueDate"`
+		Tag      string `json:"tag"`
+		Limit    int    `json:"limit"`
+		UserID   string `json:"userId"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.UserID == "" {
+		args.UserID = "default"
+	}
+
+	filters := TaskFilter{
+		Status:   args.Status,
+		Project:  args.Project,
+		Priority: args.Priority,
+		DueDate:  args.DueDate,
+		Tag:      args.Tag,
+		Limit:    args.Limit,
+	}
+
+	tasksList, err := app.TaskManager.ListTasks(args.UserID, filters)
+	if err != nil {
+		return "", err
+	}
+
+	type taskWithSubs struct {
+		UserTask
+		SubtaskCount int `json:"subtaskCount"`
+	}
+	results := make([]taskWithSubs, 0, len(tasksList))
+	for _, t := range tasksList {
+		subs, _ := app.TaskManager.GetSubtasks(t.ID)
+		results = append(results, taskWithSubs{UserTask: t, SubtaskCount: len(subs)})
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return string(out), nil
+}
+
+func toolTaskComplete(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
+		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
+	}
+	var args struct {
+		TaskID string `json:"taskId"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.TaskID == "" {
+		return "", fmt.Errorf("taskId is required")
+	}
+
+	if err := app.TaskManager.CompleteTask(args.TaskID); err != nil {
+		return "", err
+	}
+
+	task, _ := app.TaskManager.GetTask(args.TaskID)
+	if task != nil {
+		out, _ := json.MarshalIndent(task, "", "  ")
+		return fmt.Sprintf("Task completed.\n%s", string(out)), nil
+	}
+	return "Task completed.", nil
+}
+
+func toolTaskReview(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	app := appFromCtx(ctx)
+	if app == nil || app.TaskManager == nil {
+		return "", fmt.Errorf("task manager not initialized (enable taskManager in config)")
+	}
+	var args struct {
+		Period string `json:"period"`
+		UserID string `json:"userId"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.UserID == "" {
+		args.UserID = "default"
+	}
+	if args.Period == "" {
+		args.Period = "daily"
+	}
+
+	reviewResult, err := app.TaskManager.GenerateReview(args.UserID, args.Period)
+	if err != nil {
+		return "", err
+	}
+
+	out, _ := json.MarshalIndent(reviewResult, "", "  ")
+	return string(out), nil
+}
+
+// ============================================================
+// Merged from template.go
+// ============================================================
+
+// expandPrompt replaces template variables in a prompt string.
+func expandPrompt(prompt, jobID, dbPath, agentName, knowledgeDir string, cfg *Config) string {
+	if !strings.Contains(prompt, "{{") {
+		return prompt
+	}
+
+	now := time.Now()
+
+	r := strings.NewReplacer(
+		"{{date}}", now.Format("2006-01-02"),
+		"{{datetime}}", now.Format(time.RFC3339),
+		"{{weekday}}", now.Weekday().String(),
+		"{{knowledge_dir}}", knowledgeDir,
+	)
+	prompt = r.Replace(prompt)
+
+	if jobID != "" && dbPath != "" &&
+		(strings.Contains(prompt, "{{last_output}}") ||
+			strings.Contains(prompt, "{{last_status}}") ||
+			strings.Contains(prompt, "{{last_error}}")) {
+
+		last := history.QueryLastRun(dbPath, jobID)
+		lastOutput := ""
+		lastStatus := ""
+		lastError := ""
+		if last != nil {
+			lastOutput = last.OutputSummary
+			lastStatus = last.Status
+			lastError = last.Error
+		}
+
+		r2 := strings.NewReplacer(
+			"{{last_output}}", lastOutput,
+			"{{last_status}}", lastStatus,
+			"{{last_error}}", lastError,
+		)
+		prompt = r2.Replace(prompt)
+	}
+
+	envRe := regexp.MustCompile(`\{\{env\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+	prompt = envRe.ReplaceAllStringFunc(prompt, func(match string) string {
+		parts := envRe.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return match
+		}
+		return os.Getenv(parts[1])
+	})
+
+	if agentName != "" && cfg != nil {
+		memRe := regexp.MustCompile(`\{\{memory\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+		prompt = memRe.ReplaceAllStringFunc(prompt, func(match string) string {
+			parts := memRe.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			val, _ := getMemory(cfg, agentName, parts[1])
+			if val != "" {
+				recordMemoryAccess(cfg, parts[1])
+			}
+			return val
+		})
+	}
+
+	if cfg != nil && strings.Contains(prompt, "{{rules.") {
+		rulesRe := regexp.MustCompile(`\{\{rules\.([A-Za-z_][A-Za-z0-9_\-]*)\}\}`)
+		prompt = rulesRe.ReplaceAllStringFunc(prompt, func(match string) string {
+			parts := rulesRe.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			path := filepath.Join(cfg.WorkspaceDir, "rules", parts[1]+".md")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return "(rule not found: " + parts[1] + ")"
+			}
+			return string(data)
+		})
+	}
+
+	if cfg != nil && strings.Contains(prompt, "{{skill.") {
+		skillRe := regexp.MustCompile(`\{\{skill\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+		prompt = skillRe.ReplaceAllStringFunc(prompt, func(match string) string {
+			parts := skillRe.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			skill := getSkill(cfg, parts[1])
+			if skill == nil {
+				return match
+			}
+			result, err := executeSkill(context.Background(), *skill, nil)
+			if err != nil || result.Status != "success" {
+				return "(skill error)"
+			}
+			return strings.TrimSpace(result.Output)
+		})
+	}
+
+	if cfg != nil && strings.Contains(prompt, "{{review.digest") {
+		reviewRe := regexp.MustCompile(`\{\{review\.digest(?::(\d+))?\}\}`)
+		prompt = reviewRe.ReplaceAllStringFunc(prompt, func(match string) string {
+			parts := reviewRe.FindStringSubmatch(match)
+			days := 7
+			if len(parts) >= 2 && parts[1] != "" {
+				if d, err := strconv.Atoi(parts[1]); err == nil && d > 0 && d <= 90 {
+					days = d
+				}
+			}
+			return buildReviewDigest(cfg, days)
+		})
+	}
+
+	return prompt
+}
+
+// PromptInfo represents a prompt template file.
+type PromptInfo struct {
+	Name    string `json:"name"`
+	Preview string `json:"preview,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+func promptsDir(cfg *Config) string {
+	dir := filepath.Join(cfg.BaseDir, "prompts")
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func listPrompts(cfg *Config) ([]PromptInfo, error) {
+	dir := promptsDir(cfg)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var prompts []PromptInfo
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".md")
+		preview := ""
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err == nil {
+			preview = string(data)
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			preview = strings.ReplaceAll(preview, "\n", " ")
+		}
+		prompts = append(prompts, PromptInfo{Name: name, Preview: preview})
+	}
+
+	sort.Slice(prompts, func(i, j int) bool {
+		return prompts[i].Name < prompts[j].Name
+	})
+	return prompts, nil
+}
+
+func readPrompt(cfg *Config, name string) (string, error) {
+	path := filepath.Join(promptsDir(cfg), name+".md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("prompt %q not found", name)
+	}
+	return string(data), nil
+}
+
+func writePrompt(cfg *Config, name, content string) error {
+	if name == "" {
+		return fmt.Errorf("prompt name is required")
+	}
+	for _, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return fmt.Errorf("invalid character %q in prompt name (use a-z, 0-9, -, _)", string(r))
+		}
+	}
+	path := filepath.Join(promptsDir(cfg), name+".md")
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func deletePrompt(cfg *Config, name string) error {
+	path := filepath.Join(promptsDir(cfg), name+".md")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("prompt %q not found", name)
+	}
+	return os.Remove(path)
+}
+
+func resolvePromptFile(cfg *Config, promptFile string) (string, error) {
+	if promptFile == "" {
+		return "", nil
+	}
+	name := strings.TrimSuffix(promptFile, ".md")
+	return readPrompt(cfg, name)
+}

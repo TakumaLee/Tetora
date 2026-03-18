@@ -8,19 +8,22 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"tetora/internal/knowledge"
-	"tetora/internal/log"
+	tcrypto "tetora/internal/crypto"
 	"tetora/internal/db"
 	"tetora/internal/integration/drive"
 	"tetora/internal/integration/dropbox"
@@ -31,7 +34,10 @@ import (
 	"tetora/internal/integration/podcast"
 	"tetora/internal/integration/spotify"
 	"tetora/internal/integration/twitter"
+	"tetora/internal/knowledge"
+	"tetora/internal/log"
 	"tetora/internal/mcp"
+	iOAuth "tetora/internal/oauth"
 	"tetora/internal/storage"
 	"tetora/internal/tools"
 	"tetora/internal/voice"
@@ -1942,4 +1948,784 @@ func embeddingMMRLambdaOrDefault(cfg EmbeddingConfig) float64 {
 }
 func embeddingDecayHalfLifeOrDefault(cfg EmbeddingConfig) float64 {
 	return knowledge.EmbeddingConfig(embeddingCfg(cfg)).DecayHalfLifeOrDefault()
+}
+
+// ============================================================
+// Merged from oauth.go
+// ============================================================
+
+// --- OAuth Type aliases ---
+
+type OAuthManager = iOAuth.OAuthManager
+type OAuthToken = iOAuth.OAuthToken
+type OAuthTokenStatus = iOAuth.OAuthTokenStatus
+
+var globalOAuthManager *OAuthManager
+
+var oauthTemplates = iOAuth.OAuthTemplates
+
+func newOAuthManager(cfg *Config) *OAuthManager {
+	iOAuth.EncryptFn = tcrypto.Encrypt
+	iOAuth.DecryptFn = tcrypto.Decrypt
+	return iOAuth.NewOAuthManager(cfg.OAuth, cfg.HistoryDB, cfg.ListenAddr)
+}
+
+func initOAuthTable(dbPath string) error {
+	return iOAuth.InitOAuthTable(dbPath)
+}
+
+func encryptOAuthToken(plaintext, key string) (string, error) {
+	return tcrypto.Encrypt(plaintext, key)
+}
+
+func decryptOAuthToken(ciphertextHex, key string) (string, error) {
+	return tcrypto.Decrypt(ciphertextHex, key)
+}
+
+func storeOAuthToken(dbPath string, token OAuthToken, encKey string) error {
+	return iOAuth.StoreOAuthToken(dbPath, token, encKey)
+}
+
+func loadOAuthToken(dbPath, serviceName, encKey string) (*OAuthToken, error) {
+	return iOAuth.LoadOAuthToken(dbPath, serviceName, encKey)
+}
+
+func deleteOAuthToken(dbPath, serviceName string) error {
+	return iOAuth.DeleteOAuthToken(dbPath, serviceName)
+}
+
+func listOAuthTokenStatuses(dbPath, encKey string) ([]OAuthTokenStatus, error) {
+	return iOAuth.ListOAuthTokenStatuses(dbPath, encKey)
+}
+
+func generateState() (string, error) {
+	return iOAuth.GenerateState()
+}
+
+func toolOAuthStatus(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	statuses, err := listOAuthTokenStatuses(cfg.HistoryDB, cfg.OAuth.EncryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("list oauth statuses: %w", err)
+	}
+
+	if len(statuses) == 0 {
+		return "No OAuth services connected. Configure services in config.json under \"oauth.services\" and use the authorize endpoint to connect.", nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Connected OAuth services (%d):\n", len(statuses)))
+	for _, s := range statuses {
+		status := "connected"
+		if s.ExpiresSoon {
+			status = "expires soon"
+		}
+		sb.WriteString(fmt.Sprintf("  - %s: %s", s.ServiceName, status))
+		if s.Scopes != "" {
+			sb.WriteString(fmt.Sprintf(" (scopes: %s)", s.Scopes))
+		}
+		if s.ExpiresAt != "" {
+			sb.WriteString(fmt.Sprintf(" (expires: %s)", s.ExpiresAt))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String(), nil
+}
+
+func toolOAuthRequest(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Service string `json:"service"`
+		Method  string `json:"method"`
+		URL     string `json:"url"`
+		Body    string `json:"body"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("parse input: %w", err)
+	}
+	if args.Service == "" || args.URL == "" {
+		return "", fmt.Errorf("service and url are required")
+	}
+	if args.Method == "" {
+		args.Method = "GET"
+	}
+
+	app := appFromCtx(ctx)
+	var mgr *OAuthManager
+	if app != nil && app.OAuth != nil {
+		mgr = app.OAuth
+	} else {
+		mgr = newOAuthManager(cfg)
+	}
+	var body io.Reader
+	if args.Body != "" {
+		body = strings.NewReader(args.Body)
+	}
+
+	resp, err := mgr.Request(ctx, args.Service, args.Method, args.URL, body)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024))
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	return fmt.Sprintf("HTTP %d\n%s", resp.StatusCode, string(respBody)), nil
+}
+
+func toolOAuthAuthorize(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Service string `json:"service"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("parse input: %w", err)
+	}
+	if args.Service == "" {
+		return "", fmt.Errorf("service is required")
+	}
+
+	app := appFromCtx(ctx)
+	var mgr *OAuthManager
+	if app != nil && app.OAuth != nil {
+		mgr = app.OAuth
+	} else {
+		mgr = newOAuthManager(cfg)
+	}
+	svcCfg, err := mgr.ResolveServiceConfig(args.Service)
+	if err != nil {
+		return "", err
+	}
+
+	redirectURL := svcCfg.RedirectURL
+	if redirectURL == "" {
+		base := cfg.OAuth.RedirectBase
+		if base == "" {
+			base = "http://localhost" + cfg.ListenAddr
+		}
+		redirectURL = base + "/api/oauth/" + args.Service + "/callback"
+	}
+
+	params := url.Values{
+		"client_id":     {svcCfg.ClientID},
+		"redirect_uri":  {redirectURL},
+		"response_type": {"code"},
+	}
+	if len(svcCfg.Scopes) > 0 {
+		params.Set("scope", strings.Join(svcCfg.Scopes, " "))
+	}
+	for k, v := range svcCfg.ExtraParams {
+		params.Set(k, v)
+	}
+
+	authorizeURL := fmt.Sprintf("%s/api/oauth/%s/authorize", strings.TrimRight(cfg.OAuth.RedirectBase, "/"), args.Service)
+	if cfg.OAuth.RedirectBase == "" {
+		authorizeURL = fmt.Sprintf("http://localhost%s/api/oauth/%s/authorize", cfg.ListenAddr, args.Service)
+	}
+
+	return fmt.Sprintf("To connect %s, visit this URL:\n%s\n\nThe authorization flow will handle CSRF protection and token exchange automatically.", args.Service, authorizeURL), nil
+}
+
+// Ensure *http.Response is used so the import is not flagged unused.
+var _ *http.Response
+
+// ============================================================
+// Merged from gcalendar.go
+// ============================================================
+
+var globalCalendarService *CalendarService
+
+func toolCalendarList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	if !cfg.Calendar.Enabled {
+		return "", fmt.Errorf("calendar integration is not enabled")
+	}
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return "", fmt.Errorf("calendar service not initialized")
+	}
+
+	var args struct {
+		TimeMin    string `json:"timeMin"`
+		TimeMax    string `json:"timeMax"`
+		MaxResults int    `json:"maxResults"`
+		Days       int    `json:"days"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	if args.TimeMin == "" && args.TimeMax == "" {
+		now := time.Now()
+		args.TimeMin = now.Format(time.RFC3339)
+		days := 7
+		if args.Days > 0 {
+			days = args.Days
+		}
+		args.TimeMax = now.AddDate(0, 0, days).Format(time.RFC3339)
+	}
+
+	events, err := app.Calendar.ListEvents(ctx, args.TimeMin, args.TimeMax, args.MaxResults)
+	if err != nil {
+		return "", err
+	}
+
+	if len(events) == 0 {
+		return "No upcoming events found.", nil
+	}
+
+	out, err := json.MarshalIndent(events, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Found %d events:\n%s", len(events), string(out)), nil
+}
+
+func toolCalendarCreate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	if !cfg.Calendar.Enabled {
+		return "", fmt.Errorf("calendar integration is not enabled")
+	}
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return "", fmt.Errorf("calendar service not initialized")
+	}
+
+	var args struct {
+		Summary     string   `json:"summary"`
+		Description string   `json:"description"`
+		Location    string   `json:"location"`
+		Start       string   `json:"start"`
+		End         string   `json:"end"`
+		TimeZone    string   `json:"timeZone"`
+		Attendees   []string `json:"attendees"`
+		AllDay      bool     `json:"allDay"`
+		Text        string   `json:"text"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	var eventInput CalendarEventInput
+
+	if args.Text != "" {
+		parsed, err := parseNaturalSchedule(args.Text)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse schedule: %w", err)
+		}
+		eventInput = *parsed
+	} else {
+		if args.Summary == "" {
+			return "", fmt.Errorf("summary is required")
+		}
+		if args.Start == "" {
+			return "", fmt.Errorf("start time is required")
+		}
+		eventInput = CalendarEventInput{
+			Summary:     args.Summary,
+			Description: args.Description,
+			Location:    args.Location,
+			Start:       args.Start,
+			End:         args.End,
+			TimeZone:    args.TimeZone,
+			Attendees:   args.Attendees,
+			AllDay:      args.AllDay,
+		}
+	}
+
+	if eventInput.TimeZone == "" {
+		eventInput.TimeZone = app.Calendar.TimeZone()
+	}
+
+	ev, err := app.Calendar.CreateEvent(ctx, eventInput)
+	if err != nil {
+		return "", err
+	}
+
+	out, _ := json.MarshalIndent(ev, "", "  ")
+	return fmt.Sprintf("Event created:\n%s", string(out)), nil
+}
+
+func toolCalendarUpdate(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	if !cfg.Calendar.Enabled {
+		return "", fmt.Errorf("calendar integration is not enabled")
+	}
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return "", fmt.Errorf("calendar service not initialized")
+	}
+
+	var args struct {
+		EventID     string   `json:"eventId"`
+		Summary     string   `json:"summary"`
+		Description string   `json:"description"`
+		Location    string   `json:"location"`
+		Start       string   `json:"start"`
+		End         string   `json:"end"`
+		TimeZone    string   `json:"timeZone"`
+		Attendees   []string `json:"attendees"`
+		AllDay      bool     `json:"allDay"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	if args.EventID == "" {
+		return "", fmt.Errorf("eventId is required")
+	}
+
+	eventInput := CalendarEventInput{
+		Summary:     args.Summary,
+		Description: args.Description,
+		Location:    args.Location,
+		Start:       args.Start,
+		End:         args.End,
+		TimeZone:    args.TimeZone,
+		Attendees:   args.Attendees,
+		AllDay:      args.AllDay,
+	}
+
+	if eventInput.TimeZone == "" {
+		eventInput.TimeZone = app.Calendar.TimeZone()
+	}
+
+	ev, err := app.Calendar.UpdateEvent(ctx, args.EventID, eventInput)
+	if err != nil {
+		return "", err
+	}
+
+	out, _ := json.MarshalIndent(ev, "", "  ")
+	return fmt.Sprintf("Event updated:\n%s", string(out)), nil
+}
+
+func toolCalendarDelete(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	if !cfg.Calendar.Enabled {
+		return "", fmt.Errorf("calendar integration is not enabled")
+	}
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return "", fmt.Errorf("calendar service not initialized")
+	}
+
+	var args struct {
+		EventID string `json:"eventId"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	if args.EventID == "" {
+		return "", fmt.Errorf("eventId is required")
+	}
+
+	if err := app.Calendar.DeleteEvent(ctx, args.EventID); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Event %s deleted successfully.", args.EventID), nil
+}
+
+func toolCalendarSearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	if !cfg.Calendar.Enabled {
+		return "", fmt.Errorf("calendar integration is not enabled")
+	}
+	app := appFromCtx(ctx)
+	if app == nil || app.Calendar == nil {
+		return "", fmt.Errorf("calendar service not initialized")
+	}
+
+	var args struct {
+		Query   string `json:"query"`
+		TimeMin string `json:"timeMin"`
+		TimeMax string `json:"timeMax"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	if args.Query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+
+	if args.TimeMin == "" {
+		args.TimeMin = time.Now().AddDate(0, 0, -30).Format(time.RFC3339)
+	}
+	if args.TimeMax == "" {
+		args.TimeMax = time.Now().AddDate(0, 0, 90).Format(time.RFC3339)
+	}
+
+	events, err := app.Calendar.SearchEvents(ctx, args.Query, args.TimeMin, args.TimeMax)
+	if err != nil {
+		return "", err
+	}
+
+	if len(events) == 0 {
+		return fmt.Sprintf("No events found matching %q.", args.Query), nil
+	}
+
+	out, err := json.MarshalIndent(events, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Found %d events matching %q:\n%s", len(events), args.Query, string(out)), nil
+}
+
+// ============================================================
+// Merged from crypto.go
+// ============================================================
+
+var (
+	globalEncKeyMu  sync.RWMutex
+	globalEncKeyVal string
+)
+
+func setGlobalEncryptionKey(key string) {
+	globalEncKeyMu.Lock()
+	globalEncKeyVal = key
+	globalEncKeyMu.Unlock()
+}
+
+func globalEncryptionKey() string {
+	globalEncKeyMu.RLock()
+	defer globalEncKeyMu.RUnlock()
+	return globalEncKeyVal
+}
+
+func encryptField(cfg *Config, value string) string {
+	key := resolveEncryptionKey(cfg)
+	if key == "" || value == "" {
+		return value
+	}
+	enc, err := tcrypto.Encrypt(value, key)
+	if err != nil {
+		return value
+	}
+	return enc
+}
+
+func decryptField(cfg *Config, value string) string {
+	key := resolveEncryptionKey(cfg)
+	if key == "" || value == "" {
+		return value
+	}
+	dec, err := tcrypto.Decrypt(value, key)
+	if err != nil {
+		return value
+	}
+	return dec
+}
+
+func resolveEncryptionKey(cfg *Config) string {
+	if cfg.EncryptionKey != "" {
+		return cfg.EncryptionKey
+	}
+	return cfg.OAuth.EncryptionKey
+}
+
+func cmdMigrateEncrypt() {
+	cfg := loadConfig(findConfigPath())
+	key := resolveEncryptionKey(cfg)
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "Error: no encryptionKey configured. Set it in config.json first.")
+		os.Exit(1)
+	}
+
+	dbPath := cfg.HistoryDB
+	if dbPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: no historyDB configured.")
+		os.Exit(1)
+	}
+
+	total := 0
+
+	rows, err := db.Query(dbPath, `SELECT id, content FROM session_messages WHERE content != ''`)
+	if err == nil {
+		for _, row := range rows {
+			content := jsonStr(row["content"])
+			if content == "" {
+				continue
+			}
+			if _, decErr := hex.DecodeString(content); decErr == nil {
+				continue
+			}
+			enc, err := tcrypto.Encrypt(content, key)
+			if err != nil {
+				continue
+			}
+			id := int(jsonFloat(row["id"]))
+			updateSQL := fmt.Sprintf(`UPDATE session_messages SET content = '%s' WHERE id = %d`,
+				db.Escape(enc), id)
+			db.Query(dbPath, updateSQL)
+			total++
+		}
+	}
+	fmt.Printf("Encrypted %d session messages\n", total)
+
+	contactCount := 0
+	rows, err = db.Query(dbPath, `SELECT id, email, phone, notes FROM contacts`)
+	if err == nil {
+		for _, row := range rows {
+			id := jsonStr(row["id"])
+			email := jsonStr(row["email"])
+			phone := jsonStr(row["phone"])
+			notesVal := jsonStr(row["notes"])
+
+			updates := []string{}
+			if email != "" {
+				if _, decErr := hex.DecodeString(email); decErr != nil {
+					if enc, err := tcrypto.Encrypt(email, key); err == nil {
+						updates = append(updates, fmt.Sprintf("email = '%s'", db.Escape(enc)))
+					}
+				}
+			}
+			if phone != "" {
+				if _, decErr := hex.DecodeString(phone); decErr != nil {
+					if enc, err := tcrypto.Encrypt(phone, key); err == nil {
+						updates = append(updates, fmt.Sprintf("phone = '%s'", db.Escape(enc)))
+					}
+				}
+			}
+			if notesVal != "" {
+				if _, decErr := hex.DecodeString(notesVal); decErr != nil {
+					if enc, err := tcrypto.Encrypt(notesVal, key); err == nil {
+						updates = append(updates, fmt.Sprintf("notes = '%s'", db.Escape(enc)))
+					}
+				}
+			}
+			if len(updates) > 0 {
+				sqlStr := fmt.Sprintf("UPDATE contacts SET %s WHERE id = '%s'",
+					strings.Join(updates, ", "), db.Escape(id))
+				db.Query(dbPath, sqlStr)
+				contactCount++
+			}
+		}
+	}
+	fmt.Printf("Encrypted %d contacts\n", contactCount)
+
+	expenseCount := 0
+	rows, err = db.Query(dbPath, `SELECT rowid, description FROM expenses WHERE description != ''`)
+	if err == nil {
+		for _, row := range rows {
+			desc := jsonStr(row["description"])
+			if desc == "" {
+				continue
+			}
+			if _, decErr := hex.DecodeString(desc); decErr == nil {
+				continue
+			}
+			enc, err := tcrypto.Encrypt(desc, key)
+			if err != nil {
+				continue
+			}
+			id := int(jsonFloat(row["rowid"]))
+			updateSQL := fmt.Sprintf(`UPDATE expenses SET description = '%s' WHERE rowid = %d`,
+				db.Escape(enc), id)
+			db.Query(dbPath, updateSQL)
+			expenseCount++
+		}
+	}
+	fmt.Printf("Encrypted %d expenses\n", expenseCount)
+
+	habitCount := 0
+	rows, err = db.Query(dbPath, `SELECT id, note FROM habit_logs WHERE note != ''`)
+	if err == nil {
+		for _, row := range rows {
+			note := jsonStr(row["note"])
+			if note == "" {
+				continue
+			}
+			if _, decErr := hex.DecodeString(note); decErr == nil {
+				continue
+			}
+			enc, err := tcrypto.Encrypt(note, key)
+			if err != nil {
+				continue
+			}
+			id := jsonStr(row["id"])
+			updateSQL := fmt.Sprintf(`UPDATE habit_logs SET note = '%s' WHERE id = '%s'`,
+				db.Escape(enc), db.Escape(id))
+			db.Query(dbPath, updateSQL)
+			habitCount++
+		}
+	}
+	fmt.Printf("Encrypted %d habit logs\n", habitCount)
+
+	fmt.Printf("\nTotal: %d rows encrypted\n", total+contactCount+expenseCount+habitCount)
+}
+
+// ============================================================
+// Merged from mcp.go
+// ============================================================
+
+// MCPConfigInfo represents summary info about an MCP server config.
+type MCPConfigInfo struct {
+	Name    string          `json:"name"`
+	Command string          `json:"command,omitempty"`
+	Args    string          `json:"args,omitempty"`
+	Config  json.RawMessage `json:"config"`
+}
+
+func listMCPConfigs(cfg *Config) []MCPConfigInfo {
+	cfg.MCPMu.RLock()
+	defer cfg.MCPMu.RUnlock()
+
+	if len(cfg.MCPConfigs) == 0 {
+		return nil
+	}
+
+	var configs []MCPConfigInfo
+	for name, raw := range cfg.MCPConfigs {
+		cmd, mcpArgs := extractMCPSummary(raw)
+		configs = append(configs, MCPConfigInfo{
+			Name:    name,
+			Command: cmd,
+			Args:    mcpArgs,
+			Config:  raw,
+		})
+	}
+
+	sort.Slice(configs, func(i, j int) bool {
+		return configs[i].Name < configs[j].Name
+	})
+	return configs
+}
+
+func getMCPConfig(cfg *Config, name string) (json.RawMessage, error) {
+	cfg.MCPMu.RLock()
+	defer cfg.MCPMu.RUnlock()
+
+	raw, ok := cfg.MCPConfigs[name]
+	if !ok {
+		return nil, fmt.Errorf("MCP config %q not found", name)
+	}
+	return raw, nil
+}
+
+func setMCPConfig(cfg *Config, configPath, name string, config json.RawMessage) error {
+	if name == "" {
+		return fmt.Errorf("MCP name is required")
+	}
+	for _, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return fmt.Errorf("invalid character %q in MCP name (use a-z, 0-9, -, _)", string(r))
+		}
+	}
+	if !json.Valid(config) {
+		return fmt.Errorf("invalid JSON config")
+	}
+
+	if err := updateConfigMCPs(configPath, name, config); err != nil {
+		return err
+	}
+
+	mcpDir := filepath.Join(cfg.BaseDir, "mcp")
+	if err := os.MkdirAll(mcpDir, 0o755); err != nil {
+		return fmt.Errorf("create mcp dir: %w", err)
+	}
+	path := filepath.Join(mcpDir, name+".json")
+	if err := os.WriteFile(path, config, 0o644); err != nil {
+		return fmt.Errorf("write mcp file %q: %w", path, err)
+	}
+
+	cfg.MCPMu.Lock()
+	if cfg.MCPConfigs == nil {
+		cfg.MCPConfigs = make(map[string]json.RawMessage)
+	}
+	cfg.MCPConfigs[name] = config
+	if cfg.MCPPaths == nil {
+		cfg.MCPPaths = make(map[string]string)
+	}
+	cfg.MCPPaths[name] = path
+	cfg.MCPMu.Unlock()
+
+	return nil
+}
+
+func deleteMCPConfig(cfg *Config, configPath, name string) error {
+	cfg.MCPMu.RLock()
+	_, ok := cfg.MCPConfigs[name]
+	cfg.MCPMu.RUnlock()
+	if !ok {
+		return fmt.Errorf("MCP config %q not found", name)
+	}
+
+	if err := updateConfigMCPs(configPath, name, nil); err != nil {
+		return err
+	}
+
+	cfg.MCPMu.Lock()
+	var filePath string
+	if p, ok := cfg.MCPPaths[name]; ok {
+		filePath = p
+		delete(cfg.MCPPaths, name)
+	} else {
+		filePath = filepath.Join(cfg.BaseDir, "mcp", name+".json")
+	}
+	delete(cfg.MCPConfigs, name)
+	cfg.MCPMu.Unlock()
+
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove mcp file %q: %w", filePath, err)
+	}
+
+	return nil
+}
+
+func testMCPConfig(raw json.RawMessage) (bool, string) {
+	cmd, mcpArgs := extractMCPSummary(raw)
+	if cmd == "" {
+		return false, "could not extract command from config"
+	}
+
+	cmdPath, err := exec.LookPath(cmd)
+	if err != nil {
+		return false, fmt.Sprintf("command %q not found in PATH", cmd)
+	}
+
+	var cmdArgsList []string
+	if mcpArgs != "" {
+		cmdArgsList = strings.Fields(mcpArgs)
+	}
+	proc := exec.Command(cmdPath, cmdArgsList...)
+	proc.Env = os.Environ()
+
+	if err := proc.Start(); err != nil {
+		return false, fmt.Sprintf("failed to start: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- proc.Wait() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return false, fmt.Sprintf("process exited: %v", err)
+		}
+		return true, fmt.Sprintf("OK: %s (%s)", cmd, cmdPath)
+	case <-time.After(2 * time.Second):
+		proc.Process.Kill()
+		return true, fmt.Sprintf("OK: %s started successfully (%s)", cmd, cmdPath)
+	}
+}
+
+func extractMCPSummary(raw json.RawMessage) (command, args string) {
+	var wrapper struct {
+		MCPServers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if json.Unmarshal(raw, &wrapper) == nil && len(wrapper.MCPServers) > 0 {
+		for _, srv := range wrapper.MCPServers {
+			return srv.Command, strings.Join(srv.Args, " ")
+		}
+	}
+
+	var flat struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	if json.Unmarshal(raw, &flat) == nil && flat.Command != "" {
+		return flat.Command, strings.Join(flat.Args, " ")
+	}
+
+	return "", ""
 }

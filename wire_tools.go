@@ -4,19 +4,30 @@ package main
 // and registers tools via internal/tools.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"tetora/internal/circuit"
 	"tetora/internal/classify"
+	"tetora/internal/cost"
+	"tetora/internal/db"
 	dtypes "tetora/internal/dispatch"
+	"tetora/internal/estimate"
+	"tetora/internal/health"
+	"tetora/internal/log"
+	iplugin "tetora/internal/plugin"
 	iproactive "tetora/internal/proactive"
 	"tetora/internal/prompt"
+	"tetora/internal/sla"
 	"tetora/internal/tool"
 	"tetora/internal/tools"
 )
@@ -663,4 +674,1062 @@ func cmdProactiveTrigger(cfg *Config, ruleName string) {
 		return
 	}
 	fmt.Printf("Error: HTTP %d\n", resp.StatusCode)
+}
+
+// ============================================================
+// Merged from sse.go
+// ============================================================
+
+// --- SSE Event Types (aliases to internal/dispatch) ---
+
+type SSEEvent = dtypes.SSEEvent
+
+const (
+	SSEStarted           = dtypes.SSEStarted
+	SSEProgress          = dtypes.SSEProgress
+	SSEOutputChunk       = dtypes.SSEOutputChunk
+	SSECompleted         = dtypes.SSECompleted
+	SSEError             = dtypes.SSEError
+	SSEHeartbeat         = dtypes.SSEHeartbeat
+	SSEQueued            = dtypes.SSEQueued
+	SSETaskReceived      = dtypes.SSETaskReceived
+	SSETaskRouting       = dtypes.SSETaskRouting
+	SSEDiscordProcessing = dtypes.SSEDiscordProcessing
+	SSEDiscordReplying   = dtypes.SSEDiscordReplying
+	SSEDashboardKey      = dtypes.SSEDashboardKey
+	SSEToolCall          = dtypes.SSEToolCall
+	SSEToolResult        = dtypes.SSEToolResult
+	SSESessionMessage    = dtypes.SSESessionMessage
+	SSEAgentState        = dtypes.SSEAgentState
+	SSEHeartbeatAlert    = dtypes.SSEHeartbeatAlert
+	SSETaskStalled       = dtypes.SSETaskStalled
+	SSETaskRecovered     = dtypes.SSETaskRecovered
+	SSEWorkerUpdate      = dtypes.SSEWorkerUpdate
+	SSEHookEvent         = dtypes.SSEHookEvent
+	SSEPlanReview        = dtypes.SSEPlanReview
+)
+
+type sseBroker = dtypes.Broker
+
+func newSSEBroker() *sseBroker {
+	return dtypes.NewBroker()
+}
+
+func serveSSE(w http.ResponseWriter, r *http.Request, broker *sseBroker, key string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := broker.Subscribe(key)
+	defer unsub()
+
+	var eventID atomic.Int64
+
+	fmt.Fprintf(w, ": connected to %s\n\n", key)
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			id := eventID.Add(1)
+			writeSSEEvent(w, id, event)
+			flusher.Flush()
+
+			if event.Type == SSECompleted || event.Type == SSEError {
+				return
+			}
+
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+		}
+	}
+}
+
+func serveDashboardSSE(w http.ResponseWriter, r *http.Request, broker *sseBroker) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := broker.Subscribe(SSEDashboardKey)
+	defer unsub()
+
+	var eventID atomic.Int64
+
+	fmt.Fprintf(w, ": connected to dashboard\n\n")
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			id := eventID.Add(1)
+			writeSSEEvent(w, id, event)
+			flusher.Flush()
+
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+		}
+	}
+}
+
+func serveSSEPersistent(w http.ResponseWriter, r *http.Request, broker *sseBroker, key string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, `{"error":"streaming not supported"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, unsub := broker.Subscribe(key)
+	defer unsub()
+
+	var eventID atomic.Int64
+
+	fmt.Fprintf(w, ": connected to %s\n\n", key)
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			id := eventID.Add(1)
+			writeSSEEvent(w, id, event)
+			flusher.Flush()
+		case <-heartbeat.C:
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+		}
+	}
+}
+
+func writeSSEEvent(w http.ResponseWriter, id int64, event SSEEvent) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", id, event.Type, string(data))
+}
+
+// ============================================================
+// Merged from agent_comm.go
+// ============================================================
+
+type spawnTracker = dtypes.SpawnTracker
+
+var globalSpawnTracker = dtypes.NewSpawnTracker()
+
+func newSpawnTracker() *spawnTracker { return dtypes.NewSpawnTracker() }
+
+func childSemConcurrentOrDefault(cfg *Config) int {
+	return dtypes.ChildSemConcurrentOrDefault(cfg)
+}
+
+func maxDepthOrDefault(cfg *Config) int {
+	return dtypes.MaxDepthOrDefault(cfg)
+}
+
+func maxChildrenPerTaskOrDefault(cfg *Config) int {
+	return dtypes.MaxChildrenPerTaskOrDefault(cfg)
+}
+
+func toolAgentList(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	return dtypes.ToolAgentList(ctx, cfg, input)
+}
+
+func toolAgentMessage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	return dtypes.ToolAgentMessage(ctx, cfg, input)
+}
+
+func generateMessageID() string {
+	return dtypes.GenerateMessageID()
+}
+
+func initAgentCommDB(dbPath string) error {
+	return dtypes.InitAgentCommDB(dbPath)
+}
+
+func getAgentMessages(dbPath, role string, markAsRead bool) ([]map[string]any, error) {
+	return dtypes.GetAgentMessages(dbPath, role, markAsRead)
+}
+
+func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Agent    string  `json:"agent"`
+		Role     string  `json:"role"`
+		Prompt   string  `json:"prompt"`
+		Timeout  float64 `json:"timeout"`
+		Depth    int     `json:"depth"`
+		ParentID string  `json:"parentId"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Agent == "" {
+		args.Agent = args.Role
+	}
+	if args.Agent == "" {
+		return "", fmt.Errorf("agent is required")
+	}
+	if args.Prompt == "" {
+		return "", fmt.Errorf("prompt is required")
+	}
+	if args.Timeout <= 0 {
+		if cfg.AgentComm.DefaultTimeout > 0 {
+			args.Timeout = float64(cfg.AgentComm.DefaultTimeout)
+		} else {
+			estimated, err := time.ParseDuration(estimateTimeout(args.Prompt))
+			if err != nil {
+				estimated = time.Hour
+			}
+			args.Timeout = estimated.Seconds()
+		}
+	}
+
+	childDepth := args.Depth + 1
+	maxDepth := maxDepthOrDefault(cfg)
+	if args.Depth >= maxDepth {
+		return "", fmt.Errorf("max nesting depth exceeded: current depth %d >= maxDepth %d", args.Depth, maxDepth)
+	}
+
+	app := appFromCtx(ctx)
+	maxChildren := maxChildrenPerTaskOrDefault(cfg)
+	if args.ParentID != "" {
+		tracker := globalSpawnTracker
+		if app != nil && app.SpawnTracker != nil {
+			tracker = app.SpawnTracker
+		}
+		if !tracker.TrySpawn(args.ParentID, maxChildren) {
+			return "", fmt.Errorf("max children per task exceeded: parent %s already has %d active children (limit %d)",
+				args.ParentID, tracker.Count(args.ParentID), maxChildren)
+		}
+		defer tracker.Release(args.ParentID)
+	}
+
+	if _, ok := cfg.Agents[args.Agent]; !ok {
+		return "", fmt.Errorf("agent %q not found", args.Agent)
+	}
+
+	task := Task{
+		Prompt:   args.Prompt,
+		Agent:    args.Agent,
+		Timeout:  fmt.Sprintf("%.0fs", args.Timeout),
+		Source:   "agent_dispatch",
+		Depth:    childDepth,
+		ParentID: args.ParentID,
+	}
+	fillDefaults(cfg, &task)
+
+	log.Debug("agent_dispatch", "agent", args.Agent, "depth", childDepth, "parentId", args.ParentID)
+
+	requestBody, _ := json.Marshal([]Task{task})
+
+	addr := cfg.ListenAddr
+	if addr == "" {
+		addr = "127.0.0.1:7777"
+	}
+
+	apiURL := fmt.Sprintf("http://%s/dispatch", addr)
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(requestBody))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tetora-Source", "agent_dispatch")
+
+	if cfg.APIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIToken)
+	}
+
+	client := &http.Client{
+		Timeout: time.Duration(args.Timeout+10) * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("dispatch request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("dispatch failed: HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var dispatchResult DispatchResult
+	if err := json.Unmarshal(body, &dispatchResult); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+
+	if len(dispatchResult.Tasks) == 0 {
+		return "", fmt.Errorf("no task result returned")
+	}
+
+	taskResult := dispatchResult.Tasks[0]
+
+	result := map[string]any{
+		"role":       args.Agent,
+		"status":     taskResult.Status,
+		"output":     taskResult.Output,
+		"durationMs": taskResult.DurationMs,
+		"costUsd":    taskResult.CostUSD,
+	}
+	if taskResult.Error != "" {
+		result["error"] = taskResult.Error
+	}
+
+	b, _ := json.Marshal(result)
+	return string(b), nil
+}
+
+// ============================================================
+// Merged from plugin.go
+// ============================================================
+
+type PluginHost = iplugin.Host
+
+func NewPluginHost(cfg *Config) *PluginHost {
+	return iplugin.NewHost(cfg, &pluginToolRegistrar{cfg: cfg})
+}
+
+type pluginToolRegistrar struct {
+	cfg *Config
+}
+
+func (r *pluginToolRegistrar) RegisterPluginTool(toolName, pluginName string, call func(method string, params any) (json.RawMessage, error)) {
+	if r.cfg.Runtime.ToolRegistry == nil {
+		return
+	}
+	r.cfg.Runtime.ToolRegistry.(*ToolRegistry).Register(&ToolDef{
+		Name:        toolName,
+		Description: fmt.Sprintf("Plugin tool (%s) provided by plugin %q", toolName, pluginName),
+		InputSchema: json.RawMessage(`{"type": "object", "properties": {"input": {"type": "object", "description": "Tool input"}}, "required": []}`),
+		Handler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			result, err := call("tool/execute", map[string]any{
+				"name":  toolName,
+				"input": json.RawMessage(input),
+			})
+			if err != nil {
+				return "", err
+			}
+			return string(result), nil
+		},
+		Builtin: false,
+	})
+}
+
+var codeModeCoreTools = map[string]bool{
+	"exec":           true,
+	"read":           true,
+	"write":          true,
+	"web_search":     true,
+	"web_fetch":      true,
+	"memory_search":  true,
+	"agent_dispatch": true,
+	"search_tools":   true,
+	"execute_tool":   true,
+}
+
+const codeModeTotalThreshold = 10
+
+func shouldUseCodeMode(registry *ToolRegistry) bool {
+	if registry == nil {
+		return false
+	}
+	return len(registry.List()) > codeModeTotalThreshold
+}
+
+func toolSearchTools(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+	if args.Limit <= 0 {
+		args.Limit = 10
+	}
+
+	if cfg.Runtime.ToolRegistry == nil {
+		return "[]", nil
+	}
+
+	query := strings.ToLower(args.Query)
+	var results []map[string]string
+
+	for _, t := range cfg.Runtime.ToolRegistry.(*ToolRegistry).List() {
+		nameMatch := strings.Contains(strings.ToLower(t.Name), query)
+		descMatch := strings.Contains(strings.ToLower(t.Description), query)
+		if nameMatch || descMatch {
+			results = append(results, map[string]string{
+				"name":        t.Name,
+				"description": t.Description,
+			})
+			if len(results) >= args.Limit {
+				break
+			}
+		}
+	}
+
+	b, _ := json.Marshal(results)
+	return string(b), nil
+}
+
+func toolExecuteTool(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	var args struct {
+		Name  string          `json:"name"`
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if args.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+
+	if cfg.Runtime.ToolRegistry == nil {
+		return "", fmt.Errorf("tool registry not initialized")
+	}
+
+	t, ok := cfg.Runtime.ToolRegistry.(*ToolRegistry).Get(args.Name)
+	if !ok {
+		return "", fmt.Errorf("tool %q not found", args.Name)
+	}
+
+	if t.Handler == nil {
+		return "", fmt.Errorf("tool %q has no handler", args.Name)
+	}
+
+	return t.Handler(ctx, cfg, args.Input)
+}
+
+func cmdPlugin(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: tetora plugin <list|start|stop> [name]")
+		fmt.Println()
+		fmt.Println("Manage external plugins.")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  list          List configured plugins and their status")
+		fmt.Println("  start <name>  Start a plugin")
+		fmt.Println("  stop <name>   Stop a running plugin")
+		return
+	}
+
+	cfg := loadConfig("")
+
+	switch args[0] {
+	case "list":
+		if len(cfg.Plugins) == 0 {
+			fmt.Println("No plugins configured.")
+			return
+		}
+		fmt.Printf("%-20s %-10s %-10s %-30s %s\n", "NAME", "TYPE", "AUTOSTART", "COMMAND", "TOOLS")
+		for name, pcfg := range cfg.Plugins {
+			toolsList := "-"
+			if len(pcfg.Tools) > 0 {
+				toolsList = strings.Join(pcfg.Tools, ", ")
+			}
+			autoStart := "no"
+			if pcfg.AutoStart {
+				autoStart = "yes"
+			}
+			fmt.Printf("%-20s %-10s %-10s %-30s %s\n", name, pcfg.Type, autoStart, pcfg.Command, toolsList)
+		}
+
+	case "start":
+		if len(args) < 2 {
+			fmt.Println("Usage: tetora plugin start <name>")
+			return
+		}
+		name := args[1]
+		pcfg, ok := cfg.Plugins[name]
+		if !ok {
+			fmt.Printf("Plugin %q not found in config.\n", name)
+			return
+		}
+		fmt.Printf("Starting plugin %q (type=%s, command=%s)...\n", name, pcfg.Type, pcfg.Command)
+		fmt.Println("Note: plugins are managed by the daemon. Use the HTTP API to start plugins at runtime.")
+
+	case "stop":
+		if len(args) < 2 {
+			fmt.Println("Usage: tetora plugin stop <name>")
+			return
+		}
+		name := args[1]
+		if _, ok := cfg.Plugins[name]; !ok {
+			fmt.Printf("Plugin %q not found in config.\n", name)
+			return
+		}
+		fmt.Printf("Note: plugins are managed by the daemon. Use the HTTP API to stop plugins at runtime.\n")
+
+	default:
+		fmt.Printf("Unknown plugin command: %s\n", args[0])
+		fmt.Println("Use: tetora plugin list|start|stop")
+	}
+}
+
+// ============================================================
+// Merged from health.go
+// ============================================================
+
+type slaChecker struct {
+	cfg     *Config
+	inner   *sla.Checker
+	lastRun time.Time
+}
+
+func newSLAChecker(cfg *Config, notifyFn func(string)) *slaChecker {
+	return &slaChecker{
+		cfg:   cfg,
+		inner: sla.NewChecker(cfg.HistoryDB, cfg.SLA, notifyFn),
+	}
+}
+
+func (s *slaChecker) tick(ctx context.Context) {
+	if !s.cfg.SLA.Enabled {
+		return
+	}
+	s.inner.Tick(ctx)
+	s.lastRun = s.inner.LastRun()
+}
+
+func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startTime time.Time) map[string]any {
+	input := health.CheckInput{
+		Version:      tetoraVersion,
+		StartTime:    startTime,
+		BaseDir:      cfg.BaseDir,
+		DiskBlockMB:  cfg.DiskBlockMB,
+		DiskWarnMB:   cfg.DiskWarnMB,
+		DiskBudgetGB: cfg.DiskBudgetGB,
+	}
+
+	if cfg.HistoryDB != "" {
+		input.DBCheck = func() (int, error) {
+			rows, err := db.Query(cfg.HistoryDB, "SELECT count(*) as cnt FROM job_runs;")
+			if err != nil {
+				return 0, err
+			}
+			count := 0
+			if len(rows) > 0 {
+				if v, ok := rows[0]["cnt"]; ok {
+					fmt.Sscanf(fmt.Sprint(v), "%d", &count)
+				}
+			}
+			return count, nil
+		}
+		input.DBPath = cfg.HistoryDB
+	}
+
+	providers := map[string]health.ProviderInfo{}
+	if cfg.Runtime.ProviderRegistry != nil {
+		for name := range cfg.Providers {
+			pi := health.ProviderInfo{
+				Type:   cfg.Providers[name].Type,
+				Status: "ok",
+			}
+			if cfg.Runtime.CircuitRegistry != nil {
+				cb := cfg.Runtime.CircuitRegistry.(*circuit.Registry).Get(name)
+				st := cb.State()
+				pi.Circuit = st.String()
+				if st == circuit.Open {
+					pi.Status = "open"
+				} else if st == circuit.HalfOpen {
+					pi.Status = "recovering"
+				}
+			}
+			providers[name] = pi
+		}
+		if _, exists := providers["claude"]; !exists {
+			pi := health.ProviderInfo{Type: "claude-cli", Status: "ok"}
+			if cfg.Runtime.CircuitRegistry != nil {
+				cb := cfg.Runtime.CircuitRegistry.(*circuit.Registry).Get("claude")
+				st := cb.State()
+				pi.Circuit = st.String()
+				if st == circuit.Open {
+					pi.Status = "open"
+				}
+			}
+			providers["claude"] = pi
+		}
+	}
+	input.Providers = providers
+
+	input.DispatchJSON = state.statusJSON()
+
+	if cron != nil {
+		jobs := cron.ListJobs()
+		running := 0
+		enabled := 0
+		for _, j := range jobs {
+			if j.Running {
+				running++
+			}
+			if j.Enabled {
+				enabled++
+			}
+		}
+		input.Cron = &health.CronSummary{Total: len(jobs), Enabled: enabled, Running: running}
+	}
+
+	if cfg.Runtime.CircuitRegistry != nil {
+		input.CircuitStatus = cfg.Runtime.CircuitRegistry.(*circuit.Registry).Status()
+	}
+
+	if cfg.OfflineQueue.Enabled && cfg.HistoryDB != "" {
+		input.Queue = &health.QueueInfo{
+			Pending: countPendingQueue(cfg.HistoryDB),
+			Max:     cfg.OfflineQueue.MaxItemsOrDefault(),
+		}
+	}
+
+	return health.DeepCheck(input)
+}
+
+func degradeStatus(current, proposed string) string {
+	return health.DegradeStatus(current, proposed)
+}
+
+func diskInfo(path string) map[string]any {
+	return health.DiskInfo(path)
+}
+
+func diskFreeBytes(path string) uint64 {
+	return health.DiskFreeBytes(path)
+}
+
+// ============================================================
+// Merged from cost.go
+// ============================================================
+
+type GlobalBudget = cost.GlobalBudget
+type AgentBudget = cost.AgentBudget
+type WorkflowBudget = cost.WorkflowBudget
+type DowngradeThreshold = cost.DowngradeThreshold
+type BudgetCheckResult = cost.BudgetCheckResult
+type BudgetStatus = cost.BudgetStatus
+type BudgetMeter = cost.BudgetMeter
+type AgentBudgetMeter = cost.AgentBudgetMeter
+type budgetAlertTracker = cost.BudgetAlertTracker
+
+func newBudgetAlertTracker() *budgetAlertTracker { return cost.NewBudgetAlertTracker() }
+
+func querySpend(dbPath, role string) (daily, weekly, monthly float64) {
+	return cost.QuerySpend(dbPath, role)
+}
+
+func queryWorkflowRunSpend(dbPath string, runID int) float64 {
+	return cost.QueryWorkflowRunSpend(dbPath, runID)
+}
+
+func checkBudget(cfg *Config, agentName, workflowName string, workflowRunID int) *BudgetCheckResult {
+	return cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, workflowName, workflowRunID)
+}
+
+func resolveDowngradeModel(ad AutoDowngradeConfig, utilization float64) string {
+	return cost.ResolveDowngradeModel(ad, utilization)
+}
+
+func queryBudgetStatus(cfg *Config) *BudgetStatus {
+	return cost.QueryBudgetStatus(cfg.Budgets, cfg.HistoryDB)
+}
+
+func checkAndNotifyBudgetAlerts(cfg *Config, notifyFn func(string), tracker *budgetAlertTracker) {
+	cost.CheckAndNotifyBudgetAlerts(cfg.Budgets, cfg.HistoryDB, notifyFn, tracker)
+}
+
+func checkPeriodAlert(notifyFn func(string), tracker *budgetAlertTracker, scope, period string, spend, limit float64) {
+	cost.CheckPeriodAlert(notifyFn, tracker, scope, period, spend, limit)
+}
+
+func formatBudgetSummary(cfg *Config) string {
+	return cost.FormatBudgetSummary(queryBudgetStatus(cfg))
+}
+
+func setBudgetPaused(configPath string, paused bool) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+
+	var budgets map[string]json.RawMessage
+	if budgetsRaw, ok := raw["budgets"]; ok {
+		json.Unmarshal(budgetsRaw, &budgets)
+	}
+	if budgets == nil {
+		budgets = make(map[string]json.RawMessage)
+	}
+
+	pausedJSON, _ := json.Marshal(paused)
+	budgets["paused"] = pausedJSON
+
+	budgetsJSON, err := json.Marshal(budgets)
+	if err != nil {
+		return err
+	}
+	raw["budgets"] = budgetsJSON
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+}
+
+type CostEstimate = estimate.CostEstimate
+type EstimateResult = estimate.EstimateResult
+
+func estimateRequestTokens(req ProviderRequest) int {
+	total := len(req.Prompt)/4 + len(req.SystemPrompt)/4
+	for _, m := range req.Messages {
+		total += len(m.Content) / 4
+	}
+	for _, t := range req.Tools {
+		total += (len(t.Name) + len(t.Description) + len(string(t.InputSchema))) / 4
+	}
+	if total < 10 {
+		total = 10
+	}
+	return total
+}
+
+func compressMessages(messages []Message, keepRecent int) []Message {
+	keepMsgs := keepRecent * 2
+	if len(messages) <= keepMsgs {
+		return messages
+	}
+
+	result := make([]Message, len(messages))
+	compressEnd := len(messages) - keepMsgs
+
+	for i, msg := range messages {
+		if i < compressEnd && len(msg.Content) > 256 {
+			summary := fmt.Sprintf(`[{"type":"text","text":"[prior tool exchange, %d bytes compressed]"}]`, len(msg.Content))
+			result[i] = Message{Role: msg.Role, Content: json.RawMessage(summary)}
+		} else {
+			result[i] = msg
+		}
+	}
+	return result
+}
+
+func estimateTaskCost(cfg *Config, task Task, agentName string) CostEstimate {
+	providerName := resolveProviderName(cfg, task, agentName)
+
+	model := task.Model
+	if model == "" {
+		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
+			model = pc.Model
+		}
+	}
+	if model == "" {
+		model = cfg.DefaultModel
+	}
+
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Model != "" {
+			if task.Model == "" || task.Model == cfg.DefaultModel {
+				model = rc.Model
+			}
+		}
+	}
+
+	tokensIn := estimate.InputTokens(task.Prompt, task.SystemPrompt)
+
+	tokensOut := estimate.QueryModelAvgOutput(cfg.HistoryDB, model)
+	if tokensOut == 0 {
+		tokensOut = cfg.Estimate.DefaultOutputTokensOrDefault()
+	}
+
+	pricing := estimate.ResolvePricing(cfg.Pricing, model)
+
+	costUSD := float64(tokensIn)*pricing.InputPer1M/1_000_000 +
+		float64(tokensOut)*pricing.OutputPer1M/1_000_000
+
+	return CostEstimate{
+		Name:               task.Name,
+		Provider:           providerName,
+		Model:              model,
+		EstimatedCostUSD:   costUSD,
+		EstimatedTokensIn:  tokensIn,
+		EstimatedTokensOut: tokensOut,
+		Breakdown: fmt.Sprintf("~%d in + ~%d out @ $%.2f/$%.2f per 1M",
+			tokensIn, tokensOut, pricing.InputPer1M, pricing.OutputPer1M),
+	}
+}
+
+func estimateTasks(cfg *Config, tasks []Task) *EstimateResult {
+	result := &EstimateResult{}
+
+	for _, task := range tasks {
+		fillDefaults(cfg, &task)
+		agentName := task.Agent
+
+		if agentName == "" && cfg.SmartDispatch.Enabled {
+			classifyModel := cfg.DefaultModel
+			if rc, ok := cfg.Agents[cfg.SmartDispatch.Coordinator]; ok && rc.Model != "" {
+				classifyModel = rc.Model
+			}
+			classifyPricing := estimate.ResolvePricing(cfg.Pricing, classifyModel)
+			classifyCost := float64(500)*classifyPricing.InputPer1M/1_000_000 +
+				float64(50)*classifyPricing.OutputPer1M/1_000_000
+			result.ClassifyCost += classifyCost
+
+			if kr := classifyByKeywords(cfg, task.Prompt); kr != nil {
+				agentName = kr.Agent
+			} else {
+				agentName = cfg.SmartDispatch.DefaultAgent
+			}
+		}
+
+		est := estimateTaskCost(cfg, task, agentName)
+		result.Tasks = append(result.Tasks, est)
+		result.TotalEstimatedCost += est.EstimatedCostUSD
+	}
+
+	result.TotalEstimatedCost += result.ClassifyCost
+	return result
+}
+
+// ============================================================
+// Merged from queue.go
+// ============================================================
+
+type QueueItem = dtypes.QueueItem
+
+const maxQueueRetries = dtypes.MaxQueueRetries
+
+func initQueueDB(dbPath string) error {
+	return dtypes.InitQueueDB(dbPath)
+}
+
+func enqueueTask(dbPath string, task Task, agentName string, priority int) error {
+	taskBytes, err := json.Marshal(task)
+	if err != nil {
+		return fmt.Errorf("marshal task: %w", err)
+	}
+	return dtypes.EnqueueTask(dbPath, string(taskBytes), task.Source, agentName, priority)
+}
+
+func dequeueNext(dbPath string) *QueueItem {
+	return dtypes.DequeueNext(dbPath)
+}
+
+func queryQueue(dbPath, status string) []QueueItem {
+	return dtypes.QueryQueue(dbPath, status)
+}
+
+func queryQueueItem(dbPath string, id int) *QueueItem {
+	return dtypes.QueryQueueItem(dbPath, id)
+}
+
+func updateQueueStatus(dbPath string, id int, status, errMsg string) {
+	dtypes.UpdateQueueStatus(dbPath, id, status, errMsg)
+}
+
+func incrementQueueRetry(dbPath string, id int, status, errMsg string) {
+	dtypes.IncrementQueueRetry(dbPath, id, status, errMsg)
+}
+
+func deleteQueueItem(dbPath string, id int) error {
+	return dtypes.DeleteQueueItem(dbPath, id)
+}
+
+func cleanupExpiredQueue(dbPath string, ttl time.Duration) int {
+	return dtypes.CleanupExpiredQueue(dbPath, ttl)
+}
+
+func cleanupOldQueueItems(dbPath string, days int) {
+	dtypes.CleanupOldQueueItems(dbPath, days)
+}
+
+func countPendingQueue(dbPath string) int {
+	return dtypes.CountPendingQueue(dbPath)
+}
+
+func isQueueFull(dbPath string, maxItems int) bool {
+	return dtypes.IsQueueFull(dbPath, maxItems)
+}
+
+func isAllProvidersUnavailable(errMsg string) bool {
+	return dtypes.IsAllProvidersUnavailable(errMsg)
+}
+
+// queueDrainer processes offline queue items when providers recover.
+type queueDrainer struct {
+	cfg      *Config
+	sem      chan struct{}
+	childSem chan struct{}
+	state    *dispatchState
+	notifyFn func(string)
+	ttl      time.Duration
+}
+
+func (d *queueDrainer) anyProviderAvailable() bool {
+	if d.cfg.Runtime.CircuitRegistry == nil {
+		return true
+	}
+	for name := range d.cfg.Providers {
+		cb := d.cfg.Runtime.CircuitRegistry.(*circuit.Registry).Get(name)
+		if cb.State() != circuit.Open {
+			return true
+		}
+	}
+	return false
+}
+
+func (d *queueDrainer) run(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	log.Info("queue drainer started", "ttl", d.ttl.String())
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.tick(ctx)
+		}
+	}
+}
+
+func (d *queueDrainer) tick(ctx context.Context) {
+	dbPath := d.cfg.HistoryDB
+	if dbPath == "" {
+		return
+	}
+
+	expired := cleanupExpiredQueue(dbPath, d.ttl)
+	if expired > 0 {
+		log.Warn("queue items expired", "count", expired)
+		if d.notifyFn != nil {
+			d.notifyFn(fmt.Sprintf("Offline queue: %d item(s) expired (TTL %s)", expired, d.ttl.String()))
+		}
+	}
+
+	if !d.anyProviderAvailable() {
+		return
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		item := dequeueNext(dbPath)
+		if item == nil {
+			return
+		}
+
+		d.processItem(ctx, item)
+	}
+}
+
+func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
+	var task Task
+	if err := json.Unmarshal([]byte(item.TaskJSON), &task); err != nil {
+		log.Error("queue: bad task JSON", "id", item.ID, "error", err)
+		updateQueueStatus(d.cfg.HistoryDB, item.ID, "failed", "invalid task JSON: "+err.Error())
+		return
+	}
+
+	task.ID = newUUID()
+	task.SessionID = newUUID()
+	task.Source = "queue:" + task.Source
+
+	log.InfoCtx(ctx, "queue: retrying task", "queueId", item.ID, "taskId", task.ID[:8], "name", task.Name, "retry", item.RetryCount+1)
+
+	result := runSingleTask(ctx, d.cfg, task, d.sem, d.childSem, item.AgentName)
+
+	if result.Status == "success" {
+		updateQueueStatus(d.cfg.HistoryDB, item.ID, "completed", "")
+		log.InfoCtx(ctx, "queue: task succeeded", "queueId", item.ID, "taskId", task.ID[:8])
+
+		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
+		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.AgentName, task, result,
+			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+		recordSessionActivity(d.cfg.HistoryDB, task, result, item.AgentName)
+
+		if d.notifyFn != nil {
+			d.notifyFn(fmt.Sprintf("Offline queue: task %q completed successfully (retry #%d)", task.Name, item.RetryCount+1))
+		}
+	} else if isAllProvidersUnavailable(result.Error) {
+		if item.RetryCount+1 >= maxQueueRetries {
+			incrementQueueRetry(d.cfg.HistoryDB, item.ID, "failed", result.Error)
+			log.WarnCtx(ctx, "queue: task failed after max retries", "queueId", item.ID, "retries", maxQueueRetries)
+			if d.notifyFn != nil {
+				d.notifyFn(fmt.Sprintf("Offline queue: task %q failed after %d retries: %s",
+					task.Name, maxQueueRetries, truncate(result.Error, 200)))
+			}
+		} else {
+			incrementQueueRetry(d.cfg.HistoryDB, item.ID, "pending", result.Error)
+			log.InfoCtx(ctx, "queue: task still unavailable, re-queued", "queueId", item.ID, "retry", item.RetryCount+1)
+		}
+	} else {
+		incrementQueueRetry(d.cfg.HistoryDB, item.ID, "failed", result.Error)
+		log.WarnCtx(ctx, "queue: task failed with non-provider error", "queueId", item.ID, "error", result.Error)
+
+		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
+		recordHistory(d.cfg.HistoryDB, task.ID, task.Name, task.Source, item.AgentName, task, result,
+			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+	}
 }
