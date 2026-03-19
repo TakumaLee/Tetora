@@ -11,8 +11,10 @@ import (
 
 // MemoryEntry represents a single memory key/value pair.
 type MemoryEntry struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key          string `json:"key"`
+	Value        string `json:"value"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+	LastAccessed string `json:"lastAccessed,omitempty"`
 }
 
 // MemoryDeps holds the external root functions required by memory tool handlers.

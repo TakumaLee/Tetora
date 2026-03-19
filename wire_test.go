@@ -42,6 +42,7 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/metrics"
 	"tetora/internal/provider"
+	"tetora/internal/retention"
 	"tetora/internal/scheduling"
 	"tetora/internal/sla"
 	"tetora/internal/storage"
@@ -7939,6 +7940,138 @@ func TestMemorySpecialChars(t *testing.T) {
 	got, _ := getMemory(cfg, "amber", "quote_test")
 	if got != val {
 		t.Errorf("got %q, want %q", got, val)
+	}
+}
+
+func TestMemoryCreatedAt(t *testing.T) {
+	cfg := tempMemoryCfg(t)
+
+	if err := setMemory(cfg, "amber", "test_key", "test value"); err != nil {
+		t.Fatalf("setMemory: %v", err)
+	}
+
+	path := filepath.Join(cfg.WorkspaceDir, "memory", "test_key.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	m := parseMemoryMeta(data)
+	if m.CreatedAt == "" {
+		t.Fatal("expected created_at in frontmatter, got empty")
+	}
+	if _, err := time.Parse(time.RFC3339, m.CreatedAt); err != nil {
+		t.Fatalf("created_at is not valid RFC3339: %v", err)
+	}
+	if m.Body != "test value" {
+		t.Errorf("body: got %q, want %q", m.Body, "test value")
+	}
+}
+
+func TestMemoryCreatedAtPreservedOnUpdate(t *testing.T) {
+	cfg := tempMemoryCfg(t)
+
+	setMemory(cfg, "amber", "key1", "first value")
+
+	path := filepath.Join(cfg.WorkspaceDir, "memory", "key1.md")
+	data1, _ := os.ReadFile(path)
+	m1 := parseMemoryMeta(data1)
+	original := m1.CreatedAt
+
+	// Small sleep to ensure time difference if re-stamped.
+	time.Sleep(10 * time.Millisecond)
+
+	setMemory(cfg, "amber", "key1", "second value")
+
+	data2, _ := os.ReadFile(path)
+	m2 := parseMemoryMeta(data2)
+
+	if m2.CreatedAt != original {
+		t.Errorf("created_at changed on update: %q -> %q", original, m2.CreatedAt)
+	}
+	if m2.Body != "second value" {
+		t.Errorf("body not updated: got %q", m2.Body)
+	}
+}
+
+func TestSearchMemoryDecayOrdering(t *testing.T) {
+	cfg := tempMemoryCfg(t)
+
+	// Write two entries with same content but different created_at.
+	dir := filepath.Join(cfg.WorkspaceDir, "memory")
+
+	old := time.Now().AddDate(0, -6, 0).UTC().Format(time.RFC3339)   // 6 months ago
+	fresh := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339) // 1 hour ago
+
+	os.WriteFile(filepath.Join(dir, "old_note.md"),
+		[]byte("---\ncreated_at: "+old+"\n---\nalpha beta gamma"), 0o644)
+	os.WriteFile(filepath.Join(dir, "new_note.md"),
+		[]byte("---\ncreated_at: "+fresh+"\n---\nalpha beta gamma"), 0o644)
+
+	results, err := searchMemoryFS(cfg, "", "alpha")
+	if err != nil {
+		t.Fatalf("searchMemoryFS: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Key != "new_note" {
+		t.Errorf("expected new_note first (higher score), got %q", results[0].Key)
+	}
+	if results[1].Key != "old_note" {
+		t.Errorf("expected old_note second (lower score), got %q", results[1].Key)
+	}
+}
+
+func TestPruneByScore(t *testing.T) {
+	dir := t.TempDir()
+	wsDir := filepath.Join(dir, "workspace")
+	memDir := filepath.Join(wsDir, "memory")
+	os.MkdirAll(memDir, 0o755)
+
+	// Create a very old entry (should be pruned) and a fresh one (should survive).
+	veryOld := time.Now().AddDate(-1, 0, 0).UTC().Format(time.RFC3339) // 1 year ago
+	fresh := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+
+	os.WriteFile(filepath.Join(memDir, "stale.md"),
+		[]byte("---\ncreated_at: "+veryOld+"\n---\nold data"), 0o644)
+	os.WriteFile(filepath.Join(memDir, "fresh.md"),
+		[]byte("---\ncreated_at: "+fresh+"\n---\nnew data"), 0o644)
+	os.WriteFile(filepath.Join(memDir, "permanent.md"),
+		[]byte("---\npriority: P0\ncreated_at: "+veryOld+"\n---\nkept forever"), 0o644)
+
+	hooks := retention.Hooks{
+		LoadMemoryAccessLog: func(_ string) map[string]string { return map[string]string{} },
+		SaveMemoryAccessLog: func(_ string, _ map[string]string) {},
+		ParseMemoryFrontmatter: parseMemoryFrontmatter,
+		ParseMemoryMeta: func(data []byte) (string, string, string) {
+			m := parseMemoryMeta(data)
+			return m.Priority, m.CreatedAt, m.Body
+		},
+		BuildMemoryFrontmatter: buildMemoryFrontmatter,
+	}
+
+	// halfLife=30 days, minScore=0.01 → 1 year old entry score ≈ 0.5^(365/30) ≈ 0.00008 < 0.01
+	pruned, err := retention.PruneByScore(wsDir, 30.0, 0.01, hooks)
+	if err != nil {
+		t.Fatalf("PruneByScore: %v", err)
+	}
+
+	if pruned != 1 {
+		t.Errorf("expected 1 pruned, got %d", pruned)
+	}
+
+	// stale.md should be gone.
+	if _, err := os.Stat(filepath.Join(memDir, "stale.md")); !os.IsNotExist(err) {
+		t.Error("stale.md should have been deleted")
+	}
+	// fresh.md should remain.
+	if _, err := os.Stat(filepath.Join(memDir, "fresh.md")); err != nil {
+		t.Error("fresh.md should still exist")
+	}
+	// permanent.md (P0) should remain.
+	if _, err := os.Stat(filepath.Join(memDir, "permanent.md")); err != nil {
+		t.Error("permanent.md (P0) should still exist")
 	}
 }
 

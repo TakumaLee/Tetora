@@ -18,6 +18,8 @@ import (
 	"tetora/internal/session"
 	"tetora/internal/upload"
 	"tetora/internal/version"
+
+	"math"
 )
 
 // MemoryEntry represents a key-value memory entry for export.
@@ -76,6 +78,9 @@ type Hooks struct {
 	ParseMemoryFrontmatter func(data []byte) (priority string, body string)
 	// BuildMemoryFrontmatter creates frontmatter + body content.
 	BuildMemoryFrontmatter func(priority, body string) string
+	// ParseMemoryMeta extracts priority, created_at, and body from a memory file.
+	// Optional — if nil, falls back to ParseMemoryFrontmatter.
+	ParseMemoryMeta func(data []byte) (priority, createdAt, body string)
 }
 
 // Days returns the configured value, or the fallback if not set.
@@ -353,6 +358,87 @@ func CleanupStaleMemory(workspaceDir string, days int, h Hooks) (int, error) {
 	return archived, nil
 }
 
+// PruneByScore removes memory entries whose temporal decay score falls below minScore.
+// P0 (permanent) entries are always skipped. Returns count of pruned entries.
+func PruneByScore(workspaceDir string, halfLifeDays, minScore float64, h Hooks) (int, error) {
+	if workspaceDir == "" || minScore <= 0 {
+		return 0, nil
+	}
+
+	memDir := filepath.Join(workspaceDir, "memory")
+	accessLog := h.LoadMemoryAccessLog(workspaceDir)
+	pruned := 0
+
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		key := strings.TrimSuffix(e.Name(), ".md")
+
+		data, err := os.ReadFile(filepath.Join(memDir, e.Name()))
+		if err != nil {
+			continue
+		}
+
+		// Parse priority and created_at.
+		var priority, createdAt string
+		if h.ParseMemoryMeta != nil {
+			priority, createdAt, _ = h.ParseMemoryMeta(data)
+		} else {
+			priority, _ = h.ParseMemoryFrontmatter(data)
+		}
+
+		if priority == "P0" {
+			continue
+		}
+
+		// Determine reference time: lastAccessed > createdAt > file modtime.
+		var refTime time.Time
+		if ts, ok := accessLog[key]; ok {
+			if t, err := time.Parse(time.RFC3339, ts); err == nil {
+				refTime = t
+			}
+		}
+		if refTime.IsZero() && createdAt != "" {
+			if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+				refTime = t
+			}
+		}
+		if refTime.IsZero() {
+			if info, err := e.Info(); err == nil {
+				refTime = info.ModTime()
+			} else {
+				continue
+			}
+		}
+
+		// Compute decay: score=1.0 decayed over time.
+		ageDays := time.Since(refTime).Hours() / 24.0
+		score := math.Pow(0.5, ageDays/halfLifeDays)
+
+		if score >= minScore {
+			continue
+		}
+
+		os.Remove(filepath.Join(memDir, e.Name()))
+		delete(accessLog, key)
+		pruned++
+	}
+
+	if pruned > 0 {
+		h.SaveMemoryAccessLog(workspaceDir, accessLog)
+	}
+	return pruned, nil
+}
+
 // Run executes all retention cleanups and returns results.
 func Run(cfg *config.Config, h Hooks) []Result {
 	var results []Result
@@ -456,6 +542,20 @@ func Run(cfg *config.Config, h Hooks) []Result {
 		results = append(results, Result{Table: "memory", Error: err.Error()})
 	} else {
 		results = append(results, Result{Table: "memory", Deleted: memArchived})
+	}
+
+	// Score-based memory pruning
+	td := cfg.Embedding.TemporalDecay
+	if td.Enabled && td.MinScore > 0 {
+		halfLife := td.HalfLifeDays
+		if halfLife <= 0 {
+			halfLife = 30.0
+		}
+		if pruned, err := PruneByScore(cfg.WorkspaceDir, halfLife, td.MinScore, h); err != nil {
+			results = append(results, Result{Table: "memory_prune", Error: err.Error()})
+		} else if pruned > 0 {
+			results = append(results, Result{Table: "memory_prune", Deleted: pruned})
+		}
 	}
 
 	// Claude CLI session artifacts

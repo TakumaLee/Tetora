@@ -4000,48 +4000,80 @@ func buildIntegrationDeps(cfg *Config) tools.IntegrationDeps {
 
 // MemoryEntry represents a key-value memory entry.
 type MemoryEntry struct {
-	Key       string `json:"key"`
-	Value     string `json:"value"`
-	Priority  string `json:"priority,omitempty"` // P0=permanent, P1=active(default), P2=stale
-	UpdatedAt string `json:"updatedAt"`
+	Key          string `json:"key"`
+	Value        string `json:"value"`
+	Priority     string `json:"priority,omitempty"` // P0=permanent, P1=active(default), P2=stale
+	UpdatedAt    string `json:"updatedAt"`
+	CreatedAt    string `json:"createdAt,omitempty"`
+	LastAccessed string `json:"lastAccessed,omitempty"`
+}
+
+// memoryMeta holds parsed frontmatter fields for internal use.
+type memoryMeta struct {
+	Priority  string
+	CreatedAt string
+	Body      string
+}
+
+// parseMemoryMeta extracts priority and created_at from YAML-like frontmatter.
+func parseMemoryMeta(data []byte) memoryMeta {
+	s := string(data)
+	if !strings.HasPrefix(s, "---\n") {
+		return memoryMeta{Priority: "P1", Body: s}
+	}
+	end := strings.Index(s[4:], "\n---\n")
+	if end < 0 {
+		return memoryMeta{Priority: "P1", Body: s}
+	}
+	front := s[4 : 4+end]
+	body := s[4+end+5:] // skip past closing "---\n"
+
+	m := memoryMeta{Priority: "P1", Body: body}
+	for _, line := range strings.Split(front, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "priority:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "priority:"))
+			if val == "P0" || val == "P1" || val == "P2" {
+				m.Priority = val
+			}
+		}
+		if strings.HasPrefix(line, "created_at:") {
+			m.CreatedAt = strings.TrimSpace(strings.TrimPrefix(line, "created_at:"))
+		}
+	}
+	return m
 }
 
 // parseMemoryFrontmatter extracts priority from YAML-like frontmatter.
 // Returns the priority string and the body without frontmatter.
 // If no frontmatter is present, returns "P1" (default) and the full data.
 func parseMemoryFrontmatter(data []byte) (priority string, body string) {
-	s := string(data)
-	if !strings.HasPrefix(s, "---\n") {
-		return "P1", s
-	}
-	end := strings.Index(s[4:], "\n---\n")
-	if end < 0 {
-		return "P1", s
-	}
-	front := s[4 : 4+end]
-	body = s[4+end+5:] // skip past closing "---\n"
-
-	// Parse simple key: value pairs from frontmatter.
-	priority = "P1"
-	for _, line := range strings.Split(front, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "priority:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "priority:"))
-			if val == "P0" || val == "P1" || val == "P2" {
-				priority = val
-			}
-		}
-	}
-	return priority, body
+	m := parseMemoryMeta(data)
+	return m.Priority, m.Body
 }
 
 // buildMemoryFrontmatter creates frontmatter + body content.
 func buildMemoryFrontmatter(priority, body string) string {
-	if priority == "" || priority == "P1" {
-		// P1 is default — omit frontmatter for backward compatibility.
+	return buildMemoryFrontmatterFull(priority, "", body)
+}
+
+// buildMemoryFrontmatterFull creates frontmatter with priority and optional created_at.
+func buildMemoryFrontmatterFull(priority, createdAt, body string) string {
+	needsFrontmatter := (priority != "" && priority != "P1") || createdAt != ""
+	if !needsFrontmatter {
 		return body
 	}
-	return "---\npriority: " + priority + "\n---\n" + body
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	if priority != "" && priority != "P1" {
+		sb.WriteString("priority: " + priority + "\n")
+	}
+	if createdAt != "" {
+		sb.WriteString("created_at: " + createdAt + "\n")
+	}
+	sb.WriteString("---\n")
+	sb.WriteString(body)
+	return sb.String()
 }
 
 // --- Get ---
@@ -4067,18 +4099,24 @@ func setMemory(cfg *Config, role, key, value string, priority ...string) error {
 
 	path := filepath.Join(dir, sanitizeKey(key)+".md")
 
-	// Determine priority: explicit arg > existing frontmatter > default P1.
+	// Determine priority and created_at: preserve existing values.
 	pri := ""
+	createdAt := ""
+	if existing, err := os.ReadFile(path); err == nil {
+		m := parseMemoryMeta(existing)
+		pri = m.Priority
+		createdAt = m.CreatedAt
+	}
 	if len(priority) > 0 && priority[0] != "" {
 		pri = priority[0]
-	} else {
-		// Preserve existing priority if file exists.
-		if existing, err := os.ReadFile(path); err == nil {
-			pri, _ = parseMemoryFrontmatter(existing)
-		}
 	}
 
-	content := buildMemoryFrontmatter(pri, value)
+	// New file: stamp created_at.
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	content := buildMemoryFrontmatterFull(pri, createdAt, value)
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
@@ -4095,6 +4133,8 @@ func listMemory(cfg *Config, role string) ([]MemoryEntry, error) {
 		return nil, err
 	}
 
+	accessLog := loadMemoryAccessLog(cfg)
+
 	var result []MemoryEntry
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
@@ -4105,18 +4145,28 @@ func listMemory(cfg *Config, role string) ([]MemoryEntry, error) {
 		if err != nil {
 			continue
 		}
-		priority, body := parseMemoryFrontmatter(data)
+		m := parseMemoryMeta(data)
 		info, _ := e.Info()
 		updatedAt := ""
 		if info != nil {
 			updatedAt = info.ModTime().Format(time.RFC3339)
 		}
-		result = append(result, MemoryEntry{
-			Key:       key,
-			Value:     body,
-			Priority:  priority,
-			UpdatedAt: updatedAt,
-		})
+
+		// CreatedAt: frontmatter > file modtime fallback.
+		createdAt := m.CreatedAt
+		if createdAt == "" && info != nil {
+			createdAt = info.ModTime().Format(time.RFC3339)
+		}
+
+		entry := MemoryEntry{
+			Key:          key,
+			Value:        m.Body,
+			Priority:     m.Priority,
+			UpdatedAt:    updatedAt,
+			CreatedAt:    createdAt,
+			LastAccessed: accessLog[key],
+		}
+		result = append(result, entry)
 	}
 	return result, nil
 }
@@ -4135,21 +4185,86 @@ func deleteMemory(cfg *Config, role, key string) error {
 
 // --- Search ---
 
-// searchMemory searches memory files by content.
+// memorySearchScore computes a TF-like relevance score for a query against text.
+// Returns 0 if no match.
+func memorySearchScore(text, query string) float64 {
+	text = strings.ToLower(text)
+	query = strings.ToLower(query)
+	terms := strings.Fields(query)
+	if len(terms) == 0 {
+		return 0
+	}
+	tokens := strings.Fields(text)
+	if len(tokens) == 0 {
+		return 0
+	}
+	hits := 0
+	for _, term := range terms {
+		for _, tok := range tokens {
+			if strings.Contains(tok, term) {
+				hits++
+			}
+		}
+	}
+	if hits == 0 {
+		return 0
+	}
+	return float64(hits) / float64(len(tokens))
+}
+
+// memoryReferenceTime returns the best available timestamp for decay calculation.
+// Priority: lastAccessed > createdAt > now (no decay).
+func memoryReferenceTime(e MemoryEntry) time.Time {
+	if e.LastAccessed != "" {
+		if t, err := time.Parse(time.RFC3339, e.LastAccessed); err == nil {
+			return t
+		}
+	}
+	if e.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, e.CreatedAt); err == nil {
+			return t
+		}
+	}
+	// No timestamp available — no decay penalty.
+	return time.Now()
+}
+
+// searchMemoryFS searches memory files by content with temporal decay scoring.
 func searchMemoryFS(cfg *Config, role, query string) ([]MemoryEntry, error) {
 	all, err := listMemory(cfg, role)
 	if err != nil {
 		return nil, err
 	}
-	query = strings.ToLower(query)
-	var results []MemoryEntry
-	for _, e := range all {
-		if strings.Contains(strings.ToLower(e.Key), query) ||
-			strings.Contains(strings.ToLower(e.Value), query) {
-			results = append(results, e)
-		}
+
+	halfLife := 30.0
+	if cfg.Embedding.TemporalDecay.HalfLifeDays > 0 {
+		halfLife = cfg.Embedding.TemporalDecay.HalfLifeDays
 	}
-	return results, nil
+
+	type scored struct {
+		entry MemoryEntry
+		score float64
+	}
+	var results []scored
+	for _, e := range all {
+		s := memorySearchScore(e.Key+" "+e.Value, query)
+		if s <= 0 {
+			continue
+		}
+		ref := memoryReferenceTime(e)
+		s = temporalDecay(s, ref, halfLife)
+		results = append(results, scored{entry: e, score: s})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].score > results[j].score
+	})
+
+	out := make([]MemoryEntry, len(results))
+	for i, r := range results {
+		out[i] = r.entry
+	}
+	return out, nil
 }
 
 // sanitizeKey sanitizes a memory key for use as a filename.
@@ -7288,6 +7403,10 @@ func retentionHooks(cfg *Config) retention.Hooks {
 		SaveMemoryAccessLog:    func(workspaceDir string, log map[string]string) { saveMemoryAccessLog(cfg, log) },
 		ParseMemoryFrontmatter: parseMemoryFrontmatter,
 		BuildMemoryFrontmatter: buildMemoryFrontmatter,
+		ParseMemoryMeta: func(data []byte) (priority, createdAt, body string) {
+			m := parseMemoryMeta(data)
+			return m.Priority, m.CreatedAt, m.Body
+		},
 	}
 }
 

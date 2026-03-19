@@ -44,6 +44,7 @@ type MMRConfig struct {
 type TemporalConfig struct {
 	Enabled      bool    `json:"enabled,omitempty"`
 	HalfLifeDays float64 `json:"halfLifeDays,omitempty"`
+	MinScore     float64 `json:"minScore,omitempty"` // 0 = disabled, e.g. 0.01
 }
 
 func (cfg EmbeddingConfig) MmrLambdaOrDefault() float64 {
