@@ -115,6 +115,79 @@ func newDispatchState() *dispatchState {
 	}
 }
 
+// --- Multi-tenant dispatch manager ---
+
+// dispatchManager manages per-client dispatch state, semaphores, and SSE brokers.
+// Each client gets its own isolated dispatchState and concurrency limits.
+type dispatchManager struct {
+	mu            sync.RWMutex
+	states        map[string]*dispatchState
+	semaphores    map[string]chan struct{}
+	childSems     map[string]chan struct{}
+	maxConcurrent int
+	childSemSize  int
+}
+
+func newDispatchManager(maxConcurrent, childSemSize int) *dispatchManager {
+	return &dispatchManager{
+		states:        make(map[string]*dispatchState),
+		semaphores:    make(map[string]chan struct{}),
+		childSems:     make(map[string]chan struct{}),
+		maxConcurrent: maxConcurrent,
+		childSemSize:  childSemSize,
+	}
+}
+
+// getOrCreate returns the dispatch state, main semaphore, and child semaphore
+// for the given client ID. Creates them lazily if they don't exist.
+func (dm *dispatchManager) getOrCreate(clientID string) (*dispatchState, chan struct{}, chan struct{}) {
+	dm.mu.RLock()
+	state, ok := dm.states[clientID]
+	if ok {
+		sem := dm.semaphores[clientID]
+		childSem := dm.childSems[clientID]
+		dm.mu.RUnlock()
+		return state, sem, childSem
+	}
+	dm.mu.RUnlock()
+
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	// Double-checked locking.
+	if state, ok = dm.states[clientID]; ok {
+		return state, dm.semaphores[clientID], dm.childSems[clientID]
+	}
+	state = newDispatchState()
+	state.broker = newSSEBroker()
+	sem := make(chan struct{}, dm.maxConcurrent)
+	childSem := make(chan struct{}, dm.childSemSize)
+	dm.states[clientID] = state
+	dm.semaphores[clientID] = sem
+	dm.childSems[clientID] = childSem
+	return state, sem, childSem
+}
+
+// register pre-registers a client with an existing state and semaphores.
+// Used to register the default client with the Server's existing state.
+func (dm *dispatchManager) register(clientID string, state *dispatchState, sem, childSem chan struct{}) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	dm.states[clientID] = state
+	dm.semaphores[clientID] = sem
+	dm.childSems[clientID] = childSem
+}
+
+// allStates returns a snapshot of all client states (for admin/monitoring).
+func (dm *dispatchManager) allStates() map[string]*dispatchState {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
+	snapshot := make(map[string]*dispatchState, len(dm.states))
+	for k, v := range dm.states {
+		snapshot[k] = v
+	}
+	return snapshot
+}
+
 // setDiscordActivity registers a new Discord-initiated task for dashboard tracking.
 func (s *dispatchState) setDiscordActivity(taskID string, da *discordActivity) {
 	s.mu.Lock()
@@ -930,18 +1003,19 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		result.OutputFile = saveTaskOutput(cfg.BaseDir, task.ID, []byte(pr.Output))
 	}
 
-	// Record to history DB.
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
+	// Record to history DB (per-tenant aware).
+	taskDB := historyDBForTask(cfg, task)
+	recordHistory(taskDB, task.ID, task.Name, task.Source, task.Agent, task, result,
 		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity (skip for sources that manage their own sessions:
 	// "chat" → HTTP handler, "route:" → discord/telegram executeRoute).
 	if !strings.HasPrefix(task.Source, "chat") && !strings.HasPrefix(task.Source, "route:") {
-		recordSessionActivity(cfg.HistoryDB, task, result, task.Agent)
+		recordSessionActivity(taskDB, task, result, task.Agent)
 	}
 	// Log to system dispatch log (skip only for chat — already handled there).
 	if !strings.HasPrefix(task.Source, "chat") {
-		logSystemDispatch(cfg.HistoryDB, task, result, task.Agent)
+		logSystemDispatch(taskDB, task, result, task.Agent)
 	}
 
 	// Publish SSE completed/error/queued event.
@@ -1147,14 +1221,15 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 
 	result := runSingleTask(ctx, cfg, task, sem, childSem, task.Agent)
 
-	// Record to history.
+	// Record to history (per-tenant aware).
+	retryDB := historyDBForTask(cfg, task)
 	start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
+	recordHistory(retryDB, task.ID, task.Name, task.Source, task.Agent, task, result,
 		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
-	recordSessionActivity(cfg.HistoryDB, task, result, task.Agent)
-	logSystemDispatch(cfg.HistoryDB, task, result, task.Agent)
+	recordSessionActivity(retryDB, task, result, task.Agent)
+	logSystemDispatch(retryDB, task, result, task.Agent)
 
 	// If retry succeeded, remove from failed tasks.
 	if result.Status == "success" {
@@ -1462,6 +1537,17 @@ func jsonInt(v any) int {
 	default:
 		return 0
 	}
+}
+
+// historyDBForTask returns the appropriate history DB path for a task.
+// If the task has a client ID that differs from the default, it uses the per-client path.
+func historyDBForTask(cfg *Config, task Task) string {
+	if task.ClientID != "" && task.ClientID != cfg.DefaultClientID {
+		dbPath := cfg.HistoryDBFor(task.ClientID)
+		os.MkdirAll(filepath.Dir(dbPath), 0o755)
+		return dbPath
+	}
+	return cfg.HistoryDB
 }
 
 // --- Record History Helper ---
@@ -1968,12 +2054,13 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 		attempts = 1
 	}
 
-	// Record to history.
-	recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
+	// Record to history (per-tenant aware).
+	routeDB := historyDBForTask(cfg, task)
+	recordHistory(routeDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity.
-	recordSessionActivity(cfg.HistoryDB, task, result, route.Agent)
+	recordSessionActivity(routeDB, task, result, route.Agent)
 
 	// Step 4: Store output summary in agent memory.
 	if result.Status == "success" {
@@ -2673,6 +2760,8 @@ func cmdTask(args []string) {
 		fmt.Println("  assign TASK_ID --assignee=AGENT")
 		fmt.Println("  comment TASK_ID --author=AUTHOR --content=CONTENT [--type=TYPE]")
 		fmt.Println("  thread TASK_ID")
+		fmt.Println("\nGlobal flags:")
+		fmt.Println("  --client=CLIENT_ID  Target a specific client (default: cli_default)")
 		os.Exit(0)
 	}
 
@@ -2682,7 +2771,24 @@ func cmdTask(args []string) {
 		os.Exit(1)
 	}
 
-	tb := newTaskBoardEngine(cfg.HistoryDB, cfg.TaskBoard, cfg.Webhooks)
+	// Extract --client flag from any position.
+	var clientID string
+	var filteredArgs []string
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--client=") {
+			clientID = strings.TrimPrefix(arg, "--client=")
+		} else {
+			filteredArgs = append(filteredArgs, arg)
+		}
+	}
+	args = filteredArgs
+
+	dbPath := cfg.HistoryDB
+	if clientID != "" && clientID != cfg.DefaultClientID {
+		dbPath = cfg.HistoryDBFor(clientID)
+	}
+
+	tb := newTaskBoardEngine(dbPath, cfg.TaskBoard, cfg.Webhooks)
 	if err := tb.InitSchema(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

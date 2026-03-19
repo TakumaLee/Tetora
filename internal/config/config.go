@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"sync"
 
@@ -194,6 +195,10 @@ type Config struct {
 	MCPBridge             MCPBridgeConfig                  `json:"mcpBridge,omitempty"`
 	Store                 StoreConfig                      `json:"store,omitempty"`
 
+	// Multi-tenant isolation (Phase 1).
+	ClientsDir      string `json:"clientsDir,omitempty"`
+	DefaultClientID string `json:"defaultClientID,omitempty"`
+
 	// Runtime fields — set after load, not serialized.
 	BaseDir    string            `json:"-"`
 	MCPMu      sync.RWMutex     `json:"-"`
@@ -241,4 +246,26 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	dstType := reflect.TypeOf((*Config)(nil)).Elem()
 	reflect.ValueOf(c).Elem().Set(srcVal.Convert(dstType))
 	return nil
+}
+
+// --- Multi-tenant helpers ---
+
+// ClientDir returns the root directory for a given client.
+func (c *Config) ClientDir(clientID string) string {
+	return filepath.Join(c.ClientsDir, clientID)
+}
+
+// ClientDBDir returns the database directory for a given client.
+func (c *Config) ClientDBDir(clientID string) string {
+	return filepath.Join(c.ClientsDir, clientID, "dbs")
+}
+
+// HistoryDBFor returns the history DB path for a given client.
+func (c *Config) HistoryDBFor(clientID string) string {
+	return filepath.Join(c.ClientsDir, clientID, "dbs", "history.db")
+}
+
+// TaskboardDBFor returns the taskboard DB path for a given client.
+func (c *Config) TaskboardDBFor(clientID string) string {
+	return filepath.Join(c.ClientsDir, clientID, "dbs", "taskboard.db")
 }

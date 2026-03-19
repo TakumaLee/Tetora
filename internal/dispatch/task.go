@@ -34,6 +34,7 @@ type Task struct {
 	SSEBroker       SSEBrokerPublisher `json:"-"` // streaming event broker
 	OnStart         func()             `json:"-"` // called after semaphore acquired, before execution
 	WorkflowRunID   string             `json:"-"` // workflow run ID for SSE forwarding
+	ClientID        string             `json:"-"` // multi-tenant client ID
 }
 
 // TaskResult holds the outcome of a completed task.

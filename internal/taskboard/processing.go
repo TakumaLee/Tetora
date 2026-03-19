@@ -60,10 +60,17 @@ type devQALoopResult struct {
 
 // routeWorkflow selects a workflow name based on the configured routing rules.
 // Returns "" if routing is disabled or no rule matches.
+// Tasks with no type set are treated as non-dev and skip workflow routing entirely.
 func (d *Dispatcher) routeWorkflow(t TaskBoard) string {
 	routing := d.engine.config.AutoDispatch.WorkflowRouting
 	if !routing.Enabled || len(routing.Rules) == 0 {
 		return routing.Fallback
+	}
+
+	// Tasks without a type are non-dev — don't route them into dev workflows.
+	if t.Type == "" {
+		log.Info("workflow routing: no task type, skipping workflow", "task", t.ID)
+		return "none"
 	}
 
 	// Look up project info for isPublic matching.

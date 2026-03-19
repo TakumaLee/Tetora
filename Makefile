@@ -1,6 +1,6 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.2.1
+VERSION  := 2.2.1.1
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
@@ -11,7 +11,7 @@ PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 DASH_PARTS := dashboard/head.html dashboard/style.css dashboard/body.html \
 	dashboard/core.js dashboard/views.js dashboard/workers.js \
 	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js \
+	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js \
 	dashboard/foot.html
 
 dashboard: $(DASH_PARTS)
@@ -26,7 +26,7 @@ dashboard: $(DASH_PARTS)
 		echo '<script>'; \
 		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
 		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/store.js dashboard/office.js dashboard/pwa.js; \
+		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/pwa.js; \
 		echo '</script>'; \
 		cat dashboard/foot.html; \
 	} > dashboard.html

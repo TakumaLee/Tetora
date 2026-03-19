@@ -231,6 +231,9 @@ func main() {
 		case "plugin":
 			cmdPlugin(os.Args[2:])
 			return
+		case "team":
+			cli.CmdTeam(os.Args[2:])
+			return
 		case "task":
 			cmdTask(os.Args[2:])
 			return
@@ -318,6 +321,10 @@ func main() {
 
 	state := newDispatchState()
 	state.broker = newSSEBroker()
+
+	// Multi-tenant dispatch manager: register default client with existing state/semaphores.
+	dispatchMgr := newDispatchManager(cfg.MaxConcurrent, childSemConcurrentOrDefault(cfg))
+	dispatchMgr.register(cfg.DefaultClientID, state, sem, childSem)
 
 	// App is the single source of truth for all services.
 	// Services are initialized into app fields below, then SyncToGlobals()
@@ -1099,7 +1106,7 @@ func main() {
 		// HTTP server.
 		drainCh := make(chan struct{}, 1)
 		srvInstance := &Server{
-			cfg: cfg, app: app, state: state, sem: sem, childSem: childSem, cron: cron, secMon: secMon, mcpHost: mcpHost,
+			cfg: cfg, app: app, state: state, sem: sem, childSem: childSem, dispatchMgr: dispatchMgr, cron: cron, secMon: secMon, mcpHost: mcpHost,
 			proactiveEngine: proactiveEngine, groupChatEngine: groupChatEngine, voiceEngine: voiceEngine,
 			slackBot: slackBot, whatsappBot: whatsappBot, pluginHost: pluginHost,
 			lineBot: lineBot, teamsBot: teamsBot, signalBot: signalBot, gchatBot: gchatBot, imessageBot: imessageBot, matrixBot: matrixBot,
@@ -1334,7 +1341,7 @@ func main() {
 		}
 
 		// Start HTTP monitor in background.
-		srv := startHTTPServer(&Server{cfg: cfg, state: state, sem: sem, childSem: childSem})
+		srv := startHTTPServer(&Server{cfg: cfg, state: state, sem: sem, childSem: childSem, dispatchMgr: dispatchMgr})
 
 		// Handle signals — cancel dispatch.
 		go func() {
@@ -1630,6 +1637,9 @@ type Server struct {
 	gchatBot        *gchat.Bot
 	imessageBot     *imessagebot.Bot
 	matrixBot       *matrix.Bot
+	// Multi-tenant dispatch manager.
+	dispatchMgr *dispatchManager
+
 	// internal (created at start)
 	taskBoardDispatcher *TaskBoardDispatcher
 	canvasEngine        *CanvasEngine
@@ -1663,6 +1673,28 @@ func (s *Server) ReloadConfig(newCfg *Config) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	s.cfg = newCfg
+}
+
+// resolveClientDispatch returns the dispatch state and semaphores for a given client ID.
+// If the server has a dispatchManager, it resolves per-client; otherwise falls back to default.
+func (s *Server) resolveClientDispatch(clientID string) (*dispatchState, chan struct{}, chan struct{}) {
+	if s.dispatchMgr != nil {
+		return s.dispatchMgr.getOrCreate(clientID)
+	}
+	return s.state, s.sem, s.childSem
+}
+
+// resolveHistoryDB returns the history DB path for a given client ID.
+// For the default client, returns cfg.HistoryDB (existing behavior).
+// For other clients, returns the per-client DB path and ensures the directory exists.
+func (s *Server) resolveHistoryDB(cfg *Config, clientID string) string {
+	if clientID == cfg.DefaultClientID {
+		return cfg.HistoryDB
+	}
+	dbPath := cfg.HistoryDBFor(clientID)
+	// Ensure parent directory exists for new clients.
+	os.MkdirAll(filepath.Dir(dbPath), 0o755)
+	return dbPath
 }
 
 // --- from config.go ---
@@ -1934,6 +1966,17 @@ func tryLoadConfig(path string) (*Config, error) {
 	}
 	if cfg.SmartDispatch.ReviewBudget <= 0 {
 		cfg.SmartDispatch.ReviewBudget = 0.2
+	}
+
+	// Multi-tenant defaults.
+	if cfg.ClientsDir == "" {
+		cfg.ClientsDir = filepath.Join(cfg.BaseDir, "clients")
+	}
+	if !filepath.IsAbs(cfg.ClientsDir) {
+		cfg.ClientsDir = filepath.Join(cfg.BaseDir, cfg.ClientsDir)
+	}
+	if cfg.DefaultClientID == "" {
+		cfg.DefaultClientID = "cli_default"
 	}
 
 	// Knowledge dir default.

@@ -42,6 +42,7 @@ func historyList(args []string) {
 	jobID := ""
 	status := ""
 	from := ""
+	clientID := ""
 	limit := 20
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -67,16 +68,22 @@ func historyList(args []string) {
 					limit = n
 				}
 			}
+		case "--client":
+			if i+1 < len(args) {
+				i++
+				clientID = args[i]
+			}
 		}
 	}
 
+	dbPath := resolveHistoryDB(cfg, clientID)
 	q := history.HistoryQuery{
 		JobID:  jobID,
 		Status: status,
 		From:   from,
 		Limit:  limit,
 	}
-	runs, total, err := history.QueryFiltered(cfg.HistoryDB, q)
+	runs, total, err := history.QueryFiltered(dbPath, q)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -115,7 +122,7 @@ func historyShow(idStr string) {
 		os.Exit(1)
 	}
 
-	run, err := history.QueryByID(cfg.HistoryDB, id)
+	run, err := history.QueryByID(resolveHistoryDB(cfg, ""), id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -150,7 +157,7 @@ func historyCost() {
 		os.Exit(1)
 	}
 
-	stats, err := history.QueryCostStats(cfg.HistoryDB)
+	stats, err := history.QueryCostStats(resolveHistoryDB(cfg, ""))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -160,6 +167,15 @@ func historyCost() {
 	fmt.Printf("  Today:      $%.2f\n", stats.Today)
 	fmt.Printf("  This Week:  $%.2f\n", stats.Week)
 	fmt.Printf("  This Month: $%.2f\n", stats.Month)
+}
+
+// resolveHistoryDB returns the history DB path for a given client ID.
+// If clientID is empty or matches the default, returns cfg.HistoryDB.
+func resolveHistoryDB(cfg *CLIConfig, clientID string) string {
+	if clientID == "" || clientID == cfg.DefaultClientID {
+		return cfg.HistoryDB
+	}
+	return cfg.HistoryDBFor(clientID)
 }
 
 func formatHistoryTime(iso string) string {

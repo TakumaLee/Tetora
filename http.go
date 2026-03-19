@@ -42,6 +42,7 @@ import (
 	"tetora/internal/sla"
 	"tetora/internal/sprite"
 	"tetora/internal/store"
+	"tetora/internal/team"
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 	"tetora/internal/version"
@@ -116,6 +117,61 @@ func authMiddleware(cfg *Config, secMon *securityMonitor, next http.Handler) htt
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// --- Multi-tenant client identification ---
+
+// contextKey is used for context value keys to avoid collisions.
+type contextKey string
+
+const clientIDKey contextKey = "clientID"
+
+// clientFromRequest extracts the client ID from the request.
+// Falls back to the default client ID from config if not provided.
+func clientFromRequest(r *http.Request, defaultID string) string {
+	if id := r.Header.Get("X-Client-ID"); id != "" {
+		return id
+	}
+	return defaultID
+}
+
+// isValidClientID validates that a client ID matches the expected format: cli_ prefix
+// followed by 1-28 lowercase alphanumeric or hyphen characters.
+func isValidClientID(id string) bool {
+	if len(id) < 5 || len(id) > 32 { // "cli_" + 1..28
+		return false
+	}
+	if id[:4] != "cli_" {
+		return false
+	}
+	for _, c := range id[4:] {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// clientMiddleware extracts X-Client-ID from the request header, validates it,
+// and stores it in the request context. If absent, uses the config default.
+func clientMiddleware(defaultClientID string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientID := clientFromRequest(r, defaultClientID)
+		if !isValidClientID(clientID) {
+			http.Error(w, `{"error":"invalid client id"}`, http.StatusBadRequest)
+			return
+		}
+		ctx := context.WithValue(r.Context(), clientIDKey, clientID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// getClientID extracts the client ID from request context (set by clientMiddleware).
+func getClientID(r *http.Request) string {
+	if id, ok := r.Context().Value(clientIDKey).(string); ok {
+		return id
+	}
+	return "cli_default"
 }
 
 // dashboardAuthCookie generates a signed cookie value for dashboard auth.
@@ -1875,6 +1931,39 @@ func startHTTPServer(s *Server) *http.Server {
 		},
 		HistoryDB: func() string { return s.cfg.HistoryDB },
 	})
+
+	// Team Builder routes.
+	teamStore := team.NewStorage(cfg.BaseDir)
+	httpapi.RegisterTeamRoutes(mux, httpapi.TeamDeps{
+		Store:      teamStore,
+		ConfigPath: filepath.Join(cfg.BaseDir, "config.json"),
+		AgentsDir: func() string {
+			if cfg.AgentsDir != "" {
+				return cfg.AgentsDir
+			}
+			return filepath.Join(cfg.BaseDir, "agents")
+		}(),
+		SignalReload: signalSelfReload,
+		GenerateTeam: func(ctx context.Context, req team.GenerateRequest) (*team.TeamDef, error) {
+			reg, ok := s.Cfg().Runtime.ProviderRegistry.(*providerRegistry)
+			if !ok || reg == nil {
+				return nil, fmt.Errorf("no provider registry available")
+			}
+			// Use default provider or fall back to first available.
+			providerName := s.Cfg().DefaultProvider
+			if providerName == "" {
+				providerName = "openai"
+			}
+			p, err := reg.Get(providerName)
+			if err != nil {
+				return nil, fmt.Errorf("provider %q: %w", providerName, err)
+			}
+			model := "opus"
+			gen := team.NewGenerator(p, model)
+			return gen.Generate(ctx, req)
+		},
+	})
+
 	httpapi.RegisterKnowledgeRoutes(mux, httpapi.KnowledgeDeps{
 		KnowledgeDir: func() string {
 			cfg := s.Cfg()
@@ -2190,11 +2279,12 @@ func startHTTPServer(s *Server) *http.Server {
 	mux.HandleFunc("/dashboard/sprites/", handleSprite)
 	mux.HandleFunc("/dashboard", handleDashboard)
 
-	// Middleware chain: recovery → trace → body size → rate limit → dashboard auth → IP allowlist → API auth → mux
+	// Middleware chain: recovery → trace → body size → rate limit → dashboard auth → IP allowlist → API auth → client ID → mux
 	handler := recoveryMiddleware(trace.Middleware(bodySizeMiddleware(rateLimitMiddleware(cfg, s.apiLimiter,
 		dashboardAuthMiddleware(cfg,
 			ipAllowlistMiddleware(allowlist, cfg.HistoryDB,
-				authMiddleware(cfg, s.secMon, mux)))))))
+				authMiddleware(cfg, s.secMon,
+					clientMiddleware(cfg.DefaultClientID, mux))))))))
 
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: handler}
 
@@ -4298,13 +4388,17 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		cfg := s.Cfg()
 
+		// Resolve per-client dispatch state and semaphores.
+		clientID := getClientID(r)
+		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
+
 		// Allow sub-agent dispatches to run concurrently with parent tasks.
 		// Only block duplicate batch dispatches from external callers.
 		isSubAgent := r.Header.Get("X-Tetora-Source") == "agent_dispatch"
 		if !isSubAgent {
-			state.mu.Lock()
-			busy := state.active
-			state.mu.Unlock()
+			cState.mu.Lock()
+			busy := cState.active
+			cState.mu.Unlock()
 			if busy {
 				http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
 				return
@@ -4340,6 +4434,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		for i := range tasks {
 			fillDefaults(cfg, &tasks[i])
 			tasks[i].Source = "http"
+			tasks[i].ClientID = clientID
 		}
 
 		// Log dispatch payload for audit trail.
@@ -4353,10 +4448,13 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			s.taskBoardDispatcher.ResetStuckDoing()
 		}
 
+		// Resolve per-client audit DB path.
+		auditDB := s.resolveHistoryDB(cfg, clientID)
+
 		// Publish task_received to dashboard.
-		if state.broker != nil {
+		if cState.broker != nil {
 			for _, t := range tasks {
-				state.broker.Publish(SSEDashboardKey, SSEEvent{
+				cState.broker.Publish(SSEDashboardKey, SSEEvent{
 					Type: SSETaskReceived,
 					Data: map[string]any{
 						"source": "http",
@@ -4366,10 +4464,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			}
 		}
 
-		audit.Log(cfg.HistoryDB, "dispatch", "http",
-			fmt.Sprintf("%d tasks", len(tasks)), clientIP(r))
+		audit.Log(auditDB, "dispatch", "http",
+			fmt.Sprintf("%d tasks (client=%s)", len(tasks), clientID), clientIP(r))
 
-		result := dispatch(r.Context(), cfg, tasks, state, sem, childSem)
+		result := dispatch(r.Context(), cfg, tasks, cState, cSem, cChildSem)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -4381,9 +4479,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		state.mu.Lock()
-		cancelFn := state.cancel
-		state.mu.Unlock()
+		clientID := getClientID(r)
+		cState, _, _ := s.resolveClientDispatch(clientID)
+		cState.mu.Lock()
+		cancelFn := cState.cancel
+		cState.mu.Unlock()
 		if cancelFn == nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"status":"nothing to cancel"}`))
@@ -4401,6 +4501,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 		cfg := s.Cfg()
+		clientID := getClientID(r)
+		cState, _, _ := s.resolveClientDispatch(clientID)
+		auditDB := s.resolveHistoryDB(cfg, clientID)
 		w.Header().Set("Content-Type", "application/json")
 
 		id := strings.TrimPrefix(r.URL.Path, "/cancel/")
@@ -4410,21 +4513,21 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 
 		// Try dispatch state first.
-		state.mu.Lock()
-		if ts, ok := state.running[id]; ok && ts.cancelFn != nil {
+		cState.mu.Lock()
+		if ts, ok := cState.running[id]; ok && ts.cancelFn != nil {
 			ts.cancelFn()
-			state.mu.Unlock()
-			audit.Log(cfg.HistoryDB, "task.cancel", "http",
+			cState.mu.Unlock()
+			audit.Log(auditDB, "task.cancel", "http",
 				fmt.Sprintf("id=%s (dispatch)", id), clientIP(r))
 			w.Write([]byte(`{"status":"cancelling"}`))
 			return
 		}
-		state.mu.Unlock()
+		cState.mu.Unlock()
 
 		// Try cron engine.
 		if cron != nil {
 			if err := cron.CancelJob(id); err == nil {
-				audit.Log(cfg.HistoryDB, "job.cancel", "http",
+				audit.Log(auditDB, "job.cancel", "http",
 					fmt.Sprintf("id=%s (cron)", id), clientIP(r))
 				w.Write([]byte(`{"status":"cancelling"}`))
 				return
@@ -4455,9 +4558,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		var tasks []runningTask
 
-		// From dispatch state.
-		state.mu.Lock()
-		for _, ts := range state.running {
+		// From dispatch state (per-client).
+		clientID := getClientID(r)
+		cState, _, _ := s.resolveClientDispatch(clientID)
+		cState.mu.Lock()
+		for _, ts := range cState.running {
 			prompt := ts.task.Prompt
 			if len(prompt) > 100 {
 				prompt = prompt[:100] + "..."
@@ -4486,7 +4591,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				Depth:    ts.task.Depth,
 			})
 		}
-		state.mu.Unlock()
+		cState.mu.Unlock()
 
 		// From cron engine.
 		if cron != nil {
@@ -4720,7 +4825,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		tasks := listFailedTasks(state)
+		failedClientID := getClientID(r)
+		failedState, _, _ := s.resolveClientDispatch(failedClientID)
+		tasks := listFailedTasks(failedState)
 		if tasks == nil {
 			tasks = []failedTaskInfo{}
 		}
@@ -4743,11 +4850,13 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		// SSE stream endpoint: GET /dispatch/{id}/stream
 		if action == "stream" && r.Method == http.MethodGet {
-			if state.broker == nil {
+			streamClientID := getClientID(r)
+			streamState, _, _ := s.resolveClientDispatch(streamClientID)
+			if streamState.broker == nil {
 				http.Error(w, `{"error":"streaming not available"}`, http.StatusServiceUnavailable)
 				return
 			}
-			serveSSE(w, r, state.broker, taskID)
+			serveSSE(w, r, streamState.broker, taskID)
 			return
 		}
 
@@ -4755,21 +4864,24 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
 			return
 		}
+		actionClientID := getClientID(r)
+		actionState, actionSem, actionChildSem := s.resolveClientDispatch(actionClientID)
+		actionAuditDB := s.resolveHistoryDB(cfg, actionClientID)
 		w.Header().Set("Content-Type", "application/json")
 
 		switch action {
 		case "retry":
-			result, err := retryTask(r.Context(), cfg, taskID, state, sem, childSem)
+			result, err := retryTask(r.Context(), cfg, taskID, actionState, actionSem, actionChildSem)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
 				return
 			}
-			audit.Log(cfg.HistoryDB, "task.retry", "http",
+			audit.Log(actionAuditDB, "task.retry", "http",
 				fmt.Sprintf("original=%s status=%s", taskID, result.Status), clientIP(r))
 			json.NewEncoder(w).Encode(result)
 
 		case "reroute":
-			result, err := rerouteTask(r.Context(), cfg, taskID, state, sem, childSem)
+			result, err := rerouteTask(r.Context(), cfg, taskID, actionState, actionSem, actionChildSem)
 			if err != nil {
 				status := http.StatusNotFound
 				if strings.Contains(err.Error(), "not enabled") {
@@ -4778,7 +4890,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), status)
 				return
 			}
-			audit.Log(cfg.HistoryDB, "task.reroute", "http",
+			audit.Log(actionAuditDB, "task.reroute", "http",
 				fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Agent, result.Task.Status), clientIP(r))
 			json.NewEncoder(w).Encode(result)
 
@@ -4892,9 +5004,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			routeResultsMu.Unlock()
 
 			routeTraceID := trace.IDFromContext(r.Context())
+			sdClientID := getClientID(r)
+			sdState, sdSem, sdChildSem := s.resolveClientDispatch(sdClientID)
 			go func() {
 				routeCtx := trace.WithID(context.Background(), routeTraceID)
-				result := smartDispatch(routeCtx, cfg, body.Prompt, "http", state, sem, childSem)
+				result := smartDispatch(routeCtx, cfg, body.Prompt, "http", sdState, sdSem, sdChildSem)
 				routeResultsMu.Lock()
 				entry := routeResults[id]
 				if entry != nil {
@@ -4917,7 +5031,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 
 		// Sync mode: block until complete.
-		result := smartDispatch(r.Context(), cfg, body.Prompt, "http", state, sem, childSem)
+		syncClientID := getClientID(r)
+		syncState, syncSem, syncChildSem := s.resolveClientDispatch(syncClientID)
+		result := smartDispatch(r.Context(), cfg, body.Prompt, "http", syncState, syncSem, syncChildSem)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	})

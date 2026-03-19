@@ -64,6 +64,8 @@ type CLIConfig struct {
 	OAuth                 json.RawMessage            `json:"oauth,omitempty"`
 	Notifications         []NotificationChannel      `json:"notifications,omitempty"`
 	EncryptionKey         string                     `json:"encryptionKey,omitempty"`
+	ClientsDir            string                     `json:"clientsDir,omitempty"`
+	DefaultClientID       string                     `json:"defaultClientID,omitempty"`
 
 	// Resolved paths (not from JSON).
 	BaseDir    string `json:"-"`
@@ -219,6 +221,12 @@ func TryLoadCLIConfig(path string) (*CLIConfig, error) {
 		cfg.DefaultWorkdir = absPath(cfg.BaseDir, cfg.DefaultWorkdir)
 	}
 
+	// Multi-tenant defaults.
+	cfg.ClientsDir = resolveDir(cfg.BaseDir, cfg.ClientsDir, "clients")
+	if cfg.DefaultClientID == "" {
+		cfg.DefaultClientID = "cli_default"
+	}
+
 	// Directory defaults.
 	cfg.AgentsDir = resolveDir(cfg.BaseDir, cfg.AgentsDir, "agents")
 	cfg.WorkspaceDir = resolveDir(cfg.BaseDir, cfg.WorkspaceDir, "workspace")
@@ -246,6 +254,11 @@ func resolveDir(baseDir, dir, defaultName string) string {
 		return dir
 	}
 	return filepath.Join(baseDir, dir)
+}
+
+// HistoryDBFor returns the history DB path for a given client.
+func (cfg *CLIConfig) HistoryDBFor(clientID string) string {
+	return filepath.Join(cfg.ClientsDir, clientID, "dbs", "history.db")
 }
 
 // NewAPIClientFromConfig creates an API client from CLIConfig.

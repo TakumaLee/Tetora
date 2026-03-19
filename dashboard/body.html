@@ -66,6 +66,11 @@
       <span class="nav-icon">&#x1F4C2;</span> Files
     </button>
     <div class="nav-divider"></div>
+    <div class="nav-label">Teams</div>
+    <button class="nav-item" id="tab-team-builder" onclick="switchTab('team-builder')">
+      <span class="nav-icon">&#x1F465;</span> Team Builder
+    </button>
+    <div class="nav-divider"></div>
     <div class="nav-label">Marketplace</div>
     <button class="nav-item" id="tab-store" onclick="switchTab('store')">
       <span class="nav-icon">&#x1F3EA;</span> Store
@@ -1098,6 +1103,10 @@
     </div><!-- /operations-sub-files -->
 
   </div><!-- /operations-content -->
+
+  <!-- Team Builder -->
+  <div id="team-builder-content" style="display:none">
+  </div><!-- /team-builder-content -->
 
   <!-- Store -->
   <div id="store-content" style="display:none">

@@ -36,7 +36,7 @@ function onJobProjectChange() {
   }
 }
 
-var TAB_LIST = ['dashboard','chat','operations','store','docs','settings'];
+var TAB_LIST = ['dashboard','chat','operations','team-builder','store','docs','settings'];
 
 // Backward-compat mapping: old tab names → new tab + sub-tab
 var TAB_COMPAT = {
@@ -74,6 +74,9 @@ function switchTab(tab) {
     refreshSettings();
     var activeSub = getActiveSubTab('settings');
     refreshSettingsSubTab(activeSub);
+  }
+  if (tab === 'team-builder') {
+    refreshTeamBuilder();
   }
   if (tab === 'store') {
     refreshStore();
