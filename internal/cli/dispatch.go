@@ -68,6 +68,7 @@ func CmdDispatch(args []string) {
 	estimate_ := false
 	decompose := false
 	review := false
+	allowDangerous := false
 	var prompt string
 
 	i := 0
@@ -134,6 +135,9 @@ func CmdDispatch(args []string) {
 		case "--review":
 			review = true
 			i++
+		case "--allow-dangerous":
+			allowDangerous = true
+			i++
 		case "--help":
 			printDispatchUsage()
 			return
@@ -199,6 +203,9 @@ func CmdDispatch(args []string) {
 	}
 	if review {
 		task["reviewLoop"] = true
+	}
+	if allowDangerous {
+		task["allowDangerous"] = true
 	}
 
 	// If agent specified, fetch soul content and inject.

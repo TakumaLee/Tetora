@@ -408,7 +408,6 @@ SpriteEngine.prototype.updateAgentStates = function(sprites) {
     var newState = sprites[name];
     if (newState === agent.spriteState) continue;
 
-    var oldState = agent.spriteState;
     agent.spriteState = newState;
 
     // Special: celebrate/error stay in place
@@ -436,7 +435,7 @@ SpriteEngine.prototype.updateAgentStates = function(sprites) {
 
 SpriteEngine.prototype.update = function(dt) {
   var SPEED = 0.06; // pixels per ms
-  var cw = this.config ? this.config.cellWidth : 32;
+  // cellWidth reserved for future use
 
   for (var name in this.agents) {
     var a = this.agents[name];
@@ -551,10 +550,31 @@ var SPRITE_FRAMES = {}; // { agentName: [ImageBitmap, ...] }
 
 // Gem team identity — color palette, glow, and canvas filter for each agent
 var GEM_TEAM = {
-  ruri:    { color: '#5599ff', glow: 'rgba(85,153,255,0.28)', label: '琉璃', filter: '' },
-  hisui:   { color: '#44cc88', glow: 'rgba(68,204,136,0.28)', label: '翡翠', filter: '' },
-  kokuyou: { color: '#9977bb', glow: 'rgba(102,68,140,0.28)', label: '黒曜', filter: 'hue-rotate(240deg) brightness(0.65) saturate(1.3)' },
-  kohaku:  { color: '#eebb33', glow: 'rgba(238,187,51,0.28)', label: '琥珀', filter: '' }
+  ruri:       { color: '#5599ff', glow: 'rgba(85,153,255,0.28)',   label: '琉璃', filter: '' },
+  hisui:      { color: '#44cc88', glow: 'rgba(68,204,136,0.28)',   label: '翡翠', filter: '' },
+  kokuyou:    { color: '#9977bb', glow: 'rgba(102,68,140,0.28)',   label: '黒曜', filter: 'hue-rotate(240deg) brightness(0.65) saturate(1.3)' },
+  kohaku:     { color: '#eebb33', glow: 'rgba(238,187,51,0.28)',   label: '琥珀', filter: '' },
+  kougyoku:   { color: '#cc2244', glow: 'rgba(204,34,68,0.28)',    label: '紅玉', filter: 'hue-rotate(330deg) saturate(2.2) brightness(0.85)' },
+  daiya:      { color: '#ddeeff', glow: 'rgba(221,238,255,0.28)',  label: 'ダイヤ', filter: 'saturate(0.15) brightness(1.6)' },
+  spinel:     { color: '#dd2299', glow: 'rgba(221,34,153,0.28)',   label: '尖晶', filter: 'hue-rotate(300deg) saturate(2.0) brightness(0.9)' },
+  kirara:     { color: '#ccaa66', glow: 'rgba(204,170,102,0.28)',  label: '雲母', filter: 'hue-rotate(35deg) saturate(1.4) brightness(1.1)' },
+  sango:      { color: '#ee7766', glow: 'rgba(238,119,102,0.28)',  label: '珊瑚', filter: 'hue-rotate(10deg) saturate(1.8) brightness(1.05)' },
+  shinju:     { color: '#f5f0e8', glow: 'rgba(245,240,232,0.28)',  label: '真珠', filter: 'saturate(0.1) brightness(1.7)' },
+  menou:      { color: '#aa6633', glow: 'rgba(170,102,51,0.28)',   label: '瑪瑙', filter: 'hue-rotate(25deg) saturate(1.6) brightness(0.8)' },
+  gecchou:    { color: '#aaccdd', glow: 'rgba(170,204,221,0.28)',  label: '月長', filter: 'hue-rotate(195deg) saturate(0.7) brightness(1.4)' },
+  hotaruishi: { color: '#55cc77', glow: 'rgba(85,204,119,0.28)',   label: '蛍石', filter: 'hue-rotate(130deg) saturate(1.8) brightness(1.0)' },
+  tekkou:     { color: '#667788', glow: 'rgba(102,119,136,0.28)',  label: '鉄鉱', filter: 'saturate(0.4) brightness(0.75)' },
+  seigyoku:   { color: '#1144bb', glow: 'rgba(17,68,187,0.28)',    label: '青玉', filter: 'hue-rotate(215deg) saturate(2.5) brightness(0.7)' },
+  kujaku:     { color: '#229988', glow: 'rgba(34,153,136,0.28)',   label: '孔雀', filter: 'hue-rotate(165deg) saturate(2.0) brightness(0.85)' },
+  tanzanite:    { color: '#6B5B95', glow: 'rgba(107,91,149,0.28)',  label: 'タンザナイト', filter: 'hue-rotate(260deg) saturate(1.8) brightness(0.75)' },
+  alexandrite:  { color: '#2E8B57', glow: 'rgba(46,139,87,0.28)',   label: 'アレキ', filter: 'hue-rotate(140deg) saturate(2.0) brightness(0.85)' },
+  agate:        { color: '#4682B4', glow: 'rgba(70,130,180,0.28)',  label: 'アゲート', filter: 'hue-rotate(210deg) saturate(1.5) brightness(0.9)' },
+  tourmaline:   { color: '#FF6B6B', glow: 'rgba(255,107,107,0.28)', label: 'トルマリン', filter: 'hue-rotate(0deg) saturate(2.0) brightness(1.0)' },
+  citrine:      { color: '#FFD700', glow: 'rgba(255,215,0,0.28)',   label: 'シトリン', filter: 'hue-rotate(45deg) saturate(2.5) brightness(1.1)' },
+  garnet:       { color: '#8B0000', glow: 'rgba(139,0,0,0.28)',     label: 'ガーネット', filter: 'hue-rotate(350deg) saturate(3.0) brightness(0.55)' },
+  moonstone:    { color: '#B0C4DE', glow: 'rgba(176,196,222,0.28)', label: 'ムーンストーン', filter: 'saturate(0.3) brightness(1.5)' },
+  opal:         { color: '#A8D8EA', glow: 'rgba(168,216,234,0.28)', label: 'オパール', filter: 'hue-rotate(190deg) saturate(0.8) brightness(1.4)' },
+  labradorite:  { color: '#708090', glow: 'rgba(112,128,144,0.28)', label: 'ラブラドライト', filter: 'saturate(0.5) brightness(0.85)' }
 };
 
 // Load built-in sprite sheet PNG — split into individual canvas frames.
@@ -1188,7 +1208,7 @@ SpriteEngine.prototype._drawDecorEditOverlay = function(ctx) {
     d.y = p.y - _decorDragging.offY;
   });
 
-  cv.addEventListener('mouseup', function(e) {
+  cv.addEventListener('mouseup', function(_e) {
     if (!_decorDragging) return;
     var d = _decorations[_decorDragging.idx];
     var cat = DECOR_CATALOG[d.type];
@@ -1267,6 +1287,7 @@ var _audioCtx = null;
 var _soundEnabled = localStorage.getItem('tetora-sound') === 'true';
 function play8BitSound(type) {
   if (!_soundEnabled) return;
+  // @ts-ignore: webkitAudioContext is a legacy vendor-prefixed fallback
   if (!_audioCtx) { try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { return; } }
   var ctx = _audioCtx;
   var osc = ctx.createOscillator();

@@ -12,6 +12,7 @@ import (
 
 	"tetora/internal/config"
 	"tetora/internal/db"
+	"tetora/internal/handoff"
 )
 
 // ChildSemConcurrentOrDefault returns the capacity for the child semaphore.
@@ -212,34 +213,10 @@ func GenerateMessageID() string {
 }
 
 // InitAgentCommDB initializes the agent_messages table.
+// Delegates to handoff.InitTables which owns the canonical unified DDL.
 func InitAgentCommDB(dbPath string) error {
-	// Migration: rename from_role/to_role -> from_agent/to_agent.
-	for _, stmt := range []string{
-		`ALTER TABLE agent_messages RENAME COLUMN from_role TO from_agent;`,
-		`ALTER TABLE agent_messages RENAME COLUMN to_role TO to_agent;`,
-	} {
-		if err := db.Exec(dbPath, stmt); err != nil {
-			// Ignore expected errors (column already renamed or table doesn't exist yet).
-			_ = err
-		}
-	}
-
-	sql := `
-CREATE TABLE IF NOT EXISTS agent_messages (
-    id TEXT PRIMARY KEY,
-    from_agent TEXT NOT NULL,
-    to_agent TEXT NOT NULL,
-    message TEXT NOT NULL,
-    session_id TEXT DEFAULT '',
-    created_at TEXT NOT NULL,
-    read_at TEXT DEFAULT ''
-);
-
-CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent ON agent_messages(to_agent, read_at);
-CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id);
-`
-	_, err := db.Query(dbPath, sql)
-	return err
+	handoff.InitTables(dbPath)
+	return nil
 }
 
 // GetAgentMessages retrieves pending messages for a role.

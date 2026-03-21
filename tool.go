@@ -1468,8 +1468,8 @@ func toolTimeReport(ctx context.Context, cfg *Config, input json.RawMessage) (st
 // --- Family Tool Handlers ---
 
 func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.Family == nil {
+	svc := globalFamilyService
+	if svc == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -1491,7 +1491,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 
 	// If listId not provided, use the first shopping list or create one.
 	if args.ListID == "" {
-		lists, err := app.Family.ListLists()
+		lists, err := svc.ListLists()
 		if err != nil {
 			return "", err
 		}
@@ -1502,7 +1502,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 			}
 		}
 		if args.ListID == "" {
-			list, err := app.Family.CreateList("Shopping", "shopping", args.AddedBy, newUUID)
+			list, err := svc.CreateList("Shopping", "shopping", args.AddedBy, newUUID)
 			if err != nil {
 				return "", fmt.Errorf("create default shopping list: %w", err)
 			}
@@ -1510,7 +1510,7 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 		}
 	}
 
-	item, err := app.Family.AddListItem(args.ListID, args.Text, args.Quantity, args.AddedBy)
+	item, err := svc.AddListItem(args.ListID, args.Text, args.Quantity, args.AddedBy)
 	if err != nil {
 		return "", err
 	}
@@ -1523,8 +1523,8 @@ func toolFamilyListAdd(ctx context.Context, cfg *Config, input json.RawMessage) 
 }
 
 func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.Family == nil {
+	svc := globalFamilyService
+	if svc == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -1537,11 +1537,11 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 	}
 
 	if args.ListID != "" {
-		items, err := app.Family.GetListItems(args.ListID)
+		items, err := svc.GetListItems(args.ListID)
 		if err != nil {
 			return "", err
 		}
-		list, _ := app.Family.GetList(args.ListID)
+		list, _ := svc.GetList(args.ListID)
 		result := map[string]any{
 			"items": items,
 		}
@@ -1552,7 +1552,7 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 		return string(b), nil
 	}
 
-	lists, err := app.Family.ListLists()
+	lists, err := svc.ListLists()
 	if err != nil {
 		return "", err
 	}
@@ -1571,8 +1571,8 @@ func toolFamilyListView(ctx context.Context, cfg *Config, input json.RawMessage)
 }
 
 func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.Family == nil {
+	svc := globalFamilyService
+	if svc == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -1586,13 +1586,13 @@ func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (st
 		return "", fmt.Errorf("userId is required")
 	}
 
-	user, err := app.Family.GetUser(args.UserID)
+	user, err := svc.GetUser(args.UserID)
 	if err != nil {
 		return "", fmt.Errorf("user not found or inactive: %w", err)
 	}
 
-	allowed, remaining, _ := app.Family.CheckRateLimit(args.UserID)
-	perms, _ := app.Family.GetPermissions(args.UserID)
+	allowed, remaining, _ := svc.CheckRateLimit(args.UserID)
+	perms, _ := svc.GetPermissions(args.UserID)
 
 	b, _ := json.Marshal(map[string]any{
 		"status":      "switched",
@@ -1607,8 +1607,8 @@ func toolUserSwitch(ctx context.Context, cfg *Config, input json.RawMessage) (st
 }
 
 func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-	app := appFromCtx(ctx)
-	if app == nil || app.Family == nil {
+	svc := globalFamilyService
+	if svc == nil {
 		return "", fmt.Errorf("family mode not enabled")
 	}
 
@@ -1631,22 +1631,22 @@ func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if args.Role == "" {
 			args.Role = "member"
 		}
-		if err := app.Family.AddUser(args.UserID, args.DisplayName, args.Role); err != nil {
+		if err := svc.AddUser(args.UserID, args.DisplayName, args.Role); err != nil {
 			return "", err
 		}
-		user, _ := app.Family.GetUser(args.UserID)
+		user, _ := svc.GetUser(args.UserID)
 		b, _ := json.Marshal(map[string]any{"status": "added", "user": user})
 		return string(b), nil
 
 	case "remove":
-		if err := app.Family.RemoveUser(args.UserID); err != nil {
+		if err := svc.RemoveUser(args.UserID); err != nil {
 			return "", err
 		}
 		b, _ := json.Marshal(map[string]any{"status": "removed", "userId": args.UserID})
 		return string(b), nil
 
 	case "list":
-		users, err := app.Family.ListUsers()
+		users, err := svc.ListUsers()
 		if err != nil {
 			return "", err
 		}
@@ -1667,26 +1667,26 @@ func toolFamilyManage(ctx context.Context, cfg *Config, input json.RawMessage) (
 		if args.Budget > 0 {
 			updates["budgetMonthly"] = args.Budget
 		}
-		if err := app.Family.UpdateUser(args.UserID, updates); err != nil {
+		if err := svc.UpdateUser(args.UserID, updates); err != nil {
 			return "", err
 		}
-		user, _ := app.Family.GetUser(args.UserID)
+		user, _ := svc.GetUser(args.UserID)
 		b, _ := json.Marshal(map[string]any{"status": "updated", "user": user})
 		return string(b), nil
 
 	case "permissions":
 		if args.Permission != "" {
 			if args.Grant {
-				if err := app.Family.GrantPermission(args.UserID, args.Permission); err != nil {
+				if err := svc.GrantPermission(args.UserID, args.Permission); err != nil {
 					return "", err
 				}
 			} else {
-				if err := app.Family.RevokePermission(args.UserID, args.Permission); err != nil {
+				if err := svc.RevokePermission(args.UserID, args.Permission); err != nil {
 					return "", err
 				}
 			}
 		}
-		perms, err := app.Family.GetPermissions(args.UserID)
+		perms, err := svc.GetPermissions(args.UserID)
 		if err != nil {
 			return "", err
 		}

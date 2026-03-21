@@ -901,14 +901,22 @@ func (d *Dispatcher) scanReviews() {
 			originalPrompt += "\n\n" + t.Description
 		}
 		output := ""
+		hasNeedsThought := false
 		if comments, err := d.engine.GetThread(t.ID); err == nil {
 			for i := len(comments) - 1; i >= 0; i-- {
 				c := comments[i]
-				if (c.Type == "log" || c.Type == "") && c.Author != "system" && c.Author != "triage" {
+				if c.Author == "system" && strings.Contains(c.Content, "[needs-thought]") {
+					hasNeedsThought = true
+				}
+				if output == "" && (c.Type == "log" || c.Type == "") && c.Author != "system" && c.Author != "triage" {
 					output = c.Content
-					break
 				}
 			}
+		}
+		// Skip tasks marked needs-thought — they require human judgment, not re-review.
+		if hasNeedsThought {
+			log.Debug("scanReviews: skipping needs-thought task", "id", t.ID)
+			continue
 		}
 		if output == "" {
 			log.Debug("scanReviews: no output found, skipping", "id", t.ID)
@@ -917,7 +925,7 @@ func (d *Dispatcher) scanReviews() {
 
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[auto-review] %s reviewing...", reviewer))
 
-		rv := d.thoroughReview(d.ctx, originalPrompt, output, t.Assignee, reviewer)
+		rv := d.thoroughReview(d.ctx, originalPrompt, output, t.Assignee, reviewer, nil)
 
 		switch rv.Verdict {
 		case reviewApprove:

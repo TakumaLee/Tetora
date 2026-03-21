@@ -41,9 +41,24 @@ async function refreshAgents() {
       var desc = esc(r.description || '');
       var preview = r.soulPreview ? esc(r.soulPreview.slice(0, 120)) + (r.soulPreview.length > 120 ? '…' : '') : '<span style="color:var(--muted)">No SOUL.md</span>';
 
+      // Avatar: portrait image or gem-color fallback circle
+      var gem = (typeof GEM_TEAM !== 'undefined' && GEM_TEAM[r.name]) || null;
+      var avatarHtml;
+      if (r.portraitURL) {
+        var fallbackColor = gem ? gem.color : '#888';
+        var initial = r.name.charAt(0).toUpperCase();
+        avatarHtml = '<img class="agent-avatar" src="' + esc(r.portraitURL) + '" alt="' + esc(r.name) + '"'
+          + ' onerror="this.style.display=\'none\';this.nextSibling.style.display=\'flex\'">'
+          + '<span class="agent-avatar-fallback" style="display:none;background:' + fallbackColor + '">' + initial + '</span>';
+      } else {
+        var fallbackColor = gem ? gem.color : '#888';
+        var initial = r.name.charAt(0).toUpperCase();
+        avatarHtml = '<span class="agent-avatar-fallback" style="background:' + fallbackColor + '">' + initial + '</span>';
+      }
+
       html += '<div class="agent-card" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--panel-radius);padding:16px;display:flex;flex-direction:column;gap:10px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">';
-      html += '<div style="display:flex;align-items:center;gap:8px">' + statusDot + '<span style="font-weight:bold;font-size:14px">' + esc(r.name) + '</span></div>';
+      html += '<div style="display:flex;align-items:center;gap:10px">' + avatarHtml + '<div style="display:flex;flex-direction:column;gap:2px"><div style="display:flex;align-items:center;gap:6px">' + statusDot + '<span style="font-weight:bold;font-size:14px">' + esc(r.name) + '</span></div></div></div>';
       html += '<div style="display:flex;align-items:center;gap:6px">' + statusLabel;
       html += '<button class="btn" onclick="openAgentModal(\'' + esc(r.name) + '\')" style="padding:3px 10px;font-size:11px">Edit</button>';
       html += '<button class="btn" onclick="deleteAgent(\'' + esc(r.name) + '\')" style="padding:3px 10px;font-size:11px;color:var(--red);border-color:var(--red)">Delete</button>';
@@ -94,6 +109,12 @@ async function openAgentModal(editName) {
     archSel.appendChild(opt);
   });
 
+  // Reset portrait state
+  var previewEl = document.getElementById('af-portrait-preview');
+  var deleteBtn = document.getElementById('af-portrait-delete');
+  var fileInput = document.getElementById('af-portrait-file');
+  if (fileInput) fileInput.value = '';
+
   if (editName) {
     // Load existing agent data
     try {
@@ -103,10 +124,25 @@ async function openAgentModal(editName) {
       document.getElementById('af-permission').value = data.permissionMode || '';
       document.getElementById('af-description').value = data.description || '';
       document.getElementById('af-soul').value = data.soulContent || '';
+
+      // Load portrait preview
+      if (previewEl) {
+        var portraitURL = data.portraitURL || resolveAgentPortrait(editName);
+        if (portraitURL) {
+          previewEl.src = portraitURL;
+          previewEl.style.display = 'block';
+        } else {
+          previewEl.style.display = 'none';
+        }
+        if (deleteBtn) deleteBtn.style.display = portraitURL ? '' : 'none';
+      }
     } catch(e) {
       toast('Error loading agent: ' + e.message);
       return;
     }
+  } else {
+    if (previewEl) previewEl.style.display = 'none';
+    if (deleteBtn) deleteBtn.style.display = 'none';
   }
 
   modal.style.display = 'flex';
@@ -130,6 +166,12 @@ function onArchetypeChange() {
   if (!nameField.value) nameField.value = name.toLowerCase().replace(/\s+/g, '-');
 }
 
+// Returns /dashboard/portraits/{name}.png if the built-in exists, else empty string.
+// Used as a fallback when the API doesn't return portraitURL yet (e.g. during create).
+function resolveAgentPortrait(name) {
+  return '/dashboard/portraits/' + encodeURIComponent(name) + '.png';
+}
+
 async function submitAgentForm(e) {
   e.preventDefault();
   var mode = document.getElementById('af-mode').value;
@@ -138,6 +180,7 @@ async function submitAgentForm(e) {
   var permission = document.getElementById('af-permission').value.trim();
   var description = document.getElementById('af-description').value.trim();
   var soul = document.getElementById('af-soul').value;
+  var fileInput = document.getElementById('af-portrait-file');
 
   if (mode === 'create' && !name) {
     toast('Name is required');
@@ -167,6 +210,19 @@ async function submitAgentForm(e) {
     }
 
     if (resp.ok) {
+      // Upload portrait if a new file was selected
+      if (fileInput && fileInput.files && fileInput.files.length > 0) {
+        var agentName = mode === 'create' ? name : name;
+        var fd = new FormData();
+        fd.append('portrait', fileInput.files[0]);
+        var upResp = await fetch('/api/agents/' + encodeURIComponent(agentName) + '/portrait', {
+          method: 'POST', body: fd,
+        });
+        if (!upResp.ok) {
+          var upData = await upResp.json().catch(function() { return {}; });
+          toast('Portrait upload failed: ' + (upData.error || upResp.statusText));
+        }
+      }
       closeAgentModal();
       toast(mode === 'create' ? 'Agent created' : 'Agent updated');
       refreshAgents();
@@ -179,6 +235,28 @@ async function submitAgentForm(e) {
   } finally {
     btn.disabled = false;
     btn.textContent = mode === 'create' ? 'Create Agent' : 'Save Changes';
+  }
+}
+
+async function deleteAgentPortrait(agentName) {
+  if (!confirm('Delete custom portrait for "' + agentName + '"? (Built-in portrait will be restored)')) return;
+  try {
+    var resp = await fetch('/api/agents/' + encodeURIComponent(agentName) + '/portrait', { method: 'DELETE' });
+    if (resp.ok) {
+      var data = await resp.json().catch(function() { return {}; });
+      var previewEl = document.getElementById('af-portrait-preview');
+      if (previewEl && data.portraitURL) {
+        previewEl.src = data.portraitURL;
+        previewEl.style.display = 'block';
+      }
+      toast('Custom portrait deleted');
+      refreshAgents();
+    } else {
+      var data = await resp.json().catch(function() { return {}; });
+      toast('Error: ' + (data.error || resp.statusText));
+    }
+  } catch(e) {
+    toast('Error: ' + e.message);
   }
 }
 

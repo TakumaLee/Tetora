@@ -15,13 +15,15 @@ import (
 
 // Result holds the reflection output.
 type Result struct {
-	TaskID      string  `json:"taskId"`
-	Agent       string  `json:"agent"`
-	Score       int     `json:"score"`
-	Feedback    string  `json:"feedback"`
-	Improvement string  `json:"improvement"`
-	CostUSD     float64 `json:"costUsd"`
-	CreatedAt   string  `json:"createdAt"`
+	TaskID                    string  `json:"taskId"`
+	Agent                     string  `json:"agent"`
+	Score                     int     `json:"score"`
+	Feedback                  string  `json:"feedback"`
+	Improvement               string  `json:"improvement"`
+	CostUSD                   float64 `json:"costUsd"`
+	CreatedAt                 string  `json:"createdAt"`
+	EstimatedManualDurationSec int    `json:"estimatedManualDurationSec"`
+	AIDurationSec             int     `json:"aiDurationSec"`
 }
 
 // Deps holds root-package callbacks needed by performReflection.
@@ -58,6 +60,17 @@ func InitDB(dbPath string) error {
 	}
 	if err := db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_reflections_agent ON reflections(agent);`); err != nil {
 		return fmt.Errorf("init reflections index: %w", err)
+	}
+	// Migration: add time savings columns.
+	for _, m := range []string{
+		"ALTER TABLE reflections ADD COLUMN estimated_manual_duration_sec INTEGER DEFAULT 0;",
+		"ALTER TABLE reflections ADD COLUMN ai_duration_sec INTEGER DEFAULT 0;",
+	} {
+		if err := db.Exec(dbPath, m); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("init reflections migration: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -226,8 +239,8 @@ func ExtractJSON(s string) string {
 // Store persists a reflection result to the database.
 func Store(dbPath string, ref *Result) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO reflections (task_id, agent, score, feedback, improvement, cost_usd, created_at)
-		 VALUES ('%s','%s',%d,'%s','%s',%f,'%s')`,
+		`INSERT INTO reflections (task_id, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec)
+		 VALUES ('%s','%s',%d,'%s','%s',%f,'%s',%d,%d)`,
 		db.Escape(ref.TaskID),
 		db.Escape(ref.Agent),
 		ref.Score,
@@ -235,6 +248,8 @@ func Store(dbPath string, ref *Result) error {
 		db.Escape(ref.Improvement),
 		ref.CostUSD,
 		db.Escape(ref.CreatedAt),
+		ref.EstimatedManualDurationSec,
+		ref.AIDurationSec,
 	)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -309,6 +324,71 @@ func BudgetOrDefault(cfg *config.Config) float64 {
 		return cfg.Reflection.Budget
 	}
 	return 0.05
+}
+
+// EstimateManualDuration returns estimated human time in seconds for a task,
+// based on task type and reflection score (1-5).
+func EstimateManualDuration(taskType string, score int) int {
+	// Clamp score to 1-5.
+	if score < 1 {
+		score = 1
+	}
+	if score > 5 {
+		score = 5
+	}
+
+	// Minutes matrix: [score-1] per type.
+	matrix := map[string][5]int{
+		"feat":     {30, 60, 120, 240, 480},
+		"fix":      {10, 20, 40, 90, 180},
+		"refactor": {20, 40, 90, 180, 360},
+		"chore":    {5, 10, 20, 40, 90},
+	}
+	defaultRow := [5]int{15, 30, 60, 120, 240}
+
+	row, ok := matrix[taskType]
+	if !ok {
+		row = defaultRow
+	}
+	return row[score-1] * 60 // minutes → seconds
+}
+
+// TimeSavingsRow holds aggregated time savings per agent.
+type TimeSavingsRow struct {
+	Agent     string
+	TaskCount int
+	ManualSec int
+	AISec     int
+}
+
+// QueryTimeSavings returns per-agent time savings for a given month (YYYY-MM).
+// If month is empty, returns all-time data.
+func QueryTimeSavings(dbPath, month string) ([]TimeSavingsRow, error) {
+	where := ""
+	if month != "" {
+		where = fmt.Sprintf("WHERE strftime('%%Y-%%m', created_at) = '%s'", db.Escape(month))
+	}
+	sql := fmt.Sprintf(
+		`SELECT agent, COUNT(*) as task_count,
+		        SUM(estimated_manual_duration_sec) as manual_sec,
+		        SUM(ai_duration_sec) as ai_sec
+		 FROM reflections %s GROUP BY agent ORDER BY manual_sec DESC`, where)
+
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []TimeSavingsRow
+	for _, row := range rows {
+		results = append(results, TimeSavingsRow{
+			Agent:     jsonStr(row["agent"]),
+			TaskCount: jsonInt(row["task_count"]),
+			ManualSec: jsonInt(row["manual_sec"]),
+			AISec:     jsonInt(row["ai_sec"]),
+		})
+	}
+	return results, nil
 }
 
 // --- JSON field helpers (package-local) ---

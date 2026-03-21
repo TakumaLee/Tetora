@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -713,7 +715,41 @@ func (e *Engine) deliverDiscord(rule config.ProactiveRule, content string) error
 	}
 	log.Info("proactive discord delivery", "rule", rule.Name, "message", truncate(content, 100))
 	e.deps.NotifyFn(content)
+
+	// Persist report to file for agent access.
+	e.saveReport(rule.Name, content)
 	return nil
+}
+
+// saveReport persists a proactive report to the workspace/reports/ directory.
+// Files are saved as {date}/{rule-name}.md with latest always at {rule-name}-latest.md.
+func (e *Engine) saveReport(ruleName, content string) {
+	reportsDir := filepath.Join(e.cfg.WorkspaceDir, "reports")
+	dateDir := filepath.Join(reportsDir, time.Now().Format("2006-01-02"))
+
+	if err := os.MkdirAll(dateDir, 0o755); err != nil {
+		log.Error("saveReport: mkdir failed", "err", err)
+		return
+	}
+
+	ts := time.Now().Format("1504")
+	filename := fmt.Sprintf("%s-%s.md", ruleName, ts)
+
+	// Save dated report.
+	dated := filepath.Join(dateDir, filename)
+	if err := os.WriteFile(dated, []byte(content), 0o644); err != nil {
+		log.Error("saveReport: write dated failed", "err", err)
+		return
+	}
+
+	// Save latest symlink/file for easy agent access.
+	latest := filepath.Join(reportsDir, ruleName+"-latest.md")
+	_ = os.Remove(latest)
+	if err := os.WriteFile(latest, []byte(content), 0o644); err != nil {
+		log.Error("saveReport: write latest failed", "err", err)
+	}
+
+	log.Info("saveReport: saved", "path", dated)
 }
 
 // deliverDashboard publishes an SSE event to the dashboard.

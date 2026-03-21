@@ -94,10 +94,15 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   type TEXT NOT NULL DEFAULT 'note',
   content TEXT NOT NULL DEFAULT '',
   ref_id TEXT DEFAULT '',
+  message TEXT DEFAULT '',
+  session_id TEXT DEFAULT '',
+  read_at TEXT DEFAULT '',
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_messages_workflow ON agent_messages(workflow_run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to ON agent_messages(to_agent);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent ON agent_messages(to_agent, read_at);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id);
 `
 
 func InitTables(dbPath string) {
@@ -107,6 +112,10 @@ func InitTables(dbPath string) {
 	for _, col := range []string{
 		`ALTER TABLE handoffs ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
 		`ALTER TABLE agent_messages ADD COLUMN workflow_run_id TEXT DEFAULT '';`,
+		`ALTER TABLE agent_messages ADD COLUMN type TEXT NOT NULL DEFAULT 'note';`,
+		`ALTER TABLE agent_messages ADD COLUMN message TEXT DEFAULT '';`,
+		`ALTER TABLE agent_messages ADD COLUMN session_id TEXT DEFAULT '';`,
+		`ALTER TABLE agent_messages ADD COLUMN read_at TEXT DEFAULT '';`,
 	} {
 		if err := db.Exec(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {

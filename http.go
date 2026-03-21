@@ -730,7 +730,10 @@ func startHTTPServer(s *Server) *http.Server {
 		RunJob:     func(ctx context.Context, id string) error { return s.cron.RunJobByID(ctx, id) },
 		HistoryDB:  func() string { return s.Cfg().HistoryDB },
 	})
-	httpapi.RegisterHistoryRoutes(mux, func() string { return s.Cfg().HistoryDB })
+	httpapi.RegisterHistoryRoutes(mux, func(r *http.Request) string {
+		cfg := s.Cfg()
+		return s.resolveHistoryDB(cfg, getClientID(r))
+	})
 	httpapi.RegisterStatsRoutes(mux, httpapi.StatsDeps{
 		HistoryDB: cfg.HistoryDB,
 		QueryCostStats: func(dbPath string) (today, week, month float64, err error) {
@@ -1820,6 +1823,7 @@ func startHTTPServer(s *Server) *http.Server {
 					PermissionMode: rc.PermissionMode,
 					SoulFile:       rc.SoulFile,
 					Description:    rc.Description,
+					PortraitURL:    resolvePortraitURL(cfg.BaseDir, name),
 				}
 				if content, err := loadAgentPrompt(cfg, name); err == nil && content != "" {
 					if len(content) > 500 {
@@ -2641,6 +2645,9 @@ var officeBgWebp []byte
 //go:embed assets/sprites/sprite_ruri.png assets/sprites/sprite_hisui.png assets/sprites/sprite_kokuyou.png assets/sprites/sprite_kohaku.png assets/sprites/sprite_default.png
 var spriteFS embed.FS
 
+//go:embed assets/portraits
+var portraitFS embed.FS
+
 //go:embed README.md INSTALL.md CHANGELOG.md ROADMAP.md CONTRIBUTING.md docs/*.md docs/i18n/*.md
 var docsFS embed.FS
 
@@ -2728,6 +2735,25 @@ func defaultSpriteConfig() SpriteConfig                              { return sp
 func loadSpriteConfig(dir string, keys []string) SpriteConfig        { return sprite.LoadConfig(dir, keys) }
 func initSpriteConfig(dir string) error                              { return sprite.InitConfig(dir) }
 func newAgentSpriteTracker() *agentSpriteTracker                     { return sprite.NewTracker() }
+
+// resolvePortraitURL returns the URL for an agent's portrait.
+// Priority: user-uploaded custom (~/.tetora/media/portraits/{name}.png)
+//           > built-in embedded (assets/portraits/{name}.png)
+//           > empty string (frontend shows CSS fallback)
+func resolvePortraitURL(baseDir, name string) string {
+	custom := filepath.Join(baseDir, "media", "portraits", name+".png")
+	if _, err := os.Stat(custom); err == nil {
+		return "/media/portraits/" + name + ".png"
+	}
+	if _, err := portraitFS.Open("assets/portraits/" + name + ".png"); err == nil {
+		return "/dashboard/portraits/" + name + ".png"
+	}
+	// fallback to default built-in
+	if _, err := portraitFS.Open("assets/portraits/default.png"); err == nil {
+		return "/dashboard/portraits/default.png"
+	}
+	return ""
+}
 
 // --- State Resolution ---
 
@@ -4269,6 +4295,121 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		http.ServeFile(w, r, filepath.Join(spritesDir, name))
 	})
 
+	// Built-in portraits (go:embed)
+	mux.HandleFunc("/dashboard/portraits/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		name := filepath.Base(r.URL.Path)
+		if name == "." || name == "/" || strings.Contains(name, "..") {
+			http.NotFound(w, r)
+			return
+		}
+		f, err := portraitFS.Open("assets/portraits/" + name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeContent(w, r, name, time.Time{}, f.(io.ReadSeeker))
+	})
+
+	// User-uploaded custom portraits
+	portraitsDir := filepath.Join(s.cfg.BaseDir, "media", "portraits")
+	mux.HandleFunc("/media/portraits/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			name := filepath.Base(r.URL.Path)
+			if name == "." || name == "/" || strings.Contains(name, "..") {
+				http.NotFound(w, r)
+				return
+			}
+			info, err := os.Stat(filepath.Join(portraitsDir, name))
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "public, max-age=300")
+			w.Header().Set("Content-Type", "image/png")
+			http.ServeFile(w, r, filepath.Join(portraitsDir, name))
+			_ = info
+		default:
+			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Portrait upload: POST /api/agents/{name}/portrait
+	//                  DELETE /api/agents/{name}/portrait
+	mux.HandleFunc("/api/agents/", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/agents/")
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) != 2 || parts[1] != "portrait" {
+			http.NotFound(w, r)
+			return
+		}
+		agentName := parts[0]
+		if agentName == "" || strings.Contains(agentName, "..") {
+			http.Error(w, `{"error":"invalid agent name"}`, http.StatusBadRequest)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodPost:
+			if err := r.ParseMultipartForm(512 * 1024); err != nil {
+				http.Error(w, `{"error":"file too large (max 512KB)"}`, http.StatusBadRequest)
+				return
+			}
+			file, _, err := r.FormFile("portrait")
+			if err != nil {
+				http.Error(w, `{"error":"portrait field missing"}`, http.StatusBadRequest)
+				return
+			}
+			defer file.Close()
+			// Validate PNG magic bytes
+			magic := make([]byte, 8)
+			if _, err := file.Read(magic); err != nil || string(magic) != "\x89PNG\r\n\x1a\n" {
+				http.Error(w, `{"error":"file must be a PNG"}`, http.StatusBadRequest)
+				return
+			}
+			if err := os.MkdirAll(portraitsDir, 0755); err != nil {
+				http.Error(w, `{"error":"storage error"}`, http.StatusInternalServerError)
+				return
+			}
+			dst := filepath.Join(portraitsDir, agentName+".png")
+			f, err := os.Create(dst)
+			if err != nil {
+				http.Error(w, `{"error":"storage error"}`, http.StatusInternalServerError)
+				return
+			}
+			defer f.Close()
+			f.Write(magic)
+			io.Copy(f, file)
+			info, _ := os.Stat(dst)
+			mtime := ""
+			if info != nil {
+				mtime = fmt.Sprintf("%d", info.ModTime().Unix())
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"portraitURL":"/media/portraits/%s.png?v=%s"}`, agentName, mtime)
+
+		case http.MethodDelete:
+			dst := filepath.Join(portraitsDir, agentName+".png")
+			if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+				http.Error(w, `{"error":"delete failed"}`, http.StatusInternalServerError)
+				return
+			}
+			newURL := resolvePortraitURL(s.cfg.BaseDir, agentName)
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"portraitURL":"%s"}`, newURL)
+
+		default:
+			http.Error(w, `{"error":"POST or DELETE only"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
 	// --- Offline Queue ---
 	mux.HandleFunc("/queue", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -4620,7 +4761,8 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 	// --- Tasks (History DB) ---
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		cfg := s.Cfg()
-		if cfg.HistoryDB == "" {
+		dbPath := s.resolveHistoryDB(cfg, getClientID(r))
+		if dbPath == "" {
 			http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
 			return
 		}
@@ -4629,7 +4771,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		case http.MethodGet:
 			status := r.URL.Query().Get("status")
 			if status != "" {
-				tasks, err := db.GetTasksByStatus(cfg.HistoryDB, status)
+				tasks, err := db.GetTasksByStatus(dbPath, status)
 				if err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 					return
@@ -4637,7 +4779,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(tasks)
 			} else {
-				stats, err := db.GetTaskStats(cfg.HistoryDB)
+				stats, err := db.GetTaskStats(dbPath)
 				if err != nil {
 					http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 					return
@@ -4656,7 +4798,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}
-			if err := db.UpdateTaskStatus(cfg.HistoryDB, body.ID, body.Status, body.Error); err != nil {
+			if err := db.UpdateTaskStatus(dbPath, body.ID, body.Status, body.Error); err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 				return
 			}

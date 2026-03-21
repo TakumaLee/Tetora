@@ -27,6 +27,7 @@ type Task struct {
 	TraceID        string   `json:"traceId,omitempty"`        // trace ID for request correlation
 	Depth          int      `json:"depth,omitempty"`          // nesting depth (0 = top-level)
 	ParentID       string   `json:"parentId,omitempty"`       // parent task ID
+	AllowDangerous bool     `json:"allowDangerous,omitempty"` // skip dangerous ops check
 
 	// Runtime fields (not serialized).
 	ChannelNotifier ChannelNotifier    `json:"-"` // messaging channel notifier
@@ -36,6 +37,16 @@ type Task struct {
 	WorkflowRunID   string             `json:"-"` // workflow run ID for SSE forwarding
 	ClientID        string             `json:"-"` // multi-tenant client ID
 }
+
+// CompletionStatus represents the agent's self-assessed completion quality.
+type CompletionStatus string
+
+const (
+	StatusDone             CompletionStatus = "DONE"              // task fully completed, no concerns
+	StatusDoneWithConcerns CompletionStatus = "DONE_WITH_CONCERNS" // completed but agent has reservations
+	StatusBlocked          CompletionStatus = "BLOCKED"            // cannot proceed without external input
+	StatusNeedsContext     CompletionStatus = "NEEDS_CONTEXT"      // missing information to complete
+)
 
 // TaskResult holds the outcome of a completed task.
 type TaskResult struct {
@@ -59,6 +70,10 @@ type TaskResult struct {
 	TrustLevel   string `json:"trustLevel,omitempty"`
 	Agent        string `json:"agent,omitempty"`
 	SlotWarning  string `json:"slotWarning,omitempty"`
+	// Completion status fields (agent self-assessment).
+	CompletionStat CompletionStatus `json:"completionStatus,omitempty"` // agent's self-assessed completion quality
+	Concerns       string           `json:"concerns,omitempty"`         // DONE_WITH_CONCERNS reason
+	BlockedReason  string           `json:"blockedReason,omitempty"`    // BLOCKED / NEEDS_CONTEXT reason
 	// Dev↔QA loop fields (populated when ReviewLoop is enabled).
 	QAApproved *bool  `json:"qaApproved,omitempty"` // nil=no review, true=passed, false=failed
 	QAComment  string `json:"qaComment,omitempty"`  // reviewer feedback

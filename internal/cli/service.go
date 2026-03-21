@@ -325,6 +325,8 @@ func ServiceInstall() {
 		launchdInstall()
 	case "linux":
 		systemdInstall()
+	case "windows":
+		windowsInstall()
 	default:
 		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
 		fmt.Fprintln(os.Stderr, "Run 'tetora serve' manually instead.")
@@ -338,6 +340,8 @@ func serviceUninstall() {
 		launchdUninstall()
 	case "linux":
 		systemdUninstall()
+	case "windows":
+		windowsUninstall()
 	default:
 		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
 		os.Exit(1)
@@ -350,6 +354,8 @@ func serviceStatus() {
 		launchdStatus()
 	case "linux":
 		systemdStatus()
+	case "windows":
+		windowsStatus()
 	default:
 		fmt.Fprintf(os.Stderr, "Service management is not supported on %s.\n", runtime.GOOS)
 		os.Exit(1)

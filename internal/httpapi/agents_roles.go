@@ -27,6 +27,7 @@ type AgentInfo struct {
 	SoulFile       string `json:"soulFile"`
 	Description    string `json:"description"`
 	SoulPreview    string `json:"soulPreview,omitempty"`
+	PortraitURL    string `json:"portraitURL,omitempty"`
 }
 
 // AgentRoleDeps holds dependencies for agent role HTTP handlers.

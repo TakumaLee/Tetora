@@ -14,25 +14,46 @@ import (
 func CmdHistory(args []string) {
 	if len(args) == 0 {
 		fmt.Println("Usage: tetora history <list|show|cost> [options]")
+		fmt.Println("\nGlobal flags:")
+		fmt.Println("  --client CLIENT_ID  Target a specific client (default: cli_default)")
 		return
 	}
+
+	// Extract --client flag from any position.
+	var clientID string
+	var filtered []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--client" && i+1 < len(args) {
+			i++
+			clientID = args[i]
+		} else {
+			filtered = append(filtered, args[i])
+		}
+	}
+	args = filtered
+
+	if len(args) == 0 {
+		fmt.Println("Usage: tetora history <list|show|cost> [options]")
+		return
+	}
+
 	switch args[0] {
 	case "list", "ls":
-		historyList(args[1:])
+		historyList(args[1:], clientID)
 	case "show", "view":
 		if len(args) < 2 {
-			fmt.Println("Usage: tetora history show <run-id>")
+			fmt.Println("Usage: tetora history show <run-id> [--client CLIENT_ID]")
 			return
 		}
-		historyShow(args[1])
+		historyShow(args[1], clientID)
 	case "cost", "costs":
-		historyCost()
+		historyCost(clientID)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", args[0])
 	}
 }
 
-func historyList(args []string) {
+func historyList(args []string, clientID string) {
 	cfg := LoadCLIConfig(FindConfigPath())
 	if cfg.HistoryDB == "" {
 		fmt.Fprintln(os.Stderr, "History DB not configured.")
@@ -42,7 +63,6 @@ func historyList(args []string) {
 	jobID := ""
 	status := ""
 	from := ""
-	clientID := ""
 	limit := 20
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -67,11 +87,6 @@ func historyList(args []string) {
 				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
 					limit = n
 				}
-			}
-		case "--client":
-			if i+1 < len(args) {
-				i++
-				clientID = args[i]
 			}
 		}
 	}
@@ -109,7 +124,7 @@ func historyList(args []string) {
 	fmt.Printf("\n%d records (of %d total)\n", len(runs), total)
 }
 
-func historyShow(idStr string) {
+func historyShow(idStr string, clientID string) {
 	cfg := LoadCLIConfig(FindConfigPath())
 	if cfg.HistoryDB == "" {
 		fmt.Fprintln(os.Stderr, "History DB not configured.")
@@ -122,7 +137,7 @@ func historyShow(idStr string) {
 		os.Exit(1)
 	}
 
-	run, err := history.QueryByID(resolveHistoryDB(cfg, ""), id)
+	run, err := history.QueryByID(resolveHistoryDB(cfg, clientID), id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -150,14 +165,14 @@ func historyShow(idStr string) {
 	}
 }
 
-func historyCost() {
+func historyCost(clientID string) {
 	cfg := LoadCLIConfig(FindConfigPath())
 	if cfg.HistoryDB == "" {
 		fmt.Fprintln(os.Stderr, "History DB not configured.")
 		os.Exit(1)
 	}
 
-	stats, err := history.QueryCostStats(resolveHistoryDB(cfg, ""))
+	stats, err := history.QueryCostStats(resolveHistoryDB(cfg, clientID))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

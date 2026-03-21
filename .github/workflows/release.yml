@@ -134,10 +134,13 @@ jobs:
           cat checksums.txt
 
       - name: Copy installer scripts to dist
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           cp install.sh dist/install.sh
           if [ -f install.ps1 ]; then
             cp install.ps1 dist/install.ps1
+            sed -i "s/__VERSION__/${VERSION}/" dist/install.ps1
           fi
           echo "Files ready for release:"
           ls -lh dist/

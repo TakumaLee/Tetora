@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Version = if ($env:TETORA_VERSION) { $env:TETORA_VERSION } else { "1.0.0" }
+$Version = if ($env:TETORA_VERSION) { $env:TETORA_VERSION } else { "__VERSION__" }
 $InstallDir = if ($env:TETORA_INSTALL_DIR) { $env:TETORA_INSTALL_DIR } else { "$env:USERPROFILE\.tetora\bin" }
 $BaseURL = if ($env:TETORA_BASE_URL) { $env:TETORA_BASE_URL } else { "https://github.com/TakumaLee/Tetora/releases/download/v$Version" }
 

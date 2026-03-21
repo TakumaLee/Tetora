@@ -2463,3 +2463,86 @@ func TestSlugifyBranch_LongTitle(t *testing.T) {
 		t.Error("slugifyBranch should produce non-empty result for long title")
 	}
 }
+
+// --- parseCompletionStatus tests ---
+
+func TestParseCompletionStatus_NoMarker(t *testing.T) {
+	status, concerns, blocked := parseCompletionStatus("just some regular output without markers")
+	if status != StatusDone {
+		t.Errorf("expected StatusDone, got %q", status)
+	}
+	if concerns != "" || blocked != "" {
+		t.Errorf("expected empty concerns/blocked, got %q / %q", concerns, blocked)
+	}
+}
+
+func TestParseCompletionStatus_Done(t *testing.T) {
+	output := "task completed successfully\n<!-- COMPLETION_STATUS: DONE -->"
+	status, concerns, blocked := parseCompletionStatus(output)
+	if status != StatusDone {
+		t.Errorf("expected StatusDone, got %q", status)
+	}
+	if concerns != "" || blocked != "" {
+		t.Errorf("expected empty concerns/blocked, got %q / %q", concerns, blocked)
+	}
+}
+
+func TestParseCompletionStatus_DoneWithConcerns(t *testing.T) {
+	output := `implemented the feature
+<!-- COMPLETION_STATUS: DONE_WITH_CONCERNS -->
+<!-- CONCERNS: test coverage is only 40%, no edge case tests -->`
+	status, concerns, blocked := parseCompletionStatus(output)
+	if status != StatusDoneWithConcerns {
+		t.Errorf("expected StatusDoneWithConcerns, got %q", status)
+	}
+	if concerns != "test coverage is only 40%, no edge case tests" {
+		t.Errorf("unexpected concerns: %q", concerns)
+	}
+	if blocked != "" {
+		t.Errorf("expected empty blockedReason, got %q", blocked)
+	}
+}
+
+func TestParseCompletionStatus_Blocked(t *testing.T) {
+	output := `cannot proceed
+<!-- COMPLETION_STATUS: BLOCKED -->
+<!-- BLOCKED_REASON: need API key for external service -->`
+	status, concerns, blocked := parseCompletionStatus(output)
+	if status != StatusBlocked {
+		t.Errorf("expected StatusBlocked, got %q", status)
+	}
+	if concerns != "" {
+		t.Errorf("expected empty concerns, got %q", concerns)
+	}
+	if blocked != "need API key for external service" {
+		t.Errorf("unexpected blockedReason: %q", blocked)
+	}
+}
+
+func TestParseCompletionStatus_NeedsContext(t *testing.T) {
+	output := `unclear requirements
+<!-- COMPLETION_STATUS: NEEDS_CONTEXT -->
+<!-- BLOCKED_REASON: spec doesn't specify error handling behavior -->`
+	status, concerns, blocked := parseCompletionStatus(output)
+	if status != StatusNeedsContext {
+		t.Errorf("expected StatusNeedsContext, got %q", status)
+	}
+	if concerns != "" {
+		t.Errorf("expected empty concerns, got %q", concerns)
+	}
+	if blocked != "spec doesn't specify error handling behavior" {
+		t.Errorf("unexpected blockedReason: %q", blocked)
+	}
+}
+
+func TestParseCompletionStatus_WhitespaceVariants(t *testing.T) {
+	// Extra whitespace around the marker.
+	output := "done\n<!--  COMPLETION_STATUS:  DONE_WITH_CONCERNS  -->\n<!--  CONCERNS:  minor issue  -->"
+	status, concerns, _ := parseCompletionStatus(output)
+	if status != StatusDoneWithConcerns {
+		t.Errorf("expected StatusDoneWithConcerns, got %q", status)
+	}
+	if concerns != "minor issue" {
+		t.Errorf("unexpected concerns: %q", concerns)
+	}
+}

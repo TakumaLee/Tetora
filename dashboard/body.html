@@ -1449,6 +1449,19 @@
           <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Description</label>
           <input id="af-description" type="text" placeholder="Short description of this agent's role" style="width:100%;padding:7px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);box-sizing:border-box">
         </div>
+        <!-- Portrait -->
+        <div style="margin-bottom:12px">
+          <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Portrait</label>
+          <div class="portrait-upload-area">
+            <img id="af-portrait-preview" class="portrait-preview" src="" alt="portrait" style="display:none" onerror="this.style.display='none'">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <input id="af-portrait-file" type="file" accept="image/png" style="font-size:12px;color:var(--muted)"
+                onchange="var f=this.files[0];if(f){var u=URL.createObjectURL(f);var p=document.getElementById('af-portrait-preview');p.src=u;p.style.display='block';}">
+              <button id="af-portrait-delete" type="button" class="btn" onclick="deleteAgentPortrait(document.getElementById('af-name').value)"
+                style="padding:3px 10px;font-size:11px;color:var(--red);border-color:var(--red);display:none">Delete custom portrait</button>
+            </div>
+          </div>
+        </div>
         <!-- SOUL.md -->
         <div style="margin-bottom:16px">
           <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">SOUL.md</label>

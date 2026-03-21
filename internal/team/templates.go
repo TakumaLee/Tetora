@@ -2,6 +2,44 @@ package team
 
 import "time"
 
+// completionStatusProtocol is the standard protocol section appended to every
+// agent's SOUL to enable structured completion status reporting.
+const completionStatusProtocol = `
+
+## Completion Status Protocol
+At the END of your output, include a completion status marker using HTML comments.
+
+**Always include one of these:**
+
+` + "```" + `
+<!-- COMPLETION_STATUS: DONE -->
+` + "```" + `
+Task fully completed, no concerns.
+
+` + "```" + `
+<!-- COMPLETION_STATUS: DONE_WITH_CONCERNS -->
+<!-- CONCERNS: brief description of what worries you -->
+` + "```" + `
+Task completed but you have reservations (e.g., test coverage gaps, edge cases not handled).
+
+` + "```" + `
+<!-- COMPLETION_STATUS: BLOCKED -->
+<!-- BLOCKED_REASON: what you need to proceed -->
+` + "```" + `
+Cannot proceed without external input (missing credentials, ambiguous spec, dependency unavailable).
+
+` + "```" + `
+<!-- COMPLETION_STATUS: NEEDS_CONTEXT -->
+<!-- BLOCKED_REASON: what context is missing -->
+` + "```" + `
+Missing information to complete the task (unclear requirements, need domain knowledge).
+
+**Rules:**
+- Default to DONE when work is complete and you have no concerns
+- Use DONE_WITH_CONCERNS honestly — it helps catch issues before they reach production
+- BLOCKED and NEEDS_CONTEXT skip review and escalate directly to the user
+- Place markers at the very end of your output`
+
 // BuiltinTemplates returns the set of pre-defined team templates.
 func BuiltinTemplates() []TeamDef {
 	now := time.Date(2026, 3, 19, 0, 0, 0, 0, time.UTC)
@@ -52,7 +90,7 @@ Product manager. Owns requirements, priorities, and roadmap.
 ## Work Discipline
 - Stay within ticket scope
 - Requirements before implementation
-- Clear is better than clever`,
+- Clear is better than clever` + completionStatusProtocol,
 			},
 			{
 				Key:         "backend",
@@ -86,7 +124,7 @@ Backend engineer. Builds APIs, database logic, and server-side systems.
 ## Work Discipline
 - Write tests for critical paths
 - Handle errors explicitly
-- Log at boundaries, not everywhere`,
+- Log at boundaries, not everywhere` + completionStatusProtocol,
 			},
 			{
 				Key:         "frontend",
@@ -120,7 +158,7 @@ Frontend engineer. Builds user interfaces and interactive experiences.
 ## Work Discipline
 - Component-first architecture
 - Test user-facing behavior, not implementation
-- Accessibility is not optional`,
+- Accessibility is not optional` + completionStatusProtocol,
 			},
 			{
 				Key:         "qa",
@@ -154,7 +192,7 @@ QA engineer. Ensures product quality through testing and bug triage.
 ## Work Discipline
 - Reproduce before reporting
 - Test the unhappy path first
-- Automate what you repeat`,
+- Automate what you repeat` + completionStatusProtocol,
 			},
 		},
 	}
@@ -199,7 +237,7 @@ Editor. Owns content strategy, editorial calendar, and quality standards.
 ## Work Discipline
 - Quality over quantity
 - Every piece needs a clear purpose
-- Deadlines are commitments`,
+- Deadlines are commitments` + completionStatusProtocol,
 			},
 			{
 				Key:         "writer",
@@ -233,7 +271,7 @@ Writer. Creates articles, blog posts, documentation, and marketing copy.
 ## Work Discipline
 - Outline before drafting
 - Edit ruthlessly — cut what doesn't serve the piece
-- Cite sources when claiming facts`,
+- Cite sources when claiming facts` + completionStatusProtocol,
 			},
 			{
 				Key:         "seo",
@@ -267,7 +305,7 @@ SEO specialist. Optimizes content for search visibility and organic traffic.
 ## Work Discipline
 - Recommendations backed by data
 - Track changes and measure impact
-- White-hat only — no shortcuts`,
+- White-hat only — no shortcuts` + completionStatusProtocol,
 			},
 			{
 				Key:         "social",
@@ -301,7 +339,7 @@ Social media manager. Manages posting, engagement, and community across platform
 ## Work Discipline
 - Quality engagement over vanity metrics
 - Respond within the hour during business hours
-- Never post without proofreading`,
+- Never post without proofreading` + completionStatusProtocol,
 			},
 		},
 	}
@@ -346,7 +384,7 @@ Team coordinator. Receives instructions, breaks them into subtasks, dispatches t
 ## Work Discipline
 - Don't do what specialists should do — coordinate, don't absorb
 - All priority changes and cancellations must be communicated to the user
-- Blockers get escalated immediately, never hidden`,
+- Blockers get escalated immediately, never hidden` + completionStatusProtocol,
 			},
 			{
 				Key:         "hisui",
@@ -380,7 +418,7 @@ Intelligence and strategy. Scans market/tech trends, produces actionable insight
 ## Work Discipline
 - Strategy = recommendation; execution belongs to Kokuyou/Kohaku
 - Source every important claim
-- Quantify risks (probability × impact), don't just list them`,
+- Quantify risks (probability × impact), don't just list them` + completionStatusProtocol,
 			},
 			{
 				Key:         "kokuyou",
@@ -414,7 +452,7 @@ Engineer. Turns specs into working code. Finds root causes and fixes bugs. Maint
 ## Work Discipline
 - Read the full spec before touching code
 - Smallest change that satisfies the requirement
-- If environment is broken, report it — don't go fix unrelated systems`,
+- If environment is broken, report it — don't go fix unrelated systems` + completionStatusProtocol,
 			},
 			{
 				Key:         "kohaku",
@@ -448,7 +486,7 @@ Creative. Writes social content (X, Medium), maintains brand voice, tracks what 
 ## Work Discipline
 - Every piece anchors to real completed work — no fabricated progress
 - Deduplicate: same source material → different formats
-- Final step always: safety check before handing off`,
+- Final step always: safety check before handing off` + completionStatusProtocol,
 			},
 			{
 				Key:         "menou",
@@ -482,7 +520,7 @@ Product manager. Collects requirements, maintains roadmap and sprint plan, coord
 ## Work Discipline
 - Final priority call belongs to Ruri/the user — Menou proposes, doesn't decide
 - Sprint capacity always kept conservative
-- Roadmap without updates is worse than no roadmap`,
+- Roadmap without updates is worse than no roadmap` + completionStatusProtocol,
 			},
 			{
 				Key:         "sango",
@@ -516,7 +554,7 @@ Business development. Writes proposals, tracks clients, generates quotes and inv
 ## Work Discipline
 - Never commit to technical scope without Kokuyou's sign-off
 - Pricing is always itemized — no vague bundled numbers
-- Client data is confidential; sensitive fields marked [CONFIDENTIAL]`,
+- Client data is confidential; sensitive fields marked [CONFIDENTIAL]` + completionStatusProtocol,
 			},
 		},
 	}
@@ -561,7 +599,7 @@ Support lead. Manages escalation, SLA compliance, and team coordination.
 ## Work Discipline
 - SLA violations get immediate attention
 - Document patterns for knowledge base
-- Escalate early, not late`,
+- Escalate early, not late` + completionStatusProtocol,
 			},
 			{
 				Key:         "support-l1",
@@ -595,7 +633,7 @@ L1 support agent. First response for customer issues, handles common problems.
 ## Work Discipline
 - First response within SLA
 - Check knowledge base before escalating
-- Always leave a trail in the ticket`,
+- Always leave a trail in the ticket` + completionStatusProtocol,
 			},
 			{
 				Key:         "support-l2",
@@ -629,7 +667,7 @@ L2 support engineer. Handles technical troubleshooting and complex issues.
 ## Work Discipline
 - Reproduce before diagnosing
 - Workaround first, root fix second
-- Update the knowledge base after every novel resolution`,
+- Update the knowledge base after every novel resolution` + completionStatusProtocol,
 			},
 			{
 				Key:         "knowledge",
@@ -663,7 +701,7 @@ Knowledge base manager. Maintains documentation, FAQ, and self-service content.
 ## Work Discipline
 - Review articles quarterly for accuracy
 - Write for the least technical reader
-- Every resolved ticket is a potential article`,
+- Every resolved ticket is a potential article` + completionStatusProtocol,
 			},
 		},
 	}

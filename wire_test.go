@@ -7806,6 +7806,150 @@ func TestApplyInjectionDefense_Blocked(t *testing.T) {
 	}
 }
 
+// ---- from dangerous_ops_test.go ----
+
+func TestCheckDangerousOps_Disabled(t *testing.T) {
+	disabled := false
+	cfg := &Config{
+		Security: SecurityConfig{
+			DangerousOps: config.DangerousOpsConfig{Enabled: &disabled},
+		},
+	}
+	blocked, pattern := checkDangerousOps(cfg, "rm -rf /tmp/foo", "")
+	if blocked {
+		t.Errorf("disabled guard should not block; pattern=%q", pattern)
+	}
+}
+
+func TestCheckDangerousOps_BlocksBuiltin(t *testing.T) {
+	cfg := &Config{}
+	cases := []struct {
+		prompt  string
+		wantPat string
+	}{
+		{"please run: rm -rf /home/user", "rm -rf"},
+		{"git push --force origin main", "git push --force"},
+		{"git reset --hard HEAD~3", "git reset --hard"},
+		{"DROP TABLE users;", "DROP TABLE"},
+		{"DROP DATABASE prod;", "DROP DATABASE"},
+		{"TRUNCATE TABLE logs;", "TRUNCATE TABLE"},
+		{"DELETE FROM orders;", "DELETE FROM (no WHERE)"},
+		{"kubectl delete pod mypod", "kubectl delete"},
+		{"dd if=/dev/zero of=/dev/sda", "dd if="},
+		{"mkfs.ext4 /dev/sdb1", "mkfs"},
+	}
+	for _, tc := range cases {
+		blocked, pattern := checkDangerousOps(cfg, tc.prompt, "")
+		if !blocked {
+			t.Errorf("prompt %q should be blocked", tc.prompt)
+		}
+		if pattern != tc.wantPat {
+			t.Errorf("prompt %q: got pattern %q, want %q", tc.prompt, pattern, tc.wantPat)
+		}
+	}
+}
+
+func TestCheckDangerousOps_AllowsSafe(t *testing.T) {
+	cfg := &Config{}
+	safe := []string{
+		"Summarize the README",
+		"Fix the failing tests in auth package",
+		"git commit -m 'refactor'",
+		"SELECT * FROM users WHERE id = 1",
+		"delete the comment on line 42",
+	}
+	for _, prompt := range safe {
+		blocked, pattern := checkDangerousOps(cfg, prompt, "")
+		if blocked {
+			t.Errorf("safe prompt %q should not be blocked; pattern=%q", prompt, pattern)
+		}
+	}
+}
+
+func TestCheckDangerousOps_PerAgentWhitelist(t *testing.T) {
+	cfg := &Config{
+		Agents: map[string]AgentConfig{
+			"infra": {DangerousOpsWhitelist: []string{"rm -rf"}},
+		},
+	}
+	// Whitelisted agent should pass.
+	blocked, _ := checkDangerousOps(cfg, "rm -rf /tmp/build", "infra")
+	if blocked {
+		t.Error("whitelisted agent should not be blocked for rm -rf")
+	}
+	// Other pattern still blocked.
+	blocked, pat := checkDangerousOps(cfg, "DROP TABLE logs;", "infra")
+	if !blocked {
+		t.Errorf("non-whitelisted pattern should still block; got pattern=%q", pat)
+	}
+	// Non-whitelisted agent blocked.
+	blocked, _ = checkDangerousOps(cfg, "rm -rf /tmp/build", "dev")
+	if !blocked {
+		t.Error("non-whitelisted agent should be blocked for rm -rf")
+	}
+}
+
+func TestCheckDangerousOps_ExtraPatterns(t *testing.T) {
+	cfg := &Config{
+		Security: SecurityConfig{
+			DangerousOps: config.DangerousOpsConfig{
+				ExtraPatterns: []string{`(?i)\bformat\s+c:`},
+			},
+		},
+	}
+	blocked, pattern := checkDangerousOps(cfg, "format C: /q", "")
+	if !blocked {
+		t.Error("extra pattern should block")
+	}
+	if pattern != `(?i)\bformat\s+c:` {
+		t.Errorf("unexpected pattern: %q", pattern)
+	}
+}
+
+func TestApplyDangerousOpsCheck_AllowDangerous(t *testing.T) {
+	cfg := &Config{}
+	ctx := context.Background()
+	task := &Task{
+		Prompt:         "rm -rf /important",
+		AllowDangerous: true,
+	}
+	err := applyDangerousOpsCheck(ctx, cfg, task, "")
+	if err != nil {
+		t.Errorf("AllowDangerous=true should bypass check; got: %v", err)
+	}
+}
+
+func TestApplyDangerousOpsCheck_Blocked(t *testing.T) {
+	cfg := &Config{}
+	ctx := context.Background()
+	task := &Task{
+		ID:     "test-id",
+		Prompt: "git push --force origin main",
+	}
+	err := applyDangerousOpsCheck(ctx, cfg, task, "")
+	if err == nil {
+		t.Fatal("dangerous prompt should return error")
+	}
+	if !strings.Contains(err.Error(), "dangerous operation blocked") {
+		t.Errorf("error should mention blocking: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--allow-dangerous") {
+		t.Errorf("error should mention --allow-dangerous: %v", err)
+	}
+}
+
+func TestApplyDangerousOpsCheck_Safe(t *testing.T) {
+	cfg := &Config{}
+	ctx := context.Background()
+	task := &Task{
+		Prompt: "Review the PR and suggest improvements",
+	}
+	err := applyDangerousOpsCheck(ctx, cfg, task, "")
+	if err != nil {
+		t.Errorf("safe prompt should not be blocked: %v", err)
+	}
+}
+
 // ---- from memory_test.go ----
 
 
@@ -19761,12 +19905,12 @@ func TestCompactionBackoff_CooldownResetsAfterMaxRetries(t *testing.T) {
 	if compactionShouldSkip(sid) {
 		t.Fatal("should not skip after cooldown reset")
 	}
-	// failCount should have been reset to 0.
+	// Entry should have been deleted after cooldown reset.
 	compactionBackoffMu.Lock()
-	fc := compactionBackoffState[sid].failCount
+	entry, exists := compactionBackoffState[sid]
 	compactionBackoffMu.Unlock()
-	if fc != 0 {
-		t.Fatalf("failCount should be 0 after cooldown reset, got %d", fc)
+	if exists {
+		t.Fatalf("entry should be deleted after cooldown reset, got failCount=%d", entry.failCount)
 	}
 }
 

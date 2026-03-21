@@ -11,19 +11,20 @@ import (
 )
 
 // RegisterHistoryRoutes registers HTTP routes for the history API.
-func RegisterHistoryRoutes(mux *http.ServeMux, dbPath func() string) {
-	h := &historyHandler{dbPath: dbPath}
+// resolveDB receives the request so it can resolve per-client DB paths.
+func RegisterHistoryRoutes(mux *http.ServeMux, resolveDB func(r *http.Request) string) {
+	h := &historyHandler{resolveDB: resolveDB}
 	mux.HandleFunc("/history", h.handleHistoryList)
 	mux.HandleFunc("/history/subtask-counts", h.handleSubtaskCounts)
 	mux.HandleFunc("/history/", h.handleHistoryByID)
 }
 
 type historyHandler struct {
-	dbPath func() string
+	resolveDB func(r *http.Request) string
 }
 
 func (h *historyHandler) handleHistoryList(w http.ResponseWriter, r *http.Request) {
-	db := h.dbPath()
+	db := h.resolveDB(r)
 	if db == "" {
 		http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
 		return
@@ -73,7 +74,7 @@ func (h *historyHandler) handleHistoryList(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *historyHandler) handleSubtaskCounts(w http.ResponseWriter, r *http.Request) {
-	db := h.dbPath()
+	db := h.resolveDB(r)
 	if db == "" {
 		http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
 		return
@@ -98,7 +99,7 @@ func (h *historyHandler) handleSubtaskCounts(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *historyHandler) handleHistoryByID(w http.ResponseWriter, r *http.Request) {
-	db := h.dbPath()
+	db := h.resolveDB(r)
 	if db == "" {
 		http.Error(w, `{"error":"history DB not configured"}`, http.StatusServiceUnavailable)
 		return

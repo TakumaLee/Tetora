@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"tetora/internal/audit"
+	"tetora/internal/db"
 	"tetora/internal/classify"
 	"tetora/internal/config"
 	"tetora/internal/cost"
@@ -41,6 +42,14 @@ type ChannelNotifier = dtypes.ChannelNotifier
 type Task = dtypes.Task
 type TaskResult = dtypes.TaskResult
 type DispatchResult = dtypes.DispatchResult
+type CompletionStatus = dtypes.CompletionStatus
+
+const (
+	StatusDone             = dtypes.StatusDone
+	StatusDoneWithConcerns = dtypes.StatusDoneWithConcerns
+	StatusBlocked          = dtypes.StatusBlocked
+	StatusNeedsContext     = dtypes.StatusNeedsContext
+)
 
 // --- Webhook Helpers ---
 
@@ -512,6 +521,14 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		}
 	}
 
+	// --- Dangerous Operations Defense --- Block destructive commands.
+	if err := applyDangerousOpsCheck(ctx, cfg, &task, agentName); err != nil {
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "error",
+			Error: err.Error(), Model: task.Model, SessionID: task.SessionID,
+		}
+	}
+
 	// Classify request complexity and build tiered system prompt.
 	complexity := classify.Classify(task.Prompt, task.Source)
 	if task.Source != "route-classify" {
@@ -559,7 +576,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	}
 
 	// Budget check before execution.
-	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := cost.CheckBudget(cfg.Budgets, historyDBForTask(cfg, task), agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		log.WarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -675,10 +692,15 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		result.Error = "session produced no output"
 	}
 
+	// Parse agent completion status from structured markers in output.
+	if result.Status == "success" {
+		result.CompletionStat, result.Concerns, result.BlockedReason = parseCompletionStatus(result.Output)
+	}
+
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
-		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.MaxItemsOrDefault()) {
-			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
+		if !isQueueFull(historyDBForTask(cfg, task), cfg.OfflineQueue.MaxItemsOrDefault()) {
+			if err := enqueueTask(historyDBForTask(cfg, task), task, agentName, 0); err == nil {
 				result.Status = "queued"
 				log.InfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
@@ -695,7 +717,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		"status", result.Status)
 
 	// Record token telemetry (async).
-	go telemetry.Record(cfg.HistoryDB, telemetry.Entry{
+	go telemetry.Record(historyDBForTask(cfg, task), telemetry.Entry{
 		TaskID:             task.ID,
 		Agent:               agentName,
 		Complexity:         complexity.String(),
@@ -728,6 +750,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 			TaskID:    task.ID,
 			SessionID: task.SessionID,
 			Data: map[string]any{
+				"name":       task.Name,
 				"status":     result.Status,
 				"durationMs": result.DurationMs,
 				"costUsd":    result.CostUSD,
@@ -767,6 +790,14 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
 			Error: fmt.Sprintf("injection defense: %v", err), Model: task.Model, SessionID: task.SessionID,
+		}
+	}
+
+	// --- Dangerous Operations Defense --- Block destructive commands.
+	if err := applyDangerousOpsCheck(ctx, cfg, &task, agentName); err != nil {
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "error",
+			Error: err.Error(), Model: task.Model, SessionID: task.SessionID,
 		}
 	}
 
@@ -835,7 +866,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	state.mu.Unlock()
 
 	// Budget check before execution.
-	if budgetResult := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
+	if budgetResult := cost.CheckBudget(cfg.Budgets, historyDBForTask(cfg, task), agentName, "", 0); budgetResult != nil && !budgetResult.Allowed {
 		log.WarnCtx(ctx, "budget check failed", "taskId", task.ID[:8], "reason", budgetResult.Message)
 		return TaskResult{
 			ID: task.ID, Name: task.Name, Status: "error",
@@ -887,55 +918,110 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}()
 	}
 
-	// Reuse complexity from tiered prompt builder for tool trimming.
-	start := time.Now()
-	var pr *ProviderResult
-	if complexity == classify.Simple {
-		// Simple requests skip the tool engine entirely.
-		pr = executeWithProvider(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh)
-	} else {
-		pr = executeWithProviderAndTools(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh, state.broker)
+	// --- Retry loop for direct dispatch path ---
+	// Reuses SmartDispatch.MaxRetries (default 3) for consistency with taskboard.
+	maxRetries := cfg.SmartDispatch.MaxRetriesOrDefault()
+	var (
+		pr              *ProviderResult
+		result          TaskResult
+		totalCost       float64
+		totalTokensIn   int
+		totalTokensOut  int
+		attemptErrors   []string
+	)
+	totalStart := time.Now()
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Backoff + context check before retries.
+		if attempt > 0 {
+			if taskCtx.Err() != nil || ctx.Err() != nil {
+				break
+			}
+			backoff := time.Duration(attempt) * 2 * time.Second
+			select {
+			case <-time.After(backoff):
+			case <-taskCtx.Done():
+			}
+			if taskCtx.Err() != nil || ctx.Err() != nil {
+				break
+			}
+			log.InfoCtx(ctx, "retrying task",
+				"taskId", task.ID[:8], "attempt", attempt+1, "maxRetries", maxRetries)
+			state.publishSSE(SSEEvent{
+				Type:      "retry",
+				TaskID:    task.ID,
+				SessionID: task.SessionID,
+				Data: map[string]any{
+					"attempt":    attempt + 1,
+					"maxRetries": maxRetries,
+					"lastError":  result.Error,
+				},
+			})
+		}
+
+		// Reuse complexity from tiered prompt builder for tool trimming.
+		if complexity == classify.Simple {
+			pr = executeWithProvider(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh)
+		} else {
+			pr = executeWithProviderAndTools(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh, state.broker)
+		}
+		totalCost += pr.CostUSD
+		totalTokensIn += pr.TokensIn
+		totalTokensOut += pr.TokensOut
+
+		result = TaskResult{
+			ID:         task.ID,
+			Name:       task.Name,
+			Output:     pr.Output,
+			CostUSD:    totalCost,
+			DurationMs: time.Since(totalStart).Milliseconds(),
+			Model:      task.Model,
+			SessionID:  pr.SessionID,
+			TokensIn:   totalTokensIn,
+			TokensOut:  totalTokensOut,
+			ProviderMs: pr.ProviderMs,
+			Provider:   pr.Provider,
+			Agent:      agentName,
+			Attempts:   attempt + 1,
+		}
+		if result.SessionID == "" {
+			result.SessionID = task.SessionID
+		}
+
+		if taskCtx.Err() == context.DeadlineExceeded {
+			result.Status = "timeout"
+			result.Error = fmt.Sprintf("timed out after %v", timeout)
+			break // Don't retry timeouts.
+		} else if ctx.Err() != nil {
+			result.Status = "cancelled"
+			result.Error = "dispatch cancelled"
+			break // Don't retry cancellations.
+		} else if pr.IsError {
+			result.Status = "error"
+			result.Error = pr.Error
+			attemptErrors = append(attemptErrors, fmt.Sprintf("attempt %d: %s", attempt+1, pr.Error))
+			if attempt == maxRetries {
+				// Max retries exhausted — escalate.
+				result.Status = "escalated"
+				result.Output = formatEscalationReport(task.Name, attemptErrors, result.Error)
+				log.WarnCtx(ctx, "task escalated after max retries",
+					"taskId", task.ID[:8], "attempts", attempt+1)
+			}
+			continue
+		} else {
+			result.Status = "success"
+			break
+		}
 	}
+
 	if eventCh != nil {
 		close(eventCh)
-	}
-	elapsed := time.Since(start)
-
-	result := TaskResult{
-		ID:         task.ID,
-		Name:       task.Name,
-		Output:     pr.Output,
-		CostUSD:    pr.CostUSD,
-		DurationMs: elapsed.Milliseconds(),
-		Model:      task.Model,
-		SessionID:  pr.SessionID,
-		TokensIn:   pr.TokensIn,
-		TokensOut:  pr.TokensOut,
-		ProviderMs: pr.ProviderMs,
-		Provider:   pr.Provider,
-		Agent:       agentName,
-	}
-	if result.SessionID == "" {
-		result.SessionID = task.SessionID
-	}
-
-	if taskCtx.Err() == context.DeadlineExceeded {
-		result.Status = "timeout"
-		result.Error = fmt.Sprintf("timed out after %v", timeout)
-	} else if ctx.Err() != nil {
-		result.Status = "cancelled"
-		result.Error = "dispatch cancelled"
-	} else if pr.IsError {
-		result.Status = "error"
-		result.Error = pr.Error
-	} else {
-		result.Status = "success"
 	}
 
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
-		if !isQueueFull(cfg.HistoryDB, cfg.OfflineQueue.MaxItemsOrDefault()) {
-			if err := enqueueTask(cfg.HistoryDB, task, agentName, 0); err == nil {
+		if !isQueueFull(historyDBForTask(cfg, task), cfg.OfflineQueue.MaxItemsOrDefault()) {
+			if err := enqueueTask(historyDBForTask(cfg, task), task, agentName, 0); err == nil {
 				result.Status = "queued"
 				log.InfoCtx(ctx, "task queued for offline retry",
 					"taskId", task.ID[:8], "name", task.Name)
@@ -975,13 +1061,13 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	log.DebugCtx(ctx, "task done",
 		"taskId", task.ID[:8], "name", task.Name,
-		"elapsed", elapsed.Round(time.Millisecond),
+		"durationMs", result.DurationMs,
 		"cost", result.CostUSD,
 		"tokensIn", result.TokensIn, "tokensOut", result.TokensOut,
 		"status", result.Status)
 
 	// Record token telemetry (async).
-	go telemetry.Record(cfg.HistoryDB, telemetry.Entry{
+	go telemetry.Record(historyDBForTask(cfg, task), telemetry.Entry{
 		TaskID:             task.ID,
 		Agent:               agentName,
 		Complexity:         complexity.String(),
@@ -990,10 +1076,10 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		SystemPromptTokens: len(task.SystemPrompt) / 4,
 		ContextTokens:      len(task.Prompt) / 4,
 		ToolDefsTokens:     0,
-		InputTokens:        pr.TokensIn,
-		OutputTokens:       pr.TokensOut,
-		CostUSD:            pr.CostUSD,
-		DurationMs:         elapsed.Milliseconds(),
+		InputTokens:        totalTokensIn,
+		OutputTokens:       totalTokensOut,
+		CostUSD:            totalCost,
+		DurationMs:         result.DurationMs,
 		Source:             task.Source,
 		CreatedAt:          time.Now().Format(time.RFC3339),
 	})
@@ -1006,7 +1092,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	// Record to history DB (per-tenant aware).
 	taskDB := historyDBForTask(cfg, task)
 	recordHistory(taskDB, task.ID, task.Name, task.Source, task.Agent, task, result,
-		start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+		totalStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 	// Record session activity (skip for sources that manage their own sessions:
 	// "chat" → HTTP handler, "route:" → discord/telegram executeRoute).
@@ -1075,7 +1161,12 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				log.Debug("reflection failed", "taskId", task.ID[:8], "error", err)
 				return
 			}
-			if err := storeReflection(cfg.HistoryDB, ref); err != nil {
+			// Time savings: estimate manual duration and record AI actual time.
+			hdb := historyDBForTask(cfg, task)
+			taskType := resolveTaskType(hdb, task.Name)
+			ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
+			ref.AIDurationSec = int(result.DurationMs / 1000)
+			if err := storeReflection(hdb, ref); err != nil {
 				log.Debug("reflection store failed", "taskId", task.ID[:8], "error", err)
 			} else {
 				log.Debug("reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
@@ -1247,7 +1338,7 @@ func retryTask(ctx context.Context, cfg *Config, taskID string, state *dispatchS
 		state.mu.Unlock()
 	}
 
-	audit.Log(cfg.HistoryDB, "task.retry", task.Source,
+	audit.Log(historyDBForTask(cfg, task), "task.retry", task.Source,
 		fmt.Sprintf("original=%s new=%s status=%s", taskID, task.ID, result.Status), "")
 
 	return &result, nil
@@ -1276,7 +1367,7 @@ func rerouteTask(ctx context.Context, cfg *Config, taskID string, state *dispatc
 		state.mu.Unlock()
 	}
 
-	audit.Log(cfg.HistoryDB, "task.reroute", "reroute",
+	audit.Log(historyDBForTask(cfg, ft.task), "task.reroute", "reroute",
 		fmt.Sprintf("original=%s role=%s status=%s", taskID, result.Route.Agent, result.Task.Status), "")
 
 	return result, nil
@@ -1327,6 +1418,21 @@ func cleanupFailedTasks(state *dispatchState) {
 			delete(state.failedTasks, id)
 		}
 	}
+}
+
+// formatEscalationReport produces a structured escalation report
+// consistent with the gstack STATUS/REASON/ATTEMPTED/RECOMMENDATION format.
+func formatEscalationReport(taskName string, attemptErrors []string, lastError string) string {
+	var b strings.Builder
+	b.WriteString("STATUS: BLOCKED\n")
+	b.WriteString(fmt.Sprintf("REASON: %s\n", lastError))
+	b.WriteString("ATTEMPTED:\n")
+	for _, e := range attemptErrors {
+		b.WriteString(fmt.Sprintf("  - %s\n", e))
+	}
+	b.WriteString(fmt.Sprintf("RECOMMENDATION: Task %q failed after %d attempts. Manual intervention required.\n",
+		taskName, len(attemptErrors)))
+	return b.String()
 }
 
 func buildSummary(dr *DispatchResult) string {
@@ -1548,6 +1654,25 @@ func historyDBForTask(cfg *Config, task Task) string {
 		return dbPath
 	}
 	return cfg.HistoryDB
+}
+
+// resolveTaskType looks up the task type from the taskboard for "board:TICKET_ID" tasks.
+// Falls back to "default" if not found.
+func resolveTaskType(dbPath, taskName string) string {
+	const prefix = "board:"
+	if !strings.HasPrefix(taskName, prefix) {
+		return "default"
+	}
+	ticketID := strings.TrimPrefix(taskName, prefix)
+	sql := fmt.Sprintf("SELECT type FROM tasks WHERE id = '%s' LIMIT 1", db.Escape(ticketID))
+	rows, err := db.Query(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return "default"
+	}
+	if t, ok := rows[0]["type"].(string); ok && t != "" {
+		return t
+	}
+	return "default"
 }
 
 // --- Record History Helper ---
@@ -2032,7 +2157,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	}
 
 	// Expand template variables.
-	task.Prompt = expandPrompt(task.Prompt, "", cfg.HistoryDB, route.Agent, cfg.KnowledgeDir, cfg)
+	task.Prompt = expandPrompt(task.Prompt, "", historyDBForTask(cfg, task), route.Agent, cfg.KnowledgeDir, cfg)
 
 	// Step 3: Execute with optional Dev↔QA retry loop.
 	taskStart := time.Now()
@@ -2095,7 +2220,7 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 	}
 
 	// Step 6: Audit log.
-	audit.Log(cfg.HistoryDB, "route.dispatch", source,
+	audit.Log(historyDBForTask(cfg, task), "route.dispatch", source,
 		fmt.Sprintf("role=%s method=%s confidence=%s attempts=%d prompt=%s",
 			route.Agent, route.Method, route.Confidence, attempts, truncate(prompt, 100)), "")
 
@@ -2634,7 +2759,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		}
 
 		// Global budget check.
-		if br := cost.CheckBudget(cfg.Budgets, cfg.HistoryDB, agentName, "", 0); br != nil && !br.Allowed {
+		if br := cost.CheckBudget(cfg.Budgets, historyDBForTask(cfg, task), agentName, "", 0); br != nil && !br.Allowed {
 			log.WarnCtx(ctx, "global budget exceeded mid-loop", "msg", br.Message)
 			finalResult = &ProviderResult{
 				Output:  result.Output + "\n[stopped: global budget exceeded]",
@@ -2745,6 +2870,92 @@ func detectDefaultBranch(workdir string) string {
 // (The method name changed between root and internal; keep backward-compat for callers.)
 // Note: *TaskBoardEngine has InitSchema() directly via alias, but callers still use
 // the old lowercase name in tests and tool_taskboard.go. Provide a package-level shim.
+
+// --- cmdTimeSavings CLI ---
+
+func cmdTimeSavings(args []string) {
+	cfg := loadConfig("")
+	month := time.Now().Format("2006-01")
+	showAll := false
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--all":
+			showAll = true
+		case strings.HasPrefix(args[i], "--month="):
+			month = strings.TrimPrefix(args[i], "--month=")
+		case args[i] == "--month" && i+1 < len(args):
+			i++
+			month = args[i]
+		case args[i] == "--help" || args[i] == "-h":
+			fmt.Println("Usage: tetora time-savings [--month YYYY-MM] [--all]")
+			fmt.Println("\nOptions:")
+			fmt.Println("  --month YYYY-MM  Show data for specific month (default: current)")
+			fmt.Println("  --all            Show all-time data")
+			return
+		}
+	}
+
+	queryMonth := month
+	if showAll {
+		queryMonth = ""
+	}
+
+	rows, err := queryTimeSavings(cfg.HistoryDB, queryMonth)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Aggregate totals.
+	var totalTasks, totalManualSec, totalAISec int
+	for _, r := range rows {
+		totalTasks += r.TaskCount
+		totalManualSec += r.ManualSec
+		totalAISec += r.AISec
+	}
+
+	label := month
+	if showAll {
+		label = "All Time"
+	}
+	fmt.Printf("Time Savings Report — %s\n", label)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Printf("Tasks w/ reflection : %d\n", totalTasks)
+	fmt.Printf("Manual estimate     : %s\n", formatHours(totalManualSec))
+	fmt.Printf("AI actual           : %s\n", formatHours(totalAISec))
+
+	saved := totalManualSec - totalAISec
+	if saved < 0 {
+		saved = 0
+	}
+	pct := 0.0
+	if totalManualSec > 0 {
+		pct = float64(saved) / float64(totalManualSec) * 100
+	}
+	fmt.Printf("Time saved          : %s  (%.1f%%)\n", formatHours(saved), pct)
+
+	if len(rows) > 0 {
+		fmt.Println()
+		fmt.Println("By agent:")
+		for _, r := range rows {
+			agentSaved := r.ManualSec - r.AISec
+			if agentSaved < 0 {
+				agentSaved = 0
+			}
+			fmt.Printf("  %-12s %3d tasks   %s saved\n", r.Agent, r.TaskCount, formatHours(agentSaved))
+		}
+	}
+}
+
+func formatHours(sec int) string {
+	h := float64(sec) / 3600.0
+	if h >= 1 {
+		return fmt.Sprintf("%.1f hrs", h)
+	}
+	return fmt.Sprintf("%.0f min", float64(sec)/60.0)
+}
 
 // --- cmdTask CLI ---
 
@@ -4330,4 +4541,37 @@ func (s *Server) handleAskUser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"answer": answer})
+}
+
+// --- Completion Status parsing ---
+
+var (
+	completionStatusRe = regexp.MustCompile(`<!--\s*COMPLETION_STATUS:\s*(DONE_WITH_CONCERNS|DONE|BLOCKED|NEEDS_CONTEXT)\s*-->`)
+	concernsRe         = regexp.MustCompile(`<!--\s*CONCERNS:\s*(.+?)\s*-->`)
+	blockedReasonRe    = regexp.MustCompile(`<!--\s*BLOCKED_REASON:\s*(.+?)\s*-->`)
+)
+
+// parseCompletionStatus extracts structured completion markers from agent output.
+// Returns (status, concerns, blockedReason). Falls back to StatusDone if no marker found.
+func parseCompletionStatus(output string) (CompletionStatus, string, string) {
+	m := completionStatusRe.FindStringSubmatch(output)
+	if len(m) < 2 {
+		return StatusDone, "", ""
+	}
+
+	status := CompletionStatus(m[1])
+	var concerns, blockedReason string
+
+	switch status {
+	case StatusDoneWithConcerns:
+		if cm := concernsRe.FindStringSubmatch(output); len(cm) >= 2 {
+			concerns = cm[1]
+		}
+	case StatusBlocked, StatusNeedsContext:
+		if bm := blockedReasonRe.FindStringSubmatch(output); len(bm) >= 2 {
+			blockedReason = bm[1]
+		}
+	}
+
+	return status, concerns, blockedReason
 }
