@@ -466,11 +466,46 @@ var _providerPresets = [];
 var _selectedPreset = null;
 
 function renderSettingsProviders() {
-  fetch(API + '/api/provider-presets').then(function(r){return r.json()}).then(function(presets) {
-    _providerPresets = presets;
+  // Fetch presets (for the add modal) and configured providers in parallel
+  Promise.all([
+    fetch(API + '/api/provider-presets').then(function(r){return r.json()}).catch(function(){return [];}),
+    fetch(API + '/api/config/providers').then(function(r){return r.json()}).catch(function(){return [];})
+  ]).then(function(results) {
+    _providerPresets = results[0];
+    var configured = results[1] || [];
     var el = document.getElementById('providers-list');
-    el.innerHTML = '<div style="color:var(--muted);font-size:13px">Use "Add Provider" to configure LLM providers. Providers are saved to config.json and hot-reloaded.</div>';
-  }).catch(function(){});
+    if (!configured.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:13px">No providers configured. Use "+ Add Provider" to set up an LLM provider.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    configured.forEach(function(entry) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)';
+      var info = document.createElement('div');
+      var modelText = entry.config.model ? ' &mdash; ' + entry.config.model : '';
+      var baseUrlText = entry.config.baseUrl ? '<span style="color:var(--muted);font-size:11px"> (' + entry.config.baseUrl + ')</span>' : '';
+      info.innerHTML = '<strong>' + entry.name + '</strong>' + modelText + baseUrlText;
+      var del = document.createElement('button');
+      del.className = 'btn';
+      del.textContent = 'Remove';
+      del.style.cssText = 'font-size:11px;padding:2px 10px;color:var(--red)';
+      del.onclick = (function(name) {
+        return function() {
+          if (!confirm('Remove provider "' + name + '"?')) return;
+          fetch(API + '/api/config/providers?name=' + encodeURIComponent(name), {method: 'DELETE'})
+            .then(function(r){return r.json()})
+            .then(function(d) {
+              if (d.status === 'ok') renderSettingsProviders();
+              else alert('Remove failed: ' + (d.error || 'unknown'));
+            });
+        };
+      })(entry.name);
+      row.appendChild(info);
+      row.appendChild(del);
+      el.appendChild(row);
+    });
+  });
 }
 
 function openAddProviderModal() {

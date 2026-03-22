@@ -22,6 +22,15 @@ type Preset struct {
 // Presets is the built-in registry of supported provider presets.
 var Presets = []Preset{
 	{
+		Name:        "groq",
+		DisplayName: "Groq",
+		Type:        "openai-compatible",
+		BaseURL:     "https://api.groq.com/openai/v1",
+		RequiresKey: true,
+		Models:      []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"},
+		Dynamic:     false,
+	},
+	{
 		Name:        "anthropic",
 		DisplayName: "Anthropic (Claude)",
 		Type:        "openai-compatible",

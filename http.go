@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -3823,37 +3824,68 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 	// --- Provider Config Save ---
 	mux.HandleFunc("/api/config/providers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			http.Error(w, `{"error":"PUT only"}`, http.StatusMethodNotAllowed)
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			cfg2 := s.Cfg()
+			type providerEntry struct {
+				Name   string                     `json:"name"`
+				Config tetoraConfig.ProviderConfig `json:"config"`
+			}
+			var entries []providerEntry
+			for name, pc := range cfg2.Providers {
+				// Mask API key for UI
+				masked := pc
+				if masked.APIKey != "" {
+					masked.APIKey = "***"
+				}
+				entries = append(entries, providerEntry{Name: name, Config: masked})
+			}
+			// Sort by name for stable output
+			sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+			json.NewEncoder(w).Encode(entries)
 
-		var req struct {
-			Name   string                    `json:"name"`
-			Config tetoraConfig.ProviderConfig `json:"config"`
+		case http.MethodPut:
+			var req struct {
+				Name   string                     `json:"name"`
+				Config tetoraConfig.ProviderConfig `json:"config"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+				return
+			}
+			if req.Name == "" {
+				http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
+				return
+			}
+			configPath := findConfigPath()
+			if err := tetoraConfig.SaveProviders(configPath, req.Name, req.Config); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			signalSelfReload()
+			audit.Log(cfg.HistoryDB, "config.provider.save", "dashboard",
+				fmt.Sprintf("provider=%s type=%s", req.Name, req.Config.Type), "")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": req.Name})
+
+		case http.MethodDelete:
+			name := r.URL.Query().Get("name")
+			if name == "" {
+				http.Error(w, `{"error":"name query param required"}`, http.StatusBadRequest)
+				return
+			}
+			configPath := findConfigPath()
+			if err := tetoraConfig.DeleteProvider(configPath, name); err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			signalSelfReload()
+			audit.Log(cfg.HistoryDB, "config.provider.delete", "dashboard", fmt.Sprintf("provider=%s", name), "")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": name})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
-			return
-		}
-		if req.Name == "" {
-			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
-			return
-		}
-
-		configPath := findConfigPath()
-		if err := tetoraConfig.SaveProviders(configPath, req.Name, req.Config); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
-			return
-		}
-
-		signalSelfReload()
-
-		audit.Log(cfg.HistoryDB, "config.provider.save", "dashboard",
-			fmt.Sprintf("provider=%s type=%s", req.Name, req.Config.Type), "")
-
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": req.Name})
 	})
 
 	// --- P18.2: OAuth 2.0 Framework ---
