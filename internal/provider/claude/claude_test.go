@@ -212,6 +212,29 @@ func TestBuildArgs_Streaming(t *testing.T) {
 	assertContainsSequence(t, argsNonStream, "--output-format", "json")
 }
 
+func TestBuildArgs_WithAllowedTools(t *testing.T) {
+	req := provider.Request{
+		Model:        "opus",
+		SessionID:    "s",
+		AllowedTools: []string{"Bash", "Read", "Grep"},
+	}
+	args := BuildArgs(req, false)
+	assertContainsSequence(t, args, "--allowedTools", "Bash,Read,Grep")
+}
+
+func TestBuildArgs_WithoutAllowedTools(t *testing.T) {
+	req := provider.Request{
+		Model:     "opus",
+		SessionID: "s",
+	}
+	args := BuildArgs(req, false)
+	for _, a := range args {
+		if a == "--allowedTools" {
+			t.Error("--allowedTools should not be present when AllowedTools is empty")
+		}
+	}
+}
+
 // --- shouldUseDocker tests ---
 
 func TestShouldUseDocker_TaskOverrideTrue(t *testing.T) {

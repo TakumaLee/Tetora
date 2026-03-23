@@ -28,6 +28,7 @@ type Task struct {
 	Depth          int      `json:"depth,omitempty"`          // nesting depth (0 = top-level)
 	ParentID       string   `json:"parentId,omitempty"`       // parent task ID
 	AllowDangerous bool     `json:"allowDangerous,omitempty"` // skip dangerous ops check
+	AllowedTools   []string `json:"allowedTools,omitempty"`   // CLI --allowedTools (skill-derived + explicit)
 
 	// Runtime fields (not serialized).
 	ChannelNotifier ChannelNotifier    `json:"-"` // messaging channel notifier

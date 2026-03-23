@@ -202,6 +202,144 @@ func TestLoadFileSkills(t *testing.T) {
 	}
 }
 
+func TestLoadFileSkills_AllowedToolsFromMetadata(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{
+		BaseDir: dir,
+		SkillStore: SkillStoreConfig{
+			AutoApprove: true,
+			MaxSkills:   50,
+		},
+	}
+
+	meta := SkillMetadata{
+		Name:         "tool-skill",
+		Description:  "Skill with allowed tools",
+		Command:      "./run.sh",
+		Approved:     true,
+		AllowedTools: []string{"Bash", "Read"},
+	}
+	CreateSkill(cfg, meta, "echo hi")
+
+	skills := LoadFileSkills(cfg)
+	if len(skills) != 1 {
+		t.Fatalf("LoadFileSkills() returned %d skills, want 1", len(skills))
+	}
+	if len(skills[0].AllowedTools) != 2 {
+		t.Fatalf("AllowedTools len = %d, want 2", len(skills[0].AllowedTools))
+	}
+	if skills[0].AllowedTools[0] != "Bash" || skills[0].AllowedTools[1] != "Read" {
+		t.Errorf("AllowedTools = %v, want [Bash Read]", skills[0].AllowedTools)
+	}
+}
+
+func TestLoadFileSkills_AllowedToolsFromFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{
+		BaseDir: dir,
+		SkillStore: SkillStoreConfig{
+			AutoApprove: true,
+			MaxSkills:   50,
+		},
+	}
+
+	// Create skill without allowedTools in metadata.
+	meta := SkillMetadata{
+		Name:        "fm-skill",
+		Description: "Skill with frontmatter tools",
+		Command:     "./run.sh",
+		Approved:    true,
+	}
+	CreateSkill(cfg, meta, "echo hi")
+
+	// Write SKILL.md with allowed-tools in frontmatter.
+	skillMDPath := filepath.Join(SkillsDir(cfg), "fm-skill", "SKILL.md")
+	content := "---\nname: fm-skill\nallowed-tools: [Bash, Grep, Edit]\n---\n\nSome doc content.\n"
+	os.WriteFile(skillMDPath, []byte(content), 0o644)
+
+	skills := LoadFileSkills(cfg)
+	if len(skills) != 1 {
+		t.Fatalf("LoadFileSkills() returned %d skills, want 1", len(skills))
+	}
+	if len(skills[0].AllowedTools) != 3 {
+		t.Fatalf("AllowedTools len = %d, want 3", len(skills[0].AllowedTools))
+	}
+	want := []string{"Bash", "Grep", "Edit"}
+	for i, w := range want {
+		if skills[0].AllowedTools[i] != w {
+			t.Errorf("AllowedTools[%d] = %q, want %q", i, skills[0].AllowedTools[i], w)
+		}
+	}
+}
+
+func TestLoadFileSkills_AllowedToolsFromFrontmatterMultiline(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{
+		BaseDir: dir,
+		SkillStore: SkillStoreConfig{
+			AutoApprove: true,
+			MaxSkills:   50,
+		},
+	}
+
+	meta := SkillMetadata{
+		Name:        "ml-skill",
+		Description: "Multiline frontmatter",
+		Command:     "./run.sh",
+		Approved:    true,
+	}
+	CreateSkill(cfg, meta, "echo hi")
+
+	skillMDPath := filepath.Join(SkillsDir(cfg), "ml-skill", "SKILL.md")
+	content := "---\nname: ml-skill\nallowed-tools:\n  - Read\n  - Write\n---\n\nDoc.\n"
+	os.WriteFile(skillMDPath, []byte(content), 0o644)
+
+	skills := LoadFileSkills(cfg)
+	if len(skills) != 1 {
+		t.Fatalf("got %d skills, want 1", len(skills))
+	}
+	if len(skills[0].AllowedTools) != 2 {
+		t.Fatalf("AllowedTools len = %d, want 2", len(skills[0].AllowedTools))
+	}
+	if skills[0].AllowedTools[0] != "Read" || skills[0].AllowedTools[1] != "Write" {
+		t.Errorf("AllowedTools = %v, want [Read Write]", skills[0].AllowedTools)
+	}
+}
+
+func TestLoadFileSkills_MetadataOverridesFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{
+		BaseDir: dir,
+		SkillStore: SkillStoreConfig{
+			AutoApprove: true,
+			MaxSkills:   50,
+		},
+	}
+
+	// metadata.json has allowedTools — should NOT be overridden by frontmatter.
+	meta := SkillMetadata{
+		Name:         "override-skill",
+		Description:  "Metadata wins",
+		Command:      "./run.sh",
+		Approved:     true,
+		AllowedTools: []string{"Bash"},
+	}
+	CreateSkill(cfg, meta, "echo hi")
+
+	skillMDPath := filepath.Join(SkillsDir(cfg), "override-skill", "SKILL.md")
+	content := "---\nallowed-tools: [Read, Write, Grep]\n---\n\nDoc.\n"
+	os.WriteFile(skillMDPath, []byte(content), 0o644)
+
+	skills := LoadFileSkills(cfg)
+	if len(skills) != 1 {
+		t.Fatalf("got %d skills, want 1", len(skills))
+	}
+	// metadata.json takes priority: should be just ["Bash"], not frontmatter's 3 tools.
+	if len(skills[0].AllowedTools) != 1 || skills[0].AllowedTools[0] != "Bash" {
+		t.Errorf("AllowedTools = %v, want [Bash] (metadata priority)", skills[0].AllowedTools)
+	}
+}
+
 func TestMergeSkills(t *testing.T) {
 	configSkills := []SkillConfig{
 		{Name: "config-skill", Description: "From config"},

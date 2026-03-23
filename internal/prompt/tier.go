@@ -21,9 +21,10 @@ type Deps struct {
 	ResolveWorkspace       func(cfg *config.Config, agentName string) config.WorkspaceConfig
 	BuildReflectionContext func(dbPath, role string, limit int) string
 	LoadWritingStyle       func(cfg *config.Config) string
-	BuildSkillsPrompt      func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) string
-	InjectWorkspaceContent func(cfg *config.Config, task *dispatch.Task, agentName string)
-	EstimateDirSize        func(dir string) int
+	BuildSkillsPrompt          func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) string
+	CollectSkillAllowedTools   func(cfg *config.Config, task dispatch.Task) []string
+	InjectWorkspaceContent     func(cfg *config.Config, task *dispatch.Task, agentName string)
+	EstimateDirSize            func(dir string) int
 }
 
 // BuildTieredPrompt constructs a system prompt based on request complexity.
@@ -194,6 +195,13 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			"Learned skills are reviewed before promotion to the active skill catalog."
 	}
 
+	// --- 8.7. Skill-derived AllowedTools ---
+	if deps.CollectSkillAllowedTools != nil {
+		if collected := deps.CollectSkillAllowedTools(cfg, *task); len(collected) > 0 {
+			task.AllowedTools = mergeDedup(task.AllowedTools, collected)
+		}
+	}
+
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call InjectWorkspaceContent.
 	if complexity != classify.Simple {
@@ -278,4 +286,20 @@ func TruncateToChars(s string, maxChars int) string {
 		cut = cut[:idx]
 	}
 	return cut + "\n\n[... truncated ...]"
+}
+
+// mergeDedup appends extra items to base, skipping duplicates.
+func mergeDedup(base, extra []string) []string {
+	seen := make(map[string]bool, len(base))
+	for _, s := range base {
+		seen[s] = true
+	}
+	result := append([]string{}, base...)
+	for _, s := range extra {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
 }

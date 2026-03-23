@@ -289,6 +289,42 @@ func skillStringContains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && len(s) >= len(substr) && skillFindSubstr(s, substr)
 }
 
+func TestCollectSkillAllowedTools(t *testing.T) {
+	cfg := &AppConfig{
+		Skills: []SkillConfig{
+			{Name: "s1", AllowedTools: []string{"Bash", "Read"}},
+			{Name: "s2", AllowedTools: []string{"Read", "Grep"}},
+			{Name: "s3"}, // no allowed tools
+		},
+	}
+	task := TaskContext{Agent: "test", Prompt: "hello"}
+	got := CollectSkillAllowedTools(cfg, task)
+	// Should be deduped: Bash, Read, Grep
+	if len(got) != 3 {
+		t.Fatalf("CollectSkillAllowedTools() len = %d, want 3", len(got))
+	}
+	want := map[string]bool{"Bash": true, "Read": true, "Grep": true}
+	for _, tool := range got {
+		if !want[tool] {
+			t.Errorf("unexpected tool %q", tool)
+		}
+	}
+}
+
+func TestCollectSkillAllowedTools_Empty(t *testing.T) {
+	cfg := &AppConfig{
+		Skills: []SkillConfig{
+			{Name: "s1"},
+			{Name: "s2"},
+		},
+	}
+	task := TaskContext{Agent: "test", Prompt: "hello"}
+	got := CollectSkillAllowedTools(cfg, task)
+	if len(got) != 0 {
+		t.Errorf("CollectSkillAllowedTools() = %v, want empty", got)
+	}
+}
+
 func skillFindSubstr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
