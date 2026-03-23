@@ -110,8 +110,9 @@ func ExecuteSkill(ctx context.Context, skill SkillConfig, vars map[string]string
 		result.Status = "success"
 	}
 
-	// Run validation script if configured.
-	if skill.ValidationScript != "" {
+	// Run validation script if configured and skill succeeded.
+	// Validation is meaningless when the skill itself timed out or errored.
+	if skill.ValidationScript != "" && result.Status == "success" {
 		result.Validation = runValidationScript(ctx, skill.ValidationScript, cmd.Dir)
 	}
 

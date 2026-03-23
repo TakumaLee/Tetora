@@ -309,3 +309,52 @@ func TestExecuteSkill_NoValidation(t *testing.T) {
 		t.Errorf("expected Validation to be nil, got %+v", result.Validation)
 	}
 }
+
+func TestExecuteSkill_SkipValidationOnError(t *testing.T) {
+	// Validation script that would always pass — but should never run.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_skip_val_error",
+		Command:          "false", // exits non-zero → status "error"
+		Timeout:          "5s",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Status != "error" {
+		t.Errorf("status = %q, want %q", result.Status, "error")
+	}
+	if result.Validation != nil {
+		t.Errorf("expected Validation to be nil when skill errored, got %+v", result.Validation)
+	}
+}
+
+func TestExecuteSkill_SkipValidationOnTimeout(t *testing.T) {
+	// Validation script that would always pass — but should never run.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_skip_val_timeout",
+		Command:          "sleep",
+		Args:             []string{"10"},
+		Timeout:          "100ms",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Status != "timeout" {
+		t.Errorf("status = %q, want %q", result.Status, "timeout")
+	}
+	if result.Validation != nil {
+		t.Errorf("expected Validation to be nil when skill timed out, got %+v", result.Validation)
+	}
+}
