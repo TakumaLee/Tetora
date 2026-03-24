@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	provpkg "tetora/internal/provider"
 )
 
 // VisionConfig holds configuration for vision/image analysis.
@@ -301,7 +303,7 @@ func (a *AnthropicVision) Analyze(ctx context.Context, cfg *VisionConfig, imageD
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", cfg.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", provpkg.AnthropicVersion)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
