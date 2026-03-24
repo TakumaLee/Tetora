@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/provider"
 	"tetora/internal/skill"
 )
 
@@ -45,8 +46,7 @@ const (
 	skillInitDefaultModel = "claude-sonnet-4-6-20250514"
 	skillInitMaxTokens    = 4096
 	skillInitMaxTurns     = 10
-	anthropicMessagesURL  = "https://api.anthropic.com/v1/messages"
-	anthropicVersion      = "2023-06-01"
+	anthropicMessagesURL = "https://api.anthropic.com/v1/messages"
 )
 
 // CmdSkillInit runs an AI-driven interview to generate a SKILL.md.
@@ -216,7 +216,7 @@ func callAnthropicInit(apiKey, system string, messages []skillInitMessage) (stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", anthropicVersion)
+	req.Header.Set("anthropic-version", provider.AnthropicVersion)
 
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
