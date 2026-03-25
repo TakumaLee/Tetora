@@ -56,7 +56,7 @@ func NewBridgeServer(listenAddr, token, version string) *BridgeServer {
 
 // bridgeTools returns the list of MCP tools exposed by the bridge.
 func bridgeTools() []BridgeTool {
-	return []BridgeTool{
+	tools := []BridgeTool{
 		{
 			Name:        "tetora_taskboard_list",
 			Description: "List kanban board tickets. Optional filters: project, assignee, priority.",
@@ -206,6 +206,8 @@ func bridgeTools() []BridgeTool {
 			}`),
 		},
 	}
+
+	return tools
 }
 
 // Run starts the MCP bridge server, reading JSON-RPC from stdin and writing to stdout.

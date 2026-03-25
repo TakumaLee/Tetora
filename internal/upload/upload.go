@@ -125,7 +125,20 @@ func DetectMimeType(name string) string {
 	}
 }
 
+// maxInlineFileSize is the upper limit for inlining text file content into the prompt.
+const maxInlineFileSize = 100 * 1024 // 100 KB
+
+// isTextMIME reports whether the MIME type indicates a human-readable text file.
+func isTextMIME(mime string) bool {
+	return strings.HasPrefix(mime, "text/") ||
+		mime == "application/json" ||
+		mime == "application/xml" ||
+		mime == "application/x-yaml"
+}
+
 // BuildPromptPrefix creates the prompt prefix describing attached files.
+// Text files whose content fits within maxInlineFileSize are inlined directly;
+// binary/large files fall back to path reference so the agent can read them.
 func BuildPromptPrefix(files []*File) string {
 	if len(files) == 0 {
 		return ""
@@ -133,6 +146,16 @@ func BuildPromptPrefix(files []*File) string {
 	var lines []string
 	lines = append(lines, "The user has attached the following files:")
 	for _, f := range files {
+		if isTextMIME(f.MimeType) && f.Size > 0 && f.Size <= maxInlineFileSize {
+			content, err := os.ReadFile(f.Path)
+			if err == nil {
+				lines = append(lines, fmt.Sprintf("- %s (%s, %d bytes):", f.Name, f.MimeType, f.Size))
+				lines = append(lines, "```")
+				lines = append(lines, string(content))
+				lines = append(lines, "```")
+				continue
+			}
+		}
 		lines = append(lines, fmt.Sprintf("- %s (%s, %d bytes): %s", f.Name, f.MimeType, f.Size, f.Path))
 	}
 	lines = append(lines, "")
