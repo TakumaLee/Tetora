@@ -692,6 +692,12 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		result.Error = "session produced no output"
 	}
 
+	// Guard: errors must always have a non-empty message for diagnosability.
+	if result.Status == "error" && result.Error == "" {
+		result.Error = fmt.Sprintf("unknown error (provider=%s, model=%s, duration=%dms)",
+			result.Provider, result.Model, result.DurationMs)
+	}
+
 	// Parse agent completion status from structured markers in output.
 	if result.Status == "success" {
 		result.CompletionStat, result.Concerns, result.BlockedReason = parseCompletionStatus(result.Output)
@@ -3750,6 +3756,34 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 	wtBaseDir := filepath.Join(cfg.RuntimeDir, "worktrees")
 	wtMgr := NewWorktreeManager(wtBaseDir)
 
+	// reflectAfterTask runs async reflection if enabled. Called after both
+	// primary and child executor complete a task.
+	reflectAfterTask := func(ctx context.Context, task dtypes.Task, result dtypes.TaskResult, agentName string) {
+		rootTask := Task(task)
+		rootResult := TaskResult(result)
+		if shouldReflect(cfg, rootTask, rootResult) {
+			go func() {
+				reflCtx, reflCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer reflCancel()
+				ref, err := performReflection(reflCtx, cfg, rootTask, rootResult)
+				if err != nil {
+					log.Debug("taskboard reflection failed", "taskId", task.ID[:8], "error", err)
+					return
+				}
+				hdb := historyDBForTask(cfg, rootTask)
+				taskType := resolveTaskType(hdb, task.Name)
+				ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
+				ref.AIDurationSec = int(result.DurationMs / 1000)
+				if err := storeReflection(hdb, ref); err != nil {
+					log.Debug("taskboard reflection store failed", "taskId", task.ID[:8], "error", err)
+				} else {
+					log.Debug("taskboard reflection stored", "taskId", task.ID[:8], "agent", ref.Agent, "score", ref.Score)
+				}
+				extractAutoLesson(cfg.WorkspaceDir, ref)
+			}()
+		}
+	}
+
 	deps := taskboard.DispatcherDeps{
 		Executor: dtypes.TaskExecutorFunc(func(ctx context.Context, task dtypes.Task, agentName string) dtypes.TaskResult {
 			// Acquire semaphore slot for this task.
@@ -3762,7 +3796,9 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 			// Convert internal dtypes.Task to root Task and run.
 			rootTask := Task(task)
 			result := runSingleTask(ctx, cfg, rootTask, sem, childSem, agentName)
-			return dtypes.TaskResult(result)
+			dtResult := dtypes.TaskResult(result)
+			reflectAfterTask(ctx, task, dtResult, agentName)
+			return dtResult
 		}),
 		ChildExecutor: dtypes.TaskExecutorFunc(func(ctx context.Context, task dtypes.Task, agentName string) dtypes.TaskResult {
 			select {
@@ -3773,7 +3809,9 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 			}
 			rootTask := Task(task)
 			result := runSingleTask(ctx, cfg, rootTask, childSem, nil, agentName)
-			return dtypes.TaskResult(result)
+			dtResult := dtypes.TaskResult(result)
+			reflectAfterTask(ctx, task, dtResult, agentName)
+			return dtResult
 		}),
 
 		FillDefaults: func(c *config.Config, t *dtypes.Task) {

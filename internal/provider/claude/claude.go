@@ -169,9 +169,19 @@ func (p *Provider) Execute(ctx context.Context, req provider.Request) (*provider
 	} else if ctx.Err() != nil {
 		pr.IsError = true
 		pr.Error = "cancelled"
-	} else if runErr != nil && !pr.IsError {
-		pr.IsError = true
-		pr.Error = runErr.Error()
+	} else if runErr != nil {
+		if !pr.IsError {
+			pr.IsError = true
+			pr.Error = runErr.Error()
+		} else if pr.Error == "" {
+			pr.Error = runErr.Error()
+		}
+	}
+
+	// Final guard: never return IsError with an empty Error string.
+	if pr.IsError && pr.Error == "" {
+		pr.Error = fmt.Sprintf("unknown error (exit=%d, stdout=%d bytes, stderr=%d bytes)",
+			exitCode, stdout.Len(), stderr.Len())
 	}
 
 	return pr, nil
@@ -319,9 +329,17 @@ func (p *Provider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req prov
 	} else if ctx.Err() != nil {
 		pr.IsError = true
 		pr.Error = "cancelled"
-	} else if runErr != nil && !pr.IsError {
-		pr.IsError = true
-		pr.Error = runErr.Error()
+	} else if runErr != nil {
+		if !pr.IsError {
+			pr.IsError = true
+			pr.Error = runErr.Error()
+		} else if pr.Error == "" {
+			pr.Error = runErr.Error()
+		}
+	}
+
+	if pr.IsError && pr.Error == "" {
+		pr.Error = fmt.Sprintf("unknown streaming error (exit=%d)", exitCode)
 	}
 
 	return pr, nil
@@ -582,6 +600,17 @@ func buildFromParsed(co output, result ParsedResult) ParsedResult {
 	if co.IsError {
 		result.Status = "error"
 		result.Error = co.Subtype
+		if result.Error == "" {
+			result.Error = "CLI error (no subtype)"
+			if co.Result != "" {
+				// Use first 200 chars of result as error context.
+				errCtx := co.Result
+				if len(errCtx) > 200 {
+					errCtx = errCtx[:200]
+				}
+				result.Error = "CLI error: " + errCtx
+			}
+		}
 	} else if result.TokensIn == 0 && result.TokensOut == 0 && co.CostUSD == 0 && strings.TrimSpace(co.Result) == "" {
 		result.Status = "error"
 		result.Error = "empty run: CLI returned success but no tokens were consumed"

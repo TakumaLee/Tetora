@@ -256,18 +256,37 @@ func RecordSkillCompletion(dbPath string, task TaskContext, result TaskCompletio
 		return
 	}
 
-	// Find skills injected for this task by exact session_id match.
-	if task.SessionID == "" {
-		return
+	// Find skills injected for this task. Try session_id match first,
+	// fall back to role + recent time window (injection records often
+	// lack session_id).
+	var rows []map[string]any
+	var err error
+	if task.SessionID != "" {
+		sql := fmt.Sprintf(
+			`SELECT DISTINCT skill_name FROM skill_usage
+			 WHERE event_type = 'injected' AND role = '%s'
+			 AND session_id = '%s'`,
+			db.Escape(role),
+			db.Escape(task.SessionID),
+		)
+		rows, err = db.Query(dbPath, sql)
 	}
-	sql := fmt.Sprintf(
-		`SELECT DISTINCT skill_name FROM skill_usage
-		 WHERE event_type = 'injected' AND role = '%s'
-		 AND session_id = '%s'`,
-		db.Escape(role),
-		db.Escape(task.SessionID),
-	)
-	rows, err := db.Query(dbPath, sql)
+	// Fallback: match by role + recent injections (last 4 hours).
+	if len(rows) == 0 {
+		cutoff := time.Now().UTC().Add(-4 * time.Hour).Format(time.RFC3339)
+		sql := fmt.Sprintf(
+			`SELECT DISTINCT skill_name FROM skill_usage
+			 WHERE event_type = 'injected' AND role = '%s'
+			 AND created_at > '%s'
+			 AND skill_name NOT IN (
+			   SELECT skill_name FROM skill_usage
+			   WHERE event_type IN ('completed','failed') AND role = '%s'
+			   AND created_at > '%s'
+			 )`,
+			db.Escape(role), cutoff, db.Escape(role), cutoff,
+		)
+		rows, err = db.Query(dbPath, sql)
+	}
 	if err != nil || len(rows) == 0 {
 		return
 	}

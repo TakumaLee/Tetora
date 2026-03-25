@@ -5700,7 +5700,27 @@ func toQuietCfg(cfg *Config) quiet.Config {
 func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(string)) *CronEngine {
 	env := cron.Env{
 		Executor: dtypes.TaskExecutorFunc(func(ctx context.Context, task dtypes.Task, agentName string) dtypes.TaskResult {
-			return runSingleTask(ctx, cfg, task, sem, childSem, agentName)
+			result := runSingleTask(ctx, cfg, task, sem, childSem, agentName)
+			// Async reflection for cron-dispatched tasks.
+			rootTask := Task(task)
+			rootResult := TaskResult(result)
+			if shouldReflect(cfg, rootTask, rootResult) {
+				go func() {
+					reflCtx, reflCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					defer reflCancel()
+					ref, err := performReflection(reflCtx, cfg, rootTask, rootResult)
+					if err != nil {
+						return
+					}
+					hdb := historyDBForTask(cfg, rootTask)
+					taskType := resolveTaskType(hdb, task.Name)
+					ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
+					ref.AIDurationSec = int(result.DurationMs / 1000)
+					_ = storeReflection(hdb, ref)
+					extractAutoLesson(cfg.WorkspaceDir, ref)
+				}()
+			}
+			return result
 		}),
 
 		FillDefaults: func(c *Config, t *dtypes.Task) {
