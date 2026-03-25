@@ -549,11 +549,29 @@ function renderPresetList(presets) {
 
 function selectPreset(preset) {
   _selectedPreset = preset;
+  // Show/hide baseUrl input for custom provider
+  var urlRow = document.getElementById('provider-baseurl-row');
+  var urlInput = document.getElementById('provider-baseurl');
+  if (preset.name === 'custom') {
+    urlRow.style.display = '';
+    urlInput.value = '';
+  } else {
+    urlRow.style.display = 'none';
+    urlInput.value = preset.baseUrl || '';
+  }
   if (preset.requiresKey) {
     showProviderStep(2);
   } else {
     showProviderStep(3);
     populateModelSelect(preset);
+  }
+}
+
+function providerStepBackFromModel() {
+  if (_selectedPreset && _selectedPreset.requiresKey) {
+    showProviderStep(2);
+  } else {
+    showProviderStep(1);
   }
 }
 
@@ -574,8 +592,9 @@ function providerStepNext(toStep) {
   if (toStep === 4) {
     var model = document.getElementById('provider-model-select').value ||
                 document.getElementById('provider-model-custom').value;
+    var baseUrl = document.getElementById('provider-baseurl').value || _selectedPreset.baseUrl || '';
     var summary = '<strong>' + _selectedPreset.displayName + '</strong><br>' +
-      'Base URL: ' + (_selectedPreset.baseUrl || '(default)') + '<br>' +
+      'Base URL: ' + (baseUrl || '(default)') + '<br>' +
       'Model: ' + (model || '(none selected)');
     document.getElementById('provider-test-summary').innerHTML = summary;
     document.getElementById('provider-test-result').innerHTML = '';
@@ -605,13 +624,14 @@ function testProviderConnection() {
   var model = document.getElementById('provider-model-select').value ||
               document.getElementById('provider-model-custom').value;
   var apiKey = document.getElementById('provider-apikey').value;
+  var baseUrl = document.getElementById('provider-baseurl').value || _selectedPreset.baseUrl || '';
 
   fetch(API + '/api/provider-test', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      type: _selectedPreset.type,
-      baseUrl: _selectedPreset.baseUrl,
+      type: _selectedPreset.name === 'custom' ? 'custom' : _selectedPreset.type,
+      baseUrl: baseUrl,
       apiKey: apiKey,
       model: model
     })
@@ -635,6 +655,7 @@ function saveProvider() {
   var model = document.getElementById('provider-model-select').value ||
               document.getElementById('provider-model-custom').value;
   var apiKey = document.getElementById('provider-apikey').value;
+  var baseUrl = document.getElementById('provider-baseurl').value || _selectedPreset.baseUrl || '';
   var name = _selectedPreset.name;
 
   fetch(API + '/api/config/providers', {
@@ -643,8 +664,8 @@ function saveProvider() {
     body: JSON.stringify({
       name: name,
       config: {
-        type: _selectedPreset.type,
-        baseUrl: _selectedPreset.baseUrl,
+        type: _selectedPreset.name === 'custom' ? 'openai-compatible' : _selectedPreset.type,
+        baseUrl: baseUrl,
         apiKey: apiKey,
         model: model
       }

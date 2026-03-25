@@ -1388,10 +1388,14 @@
         <!-- Step 3: Model Selection -->
         <div id="provider-step-3" style="display:none">
           <div style="font-weight:600;margin-bottom:12px">Select Model</div>
+          <div id="provider-baseurl-row" style="display:none;margin-bottom:12px">
+            <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:4px">Base URL</label>
+            <input type="text" id="provider-baseurl" class="input" placeholder="https://your-api.example.com/v1" style="width:100%">
+          </div>
           <select id="provider-model-select" class="input" style="width:100%;margin-bottom:8px"></select>
           <input type="text" id="provider-model-custom" class="input" placeholder="Or type model name..." style="width:100%;margin-bottom:12px">
           <div style="text-align:right;gap:8px;display:flex;justify-content:flex-end">
-            <button class="btn" onclick="providerStepBack(2)">Back</button>
+            <button class="btn" onclick="providerStepBackFromModel()">Back</button>
             <button class="btn btn-primary" onclick="providerStepNext(4)">Next</button>
           </div>
         </div>
