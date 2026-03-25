@@ -1,0 +1,30 @@
+{
+  "name": "x-intelligence-gathering",
+  "description": "江東情報網：監控 X.com 最新動向",
+  "variables": {
+    "target": "AI news",
+    "count": "5"
+  },
+  "steps": [
+    {
+      "id": "fetch-x",
+      "agent": "luxun",
+      "type": "skill",
+      "skill": "web-search",
+      "skillArgs": ["site:x.com {{target}}", "--recent", "{{count}}"],
+      "prompt": "伯言請前往 X.com 偵查關於 {{target}} 的最新 5 則情報。"
+    },
+    {
+      "id": "analyze-intel",
+      "agent": "zhouyu",
+      "prompt": "都督請分析以下情報，判斷是否有對我大吳有利之技術或敵情：\n{{steps.fetch-x.output}}",
+      "dependsOn": ["fetch-x"]
+    },
+    {
+      "id": "report-to-lord",
+      "agent": "zhuxuanbai",
+      "prompt": "主公，今日 X.com 情報彙報如下：\n{{steps.analyze-intel.output}}",
+      "dependsOn": ["analyze-intel"]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "wu-project-review",
+  "description": "東吳科技幕府：專案審查連環計",
+  "variables": {
+    "moduleName": "自動巡航弩砲",
+    "codeContent": ""
+  },
+  "steps": [
+    {
+      "id": "code-review",
+      "agent": "zhangzhao",
+      "prompt": "【代碼審查】老臣子布請審視以下代碼：\n模組：{{moduleName}}\n內容：{{codeContent}}\n請依據江東規範，檢查命名、注釋、健壯性，給出具體修正意見。",
+      "onError": "stop"
+    },
+    {
+      "id": "security-audit",
+      "agent": "guojia",
+      "prompt": "【風險評估】奉孝請為主公找出此代碼之死穴：\n代碼內容：{{codeContent}}\n張昭之見：{{steps.code-review.output}}\n請以駭客視角，評估此模組是否容易被晉軍攻破，並給出「遺計」。",
+      "dependsOn": ["code-review"]
+    },
+    {
+      "id": "final-report",
+      "agent": "zhuxuanbai",
+      "prompt": "【幕府匯報】主公，針對「{{moduleName}}」的審查報告已備齊：\n1. 督軍張昭之評：{{steps.code-review.output}}\n2. 風險郭嘉之見：{{steps.security-audit.output}}\n請主公裁奪下一步行動。",
+      "dependsOn": ["security-audit"]
+    }
+  ]
+}
