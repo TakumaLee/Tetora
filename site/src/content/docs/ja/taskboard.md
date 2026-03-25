@@ -1,6 +1,8 @@
 ---
 title: "タスクボードと自動ディスパッチ ガイド"
 lang: "ja"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # タスクボードと自動ディスパッチ ガイド
 

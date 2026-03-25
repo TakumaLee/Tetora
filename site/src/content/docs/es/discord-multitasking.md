@@ -1,6 +1,8 @@
 ---
 title: "Guía de Multitarea en Discord"
 lang: "es"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Guía de Multitarea en Discord
 

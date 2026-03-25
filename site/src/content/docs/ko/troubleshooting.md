@@ -1,6 +1,8 @@
 ---
 title: "문제 해결 가이드"
 lang: "ko"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # 문제 해결 가이드
 

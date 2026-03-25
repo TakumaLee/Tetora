@@ -1,6 +1,8 @@
 ---
 title: "การ Integration กับ Claude Code Hooks"
 lang: "th"
+order: 3
+description: "Integrate with Claude Code Hooks for real-time session observation."
 ---
 # การ Integration กับ Claude Code Hooks
 

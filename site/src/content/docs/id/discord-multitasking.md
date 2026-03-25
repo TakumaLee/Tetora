@@ -1,6 +1,8 @@
 ---
 title: "Panduan Multitasking Discord"
 lang: "id"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Panduan Multitasking Discord
 

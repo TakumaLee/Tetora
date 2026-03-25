@@ -1,6 +1,8 @@
 ---
 title: "ワークフロー"
 lang: "ja"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # ワークフロー
 

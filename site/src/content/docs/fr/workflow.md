@@ -1,6 +1,8 @@
 ---
 title: "Workflows"
 lang: "fr"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # Workflows
 

@@ -1,6 +1,8 @@
 ---
 title: "設定參考手冊"
 lang: "zh-TW"
+order: 1
+description: "Configure Tetora via ~/.tetora/config.json — models, providers, and runtime settings."
 ---
 # 設定參考手冊
 

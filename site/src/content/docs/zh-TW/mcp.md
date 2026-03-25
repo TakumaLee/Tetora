@@ -1,6 +1,8 @@
 ---
 title: "MCP（Model Context Protocol）整合"
 lang: "zh-TW"
+order: 5
+description: "Expose Tetora capabilities to any MCP-compatible client."
 ---
 # MCP（Model Context Protocol）整合
 

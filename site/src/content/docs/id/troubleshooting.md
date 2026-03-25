@@ -1,6 +1,8 @@
 ---
 title: "Panduan Pemecahan Masalah"
 lang: "id"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # Panduan Pemecahan Masalah
 

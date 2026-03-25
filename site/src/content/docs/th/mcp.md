@@ -1,6 +1,8 @@
 ---
 title: "การ Integration กับ MCP (Model Context Protocol)"
 lang: "th"
+order: 5
+description: "Expose Tetora capabilities to any MCP-compatible client."
 ---
 # การ Integration กับ MCP (Model Context Protocol)
 

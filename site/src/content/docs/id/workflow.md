@@ -1,6 +1,8 @@
 ---
 title: "Alur Kerja (Workflow)"
 lang: "id"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # Alur Kerja (Workflow)
 

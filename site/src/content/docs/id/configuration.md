@@ -1,6 +1,8 @@
 ---
 title: "Referensi Konfigurasi"
 lang: "id"
+order: 1
+description: "Configure Tetora via ~/.tetora/config.json — models, providers, and runtime settings."
 ---
 # Referensi Konfigurasi
 

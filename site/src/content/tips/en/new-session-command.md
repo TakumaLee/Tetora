@@ -1,38 +1,47 @@
 ---
-title: "Starting Fresh Sessions"
+title: "Starting a New Session with !new"
 lang: en
-date: "2026-03-20"
-excerpt: "Use tetora session new to start a clean agent session without accumulated context."
+date: "2026-03-23"
+excerpt: "Type !new in Discord to reset the agent's context and start fresh without switching terminals."
+description: "Use the !new command in Discord to archive the current session and start a clean conversation."
 ---
 
-Over time, agent sessions accumulate context that can slow down responses or cause confusion. The `tetora session` commands help you manage this.
+Over time, a Discord channel's session accumulates context. When the agent gets confused or you're switching to a completely different topic, `!new` gives you a clean slate.
 
-## Create a New Session
+## Usage
 
-```bash
-tetora session new --agent kokuyou
+Type in any main Discord channel where Tetora is active:
+
+```
+!new
 ```
 
-This starts a fresh session for the specified agent while preserving the previous session in history.
+That's it. The current session is archived and the next message starts a fresh session.
+
+## What Gets Reset
+
+- **Conversation context** — The agent starts with no memory of previous messages in this channel.
+- **Session history** — The old session is archived in the history database, not deleted. You can still search it later.
+
+## What Stays
+
+- **Agent configuration** — SOUL.md, config settings, and role assignments remain unchanged.
+- **Memory files** — The agent's persistent memory is not affected.
+- **Thread bindings** — Any `/focus` bindings in threads are independent and unaffected.
 
 ## When to Use
 
-- Agent seems confused or referencing old context
-- Starting a completely new task unrelated to previous work
-- After a major codebase change that invalidates prior context
-- When you want a clean slate for benchmarking agent performance
+- The agent is referencing outdated context or seems confused
+- You're starting a completely new task unrelated to the previous conversation
+- The session has grown long and responses are slow
+- After a major change (new deployment, config update) that makes old context misleading
 
-## Session Management
+## !new vs /focus
 
-```bash
-tetora session list                    # List all sessions
-tetora session show <id>               # View session details
-tetora session switch <id>             # Switch to a previous session
-tetora session delete <id>             # Delete a session
-```
+| | `!new` | `/focus` |
+|---|---|---|
+| Where | Main channel | Threads only |
+| Effect | Archives session, resets context | Binds thread to a specific agent |
+| Scope | Affects the entire channel | Only affects that thread |
 
-## Tips
-
-- Sessions are per-agent — creating a new session for one agent doesn't affect others
-- Previous sessions are searchable via `tetora history`
-- Set `session.auto_rotate: true` in config to auto-create new sessions daily
+If you need parallel conversations rather than a reset, use threads with `/focus` instead.

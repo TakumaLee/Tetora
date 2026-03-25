@@ -1,6 +1,8 @@
 ---
 title: "トラブルシューティングガイド"
 lang: "ja"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # トラブルシューティングガイド
 

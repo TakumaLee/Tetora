@@ -1,6 +1,8 @@
 ---
 title: "설정 레퍼런스"
 lang: "ko"
+order: 1
+description: "Configure Tetora via ~/.tetora/config.json — models, providers, and runtime settings."
 ---
 # 설정 레퍼런스
 

@@ -1,6 +1,8 @@
 ---
 title: "워크플로우"
 lang: "ko"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # 워크플로우
 

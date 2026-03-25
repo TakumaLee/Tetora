@@ -1,6 +1,8 @@
 ---
 title: "Discord 多工使用指南"
 lang: "en"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Discord 多工使用指南
 

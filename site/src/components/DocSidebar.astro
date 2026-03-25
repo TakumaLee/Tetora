@@ -1,16 +1,28 @@
 ---
 import type { Lang } from '../i18n/ui';
+import { getCollection } from 'astro:content';
+
 interface Props { lang: Lang; currentSlug?: string; }
 const { lang, currentSlug } = Astro.props;
-const docPages = [
-  { slug: 'configuration', title: 'Configuration' },
-  { slug: 'workflow', title: 'Workflow' },
-  { slug: 'taskboard', title: 'TaskBoard' },
-  { slug: 'discord-multitasking', title: 'Discord' },
-  { slug: 'hooks', title: 'Hooks' },
-  { slug: 'mcp', title: 'MCP' },
-  { slug: 'troubleshooting', title: 'Troubleshooting' },
-];
+
+const allDocs = await getCollection('docs');
+
+// Filter by requested lang, fallback to en for missing topics
+const langDocs = allDocs.filter(d => d.data.lang === lang);
+const enDocs = allDocs.filter(d => d.data.lang === 'en');
+
+// Build map: slug -> doc (lang first, en fallback)
+const slugMap = new Map<string, { slug: string; title: string; order: number }>();
+for (const doc of enDocs) {
+  const slug = doc.id.split('/').slice(1).join('/');
+  slugMap.set(slug, { slug, title: doc.data.title, order: doc.data.order ?? 99 });
+}
+for (const doc of langDocs) {
+  const slug = doc.id.split('/').slice(1).join('/');
+  slugMap.set(slug, { slug, title: doc.data.title, order: doc.data.order ?? 99 });
+}
+
+const docPages = [...slugMap.values()].sort((a, b) => a.order - b.order);
 ---
 <aside class="doc-sidebar">
   {docPages.map(page => (

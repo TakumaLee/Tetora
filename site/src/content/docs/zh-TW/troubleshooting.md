@@ -1,6 +1,8 @@
 ---
 title: "疑難排解指南"
 lang: "zh-TW"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # 疑難排解指南
 

@@ -1,6 +1,8 @@
 ---
 title: "Mga Workflow"
 lang: "fil"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # Mga Workflow
 

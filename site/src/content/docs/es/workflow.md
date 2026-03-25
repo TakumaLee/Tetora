@@ -1,6 +1,8 @@
 ---
 title: "Flujos de Trabajo"
 lang: "es"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # Flujos de Trabajo
 

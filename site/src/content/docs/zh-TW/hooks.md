@@ -1,6 +1,8 @@
 ---
 title: "Claude Code Hooks 整合"
 lang: "zh-TW"
+order: 3
+description: "Integrate with Claude Code Hooks for real-time session observation."
 ---
 # Claude Code Hooks 整合
 

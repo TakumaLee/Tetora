@@ -1,6 +1,8 @@
 ---
 title: "Intégration des hooks Claude Code"
 lang: "fr"
+order: 3
+description: "Integrate with Claude Code Hooks for real-time session observation."
 ---
 # Intégration des hooks Claude Code
 

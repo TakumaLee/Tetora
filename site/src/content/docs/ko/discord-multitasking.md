@@ -1,6 +1,8 @@
 ---
 title: "Discord 멀티태스킹 가이드"
 lang: "ko"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Discord 멀티태스킹 가이드
 

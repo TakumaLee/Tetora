@@ -1,6 +1,8 @@
 ---
 title: "Taskboard & Auto-Dispatch Leitfaden"
 lang: "de"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # Taskboard & Auto-Dispatch Leitfaden
 

@@ -1,6 +1,8 @@
 ---
 title: "Taskboard & Auto-Dispatch 가이드"
 lang: "ko"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # Taskboard & Auto-Dispatch 가이드
 

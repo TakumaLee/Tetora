@@ -1,6 +1,8 @@
 ---
 title: "Guide de multitâche Discord"
 lang: "fr"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Guide de multitâche Discord
 

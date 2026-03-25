@@ -1,6 +1,8 @@
 ---
 title: "Troubleshooting Guide"
 lang: "en"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # Troubleshooting Guide
 

@@ -1,6 +1,8 @@
 ---
 title: "Guide de résolution de problèmes"
 lang: "fr"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # Guide de résolution de problèmes
 

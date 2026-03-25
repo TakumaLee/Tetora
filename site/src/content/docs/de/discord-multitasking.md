@@ -1,6 +1,8 @@
 ---
 title: "Discord Multitasking-Leitfaden"
 lang: "de"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Discord Multitasking-Leitfaden
 

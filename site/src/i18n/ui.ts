@@ -47,6 +47,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Docs",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Quick tips & tricks for getting the most out of Tetora",
   },
   'zh-TW': {
     tagline: "AI Agent 編排平台 — 工作流、任務看板、多 Agent 協作，單一執行檔即可運行。",
@@ -77,6 +78,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "文件",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "善用 Tetora 的快速技巧與訣竅",
   },
   ja: {
     tagline: "AIエージェントオーケストレーションプラットフォーム — ワークフロー、タスクボード、マルチエージェント協調を単一バイナリで。",
@@ -107,6 +109,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "ドキュメント",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Tetora を使いこなすためのクイックヒント集",
   },
   ko: {
     tagline: "AI 에이전트 오케스트레이션 플랫폼 — 워크플로우, 태스크보드, 멀티 에이전트 협업을 단일 바이너리로.",
@@ -137,6 +140,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "문서",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Tetora를 최대한 활용하기 위한 빠른 팁과 트릭",
   },
   es: {
     tagline: "Plataforma de orquestación de agentes IA — flujos de trabajo, tableros de tareas y colaboración multi-agente en un solo binario.",
@@ -167,6 +171,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Documentación",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Consejos y trucos rápidos para aprovechar al máximo Tetora",
   },
   fr: {
     tagline: "Plateforme d'orchestration d'agents IA — workflows, tableaux de tâches et collaboration multi-agents dans un seul binaire.",
@@ -197,6 +202,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Documentation",
     nav_tips: "Astuces",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Astuces et conseils rapides pour tirer le meilleur de Tetora",
   },
   de: {
     tagline: "KI-Agenten-Orchestrierungsplattform — Workflows, Taskboards und Multi-Agenten-Kollaboration in einer einzigen Binärdatei.",
@@ -227,6 +233,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Dokumentation",
     nav_tips: "Tipps",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Schnelle Tipps und Tricks für das Beste aus Tetora",
   },
   th: {
     tagline: "แพลตฟอร์มจัดการ AI Agent — เวิร์กโฟลว์, ทาสก์บอร์ด และการทำงานร่วมกันของหลาย Agent ในไฟล์เดียว",
@@ -257,6 +264,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "เอกสาร",
     nav_tips: "เคล็ดลับ",
     nav_home: "Tetora",
+    hero_tips_subtitle: "เคล็ดลับและเทคนิคด่วนสำหรับการใช้ Tetora ให้คุ้มค่า",
   },
   id: {
     tagline: "Platform orkestrasi AI Agent — workflow, taskboard, dan kolaborasi multi-agen dalam satu binary.",
@@ -287,6 +295,7 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Dokumentasi",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Tips dan trik cepat untuk memaksimalkan penggunaan Tetora",
   },
   fil: {
     tagline: "AI Agent Orchestration Platform — workflows, taskboards, at multi-agent collaboration sa iisang binary.",
@@ -317,5 +326,6 @@ export const ui: Record<Lang, Record<string, string>> = {
     nav_docs: "Docs",
     nav_tips: "Tips",
     nav_home: "Tetora",
+    hero_tips_subtitle: "Mga mabilis na tips at tricks para masulit ang Tetora",
   },
 };

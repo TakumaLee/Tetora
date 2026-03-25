@@ -1,6 +1,8 @@
 ---
 title: "Guía del Taskboard y Auto-Dispatch"
 lang: "es"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # Guía del Taskboard y Auto-Dispatch
 

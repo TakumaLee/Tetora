@@ -1,6 +1,8 @@
 ---
 title: "Discord マルチタスク ガイド"
 lang: "ja"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Discord マルチタスク ガイド
 

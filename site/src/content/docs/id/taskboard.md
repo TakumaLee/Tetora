@@ -1,6 +1,8 @@
 ---
 title: "Panduan Taskboard & Auto-Dispatch"
 lang: "id"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # Panduan Taskboard & Auto-Dispatch
 

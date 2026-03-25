@@ -1,6 +1,8 @@
 ---
 title: "คู่มือการแก้ปัญหา"
 lang: "th"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # คู่มือการแก้ปัญหา
 

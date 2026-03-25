@@ -1,6 +1,8 @@
 ---
 title: "Intégration MCP (Model Context Protocol)"
 lang: "fr"
+order: 5
+description: "Expose Tetora capabilities to any MCP-compatible client."
 ---
 # Intégration MCP (Model Context Protocol)
 

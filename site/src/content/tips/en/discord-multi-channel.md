@@ -1,39 +1,62 @@
 ---
-title: "Discord Multi-Channel Setup"
+title: "Running Multiple Agents Across Discord Threads"
 lang: en
-date: "2026-03-20"
-excerpt: "Configure Tetora to manage multiple Discord channels with dedicated agents per channel."
+date: "2026-03-23"
+excerpt: "Use Discord threads with /focus to run separate agents in parallel, each with independent context."
+description: "Learn how to use Discord threads and the /focus command to run multiple Tetora agents concurrently with isolated sessions."
 ---
 
-Tetora supports assigning different agents to different Discord channels. This lets you create specialized channels — one for engineering tasks, another for content creation, etc.
-
-## Configuration
-
-In your `tetora.yml`, add channel mappings:
-
-```yaml
-discord:
-  channels:
-    "engineering":
-      agent: kokuyou
-      prefix: "!"
-    "content":
-      agent: kohaku
-      prefix: "!"
-    "general":
-      agent: ruri
-      prefix: "!"
-```
+Tetora's Discord integration lets you run multiple agents **simultaneously** by binding each thread to a different agent. Each thread gets its own independent session — no context bleed between conversations.
 
 ## How It Works
 
-1. Each channel gets its own agent with independent context
-2. Messages in that channel are routed to the assigned agent
-3. Agents maintain separate conversation history per channel
-4. You can override with `@agent-name` mentions in any channel
+Your main Discord channel has a single shared session. To run parallel tasks with different agents, create threads and use `/focus` to assign an agent to each one.
 
-## Tips
+```
+#general (main channel)                ← shared session
+  └─ Thread: "Refactor auth module"    ← /focus kokuyou → independent session
+  └─ Thread: "Write blog post"         ← /focus kohaku  → independent session
+  └─ Thread: "Competitor analysis"     ← /focus hisui   → independent session
+```
 
-- Use channel topics to remind users which agent is active
-- Set up a `#dispatch` channel where Ruri (manager) can assign tasks across channels
-- Each agent respects its own SOUL.md personality in channel conversations
+## Step by Step
+
+**1. Create a Discord thread** — Right-click a message → Create Thread, or use Discord's thread button.
+
+**2. Bind an agent inside the thread:**
+
+```
+/focus kokuyou
+```
+
+Once bound, all messages in that thread route to the assigned agent with its own conversation history.
+
+**3. Repeat for other tasks** — Open as many threads as you need, each with a different (or same) agent.
+
+**4. When done, unbind:**
+
+```
+/unfocus
+```
+
+## Configuration
+
+Enable thread bindings in your `config.json`:
+
+```json
+{
+  "discord": {
+    "threadBindings": {
+      "enabled": true,
+      "ttlHours": 24
+    }
+  }
+}
+```
+
+## Things to Know
+
+- **Thread bindings expire** after 24 hours by default (configurable via `ttlHours`). After expiry, the thread falls back to the main channel's routing.
+- **Sessions are fully isolated** — a thread's context never leaks into the main channel or other threads.
+- **Concurrency limit** — All channels and threads share the global `maxConcurrent` limit (default 8). Messages exceeding the limit are queued.
+- `/focus` only works inside threads. The main channel always uses a single session — use `!new` to reset it.

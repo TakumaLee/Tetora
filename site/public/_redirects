@@ -7,4 +7,5 @@
 
 # Docs default lang redirect
 /docs/ /en/docs/ 301
+/docs/:slug/ /en/docs/:slug/ 301
 /tips/ /en/tips/ 301

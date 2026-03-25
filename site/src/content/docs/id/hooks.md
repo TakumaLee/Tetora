@@ -1,6 +1,8 @@
 ---
 title: "Integrasi Claude Code Hooks"
 lang: "id"
+order: 3
+description: "Integrate with Claude Code Hooks for real-time session observation."
 ---
 # Integrasi Claude Code Hooks
 

@@ -1,6 +1,8 @@
 ---
 title: "คู่มือ Taskboard และ Auto-Dispatch"
 lang: "th"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # คู่มือ Taskboard และ Auto-Dispatch
 

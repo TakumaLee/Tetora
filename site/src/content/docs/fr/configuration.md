@@ -1,6 +1,8 @@
 ---
 title: "Référence de configuration"
 lang: "fr"
+order: 1
+description: "Configure Tetora via ~/.tetora/config.json — models, providers, and runtime settings."
 ---
 # Référence de configuration
 

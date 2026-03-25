@@ -1,6 +1,8 @@
 ---
 title: "Gabay sa Discord Multitasking"
 lang: "fil"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # Gabay sa Discord Multitasking
 

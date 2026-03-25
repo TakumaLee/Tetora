@@ -1,6 +1,8 @@
 ---
 title: "Claude Code Hooks 연동"
 lang: "ko"
+order: 3
+description: "Integrate with Claude Code Hooks for real-time session observation."
 ---
 # Claude Code Hooks 연동
 

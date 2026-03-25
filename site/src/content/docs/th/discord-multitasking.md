@@ -1,6 +1,8 @@
 ---
 title: "คู่มือการใช้งาน Discord แบบ Multi-tasking"
 lang: "th"
+order: 6
+description: "Run multiple agents concurrently via Discord threads."
 ---
 # คู่มือการใช้งาน Discord แบบ Multi-tasking
 

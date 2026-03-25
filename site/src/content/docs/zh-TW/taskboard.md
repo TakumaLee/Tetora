@@ -1,6 +1,8 @@
 ---
 title: "Taskboard 與自動派送指南"
 lang: "zh-TW"
+order: 4
+description: "Track tasks, priorities, and agent assignments with the built-in taskboard."
 ---
 # Taskboard 與自動派送指南
 

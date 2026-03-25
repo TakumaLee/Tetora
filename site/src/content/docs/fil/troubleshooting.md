@@ -1,6 +1,8 @@
 ---
 title: "Gabay sa Pag-troubleshoot"
 lang: "fil"
+order: 7
+description: "Common issues and solutions for Tetora setup and operation."
 ---
 # Gabay sa Pag-troubleshoot
 

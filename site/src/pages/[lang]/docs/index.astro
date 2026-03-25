@@ -5,12 +5,40 @@ import DocSidebar from '../../../components/DocSidebar.astro';
 import Footer from '../../../components/Footer.astro';
 import { languages, type Lang } from '../../../i18n/ui';
 import { t } from '../../../i18n/utils';
+import { getCollection } from 'astro:content';
 
 export function getStaticPaths() {
   return Object.keys(languages).map(lang => ({ params: { lang } }));
 }
 
 const { lang } = Astro.params as { lang: Lang };
+
+const allDocs = await getCollection('docs');
+const langDocs = allDocs.filter(d => d.data.lang === lang);
+const enDocs = allDocs.filter(d => d.data.lang === 'en');
+
+// Build topic list: prefer lang, fallback to en
+const slugMap = new Map<string, { slug: string; title: string; description: string; order: number }>();
+for (const doc of enDocs) {
+  const slug = doc.id.split('/').slice(1).join('/');
+  slugMap.set(slug, {
+    slug,
+    title: doc.data.title,
+    description: doc.data.description ?? '',
+    order: doc.data.order ?? 99,
+  });
+}
+for (const doc of langDocs) {
+  const slug = doc.id.split('/').slice(1).join('/');
+  slugMap.set(slug, {
+    slug,
+    title: doc.data.title,
+    description: doc.data.description ?? '',
+    order: doc.data.order ?? 99,
+  });
+}
+
+const topics = [...slugMap.values()].sort((a, b) => a.order - b.order);
 ---
 <Base title={`${t(lang, 'nav_docs')} — Tetora`} lang={lang}>
   <LanguagePicker currentLang={lang} basePath="/docs/" />
@@ -21,8 +49,47 @@ const { lang } = Astro.params as { lang: Lang };
     <DocSidebar lang={lang} />
     <article>
       <h1>{t(lang, 'nav_docs')}</h1>
-      <p style="color:var(--muted);margin-top:16px">Select a topic from the sidebar to get started.</p>
+      <div class="doc-topic-grid">
+        {topics.map(topic => (
+          <a href={`/${lang}/docs/${topic.slug}/`} class="doc-topic-card">
+            <h3>{topic.title}</h3>
+            {topic.description && <p>{topic.description}</p>}
+          </a>
+        ))}
+      </div>
     </article>
   </div>
   <Footer />
 </Base>
+
+<style>
+  .doc-topic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+  .doc-topic-card {
+    display: block;
+    padding: 20px;
+    border: 1px solid var(--border, #333);
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .doc-topic-card:hover {
+    border-color: var(--accent, #646cff);
+    background: var(--surface-hover, rgba(100, 108, 255, 0.06));
+  }
+  .doc-topic-card h3 {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+  }
+  .doc-topic-card p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--muted, #888);
+    line-height: 1.4;
+  }
+</style>

@@ -1,6 +1,8 @@
 ---
 title: "เวิร์กโฟลว์"
 lang: "th"
+order: 2
+description: "Define multi-step task pipelines with JSON workflows and agent orchestration."
 ---
 # เวิร์กโฟลว์
 
