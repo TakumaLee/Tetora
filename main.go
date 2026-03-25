@@ -325,6 +325,9 @@ func main() {
 	state := newDispatchState()
 	state.broker = newSSEBroker()
 
+	// Wire workflow execution into the skill package so workflow-type skills work.
+	wireSkillWorkflowRunner(cfg, state, sem)
+
 	// Multi-tenant dispatch manager: register default client with existing state/semaphores.
 	dispatchMgr := newDispatchManager(cfg.MaxConcurrent, childSemConcurrentOrDefault(cfg))
 	dispatchMgr.register(cfg.DefaultClientID, state, sem, childSem)
@@ -2156,6 +2159,10 @@ func validateConfig(cfg *Config) {
 			}
 			if _, err := exec.LookPath(path); err != nil {
 				log.Warn("provider binary not found", "provider", name, "path", path)
+			}
+		case "anthropic":
+			if pc.APIKey == "" {
+				log.Warn("provider has no apiKey", "provider", name)
 			}
 		case "openai-compatible":
 			if pc.BaseURL == "" {

@@ -490,6 +490,13 @@ func configValidate() {
 				}
 				_, lookErr := exec.LookPath(path)
 				check(lookErr == nil, "WARN", fmt.Sprintf("provider %q (%s): %s", name, pc.Type, path))
+			case "anthropic":
+				if pc.BaseURL != "" {
+					hasURL := strings.HasPrefix(pc.BaseURL, "http://") || strings.HasPrefix(pc.BaseURL, "https://")
+					check(hasURL, "ERROR", fmt.Sprintf("provider %q baseUrl: %s", name, pc.BaseURL))
+				}
+				hasModel := pc.Model != ""
+				check(hasModel, "WARN", fmt.Sprintf("provider %q default model", name))
 			case "openai-compatible":
 				hasURL := strings.HasPrefix(pc.BaseURL, "http://") || strings.HasPrefix(pc.BaseURL, "https://")
 				check(hasURL, "ERROR", fmt.Sprintf("provider %q baseUrl: %s", name, pc.BaseURL))

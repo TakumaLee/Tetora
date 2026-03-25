@@ -79,6 +79,7 @@ import (
 	"tetora/internal/project"
 	"tetora/internal/prompt"
 	"tetora/internal/provider"
+	anthropicprovider "tetora/internal/provider/anthropic"
 	"tetora/internal/push"
 	"tetora/internal/quiet"
 	"tetora/internal/reflection"
@@ -7376,6 +7377,9 @@ func estimateManualDuration(taskType string, score int) int {
 func queryTimeSavings(dbPath, month string) ([]reflection.TimeSavingsRow, error) {
 	return reflection.QueryTimeSavings(dbPath, month)
 }
+func extractAutoLesson(workspaceDir string, ref *ReflectionResult) error {
+	return reflection.ExtractAutoLesson(workspaceDir, ref)
+}
 
 // ============================================================
 // Merged shims: usage, trust, retention
@@ -8359,6 +8363,24 @@ func expandPrompt(prompt, jobID, dbPath, agentName, knowledgeDir string, cfg *Co
 		})
 	}
 
+	if dbPath != "" && strings.Contains(prompt, "{{reflection.context:") {
+		reflRe := regexp.MustCompile(`\{\{reflection\.context:([A-Za-z_\p{Han}\p{Katakana}\p{Hiragana}][A-Za-z0-9_\p{Han}\p{Katakana}\p{Hiragana}]*)(?::(\d+))?\}\}`)
+		prompt = reflRe.ReplaceAllStringFunc(prompt, func(match string) string {
+			parts := reflRe.FindStringSubmatch(match)
+			if len(parts) < 2 {
+				return match
+			}
+			agent := parts[1]
+			limit := 5
+			if len(parts) >= 3 && parts[2] != "" {
+				if n, err := strconv.Atoi(parts[2]); err == nil && n > 0 && n <= 50 {
+					limit = n
+				}
+			}
+			return buildReflectionContext(dbPath, agent, limit)
+		})
+	}
+
 	return prompt
 }
 
@@ -8513,6 +8535,51 @@ func getSkill(cfg *Config, name string) *SkillConfig {
 
 func executeSkill(ctx context.Context, s SkillConfig, vars map[string]string) (*SkillResult, error) {
 	return skill.ExecuteSkill(ctx, s, vars)
+}
+
+// wireSkillWorkflowRunner sets the skill.RunWorkflow callback to bridge
+// skill execution into the workflow engine.
+func wireSkillWorkflowRunner(cfg *Config, state *dispatchState, sem chan struct{}) {
+	skill.RunWorkflow = func(ctx context.Context, workflowName string, vars map[string]string, callStack []string) (*skill.SkillResult, error) {
+		wf, err := loadWorkflowByName(cfg, workflowName)
+		if err != nil {
+			return &skill.SkillResult{
+				Name:   workflowName,
+				Status: "error",
+				Error:  fmt.Sprintf("workflow %q not found: %v", workflowName, err),
+			}, nil
+		}
+
+		run := executeWorkflow(ctx, cfg, wf, vars, state, sem, nil)
+
+		// Aggregate step outputs into a single result.
+		result := &skill.SkillResult{
+			Name:     workflowName,
+			Duration: run.DurationMs,
+		}
+
+		switch run.Status {
+		case "success":
+			result.Status = "success"
+		case "cancelled", "timeout":
+			result.Status = "timeout"
+			result.Error = run.Error
+		default:
+			result.Status = "error"
+			result.Error = run.Error
+		}
+
+		// Concatenate step outputs in order.
+		var outputs []string
+		for _, step := range wf.Steps {
+			if sr, ok := run.StepResults[step.ID]; ok && sr.Output != "" {
+				outputs = append(outputs, fmt.Sprintf("[%s] %s", step.ID, sr.Output))
+			}
+		}
+		result.Output = strings.Join(outputs, "\n")
+
+		return result, nil
+	}
 }
 
 func testSkill(ctx context.Context, s SkillConfig) (*SkillResult, error) {
@@ -9891,6 +9958,26 @@ func cleanupZombieSessions(dbPath string)         { session.CleanupZombieSession
 func createSession(dbPath string, s Session) error            { return session.CreateSession(dbPath, s) }
 func addSessionMessage(dbPath string, msg SessionMessage) error { return session.AddSessionMessage(dbPath, msg) }
 
+// correctionSem limits concurrent correction-detection goroutines.
+var correctionSem = make(chan struct{}, 4)
+
+func detectAndRecordCorrection(dbPath, workspaceDir, sessionID, agent, userMsg string) {
+	// Non-blocking acquire — drop if all slots busy (correction is best-effort).
+	select {
+	case correctionSem <- struct{}{}:
+		defer func() { <-correctionSem }()
+	default:
+		return
+	}
+	if !session.IsCorrection(userMsg) {
+		return
+	}
+	lastMsg := session.QueryLastAssistantMessage(dbPath, sessionID)
+	if err := session.RecordCorrection(workspaceDir, agent, userMsg, lastMsg); err != nil {
+		log.Debug("correction recording failed", "error", err)
+	}
+}
+
 // --- Update ---
 
 func updateSessionStats(dbPath, sessionID string, costDelta float64, tokensInDelta, tokensOutDelta, msgCountDelta int) error {
@@ -10798,6 +10885,9 @@ func initProviders(cfg *Config) *provider.Registry {
 				DockerEnabled: cfg.Docker.Enabled,
 				Docker:        newDockerRunner(cfg.Docker),
 			})
+
+		case "anthropic":
+			reg.Register(name, anthropicprovider.New(name, pc.BaseURL, pc.APIKey, pc.Model))
 
 		case "openai-compatible":
 			reg.Register(name, &provider.OpenAIProvider{

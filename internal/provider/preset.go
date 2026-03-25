@@ -39,7 +39,7 @@ var Presets = []Preset{
 	{
 		Name:        "anthropic",
 		DisplayName: "Anthropic (Claude)",
-		Type:        "openai-compatible",
+		Type:        "anthropic",
 		BaseURL:     "https://api.anthropic.com/v1",
 		RequiresKey: true,
 		Models:      []string{"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"},
