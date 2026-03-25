@@ -196,6 +196,13 @@ type Dispatcher struct {
 	lastTriageAt time.Time
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	// reviewInFlight tracks task IDs currently being reviewed to prevent
+	// double-reviewing on overlapping scan cycles.
+	reviewInFlight sync.Map // map[string]bool
+
+	scanCount      atomic.Int64
+	lastHealthAt   time.Time
 }
 
 // NewDispatcher creates a new Dispatcher.
@@ -560,6 +567,7 @@ func (d *Dispatcher) notifyStaleReset(taskID, title string, threshold time.Durat
 func (d *Dispatcher) scan() {
 	d.ResetStuckDoing()
 	d.scanReviews()
+	d.healthCheck()
 
 	maxTasks := d.engine.config.AutoDispatch.MaxConcurrentTasks
 	if maxTasks <= 0 {
@@ -903,6 +911,80 @@ func (d *Dispatcher) triageBacklog() {
 	}()
 }
 
+// healthCheck runs periodically (every 30 min) and logs warnings for pipeline anomalies.
+func (d *Dispatcher) healthCheck() {
+	const healthInterval = 30 * time.Minute
+	if time.Since(d.lastHealthAt) < healthInterval {
+		return
+	}
+	d.lastHealthAt = time.Now()
+
+	var warnings []string
+
+	// 1. Stuck reviews: tasks in "review" for > 2 hours.
+	if reviews, err := d.engine.ListTasks("review", "", ""); err == nil {
+		stuckCount := 0
+		for _, t := range reviews {
+			if t.UpdatedAt != "" {
+				if updated, err := time.Parse(time.RFC3339, t.UpdatedAt); err == nil {
+					if time.Since(updated) > 2*time.Hour {
+						stuckCount++
+					}
+				}
+			}
+		}
+		if stuckCount > 0 {
+			warnings = append(warnings, fmt.Sprintf("%d review tasks stuck >2h", stuckCount))
+		}
+	}
+
+	// 2. Stuck doing: tasks in "doing" for > 4 hours.
+	if doing, err := d.engine.ListTasks("doing", "", ""); err == nil {
+		stuckCount := 0
+		for _, t := range doing {
+			if t.UpdatedAt != "" {
+				if updated, err := time.Parse(time.RFC3339, t.UpdatedAt); err == nil {
+					if time.Since(updated) > 4*time.Hour {
+						stuckCount++
+					}
+				}
+			}
+		}
+		if stuckCount > 0 {
+			warnings = append(warnings, fmt.Sprintf("%d doing tasks stuck >4h", stuckCount))
+		}
+	}
+
+	// 3. Backlog size.
+	if todo, err := d.engine.ListTasks("todo", "", ""); err == nil && len(todo) > 20 {
+		warnings = append(warnings, fmt.Sprintf("large backlog: %d todo tasks", len(todo)))
+	}
+
+	// 4. In-flight review count.
+	inFlightCount := 0
+	d.reviewInFlight.Range(func(_, _ any) bool {
+		inFlightCount++
+		return true
+	})
+	if inFlightCount > 0 {
+		log.Info("pipeline health: reviews in-flight", "count", inFlightCount)
+	}
+
+	if len(warnings) > 0 {
+		log.Warn("pipeline health check", "warnings", strings.Join(warnings, "; "))
+		// Notify via Discord if configured.
+		if d.deps.Discord != nil && d.deps.DiscordNotifyChannelID != "" {
+			d.deps.Discord.SendEmbed(d.deps.DiscordNotifyChannelID, discord.Embed{
+				Title:       "Pipeline Health Alert",
+				Description: strings.Join(warnings, "\n- "),
+				Color:       0xFFA500,
+			})
+		}
+	} else {
+		log.Info("pipeline health check: all clear")
+	}
+}
+
 func (d *Dispatcher) scanReviews() {
 	reviews, err := d.engine.ListTasks("review", "", "")
 	if err != nil || len(reviews) == 0 {
@@ -917,6 +999,10 @@ func (d *Dispatcher) scanReviews() {
 
 	log.Info("scanReviews: found review tasks", "count", len(reviews))
 
+	// Limit concurrent reviews to avoid overwhelming the system.
+	const maxConcurrentReviews = 3
+	sem := make(chan struct{}, maxConcurrentReviews)
+
 	for _, t := range reviews {
 		if t.Assignee == escalateUser || t.Assignee == "" {
 			continue
@@ -925,8 +1011,7 @@ func (d *Dispatcher) scanReviews() {
 			continue
 		}
 
-		log.Info("scanReviews: auto-reviewing", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
-
+		// Extract thread data synchronously (cheap DB reads).
 		originalPrompt := t.Title
 		if t.Description != "" {
 			originalPrompt += "\n\n" + t.Description
@@ -938,7 +1023,6 @@ func (d *Dispatcher) scanReviews() {
 		if comments, err := d.engine.GetThread(t.ID); err == nil {
 			for i := len(comments) - 1; i >= 0; i-- {
 				c := comments[i]
-				// Only block on [needs-thought] if it's more recent than the latest output.
 				if output == "" && c.Author == "system" && strings.Contains(c.Content, "[needs-thought]") {
 					hasNeedsThought = true
 					if ts, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
@@ -948,14 +1032,13 @@ func (d *Dispatcher) scanReviews() {
 				if output == "" && (c.Type == "log" || c.Type == "") && c.Author != "system" && c.Author != "triage" {
 					output = c.Content
 				}
-				// Pick up the captured diff from the thread.
 				if diff == "" && c.Type == "diff" {
 					diff = c.Content
 				}
 			}
 		}
 
-		// Stale needs-thought auto-approval: if stuck for >24h, auto-approve.
+		// Stale needs-thought auto-approval: if stuck for >24h, auto-approve (synchronous, fast).
 		if hasNeedsThought {
 			staleThreshold := 24 * time.Hour
 			if !needsThoughtTime.IsZero() && time.Since(needsThoughtTime) > staleThreshold {
@@ -974,40 +1057,57 @@ func (d *Dispatcher) scanReviews() {
 			continue
 		}
 
-		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[auto-review] %s reviewing...", reviewer))
-
-		// Include diff context for the reviewer if available.
-		var reviewCtx *string
-		if diff != "" {
-			s := "\n\n## Git Diff (actual code changes)\n```diff\n" + diff + "\n```"
-			reviewCtx = &s
+		// Skip if already being reviewed by a previous scan cycle.
+		if _, loaded := d.reviewInFlight.LoadOrStore(t.ID, true); loaded {
+			log.Debug("scanReviews: already in-flight", "id", t.ID)
+			continue
 		}
 
-		rv := d.thoroughReview(d.ctx, originalPrompt, output, t.Assignee, reviewer, reviewCtx)
+		// Launch review asynchronously.
+		task := t // capture loop var
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			defer d.reviewInFlight.Delete(task.ID)
 
-		switch rv.Verdict {
-		case reviewApprove:
-			log.Info("scanReviews: approved", "id", t.ID, "comment", rv.Comment)
-			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Approved: %s", rv.Comment))
-			d.spawnReviewSubtasks(t, rv.ActionableItems, reviewer)
-			d.approveReviewTask(t, reviewer, rv.CostUSD)
+			sem <- struct{}{}        // acquire slot
+			defer func() { <-sem }() // release slot
 
-		case reviewFix:
-			log.Info("scanReviews: fix required, sending back", "id", t.ID, "comment", rv.Comment)
-			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
-			d.engine.AddComment(t.ID, "system",
-				fmt.Sprintf("[auto-review] Sending back to %s for fix.", t.Assignee))
-			d.engine.UpdateTask(t.ID, map[string]any{
-				"status":     "todo",
-				"retryCount": t.RetryCount + 1,
-			})
+			log.Info("scanReviews: auto-reviewing", "id", task.ID, "title", task.Title, "assignee", task.Assignee)
+			d.engine.AddComment(task.ID, "system", fmt.Sprintf("[auto-review] %s reviewing...", reviewer))
 
-		case reviewEscalate:
-			log.Info("scanReviews: escalating to user", "id", t.ID, "comment", rv.Comment)
-			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Needs human judgment: %s", rv.Comment))
-			d.engine.AddComment(t.ID, "system", "[needs-thought] Escalated by reviewer — needs human judgment")
-			d.engine.UpdateTask(t.ID, map[string]any{"assignee": escalateUser})
-		}
+			var reviewCtx *string
+			if diff != "" {
+				s := "\n\n## Git Diff (actual code changes)\n```diff\n" + diff + "\n```"
+				reviewCtx = &s
+			}
+
+			rv := d.thoroughReview(d.ctx, originalPrompt, output, task.Assignee, reviewer, reviewCtx)
+
+			switch rv.Verdict {
+			case reviewApprove:
+				log.Info("scanReviews: approved", "id", task.ID, "comment", rv.Comment)
+				d.engine.AddComment(task.ID, reviewer, fmt.Sprintf("[review] Approved: %s", rv.Comment))
+				d.spawnReviewSubtasks(task, rv.ActionableItems, reviewer)
+				d.approveReviewTask(task, reviewer, rv.CostUSD)
+
+			case reviewFix:
+				log.Info("scanReviews: fix required, sending back", "id", task.ID, "comment", rv.Comment)
+				d.engine.AddComment(task.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
+				d.engine.AddComment(task.ID, "system",
+					fmt.Sprintf("[auto-review] Sending back to %s for fix.", task.Assignee))
+				d.engine.UpdateTask(task.ID, map[string]any{
+					"status":     "todo",
+					"retryCount": task.RetryCount + 1,
+				})
+
+			case reviewEscalate:
+				log.Info("scanReviews: escalating to user", "id", task.ID, "comment", rv.Comment)
+				d.engine.AddComment(task.ID, reviewer, fmt.Sprintf("[review] Needs human judgment: %s", rv.Comment))
+				d.engine.AddComment(task.ID, "system", "[needs-thought] Escalated by reviewer — needs human judgment")
+				d.engine.UpdateTask(task.ID, map[string]any{"assignee": escalateUser})
+			}
+		}()
 	}
 }
 
