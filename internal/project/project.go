@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS projects (
   name TEXT NOT NULL UNIQUE,
   description TEXT DEFAULT '',
   status TEXT DEFAULT 'active',
-  workdir TEXT DEFAULT '',
+  workdir TEXT NOT NULL,
   tags TEXT DEFAULT '',
   repo_url TEXT DEFAULT '',
   category TEXT DEFAULT '',
@@ -141,7 +141,7 @@ func Get(dbPath, id string) (*Project, error) {
 
 func Create(dbPath string, p Project) error {
 	if p.Workdir == "" {
-		return fmt.Errorf("workdir is required")
+		return fmt.Errorf("workdir must not be empty")
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	if p.CreatedAt == "" {
@@ -176,7 +176,7 @@ func Create(dbPath string, p Project) error {
 
 func Update(dbPath string, p Project) error {
 	if p.Workdir == "" {
-		return fmt.Errorf("workdir is required")
+		return fmt.Errorf("workdir must not be empty")
 	}
 	p.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	sql := fmt.Sprintf(

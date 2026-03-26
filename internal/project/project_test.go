@@ -427,6 +427,31 @@ func TestProjectUpdateNewFields(t *testing.T) {
 	}
 }
 
+// TestProjectInsertTrigger_EmptyWorkdir verifies that the BEFORE INSERT trigger
+// rejects a direct SQL INSERT with empty workdir, bypassing the app-layer check.
+func TestProjectInsertTrigger_EmptyWorkdir(t *testing.T) {
+	dbPath := tempProjectsDB(t)
+
+	// Bypass app layer — execute raw SQL directly with empty workdir.
+	err := db.Exec(dbPath, `INSERT INTO projects (id, name, workdir, created_at, updated_at)
+		VALUES ('proj-insert-trigger', 'Insert Trigger Test', '', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')`)
+	if err == nil {
+		t.Fatal("expected trigger to reject INSERT with empty workdir, got nil error")
+	}
+	if !strings.Contains(err.Error(), "workdir") {
+		t.Errorf("expected workdir error from trigger, got %q", err.Error())
+	}
+
+	// Row must not exist.
+	got, err2 := Get(dbPath, "proj-insert-trigger")
+	if err2 != nil {
+		t.Fatalf("Get: %v", err2)
+	}
+	if got != nil {
+		t.Errorf("row should not have been inserted, got %+v", got)
+	}
+}
+
 // TestProjectUpdateTrigger_EmptyWorkdir verifies that the BEFORE UPDATE trigger
 // rejects a direct SQL UPDATE that would set workdir to empty, even when the
 // app-layer Update() check is bypassed.
