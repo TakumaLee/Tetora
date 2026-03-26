@@ -85,6 +85,7 @@ func (tb *Engine) InitSchema() error {
 		"ALTER TABLE tasks ADD COLUMN workflow TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'feat';",
 		"ALTER TABLE tasks ADD COLUMN workflow_run_id TEXT DEFAULT '';",
+		"ALTER TABLE tasks ADD COLUMN workdirs TEXT DEFAULT '[]';",
 	}
 	commentMigrations := []string{
 		"ALTER TABLE task_comments ADD COLUMN type TEXT DEFAULT 'log';",
@@ -161,7 +162,7 @@ func (tb *Engine) ListTasksPaginated(status, assignee, project string, page, lim
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -231,13 +232,18 @@ func (tb *Engine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		dependsOnJSON = []byte("[]")
 	}
 
+	workdirsJSON, _ := json.Marshal(task.Workdirs)
+	if task.Workdirs == nil {
+		workdirsJSON = []byte("[]")
+	}
+
 	if task.Type == "" {
 		task.Type = "feat"
 	}
 
 	sql := fmt.Sprintf(`
-		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id)
-		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s')
+		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id, workdirs)
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s', '%s')
 	`,
 		db.Escape(task.ID),
 		db.Escape(task.Project),
@@ -254,6 +260,7 @@ func (tb *Engine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		task.CreatedAt,
 		task.UpdatedAt,
 		db.Escape(task.ParentID),
+		db.Escape(string(workdirsJSON)),
 	)
 
 	if err := db.Exec(tb.dbPath, sql); err != nil {
@@ -316,7 +323,7 @@ func (tb *Engine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, workdirs
 		FROM tasks WHERE id = '%s'
 	`, db.Escape(id))
 
@@ -342,7 +349,7 @@ func (tb *Engine) SuggestTasks(id string) []TaskBoard {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, workdirs
 		FROM tasks WHERE id LIKE '%s%%'
 		ORDER BY created_at DESC
 		LIMIT 3
@@ -568,7 +575,7 @@ func (tb *Engine) ListChildren(parentID string) ([]TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
 	`, db.Escape(parentID))
@@ -616,7 +623,7 @@ func (tb *Engine) GetBoardView(f BoardFilter) (*BoardView, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
 		FROM tasks %s
 		ORDER BY
 			CASE priority

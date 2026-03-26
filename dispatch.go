@@ -2971,7 +2971,7 @@ func cmdTask(args []string) {
 		fmt.Println("Usage: tetora task <list|create|show|update|move|assign|comment|thread>")
 		fmt.Println("\nCommands:")
 		fmt.Println("  list [--status=STATUS] [--assignee=AGENT] [--project=PROJECT]")
-		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE] [--depends-on=ID]...")
+		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE] [--depends-on=ID]... [--workdirs=DIR]...")
 		fmt.Println("  show TASK_ID [--full]")
 		fmt.Println("  update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY]")
 		fmt.Println("  move TASK_ID --status=STATUS")
@@ -3054,6 +3054,7 @@ func cmdTask(args []string) {
 	case "create":
 		var title, description, priority, assignee, taskType string
 		var dependsOn []string
+		var workdirs []string
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "--title=") {
 				title = strings.TrimPrefix(arg, "--title=")
@@ -3070,6 +3071,11 @@ func cmdTask(args []string) {
 				if depID != "" {
 					dependsOn = append(dependsOn, depID)
 				}
+			} else if strings.HasPrefix(arg, "--workdirs=") {
+				dir := strings.TrimPrefix(arg, "--workdirs=")
+				if dir != "" {
+					workdirs = append(workdirs, dir)
+				}
 			}
 		}
 
@@ -3085,6 +3091,7 @@ func cmdTask(args []string) {
 			Assignee:    assignee,
 			Type:        taskType,
 			DependsOn:   dependsOn,
+			Workdirs:    workdirs,
 		})
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)

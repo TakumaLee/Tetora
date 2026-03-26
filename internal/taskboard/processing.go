@@ -155,7 +155,14 @@ func resolveCoordDir(cfg *config.Config) string {
 }
 
 // resolveRegions returns the file regions a task will operate in.
-func resolveRegions(projectWorkdir string, cfg *config.Config) []string {
+// If taskWorkdirs is non-empty, those specific directories are used directly,
+// enabling fine-grained conflict detection between tasks that touch different
+// subdirectories of the same workspace. Falls back to projectWorkdir or
+// config defaults when taskWorkdirs is not specified.
+func resolveRegions(taskWorkdirs []string, projectWorkdir string, cfg *config.Config) []string {
+	if len(taskWorkdirs) > 0 {
+		return taskWorkdirs
+	}
 	if projectWorkdir != "" {
 		return []string{projectWorkdir}
 	}
@@ -377,7 +384,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	coordDir := resolveCoordDir(d.cfg)
 	finalAgent := t.Assignee
 	if coordDir != "" && coord.KnownAgents[finalAgent] {
-		regions := resolveRegions(projectWorkdir, d.cfg)
+		regions := resolveRegions(t.Workdirs, projectWorkdir, d.cfg)
 		activeClaims, err := coord.ReadActiveClaims(coordDir)
 		if err != nil {
 			log.Warn("coord: failed to read active claims", "err", err)

@@ -51,6 +51,12 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		workflowRunID = ""
 	}
 
+	workdirsJSON := fmt.Sprintf("%v", row["workdirs"])
+	var workdirs []string
+	if workdirsJSON != "" && workdirsJSON != "<nil>" && workdirsJSON != "[]" {
+		json.Unmarshal([]byte(workdirsJSON), &workdirs)
+	}
+
 	return TaskBoard{
 		ID:            fmt.Sprintf("%v", row["id"]),
 		Project:       fmt.Sprintf("%v", row["project"]),
@@ -73,6 +79,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		DurationMs:    int64(getFloat64(row, "duration_ms")),
 		SessionID:     fmt.Sprintf("%v", row["session_id"]),
 		WorkflowRunID: workflowRunID,
+		Workdirs:      workdirs,
 	}
 }
 

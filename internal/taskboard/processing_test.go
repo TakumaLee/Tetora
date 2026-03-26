@@ -9,8 +9,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"tetora/internal/config"
+	"tetora/internal/db"
 	"tetora/internal/dispatch"
 )
 
@@ -941,6 +943,108 @@ func TestWorktreeGate_FallbackOnCreationError(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// scanReviews stale escalation tests
+// =============================================================================
+
+func TestScanReviews_StaleEscalatedReviewAutoApproved(t *testing.T) {
+	// Given a task in "review" assigned to escalateUser for >4h
+	tbCfg := config.TaskBoardConfig{
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:       true,
+			EscalateAssignee: "takuma",
+			ReviewAgent:      "ruri",
+		},
+	}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"ruri": {Description: "reviewer"},
+		},
+	}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{
+		Executor: &mockExecutor{},
+	})
+	d.ctx = context.Background()
+
+	// Create a task stuck in review, assigned to escalateUser.
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "stuck escalated task",
+		Status:   "review",
+		Assignee: "takuma",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	// Backdate updated_at to 5 hours ago so it exceeds the 4h threshold.
+	fiveHoursAgo := time.Now().UTC().Add(-5 * time.Hour).Format(time.RFC3339)
+	if err := db.Exec(d.engine.dbPath,
+		fmt.Sprintf("UPDATE tasks SET updated_at = '%s' WHERE id = '%s'",
+			db.Escape(fiveHoursAgo), db.Escape(task.ID))); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	// When scanReviews runs
+	d.scanReviews()
+
+	// Then the task should be auto-approved (status=done)
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.Status != "done" {
+		t.Errorf("expected status 'done', got %q", updated.Status)
+	}
+
+	// And an auto-approval comment should exist
+	comments := taskComments(t, d, task.ID)
+	if !hasComment(comments, "Escalated review unhandled") {
+		t.Errorf("expected auto-approval comment, got: %v", comments)
+	}
+}
+
+func TestScanReviews_RecentEscalatedReviewNotAutoApproved(t *testing.T) {
+	// Given a task in "review" assigned to escalateUser for <4h
+	tbCfg := config.TaskBoardConfig{
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:       true,
+			EscalateAssignee: "takuma",
+			ReviewAgent:      "ruri",
+		},
+	}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"ruri": {Description: "reviewer"},
+		},
+	}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{
+		Executor: &mockExecutor{},
+	})
+	d.ctx = context.Background()
+
+	// Create a task in review, assigned to escalateUser, updated recently.
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "recent escalated task",
+		Status:   "review",
+		Assignee: "takuma",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	// When scanReviews runs (task was just created, well within 4h)
+	d.scanReviews()
+
+	// Then the task should NOT be auto-approved
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.Status != "review" {
+		t.Errorf("expected status 'review' (unchanged), got %q", updated.Status)
+	}
+}
+
 // TestTruncStr_ASCIIText verifies truncStr handles ASCII text correctly.
 func TestTruncStr_ASCIIText(t *testing.T) {
 	result := truncStr("hello world", 5)
@@ -985,5 +1089,50 @@ func TestTruncStr_MixedASCIIAndCJK(t *testing.T) {
 	}
 	if strings.Contains(string(data), "\ufffd") {
 		t.Errorf("found U+FFFD replacement character in JSON: %s", string(data))
+	}
+}
+
+// =============================================================================
+// resolveRegions tests
+// =============================================================================
+
+func TestResolveRegions_TaskWorkdirsTakesPrecedence(t *testing.T) {
+	cfg := &config.Config{
+		WorkspaceDir: "/workspace",
+	}
+	got := resolveRegions([]string{"/workspace/frontend", "/workspace/backend"}, "/workspace", cfg)
+	if len(got) != 2 || got[0] != "/workspace/frontend" || got[1] != "/workspace/backend" {
+		t.Errorf("expected task workdirs, got %v", got)
+	}
+}
+
+func TestResolveRegions_FallsBackToProjectWorkdir(t *testing.T) {
+	cfg := &config.Config{
+		WorkspaceDir: "/workspace",
+	}
+	got := resolveRegions(nil, "/workspace/myproject", cfg)
+	if len(got) != 1 || got[0] != "/workspace/myproject" {
+		t.Errorf("expected project workdir, got %v", got)
+	}
+}
+
+func TestResolveRegions_FallsBackToWorkspaceDir(t *testing.T) {
+	cfg := &config.Config{
+		WorkspaceDir: "/workspace",
+	}
+	got := resolveRegions(nil, "", cfg)
+	if len(got) != 1 || got[0] != "/workspace" {
+		t.Errorf("expected workspace dir, got %v", got)
+	}
+}
+
+func TestResolveRegions_EmptyTaskWorkdirsIgnored(t *testing.T) {
+	cfg := &config.Config{
+		WorkspaceDir: "/workspace",
+	}
+	// Empty slice (not nil) should also fall back.
+	got := resolveRegions([]string{}, "/workspace/proj", cfg)
+	if len(got) != 1 || got[0] != "/workspace/proj" {
+		t.Errorf("expected project workdir when taskWorkdirs is empty, got %v", got)
 	}
 }
