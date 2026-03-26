@@ -6,6 +6,7 @@ on:
     paths:
       - "site/**"
       - "install.sh"
+      - ".github/workflows/pages.yml"
 
   workflow_dispatch:
 
@@ -41,10 +42,12 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
-        run: cd site && pnpm install --frozen-lockfile
+        working-directory: site
+        run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: cd site && pnpm build
+        working-directory: site
+        run: pnpm build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
