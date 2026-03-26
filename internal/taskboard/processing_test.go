@@ -1,6 +1,7 @@
 package taskboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
+	"tetora/internal/log"
 )
 
 // =============================================================================
@@ -1134,5 +1136,77 @@ func TestResolveRegions_EmptyTaskWorkdirsIgnored(t *testing.T) {
 	got := resolveRegions([]string{}, "/workspace/proj", cfg)
 	if len(got) != 1 || got[0] != "/workspace/proj" {
 		t.Errorf("expected project workdir when taskWorkdirs is empty, got %v", got)
+	}
+}
+
+// =============================================================================
+// dispatchTask empty-workdir warning tests
+// =============================================================================
+
+// TestDispatchTask_EmptyWorkdirWarning asserts that when a project exists but has
+// no workdir configured, dispatchTask emits a log.Warn and adds a system comment
+// that includes the fix hint. This exercises the else-if branch in processing.go
+// that was previously covered only by integration-level dispatch flows.
+func TestDispatchTask_EmptyWorkdirWarning(t *testing.T) {
+	// Redirect the default logger to a buffer so we can assert on log output.
+	var buf bytes.Buffer
+	origLogger := log.Default()
+	log.SetDefault(log.New(log.LevelWarn, log.FormatText, &buf))
+	t.Cleanup(func() { log.SetDefault(origLogger) })
+
+	const projectName = "no-workdir-project"
+
+	cfg := &config.Config{
+		WorkspaceDir: t.TempDir(), // must be non-empty so the fallback path is exercised
+	}
+	deps := DispatcherDeps{
+		GetProject: func(_, id string) *ProjectInfo {
+			if id == projectName {
+				// Project found but Workdir is intentionally empty.
+				return &ProjectInfo{Name: projectName, Workdir: ""}
+			}
+			return nil
+		},
+	}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, deps)
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "task with empty-workdir project",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		Project:  projectName,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	// dispatchTask is synchronous; Executor is nil so actual agent execution is skipped.
+	d.dispatchTask(task)
+
+	// --- assert log.Warn was called ---
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "project has no workdir configured") {
+		t.Errorf("expected warn log containing %q, got: %q",
+			"project has no workdir configured", logOutput)
+	}
+
+	// --- assert system comment was added ---
+	comments, err := d.engine.GetThread(task.ID)
+	if err != nil {
+		t.Fatalf("GetThread: %v", err)
+	}
+	var found bool
+	for _, c := range comments {
+		if c.Author == "system" && strings.Contains(c.Content, "has no workdir configured") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		var contents []string
+		for _, c := range comments {
+			contents = append(contents, fmt.Sprintf("[%s] %s", c.Author, c.Content))
+		}
+		t.Errorf("expected system comment about missing workdir; comments: %v", contents)
 	}
 }
