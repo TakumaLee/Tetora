@@ -281,6 +281,16 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			task.Workdir = p.Workdir
 			projectWorkdir = p.Workdir
 			projectHasSpecificWorkdir = true
+		} else if p != nil && p.Workdir == "" {
+			// Project exists but has no workdir configured — agent will fall back
+			// to workspace dir and likely modify wrong files. Warn loudly.
+			log.Warn("dispatch: project has no workdir configured, agent may edit wrong files",
+				"task", t.ID, "project", t.Project, "fallback", d.cfg.WorkspaceDir)
+			d.engine.AddComment(t.ID, "system",
+				fmt.Sprintf("[dispatch] ⚠️ Project %q has no workdir configured. "+
+					"Falling back to: %s — agent may modify unrelated files. "+
+					"Fix: tetora project update %s --workdir /path/to/project",
+					t.Project, d.cfg.WorkspaceDir, t.Project))
 		}
 	}
 	// Fall back to workspace dir so that tasks without a dedicated project still
