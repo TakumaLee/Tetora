@@ -233,9 +233,21 @@ func (d *Dispatcher) postTaskWorktree(t TaskBoard, projectWorkdir, worktreeDir, 
 			fmt.Sprintf("[worktree] Preserved for review. Branch: task/%s\nPath: %s", t.ID, worktreeDir))
 		log.Info("worktree: preserved for review", "task", t.ID, "path", worktreeDir)
 
-	default: // failed, cancelled
+	default: // failed, cancelled, timeout
+		commitCount := d.deps.Worktrees.CommitCount(worktreeDir)
+		hasChanges := d.deps.Worktrees.HasChanges(worktreeDir)
+		if commitCount > 0 || hasChanges {
+			msg := fmt.Sprintf(
+				"[worktree] Task %s but has %d commit(s) and/or uncommitted changes. Worktree preserved.\nBranch: task/%s\nPath: %s",
+				newStatus, commitCount, t.ID, worktreeDir)
+			d.engine.AddComment(t.ID, "system", msg)
+			if _, moveErr := d.engine.MoveTask(t.ID, "partial-done"); moveErr != nil {
+				log.Warn("worktree: failed to move to partial-done", "task", t.ID, "error", moveErr)
+			}
+			return // mergeOK=false → defer skips Remove
+		}
 		mergeOK = true
-		d.engine.AddComment(t.ID, "system", "[worktree] Task failed — worktree discarded without merge.")
+		d.engine.AddComment(t.ID, "system", "[worktree] Task failed — no changes found. Worktree discarded.")
 	}
 }
 

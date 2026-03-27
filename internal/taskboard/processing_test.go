@@ -91,9 +91,11 @@ func initGitRepo(t *testing.T) string {
 
 // mockWorktrees implements WorktreeManageable for tests.
 type mockWorktrees struct {
-	createFn func(repoDir, taskID, branch string) (string, error)
-	created  []string
-	removed  []string
+	createFn    func(repoDir, taskID, branch string) (string, error)
+	created     []string
+	removed     []string
+	commitCount int
+	hasChanges  bool
 }
 
 func (m *mockWorktrees) Create(repoDir, taskID, branch string) (string, error) {
@@ -113,8 +115,8 @@ func (m *mockWorktrees) Remove(_, worktreeDir string) error {
 	m.removed = append(m.removed, worktreeDir)
 	return nil
 }
-func (m *mockWorktrees) CommitCount(_ string) int  { return 0 }
-func (m *mockWorktrees) HasChanges(_ string) bool  { return false }
+func (m *mockWorktrees) CommitCount(_ string) int { return m.commitCount }
+func (m *mockWorktrees) HasChanges(_ string) bool { return m.hasChanges }
 func (m *mockWorktrees) Merge(_, _, _ string) (string, error) { return "", nil }
 
 // reviewJSON builds a review JSON response string.
@@ -1208,5 +1210,150 @@ func TestDispatchTask_EmptyWorkdirWarning(t *testing.T) {
 			contents = append(contents, fmt.Sprintf("[%s] %s", c.Author, c.Content))
 		}
 		t.Errorf("expected system comment about missing workdir; comments: %v", contents)
+	}
+}
+
+// =============================================================================
+// Worktree failure preservation tests
+// =============================================================================
+
+// TestWorktreeFailure_HasChanges_PreservesWorktree verifies that when the executor
+// returns failed but the worktree has commits, the worktree is preserved and the
+// task is moved to partial-done.
+func TestWorktreeFailure_HasChanges_PreservesWorktree(t *testing.T) {
+	repoDir := initGitRepo(t)
+	wt := &mockWorktrees{
+		commitCount: 3,
+		hasChanges:  false,
+	}
+
+	tbCfg := config.TaskBoardConfig{GitWorktree: true}
+	cfg := &config.Config{WorkspaceDir: repoDir}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{
+		Executor:     &mockExecutor{results: []dispatch.TaskResult{{Status: "failed", Error: "timeout"}}},
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+		Worktrees:    wt,
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{Title: "wt-fail-preserve", Status: "todo", Assignee: "ruri"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	// Worktree must NOT be removed.
+	if len(wt.removed) != 0 {
+		t.Errorf("expected worktree to be preserved (not removed), got removed: %v", wt.removed)
+	}
+
+	// Task should be moved to partial-done.
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.Status != "partial-done" {
+		t.Errorf("expected status 'partial-done', got %q", updated.Status)
+	}
+
+	// Comment should mention commit count and preservation.
+	comments := taskComments(t, d, task.ID)
+	if !hasComment(comments, "Worktree preserved") {
+		t.Errorf("expected preservation comment, got: %v", comments)
+	}
+	if !hasComment(comments, "3 commit(s)") {
+		t.Errorf("expected commit count in comment, got: %v", comments)
+	}
+}
+
+// TestWorktreeFailure_UncommittedOnly_PreservesWorktree verifies that when the
+// executor returns failed with commitCount=0 but hasChanges=true (uncommitted
+// changes only), the worktree is still preserved and the task moved to partial-done.
+func TestWorktreeFailure_UncommittedOnly_PreservesWorktree(t *testing.T) {
+	repoDir := initGitRepo(t)
+	wt := &mockWorktrees{
+		commitCount: 0,
+		hasChanges:  true,
+	}
+
+	tbCfg := config.TaskBoardConfig{GitWorktree: true}
+	cfg := &config.Config{WorkspaceDir: repoDir}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{
+		Executor:     &mockExecutor{results: []dispatch.TaskResult{{Status: "failed", Error: "timeout"}}},
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+		Worktrees:    wt,
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{Title: "wt-fail-uncommitted-only", Status: "todo", Assignee: "ruri"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	// Worktree must NOT be removed.
+	if len(wt.removed) != 0 {
+		t.Errorf("expected worktree to be preserved (not removed), got removed: %v", wt.removed)
+	}
+
+	// Task should be moved to partial-done.
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.Status != "partial-done" {
+		t.Errorf("expected status 'partial-done', got %q", updated.Status)
+	}
+
+	// Comment should mention preservation.
+	comments := taskComments(t, d, task.ID)
+	if !hasComment(comments, "Worktree preserved") {
+		t.Errorf("expected preservation comment, got: %v", comments)
+	}
+}
+
+// TestWorktreeFailure_NoChanges_DiscardsWorktree verifies that when the executor
+// returns failed and the worktree has no commits or changes, the worktree is
+// discarded normally.
+func TestWorktreeFailure_NoChanges_DiscardsWorktree(t *testing.T) {
+	repoDir := initGitRepo(t)
+	wt := &mockWorktrees{
+		commitCount: 0,
+		hasChanges:  false,
+	}
+
+	tbCfg := config.TaskBoardConfig{GitWorktree: true}
+	cfg := &config.Config{WorkspaceDir: repoDir}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{
+		Executor:     &mockExecutor{results: []dispatch.TaskResult{{Status: "failed", Error: "timeout"}}},
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+		Worktrees:    wt,
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{Title: "wt-fail-discard", Status: "todo", Assignee: "ruri"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	// Worktree should be removed (mergeOK=true path).
+	if len(wt.removed) == 0 {
+		t.Error("expected worktree to be removed when no changes, but it was preserved")
+	}
+
+	// Task should NOT be in partial-done (stays failed).
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if updated.Status == "partial-done" {
+		t.Errorf("expected status NOT to be 'partial-done' when no changes, got %q", updated.Status)
+	}
+
+	// Comment should mention no changes.
+	comments := taskComments(t, d, task.ID)
+	if !hasComment(comments, "no changes found") {
+		t.Errorf("expected 'no changes found' comment, got: %v", comments)
 	}
 }
