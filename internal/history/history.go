@@ -577,6 +577,144 @@ func QueryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	return
 }
 
+// --- Recent Fails ---
+
+// FailQuery specifies parameters for QueryRecentFails.
+type FailQuery struct {
+	JobID string
+	Days  int // default 3
+	Limit int // default 20
+}
+
+// QueryRecentFails returns non-success runs within the last N days.
+func QueryRecentFails(dbPath string, q FailQuery) ([]JobRun, error) {
+	days := q.Days
+	if days <= 0 {
+		days = 3
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var conditions []string
+	conditions = append(conditions, "status != 'success'")
+	conditions = append(conditions, fmt.Sprintf("datetime(started_at) >= datetime('now','-%d days')", days))
+	if q.JobID != "" {
+		conditions = append(conditions, fmt.Sprintf("job_id = '%s'", db.Escape(q.JobID)))
+	}
+
+	where := "WHERE " + strings.Join(conditions, " AND ")
+	sql := fmt.Sprintf(
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
+		where, limit)
+
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	var runs []JobRun
+	for _, row := range rows {
+		runs = append(runs, runFromRow(row))
+	}
+	return runs, nil
+}
+
+// --- Consecutive Fails ---
+
+// ConsecutiveFailResult holds a job and its current consecutive-fail streak.
+type ConsecutiveFailResult struct {
+	JobID  string
+	Name   string
+	Streak int
+}
+
+// QueryConsecutiveFails returns jobs whose most recent runs are all non-success,
+// with a consecutive streak >= threshold (default 3 when threshold <= 0).
+func QueryConsecutiveFails(dbPath string, threshold int) ([]ConsecutiveFailResult, error) {
+	if threshold <= 0 {
+		threshold = 3
+	}
+
+	sql := `SELECT job_id, name, status FROM job_runs
+	         WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-30 days')
+	         ORDER BY job_id, datetime(started_at) DESC, id DESC`
+
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	type jobState struct {
+		name   string
+		streak int
+		broken bool
+	}
+	jobs := map[string]*jobState{}
+	order := []string{} // preserve insertion order for stable output
+
+	for _, row := range rows {
+		jobID := db.Str(row["job_id"])
+		name := db.Str(row["name"])
+		status := db.Str(row["status"])
+
+		if _, ok := jobs[jobID]; !ok {
+			jobs[jobID] = &jobState{name: name}
+			order = append(order, jobID)
+		}
+
+		state := jobs[jobID]
+		if state.broken {
+			continue
+		}
+		if status == "success" {
+			state.broken = true
+		} else {
+			state.streak++
+		}
+	}
+
+	var results []ConsecutiveFailResult
+	for _, jobID := range order {
+		state := jobs[jobID]
+		if state.streak >= threshold {
+			results = append(results, ConsecutiveFailResult{
+				JobID:  jobID,
+				Name:   state.name,
+				Streak: state.streak,
+			})
+		}
+	}
+	return results, nil
+}
+
+// --- Job Trace ---
+
+// QueryJobTrace returns the most recent runs for a given jobID, ordered newest first.
+// Default limit is 10 when limit <= 0.
+func QueryJobTrace(dbPath, jobID string, limit int) ([]JobRun, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	sql := fmt.Sprintf(
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT %d`,
+		db.Escape(jobID), limit)
+
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	var runs []JobRun
+	for _, row := range rows {
+		runs = append(runs, runFromRow(row))
+	}
+	return runs, nil
+}
+
 // --- Cleanup ---
 
 func Cleanup(dbPath string, days int) error {

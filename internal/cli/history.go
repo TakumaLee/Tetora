@@ -13,7 +13,7 @@ import (
 
 func CmdHistory(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora history <list|show|cost> [options]")
+		fmt.Println("Usage: tetora history <list|show|cost|fails|streak|trace> [options]")
 		fmt.Println("\nGlobal flags:")
 		fmt.Println("  --client CLIENT_ID  Target a specific client (default: cli_default)")
 		return
@@ -33,7 +33,7 @@ func CmdHistory(args []string) {
 	args = filtered
 
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora history <list|show|cost> [options]")
+		fmt.Println("Usage: tetora history <list|show|cost|fails|streak|trace> [options]")
 		return
 	}
 
@@ -48,6 +48,16 @@ func CmdHistory(args []string) {
 		historyShow(args[1], clientID)
 	case "cost", "costs":
 		historyCost(clientID)
+	case "fails":
+		historyFails(args[1:], clientID)
+	case "streak":
+		historyStreak(args[1:], clientID)
+	case "trace":
+		if len(args) < 2 {
+			fmt.Println("Usage: tetora history trace <job-id> [--limit N] [--client CLIENT_ID]")
+			return
+		}
+		historyTrace(args[1], args[2:], clientID)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", args[0])
 	}
@@ -182,6 +192,143 @@ func historyCost(clientID string) {
 	fmt.Printf("  Today:      $%.2f\n", stats.Today)
 	fmt.Printf("  This Week:  $%.2f\n", stats.Week)
 	fmt.Printf("  This Month: $%.2f\n", stats.Month)
+}
+
+func historyFails(args []string, clientID string) {
+	cfg := LoadCLIConfig(FindConfigPath())
+	if cfg.HistoryDB == "" {
+		fmt.Fprintln(os.Stderr, "History DB not configured.")
+		os.Exit(1)
+	}
+
+	var jobID string
+	days := 3
+	limit := 20
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--job", "-j":
+			if i+1 < len(args) {
+				i++
+				jobID = args[i]
+			}
+		case "--days":
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					days = n
+				}
+			}
+		case "--limit", "-n":
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					limit = n
+				}
+			}
+		}
+	}
+
+	runs, err := history.QueryRecentFails(resolveHistoryDB(cfg, clientID), history.FailQuery{
+		JobID: jobID,
+		Days:  days,
+		Limit: limit,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(runs) == 0 {
+		fmt.Printf("No failures in the last %d days.\n", days)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "ID\tNAME\tSTATUS\tERROR\tTIME\n")
+	for _, r := range runs {
+		errStr := r.Error
+		if len(errStr) > 60 {
+			errStr = errStr[:57] + "..."
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
+			r.ID, r.Name, r.Status, errStr, formatHistoryTime(r.StartedAt))
+	}
+	w.Flush()
+}
+
+func historyStreak(args []string, clientID string) {
+	cfg := LoadCLIConfig(FindConfigPath())
+	if cfg.HistoryDB == "" {
+		fmt.Fprintln(os.Stderr, "History DB not configured.")
+		os.Exit(1)
+	}
+
+	threshold := 3
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--threshold" && i+1 < len(args) {
+			i++
+			if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+				threshold = n
+			}
+		}
+	}
+
+	results, err := history.QueryConsecutiveFails(resolveHistoryDB(cfg, clientID), threshold)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(results) == 0 {
+		fmt.Printf("No jobs with %d+ consecutive failures.\n", threshold)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "JOB_ID\tNAME\tSTREAK\n")
+	for _, r := range results {
+		fmt.Fprintf(w, "%s\t%s\t%d\n", r.JobID, r.Name, r.Streak)
+	}
+	w.Flush()
+}
+
+func historyTrace(jobID string, args []string, clientID string) {
+	cfg := LoadCLIConfig(FindConfigPath())
+	if cfg.HistoryDB == "" {
+		fmt.Fprintln(os.Stderr, "History DB not configured.")
+		os.Exit(1)
+	}
+
+	limit := 10
+	for i := 0; i < len(args); i++ {
+		if (args[i] == "--limit" || args[i] == "-n") && i+1 < len(args) {
+			i++
+			if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+				limit = n
+			}
+		}
+	}
+
+	runs, err := history.QueryJobTrace(resolveHistoryDB(cfg, clientID), jobID, limit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(runs) == 0 {
+		fmt.Printf("No runs found for job %s.\n", jobID)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "ID\tSTATUS\tCOST\tMODEL\tTIME\n")
+	for _, r := range runs {
+		cost := fmt.Sprintf("$%.4f", r.CostUSD)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n",
+			r.ID, r.Status, cost, r.Model, formatHistoryTime(r.StartedAt))
+	}
+	w.Flush()
+	fmt.Printf("\nJob: %s\n", runs[0].Name)
 }
 
 // resolveHistoryDB returns the history DB path for a given client ID.
