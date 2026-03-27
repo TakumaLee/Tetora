@@ -13,3 +13,10 @@ const { currentLang, basePath } = Astro.props;
     </a>
   ))}
 </div>
+<script is:inline>
+  document.querySelector('.lang-bar').addEventListener('click', function(e) {
+    if (e.target.classList.contains('lang-btn')) {
+      sessionStorage.setItem('lang_chosen', '1');
+    }
+  });
+</script>

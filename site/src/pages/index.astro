@@ -14,6 +14,7 @@ const s = ui[lang];
 <Base title="Tetora — AI Agent Orchestration Platform">
   <script is:inline>
     (function () {
+      if (sessionStorage.getItem('lang_chosen')) return;
       var supported = ['en','zh-TW','ja','ko','es','fr','de','th','id','fil'];
       var nav = navigator.language || '';
       var lang = 'en';
