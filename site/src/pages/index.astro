@@ -10,8 +10,19 @@ import { t } from '../i18n/utils';
 
 const lang = 'en';
 const s = ui[lang];
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Tetora',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'macOS, Linux, Windows',
+  description: 'AI Agent Orchestration Platform — workflows, taskboards, and multi-agent collaboration in a single binary.',
+  url: 'https://tetora.dev',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+};
 ---
-<Base title="Tetora — AI Agent Orchestration Platform">
+<Base title="Tetora — AI Agent Orchestration Platform" jsonLd={jsonLd}>
   <script is:inline>
     (function () {
       if (sessionStorage.getItem('lang_chosen')) return;

@@ -3,22 +3,35 @@ import PostLayout from '../../../layouts/PostLayout.astro';
 import { languages } from '../../../i18n/ui';
 import { getCollection, render } from 'astro:content';
 
+const SITE = 'https://tetora.dev';
+
 export async function getStaticPaths() {
   const tips = await getCollection('tips');
+  const slugLangs = new Map<string, string[]>();
+  for (const tip of tips) {
+    const slug = tip.id.split('/').slice(1).join('/');
+    const langs = slugLangs.get(slug) ?? [];
+    langs.push(tip.data.lang);
+    slugLangs.set(slug, langs);
+  }
   return tips.map(tip => {
     const lang = tip.data.lang;
     const slug = tip.id.split('/').slice(1).join('/');
     return {
       params: { lang, slug },
-      props: { tip },
+      props: { tip, availableLangs: slugLangs.get(slug)! },
     };
   });
 }
 
-const { tip } = Astro.props;
+const { tip, availableLangs } = Astro.props;
 const { Content } = await render(tip);
 const lang = tip.data.lang;
 const slug = tip.id.split('/').slice(1).join('/');
+const alternates = (availableLangs as string[]).map(l => ({
+  lang: l,
+  url: `${SITE}/${l}/tips/${slug}/`,
+}));
 ---
 <PostLayout
   title={tip.data.title}
@@ -27,6 +40,8 @@ const slug = tip.id.split('/').slice(1).join('/');
   tag="tips"
   slug={slug}
   section="tips"
+  description={tip.data.description ?? tip.data.excerpt}
+  alternates={alternates}
 >
   <h1>{tip.data.title}</h1>
   <div class="article-meta">{tip.data.date}</div>

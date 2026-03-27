@@ -5,19 +5,45 @@ import Footer from '../components/Footer.astro';
 import type { Lang } from '../i18n/ui';
 import { t } from '../i18n/utils';
 
+const SITE = 'https://tetora.dev';
+
 interface Props {
   title: string;
   lang: Lang;
   date: string;
   tag: string;
   slug: string;
+  description?: string;
   section?: 'blog' | 'tips';
+  alternates?: Array<{ lang: string; url: string }>;
 }
-const { title, lang, date, tag, slug, section = 'blog' } = Astro.props;
+const { title, lang, date, tag, slug, description, section = 'blog', alternates } = Astro.props;
 const sectionPath = `/${lang}/${section}/`;
 const sectionLabel = t(lang, section === 'tips' ? 'nav_tips' : 'nav_blog');
+
+const pagePath = `/${lang}/${section}/${slug}/`;
+const canonicalUrl = `${SITE}${pagePath}`;
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: title,
+  datePublished: date,
+  author: { '@type': 'Organization', name: 'Tetora', url: SITE },
+  publisher: { '@type': 'Organization', name: 'Tetora', url: SITE },
+  ...(description ? { description } : {}),
+};
 ---
-<Base title={`${title} — Tetora Blog`} lang={lang} ogType="article">
+<Base
+  title={`${title} — Tetora Blog`}
+  lang={lang}
+  ogType="article"
+  ogUrl={canonicalUrl}
+  canonicalUrl={canonicalUrl}
+  description={description}
+  jsonLd={jsonLd}
+  alternates={alternates}
+>
   <LanguagePicker currentLang={lang} basePath={`/${section}/${slug}/`} />
   <nav style="padding:50px 20px 0;max-width:780px;margin:0 auto;font-size:13px;color:var(--muted)">
     <a href="/" style="color:var(--muted)">&larr; Tetora</a> / <a href={sectionPath} style="color:var(--muted)">{sectionLabel}</a>

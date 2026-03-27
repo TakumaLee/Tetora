@@ -3,22 +3,35 @@ import PostLayout from '../../../layouts/PostLayout.astro';
 import { languages } from '../../../i18n/ui';
 import { getCollection, render } from 'astro:content';
 
+const SITE = 'https://tetora.dev';
+
 export async function getStaticPaths() {
   const posts = await getCollection('blog');
+  const slugLangs = new Map<string, string[]>();
+  for (const post of posts) {
+    const slug = post.id.split('/').slice(1).join('/');
+    const langs = slugLangs.get(slug) ?? [];
+    langs.push(post.data.lang);
+    slugLangs.set(slug, langs);
+  }
   return posts.map(post => {
     const lang = post.data.lang;
     const slug = post.id.split('/').slice(1).join('/');
     return {
       params: { lang, slug },
-      props: { post },
+      props: { post, availableLangs: slugLangs.get(slug)! },
     };
   });
 }
 
-const { post } = Astro.props;
+const { post, availableLangs } = Astro.props;
 const { Content } = await render(post);
 const lang = post.data.lang;
 const slug = post.id.split('/').slice(1).join('/');
+const alternates = (availableLangs as string[]).map(l => ({
+  lang: l,
+  url: `${SITE}/${l}/blog/${slug}/`,
+}));
 ---
 <PostLayout
   title={post.data.title}
@@ -26,6 +39,8 @@ const slug = post.id.split('/').slice(1).join('/');
   date={post.data.date}
   tag={post.data.tag}
   slug={slug}
+  description={post.data.description ?? post.data.excerpt}
+  alternates={alternates}
 >
   <h1><Fragment set:html={post.data.title} /></h1>
   <div class="article-meta">{post.data.date} &middot; {post.data.tag}</div>

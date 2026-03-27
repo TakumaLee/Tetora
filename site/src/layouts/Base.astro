@@ -1,5 +1,9 @@
 ---
 import '../styles/global.css';
+
+const SITE = 'https://tetora.dev';
+const LOCALES = ['en', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de', 'th', 'id', 'fil'] as const;
+
 interface Props {
   title: string;
   description?: string;
@@ -7,15 +11,40 @@ interface Props {
   ogUrl?: string;
   ogType?: string;
   lang?: string;
+  canonicalUrl?: string;
+  jsonLd?: Record<string, unknown>;
+  alternates?: Array<{ lang: string; url: string }>;
 }
 const {
   title,
   description = 'Orchestrate AI agents with workflows, taskboards, and multi-agent collaboration.',
   ogImage = 'https://tetora.dev/banner.png',
-  ogUrl = 'https://tetora.dev',
+  ogUrl,
   ogType = 'website',
   lang = 'en',
+  canonicalUrl: canonicalUrlProp,
+  jsonLd,
+  alternates: alternatesProp,
 } = Astro.props;
+
+// Canonical: prefer explicit prop, fallback to current URL
+const canonicalUrl = canonicalUrlProp ?? `${SITE}${Astro.url.pathname}`;
+const ogUrlFinal = ogUrl ?? canonicalUrl;
+
+// hreflang: derive base path (strip lang prefix) then map to all locales
+const pathname = Astro.url.pathname;
+let basePath = pathname;
+for (const loc of LOCALES) {
+  if (pathname.startsWith(`/${loc}/`) || pathname === `/${loc}`) {
+    basePath = pathname.slice(loc.length + 1) || '/';
+    break;
+  }
+}
+const alternateUrls = alternatesProp ?? LOCALES.map(loc => ({
+  lang: loc,
+  url: loc === 'en' ? `${SITE}${basePath}` : `${SITE}/${loc}${basePath}`,
+}));
+const xDefaultUrl = alternateUrls.find(a => a.lang === 'en')?.url ?? `${SITE}${basePath}`;
 ---
 <!DOCTYPE html>
 <html lang={lang}>
@@ -27,13 +56,21 @@ const {
   <meta property="og:title" content={title} />
   <meta property="og:description" content={description} />
   <meta property="og:type" content={ogType} />
-  <meta property="og:url" content={ogUrl} />
+  <meta property="og:url" content={ogUrlFinal} />
   <meta property="og:image" content={ogImage} />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content={ogImage} />
+  <link rel="canonical" href={canonicalUrl} />
+  {alternateUrls.map(({ lang: l, url }) => (
+    <link rel="alternate" hreflang={l} href={url} />
+  ))}
+  <link rel="alternate" hreflang="x-default" href={xDefaultUrl} />
   <link rel="icon" href="/favicon.png" type="image/png" />
+  {jsonLd && (
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  )}
   <link rel="preconnect" href="https://www.googletagmanager.com" />
   <script is:inline>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-X6YR7HG68N');(window.requestIdleCallback||setTimeout)(function(){var s=document.createElement('script');s.src='https://www.googletagmanager.com/gtag/js?id=G-X6YR7HG68N';s.async=true;document.head.appendChild(s);});</script>
 </head>
