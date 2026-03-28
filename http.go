@@ -3766,7 +3766,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(configPath, append(out, '\n'), 0o600); err != nil {
 			jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -4724,6 +4724,26 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		// Reset stale "doing" tasks before dispatch to prevent blocking.
 		if s.taskBoardDispatcher != nil {
 			s.taskBoardDispatcher.ResetStuckDoing()
+		}
+
+		// Doing-state dedup guard: reject if any target agent already has an
+		// active taskboard task in 'doing' state. This prevents external callers
+		// (e.g. Daiya sweep) from double-dispatching work that the auto-dispatcher
+		// has already claimed.
+		if s.taskBoardDispatcher != nil {
+			for i, t := range tasks {
+				if t.Agent == "" {
+					continue
+				}
+				if s.taskBoardDispatcher.HasDoingTasksForAgent(t.Agent) {
+					log.Warn("dispatch: agent already has doing task on taskboard, rejecting",
+						"agent", t.Agent, "taskName", t.Name)
+					jsonError(w, fmt.Sprintf(
+						"task[%d]: agent %q already has active task(s) on taskboard",
+						i, t.Agent), http.StatusConflict)
+					return
+				}
+			}
 		}
 
 		// Resolve per-client audit DB path.
