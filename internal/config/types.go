@@ -1019,6 +1019,7 @@ func (c TrustConfig) PromoteThresholdOrDefault() int {
 type TaskBoardConfig struct {
 	Enabled         bool                    `json:"enabled"`
 	MaxRetries      int                     `json:"maxRetries,omitempty"`
+	MaxExecutions   int                     `json:"maxExecutions,omitempty"`
 	RequireReview   bool                    `json:"requireReview,omitempty"`
 	AutoDispatch    TaskBoardDispatchConfig `json:"autoDispatch,omitempty"`
 	DefaultWorkflow string                  `json:"defaultWorkflow,omitempty"`
@@ -1034,6 +1035,13 @@ type TaskBoardConfig struct {
 func (c TaskBoardConfig) MaxRetriesOrDefault() int {
 	if c.MaxRetries > 0 {
 		return c.MaxRetries
+	}
+	return 3
+}
+
+func (c TaskBoardConfig) MaxExecutionsOrDefault() int {
+	if c.MaxExecutions > 0 {
+		return c.MaxExecutions
 	}
 	return 3
 }

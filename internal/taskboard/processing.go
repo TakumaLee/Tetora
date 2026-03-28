@@ -187,6 +187,25 @@ func truncStr(s string, n int) string {
 func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	ctx := d.ctx
 
+	// Hard guard: max total executions per task (prevents infinite retry/reset loops).
+	maxExec := d.engine.config.MaxExecutionsOrDefault()
+	if t.ExecutionCount >= maxExec {
+		log.Warn("taskboard dispatch: max execution limit reached, moving to failed",
+			"id", t.ID, "title", t.Title, "executionCount", t.ExecutionCount, "max", maxExec)
+		d.engine.MoveTask(t.ID, "failed")
+		d.engine.AddComment(t.ID, "system",
+			fmt.Sprintf("[guard] Max execution limit (%d) reached. Task moved to failed to prevent infinite loop.", maxExec))
+		return
+	}
+	// Increment execution count atomically.
+	if err := db.Exec(d.engine.dbPath, fmt.Sprintf(
+		`UPDATE tasks SET execution_count = execution_count + 1 WHERE id = '%s'`,
+		db.Escape(t.ID),
+	)); err != nil {
+		log.Warn("taskboard dispatch: failed to increment execution_count, hard limit guard may be ineffective",
+			"id", t.ID, "error", err)
+	}
+
 	prompt := t.Title
 	if t.Description != "" {
 		prompt = t.Title + "\n\n" + t.Description
@@ -243,9 +262,13 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		Agent:  t.Assignee,
 		Source: "taskboard",
 		OnStart: func() {
-			if _, err := d.engine.MoveTask(taskID, "doing"); err != nil {
-				log.Warn("taskboard dispatch: failed to move task to doing on start", "id", taskID, "error", err)
-			}
+			// Status already set to 'doing' by scan() CAS claim.
+			// Touch updated_at to refresh stuck-detection timestamp.
+			db.Exec(d.engine.dbPath, fmt.Sprintf(
+				`UPDATE tasks SET updated_at = '%s' WHERE id = '%s'`,
+				db.Escape(time.Now().UTC().Format(time.RFC3339)),
+				db.Escape(taskID),
+			))
 		},
 	}
 	if d.deps.FillDefaults != nil {

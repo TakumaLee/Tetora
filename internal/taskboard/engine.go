@@ -86,6 +86,7 @@ func (tb *Engine) InitSchema() error {
 		"ALTER TABLE tasks ADD COLUMN type TEXT DEFAULT 'feat';",
 		"ALTER TABLE tasks ADD COLUMN workflow_run_id TEXT DEFAULT '';",
 		"ALTER TABLE tasks ADD COLUMN workdirs TEXT DEFAULT '[]';",
+		"ALTER TABLE tasks ADD COLUMN execution_count INTEGER DEFAULT 0;",
 	}
 	commentMigrations := []string{
 		"ALTER TABLE task_comments ADD COLUMN type TEXT DEFAULT 'log';",
@@ -162,7 +163,7 @@ func (tb *Engine) ListTasksPaginated(status, assignee, project string, page, lim
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -325,7 +326,7 @@ func (tb *Engine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count
 		FROM tasks WHERE id = '%s'
 	`, db.Escape(id))
 
@@ -351,7 +352,7 @@ func (tb *Engine) SuggestTasks(id string) []TaskBoard {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count
 		FROM tasks WHERE id LIKE '%s%%'
 		ORDER BY created_at DESC
 		LIMIT 3
@@ -581,7 +582,7 @@ func (tb *Engine) ListChildren(parentID string) ([]TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
 	`, db.Escape(parentID))
@@ -629,7 +630,7 @@ func (tb *Engine) GetBoardView(f BoardFilter) (*BoardView, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count
 		FROM tasks %s
 		ORDER BY
 			CASE priority
