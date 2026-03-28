@@ -19,6 +19,7 @@ type TaskBoard struct {
 	UpdatedAt     string   `json:"updatedAt"`
 	CompletedAt   string   `json:"completedAt"`
 	RetryCount    int      `json:"retryCount"`    // number of auto-retries
+	ExecutionCount int     `json:"executionCount"` // total number of dispatch executions (hard limit guard)
 	CostUSD       float64  `json:"costUsd"`       // cost in USD
 	DurationMs    int64    `json:"durationMs"`    // execution duration in ms
 	SessionID     string   `json:"sessionId"`     // claude session ID

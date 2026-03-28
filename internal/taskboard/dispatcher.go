@@ -437,11 +437,22 @@ func (d *Dispatcher) findRunningWorkflowForTask(taskID string) string {
 	return fmt.Sprintf("%v", rows[0]["id"])
 }
 
+// HasDoingTasksForAgent returns true if the given agent already has one or more
+// tasks in 'doing' state on the taskboard. Used by the HTTP dispatch handler to
+// prevent double-dispatching work that the auto-dispatcher has already claimed.
+func (d *Dispatcher) HasDoingTasksForAgent(agent string) bool {
+	tasks, err := d.engine.ListTasks("doing", agent, "")
+	if err != nil {
+		return false
+	}
+	return len(tasks) > 0
+}
+
 func (d *Dispatcher) ResetStuckDoing() {
 	threshold := d.parseStuckThreshold()
 	cutoff := time.Now().Add(-threshold).UTC().Format(time.RFC3339)
 
-	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, db.Escape(cutoff))
+	sql := fmt.Sprintf(`SELECT id, title, workflow_run_id, execution_count FROM tasks WHERE status = 'doing' AND updated_at < '%s'`, db.Escape(cutoff))
 	rows, err := db.Query(d.engine.dbPath, sql)
 	if err != nil {
 		log.Warn("taskboard dispatch: resetStuckDoing query failed", "error", err)
@@ -521,6 +532,27 @@ func (d *Dispatcher) ResetStuckDoing() {
 			}
 		}
 
+		// Check execution_count: if already at limit, move to failed instead of todo.
+		execCount := int(getFloat64(row, "execution_count"))
+		maxExec := d.engine.config.MaxExecutionsOrDefault()
+
+		if execCount >= maxExec {
+			failSQL := fmt.Sprintf(
+				`UPDATE tasks SET status = 'failed', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
+				db.Escape(time.Now().UTC().Format(time.RFC3339)),
+				db.Escape(id),
+			)
+			if err := db.Exec(d.engine.dbPath, failSQL); err != nil {
+				log.Warn("taskboard dispatch: failed to move over-limit stuck task to failed", "id", id, "error", err)
+				continue
+			}
+			comment := fmt.Sprintf("[guard] Stuck in 'doing' for >%s and max executions (%d) reached. Moved to failed.", threshold, maxExec)
+			d.engine.AddComment(id, "system", comment)
+			log.Warn("taskboard dispatch: stuck task exceeded max executions, moved to failed",
+				"id", id, "title", title, "executionCount", execCount, "max", maxExec)
+			continue
+		}
+
 		updateSQL := fmt.Sprintf(
 			`UPDATE tasks SET status = 'todo', updated_at = '%s' WHERE id = '%s' AND status = 'doing'`,
 			db.Escape(time.Now().UTC().Format(time.RFC3339)),
@@ -531,12 +563,12 @@ func (d *Dispatcher) ResetStuckDoing() {
 			continue
 		}
 
-		comment := fmt.Sprintf("[auto-reset] Stuck in 'doing' for >%s (likely daemon restart). Reset to 'todo' for re-dispatch.", threshold)
+		comment := fmt.Sprintf("[auto-reset] Stuck in 'doing' for >%s (likely daemon restart). Reset to 'todo' for re-dispatch. (execution %d/%d)", threshold, execCount, maxExec)
 		if _, err := d.engine.AddComment(id, "system", comment); err != nil {
 			log.Warn("taskboard dispatch: failed to add reset comment", "id", id, "error", err)
 		}
 
-		log.Info("taskboard dispatch: reset stuck doing task", "id", id, "title", title, "threshold", threshold)
+		log.Info("taskboard dispatch: reset stuck doing task", "id", id, "title", title, "threshold", threshold, "executionCount", execCount)
 		d.notifyStaleReset(id, title, threshold)
 	}
 }
@@ -630,6 +662,29 @@ func (d *Dispatcher) scan() {
 		}
 
 		log.Info("taskboard dispatch: picking up task", "id", t.ID, "title", t.Title, "assignee", t.Assignee)
+
+		// CAS claim: atomically move todo→doing before spawning goroutine.
+		// This prevents the next scan cycle from picking up the same task.
+		claimSQL := fmt.Sprintf(
+			`UPDATE tasks SET status = 'doing', updated_at = '%s' WHERE id = '%s' AND status = 'todo'`,
+			db.Escape(time.Now().UTC().Format(time.RFC3339)),
+			db.Escape(t.ID),
+		)
+		if err := db.Exec(d.engine.dbPath, claimSQL); err != nil {
+			log.Warn("taskboard dispatch: failed to claim task", "id", t.ID, "error", err)
+			continue
+		}
+		// Verify the CAS succeeded by re-reading status.
+		// Note: db.Exec shells out to sqlite3 CLI so RowsAffected is unavailable;
+		// re-SELECT is the best available verification in this architecture.
+		verifyRows, _ := db.Query(d.engine.dbPath, fmt.Sprintf(
+			`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
+		if len(verifyRows) == 0 || fmt.Sprintf("%v", verifyRows[0]["status"]) != "doing" {
+			log.Info("taskboard dispatch: task already claimed by another scan", "id", t.ID)
+			continue
+		}
+		t.Status = "doing"
+
 		dispatched++
 
 		d.wg.Add(1)

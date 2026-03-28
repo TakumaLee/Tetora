@@ -74,7 +74,8 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		CreatedAt:     fmt.Sprintf("%v", row["created_at"]),
 		UpdatedAt:     fmt.Sprintf("%v", row["updated_at"]),
 		CompletedAt:   fmt.Sprintf("%v", row["completed_at"]),
-		RetryCount:    int(getFloat64(row, "retry_count")),
+		RetryCount:     int(getFloat64(row, "retry_count")),
+		ExecutionCount: int(getFloat64(row, "execution_count")),
 		CostUSD:       getFloat64(row, "cost_usd"),
 		DurationMs:    int64(getFloat64(row, "duration_ms")),
 		SessionID:     fmt.Sprintf("%v", row["session_id"]),
@@ -123,6 +124,8 @@ func toSnakeCase(s string) string {
 		return "`type`" // SQLite reserved word — must be quoted
 	case "workflowRunId":
 		return "workflow_run_id"
+	case "executionCount":
+		return "execution_count"
 	default:
 		return s
 	}
