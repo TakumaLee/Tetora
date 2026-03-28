@@ -490,5 +490,5 @@ func SetBudgetPaused(configPath string, paused bool) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(configPath, out, 0644)
+	return os.WriteFile(configPath, out, 0o600)
 }

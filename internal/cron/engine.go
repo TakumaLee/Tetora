@@ -1552,7 +1552,7 @@ func (ce *Engine) saveToFileLocked() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(ce.cfg.JobsFile, append(data, '\n'), 0o644)
+	return os.WriteFile(ce.cfg.JobsFile, append(data, '\n'), 0o600)
 }
 
 // --- Startup Replay ---

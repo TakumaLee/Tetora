@@ -265,7 +265,7 @@ func UpdateConfigAgents(configPath, agentName string, agentJSON json.RawMessage)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o600); err != nil {
 		return err
 	}
 
@@ -292,7 +292,7 @@ func UpdateConfigField(configPath, field string, value json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 // UpdateConfigSmartDispatchDefault sets smartDispatch.defaultAgent in the config file.
@@ -323,7 +323,7 @@ func UpdateConfigSmartDispatchDefault(configPath, agentName string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 // SnapshotAfterChange snapshots config after a CLI change.

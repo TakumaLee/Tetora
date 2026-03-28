@@ -113,7 +113,7 @@ func (s *Storage) Save(t TeamDef) error {
 
 	// Atomic write: tmp file then rename.
 	tmp := s.teamPath(t.Name) + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write team tmp: %w", err)
 	}
 	if err := os.Rename(tmp, s.teamPath(t.Name)); err != nil {

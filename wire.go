@@ -2690,7 +2690,7 @@ func setMCPConfig(cfg *Config, configPath, name string, config json.RawMessage) 
 		return fmt.Errorf("create mcp dir: %w", err)
 	}
 	path := filepath.Join(mcpDir, name+".json")
-	if err := os.WriteFile(path, config, 0o644); err != nil {
+	if err := os.WriteFile(path, config, 0o600); err != nil {
 		return fmt.Errorf("write mcp file %q: %w", path, err)
 	}
 
@@ -3604,7 +3604,7 @@ func generateMCPBridgeConfig(cfg *Config) error {
 	}
 
 	configPath := filepath.Join(mcpDir, "bridge.json")
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -4313,7 +4313,7 @@ func saveMemoryAccessLog(cfg *Config, accessLog map[string]string) {
 	if err != nil {
 		return
 	}
-	os.WriteFile(filepath.Join(dir, ".access.json"), data, 0o644)
+	os.WriteFile(filepath.Join(dir, ".access.json"), data, 0o600)
 }
 
 // initMemoryDB is a no-op kept for backward compatibility.
@@ -5191,7 +5191,7 @@ func setBudgetPaused(configPath string, paused bool) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 type CostEstimate = estimate.CostEstimate

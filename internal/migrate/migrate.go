@@ -184,7 +184,7 @@ func MigrateConfig(configPath string, dryRun bool) ([]string, error) {
 	}
 
 	backupPath := configPath + ".backup." + time.Now().Format("20060102-150405")
-	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, data, 0o600); err != nil {
 		return applied, fmt.Errorf("create backup: %w", err)
 	}
 
@@ -192,7 +192,7 @@ func MigrateConfig(configPath string, dryRun bool) ([]string, error) {
 	if err != nil {
 		return applied, fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o600); err != nil {
 		return applied, fmt.Errorf("write config: %w", err)
 	}
 

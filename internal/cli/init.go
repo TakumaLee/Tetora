@@ -511,7 +511,7 @@ func CmdInit(deps InitDeps) {
 
 	// Write config.
 	data, _ := json.MarshalIndent(cfg, "", "  ")
-	if err := os.WriteFile(configPath, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(configPath, append(data, '\n'), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -521,7 +521,7 @@ func CmdInit(deps InitDeps) {
 	if _, err := os.Stat(jobsPath); os.IsNotExist(err) {
 		if deps.SeedDefaultJobsJSON != nil {
 			if jobsData, err := deps.SeedDefaultJobsJSON(); err == nil {
-				os.WriteFile(jobsPath, append(jobsData, '\n'), 0o644)
+				os.WriteFile(jobsPath, append(jobsData, '\n'), 0o600)
 			}
 		}
 	}

@@ -167,7 +167,7 @@ func mcpAddCmd(name string, flags []string) {
 
 	mcpDir := filepath.Join(cfg.BaseDir, "mcp")
 	os.MkdirAll(mcpDir, 0o755)
-	os.WriteFile(filepath.Join(mcpDir, name+".json"), config, 0o644)
+	os.WriteFile(filepath.Join(mcpDir, name+".json"), config, 0o600)
 
 	fmt.Printf("MCP config %q added.\n", name)
 }
@@ -297,7 +297,7 @@ func updateConfigMCPs(configPath, mcpName string, config json.RawMessage) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 func testMCPConfig(raw json.RawMessage) (bool, string) {

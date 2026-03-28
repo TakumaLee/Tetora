@@ -281,7 +281,7 @@ func configSet(key, value string) {
 		fmt.Fprintf(os.Stderr, "Error encoding config: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
 		os.Exit(1)
 	}

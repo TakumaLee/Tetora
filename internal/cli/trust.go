@@ -342,5 +342,5 @@ func saveAgentTrustLevel(configPath, agentName, newLevel string) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }

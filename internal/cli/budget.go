@@ -188,5 +188,5 @@ func setBudgetPaused(configPath string, paused bool) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }

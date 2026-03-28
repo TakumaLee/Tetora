@@ -51,7 +51,7 @@ func writeClaudeSettings(settings map[string]json.RawMessage) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(claudeSettingsPath(), data, 0644)
+	return os.WriteFile(claudeSettingsPath(), data, 0o600)
 }
 
 // RegisterClaudeMCPRoutes registers Claude MCP integration API routes.

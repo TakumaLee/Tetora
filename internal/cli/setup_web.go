@@ -281,7 +281,7 @@ func writeSetupConfig(req setupSaveRequest, deps SetupWebDeps) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(configPath, append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 
@@ -290,7 +290,7 @@ func writeSetupConfig(req setupSaveRequest, deps SetupWebDeps) error {
 	if _, err := os.Stat(jobsPath); os.IsNotExist(err) {
 		jobsData, err := deps.SeedDefaultJobsJSON()
 		if err == nil {
-			os.WriteFile(jobsPath, append(jobsData, '\n'), 0o644)
+			os.WriteFile(jobsPath, append(jobsData, '\n'), 0o600)
 		}
 	}
 

@@ -162,7 +162,7 @@ func ResolveMCPPaths(cfg *Config) {
 	cfg.MCPPaths = make(map[string]string)
 	for name, raw := range cfg.MCPConfigs {
 		path := filepath.Join(dir, name+".json")
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			log.Warn("write mcp config failed", "name", name, "error", err)
 			continue
 		}

@@ -255,7 +255,7 @@ func UpdateNotificationsConfig(configPath, name string, ch *NotifChannel) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 // SendTestWebhook sends a test message to a Discord webhook URL.

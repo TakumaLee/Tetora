@@ -93,7 +93,7 @@ func LoadJobsFile(path string) JobsFile {
 // SaveJobsFile writes the jobs file to disk.
 func SaveJobsFile(path string, jf JobsFile) {
 	data, _ := json.MarshalIndent(jf, "", "  ")
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing jobs: %v\n", err)
 		os.Exit(1)
 	}

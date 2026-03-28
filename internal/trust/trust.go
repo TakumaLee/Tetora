@@ -383,7 +383,7 @@ func UpdateConfigField(configPath string, mutate func(raw map[string]any)) error
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 // --- JSON helpers (private) ---

@@ -29,7 +29,7 @@ func Apply(teamName string, store *Storage, configPath, agentsDir string, opts A
 		return fmt.Errorf("read config: %w", err)
 	}
 	backupPath := configPath + ".bak"
-	if err := os.WriteFile(backupPath, configData, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, configData, 0o600); err != nil {
 		return fmt.Errorf("backup config: %w", err)
 	}
 
@@ -134,7 +134,7 @@ func Apply(teamName string, store *Storage, configPath, agentsDir string, opts A
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write config tmp: %w", err)
 	}
 	if err := os.Rename(tmp, configPath); err != nil {

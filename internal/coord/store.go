@@ -164,7 +164,7 @@ func atomicWrite(path string, v any) error {
 	}
 	data = append(data, '\n')
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

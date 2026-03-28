@@ -61,5 +61,5 @@ func MutateConfig(configPath string, mutate func(raw map[string]any)) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }

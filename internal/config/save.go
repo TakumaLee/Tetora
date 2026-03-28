@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -51,7 +52,7 @@ func SaveProviders(configPath, name string, pc ProviderConfig) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+	if err := writeFileAtomic(configPath, append(out, '\n')); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
@@ -83,8 +84,23 @@ func DeleteProvider(configPath, name string) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+	if err := writeFileAtomic(configPath, append(out, '\n')); err != nil {
 		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
+// writeFileAtomic writes data to a .tmp file in the same directory as dst,
+// then renames it to dst. os.Rename is atomic on the same filesystem (POSIX),
+// so a crash mid-write leaves dst either fully updated or fully intact.
+func writeFileAtomic(dst string, data []byte) error {
+	tmp := filepath.Join(filepath.Dir(dst), filepath.Base(dst)+".tmp")
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp) // best-effort cleanup
+		return err
 	}
 	return nil
 }

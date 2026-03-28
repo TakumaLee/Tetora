@@ -450,7 +450,7 @@ func discordUpdateNotificationsConfig(configPath, name string, rc *NotificationC
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	return os.WriteFile(configPath, append(out, '\n'), 0o600)
 }
 
 // discordSendTestWebhook sends a test message to a Discord webhook URL.

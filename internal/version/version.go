@@ -286,7 +286,7 @@ func RestoreConfig(dbPath, configPath, versionID string) (string, error) {
 	}
 
 	// Write restored content.
-	if err := os.WriteFile(configPath, []byte(ver.ContentJSON), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte(ver.ContentJSON), 0o600); err != nil {
 		return "", fmt.Errorf("write restored config: %w", err)
 	}
 
