@@ -2,8 +2,7 @@
 import PostLayout from '../../../layouts/PostLayout.astro';
 import { languages } from '../../../i18n/ui';
 import { getCollection, render } from 'astro:content';
-
-const SITE = 'https://tetora.dev';
+import { SITE } from '../../../consts';
 
 export async function getStaticPaths() {
   const tips = await getCollection('tips');

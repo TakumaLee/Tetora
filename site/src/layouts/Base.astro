@@ -1,7 +1,6 @@
 ---
 import '../styles/global.css';
-
-const SITE = 'https://tetora.dev';
+import { SITE } from '../consts';
 const LOCALES = ['en', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de', 'th', 'id', 'fil'] as const;
 
 interface Props {
@@ -69,7 +68,7 @@ const xDefaultUrl = alternateUrls.find(a => a.lang === 'en')?.url ?? `${SITE}${b
   <link rel="alternate" hreflang="x-default" href={xDefaultUrl} />
   <link rel="icon" href="/favicon.png" type="image/png" />
   {jsonLd && (
-    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd).replace(/</g, '\\u003c')} />
   )}
   <link rel="preconnect" href="https://www.googletagmanager.com" />
   <script is:inline>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-X6YR7HG68N');(window.requestIdleCallback||setTimeout)(function(){var s=document.createElement('script');s.src='https://www.googletagmanager.com/gtag/js?id=G-X6YR7HG68N';s.async=true;document.head.appendChild(s);});</script>

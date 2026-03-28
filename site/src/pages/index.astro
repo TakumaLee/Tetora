@@ -7,6 +7,7 @@ import InstallBox from '../components/InstallBox.astro';
 import DownloadGrid from '../components/DownloadGrid.astro';
 import { ui } from '../i18n/ui';
 import { t } from '../i18n/utils';
+import { SITE } from '../consts';
 
 const lang = 'en';
 const s = ui[lang];
@@ -18,7 +19,7 @@ const jsonLd = {
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'macOS, Linux, Windows',
   description: 'AI Agent Orchestration Platform — workflows, taskboards, and multi-agent collaboration in a single binary.',
-  url: 'https://tetora.dev',
+  url: SITE,
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
 };
 ---

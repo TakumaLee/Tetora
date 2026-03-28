@@ -12,7 +12,7 @@ function renderMarkdown(text) {
   const codeBlocks = [];
   text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
     const idx = codeBlocks.length;
-    codeBlocks.push(`<pre><code class="lang-${escHtml(lang || 'text')}">${escHtml(code.replace(/\n$/, ''))}</code></pre>`);
+    codeBlocks.push(`<div class="code-block-wrap"><button class="copy-btn" onclick="copyCodeBlock(this)">Copy</button><pre><code class="lang-${escHtml(lang || 'text')}">${escHtml(code.replace(/\n$/, ''))}</code></pre></div>`);
     return `\x00CODEBLOCK${idx}\x00`;
   });
 
@@ -85,19 +85,19 @@ function renderMarkdown(text) {
       const nextLine = (i + 1 < lines.length) ? escHtml(lines[i + 1]) : '';
       const nextIsSep = nextLine.indexOf('|') >= 0 && nextLine.split('|').slice(1, -1).every(c => /^[-:\s]+$/.test(c.trim()));
       if (nextIsSep && result[result.length - 1] !== '<table>') {
-        result.push('<table>');
+        result.push('<div class="table-wrap"><table>');
         result.push('<tr>' + cells.map(c => '<th>' + inlineFormat(c) + '</th>').join('') + '</tr>');
       } else {
         if (result.length > 0 && !result[result.length - 1].includes('<table') && !result[result.length - 1].includes('<tr>') && !result[result.length - 1].includes('<th>')) {
           // Not in a table yet but got a | row — start table
-          result.push('<table>');
+          result.push('<div class="table-wrap"><table>');
         }
         result.push('<tr>' + cells.map(c => '<td>' + inlineFormat(c) + '</td>').join('') + '</tr>');
       }
       // Check if next line is NOT a table row — close table
       const nextLineRaw = (i + 1 < lines.length) ? lines[i + 1] : '';
       if (!nextLineRaw.trim().startsWith('|')) {
-        result.push('</table>');
+        result.push('</table></div>');
       }
       continue;
     }
@@ -129,6 +129,15 @@ function inlineFormat(text) {
   // Links.
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   return text;
+}
+
+function copyCodeBlock(btn) {
+  var code = btn.parentElement.querySelector('code');
+  if (!code) return;
+  navigator.clipboard.writeText(code.textContent).then(function() {
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+  });
 }
 
 function setOutputMode(mode) {
