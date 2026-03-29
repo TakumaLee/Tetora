@@ -921,14 +921,17 @@ func RecordHumanGate(dbPath, key, runID, stepID, workflowName, subtype, prompt, 
 	}
 }
 
+// humanGateSelectCols is the shared SELECT column list for workflow_human_gates queries.
+// Keep in sync with parseHumanGateRecord field mappings.
+const humanGateSelectCols = `key, run_id, step_id, COALESCE(workflow_name,'') as workflow_name, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at, COALESCE(options,'') as options, COALESCE(context,'') as context`
+
 // QueryHumanGate returns a human gate record by key.
 func QueryHumanGate(dbPath, key string) *HumanGateRecord {
 	if dbPath == "" {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT key, run_id, step_id, COALESCE(workflow_name,'') as workflow_name, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at, COALESCE(options,'') as options, COALESCE(context,'') as context
-		 FROM workflow_human_gates WHERE key='%s' LIMIT 1`,
+		`SELECT `+humanGateSelectCols+` FROM workflow_human_gates WHERE key='%s' LIMIT 1`,
 		db.Escape(key),
 	)
 	rows, err := db.Query(dbPath, sql)
@@ -944,8 +947,7 @@ func QueryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT key, run_id, step_id, COALESCE(workflow_name,'') as workflow_name, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at, COALESCE(options,'') as options, COALESCE(context,'') as context
-		 FROM workflow_human_gates WHERE run_id='%s' AND status='waiting'`,
+		`SELECT `+humanGateSelectCols+` FROM workflow_human_gates WHERE run_id='%s' AND status='waiting'`,
 		db.Escape(runID),
 	)
 	rows, err := db.Query(dbPath, sql)
@@ -970,8 +972,7 @@ func QueryAllPendingHumanGates(dbPath, status string) []*HumanGateRecord {
 		where = fmt.Sprintf(" WHERE status='%s'", db.Escape(status))
 	}
 	sql := fmt.Sprintf(
-		`SELECT key, run_id, step_id, COALESCE(workflow_name,'') as workflow_name, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at, COALESCE(options,'') as options, COALESCE(context,'') as context
-		 FROM workflow_human_gates%s ORDER BY created_at DESC`,
+		`SELECT `+humanGateSelectCols+` FROM workflow_human_gates%s ORDER BY created_at DESC`,
 		where,
 	)
 	rows, err := db.Query(dbPath, sql)
