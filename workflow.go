@@ -619,8 +619,9 @@ func isResumableStatus(status string) bool {
 }
 
 // resumeWorkflow creates a new run that skips already-completed steps from a previous run.
+// extraVars (if non-nil) are merged into the new run's Variables, overriding originals.
 func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
-	state *dispatchState, sem, childSem chan struct{}) (*WorkflowRun, error) {
+	state *dispatchState, sem, childSem chan struct{}, extraVars map[string]string) (*WorkflowRun, error) {
 
 	// Load the original run.
 	originalRun, err := queryWorkflowRunByID(cfg.HistoryDB, originalRunID)
@@ -651,6 +652,11 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 		Variables:    originalRun.Variables,
 		StepResults:  make(map[string]*StepRunResult),
 		ResumedFrom:  originalRunID,
+	}
+
+	// Merge extra variables (override_variables, recovery keys, etc.).
+	for k, v := range extraVars {
+		run.Variables[k] = v
 	}
 
 	// Build resume state and initialize step results.
@@ -769,6 +775,40 @@ func resumeWorkflow(ctx context.Context, cfg *Config, originalRunID string,
 	}
 
 	return run, nil
+}
+
+// retryFromHumanGate resets a rejected human gate and resumes the workflow.
+// It returns the new run ID or an error.
+func retryFromHumanGate(ctx context.Context, cfg *Config, gateKey string,
+	overrideVars map[string]string, state *dispatchState, sem, childSem chan struct{}) (string, error) {
+
+	// Look up the gate.
+	gate := queryHumanGate(cfg.HistoryDB, gateKey)
+	if gate == nil {
+		return "", fmt.Errorf("gate not found: %s", gateKey)
+	}
+	if gate.Status != "rejected" {
+		return "", fmt.Errorf("gate %s has status %q, only rejected gates can be retried", gateKey, gate.Status)
+	}
+
+	// Reset gate to "waiting" (clears decision, response, completed_at, timeout_at).
+	resetHumanGate(cfg.HistoryDB, gateKey)
+
+	// Build extra variables: override_variables + recovery key for gate reuse.
+	extraVars := make(map[string]string)
+	for k, v := range overrideVars {
+		extraVars[k] = v
+	}
+	extraVars["__hg_key_"+gate.StepID] = gate.Key
+
+	// Resume the workflow from the gate's run (which should be in "error" status).
+	run, err := resumeWorkflow(ctx, cfg, gate.RunID, state, sem, childSem, extraVars)
+	if err != nil {
+		return "", fmt.Errorf("resume workflow for gate retry: %w", err)
+	}
+
+	log.Info("human gate retry started", "gateKey", gateKey, "originalRunID", gate.RunID[:8], "newRunID", run.ID[:8])
+	return run.ID, nil
 }
 
 // executeStep runs a single step with retry logic.
@@ -1663,10 +1703,16 @@ func (e *workflowExecutor) publishEvent(eventType string, data map[string]any) {
 	if e.broker == nil {
 		return
 	}
-	e.broker.PublishMulti([]string{
+	topics := []string{
 		"workflow:" + e.run.ID,
 		"workflow:" + e.workflow.Name,
-	}, SSEEvent{
+	}
+	// Broadcast human gate events to the dashboard feed so the
+	// "Waiting for You" panel can update in real time.
+	if eventType == "human_gate_waiting" || eventType == "human_gate_responded" {
+		topics = append(topics, SSEDashboardKey)
+	}
+	e.broker.PublishMulti(topics, SSEEvent{
 		Type:   eventType,
 		TaskID: e.run.ID,
 		Data:   data,
@@ -2605,7 +2651,12 @@ func applyHumanGateResult(subtype, decision, response string, step *WorkflowStep
 	case "input":
 		result.Status = "success"
 		if step.HumanInputKey != "" {
-			result.Output = fmt.Sprintf(`{%q:%q}`, step.HumanInputKey, response)
+			m := map[string]string{step.HumanInputKey: response}
+			if b, err := json.Marshal(m); err == nil {
+				result.Output = string(b)
+			} else {
+				result.Output = response
+			}
 		} else {
 			result.Output = response
 		}

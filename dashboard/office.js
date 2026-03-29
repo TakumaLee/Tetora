@@ -1320,6 +1320,7 @@ function play8BitSound(type) {
 
 pollTimer = setInterval(refresh, 5000);
 connectDashboardSSE();
+startHumanGatePolling();
 document.addEventListener('visibilitychange', function() {
   if (document.hidden) {
     clearInterval(pollTimer);

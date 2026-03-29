@@ -10,6 +10,14 @@ import (
 	"tetora/internal/httputil"
 )
 
+// writeJSONError writes a JSON {"error": msg} response with the given HTTP status.
+// Using json.Marshal prevents injection when msg contains special characters.
+func writeJSONError(w http.ResponseWriter, code int, msg string) {
+	b, _ := json.Marshal(map[string]string{"error": msg})
+	w.WriteHeader(code)
+	w.Write(b) //nolint:errcheck
+}
+
 // HumanGateDeps holds dependencies for human gate HTTP handlers.
 type HumanGateDeps struct {
 	HistoryDB func() string
@@ -102,12 +110,12 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 				return
 			}
 			if status, _ := gate["status"].(string); status != "waiting" {
-				http.Error(w, fmt.Sprintf(`{"error":"gate already %s"}`, status), http.StatusBadRequest)
+				writeJSONError(w, http.StatusBadRequest, "gate already "+status)
 				return
 			}
 
 			if err := d.CancelHumanGate(key, body.Reason, body.CancelledBy); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 
@@ -131,7 +139,7 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 				RespondedBy string `json:"respondedBy"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":"invalid JSON: %v"}`, err), http.StatusBadRequest)
+				writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 				return
 			}
 			if body.Action == "" {
@@ -142,16 +150,16 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 			// Check gate exists and is waiting before delivering.
 			gate := d.QueryHumanGateByKey(key)
 			if gate == nil {
-				http.Error(w, `{"error":"gate not found"}`, http.StatusBadRequest)
+				writeJSONError(w, http.StatusNotFound, "gate not found")
 				return
 			}
 			if status, _ := gate["status"].(string); status != "waiting" {
-				http.Error(w, fmt.Sprintf(`{"error":"gate already %s"}`, status), http.StatusBadRequest)
+				writeJSONError(w, http.StatusBadRequest, "gate already "+status)
 				return
 			}
 
 			if err := d.RespondHumanGate(key, body.Action, body.Response, body.RespondedBy); err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 

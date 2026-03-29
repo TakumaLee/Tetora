@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -79,6 +80,14 @@ func testHumanGateDeps() (httpapi.HumanGateDeps, func(key, action, response, res
 				g.Response = response
 				g.RespondedBy = respondedBy
 			}
+			return nil
+		},
+		CancelHumanGate: func(key, reason, cancelledBy string) error {
+			g, ok := store[key]
+			if !ok {
+				return errors.New("gate not found")
+			}
+			g.Status = "cancelled"
 			return nil
 		},
 	}
@@ -239,7 +248,7 @@ func TestHumanGateRespond(t *testing.T) {
 		}
 	})
 
-	t.Run("Given non-existent gate, When respond, Then 400", func(t *testing.T) {
+	t.Run("Given non-existent gate, When respond, Then 404", func(t *testing.T) {
 		deps, _ := testHumanGateDeps()
 		mux := http.NewServeMux()
 		httpapi.RegisterHumanGateRoutes(mux, deps)
@@ -249,8 +258,8 @@ func TestHumanGateRespond(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, req)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d", w.Code)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
 		}
 	})
 
@@ -266,6 +275,63 @@ func TestHumanGateRespond(t *testing.T) {
 		mux.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+func TestHumanGateCancel(t *testing.T) {
+	t.Run("Given waiting gate, When cancel, Then 200 and status=cancelled", func(t *testing.T) {
+		deps, _ := testHumanGateDeps()
+		mux := http.NewServeMux()
+		httpapi.RegisterHumanGateRoutes(mux, deps)
+
+		body, _ := json.Marshal(map[string]string{"reason": "no longer needed", "cancelledBy": "takuma"})
+		req := httptest.NewRequest(http.MethodPost, "/api/human-gates/gate-1/cancel", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var result map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+		if result["status"] != "cancelled" {
+			t.Errorf("expected status=cancelled, got %v", result["status"])
+		}
+		if result["key"] != "gate-1" {
+			t.Errorf("expected key=gate-1, got %v", result["key"])
+		}
+	})
+
+	t.Run("Given non-existent gate, When cancel, Then 404", func(t *testing.T) {
+		deps, _ := testHumanGateDeps()
+		mux := http.NewServeMux()
+		httpapi.RegisterHumanGateRoutes(mux, deps)
+
+		body, _ := json.Marshal(map[string]string{"reason": "oops"})
+		req := httptest.NewRequest(http.MethodPost, "/api/human-gates/no-such-gate/cancel", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Given non-waiting gate, When cancel, Then 400", func(t *testing.T) {
+		deps, _ := testHumanGateDeps()
+		mux := http.NewServeMux()
+		httpapi.RegisterHumanGateRoutes(mux, deps)
+
+		body, _ := json.Marshal(map[string]string{"reason": "too late"})
+		req := httptest.NewRequest(http.MethodPost, "/api/human-gates/gate-3/cancel", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

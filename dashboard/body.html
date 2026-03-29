@@ -43,7 +43,7 @@
   <!-- Sidebar Navigation -->
   <nav class="sidebar-nav" id="sidebar-nav">
     <button class="nav-item active" id="tab-dashboard" onclick="switchTab('dashboard')">
-      <span class="nav-icon">&#x1F4CA;</span> Dashboard
+      <span class="nav-icon">&#x1F4CA;</span> Dashboard<span class="hg-nav-badge" id="hg-nav-badge" style="display:none">0</span>
     </button>
     <button class="nav-item" id="tab-chat" onclick="switchTab('chat')">
       <span class="nav-icon">&#x1F4AC;</span> Chat
@@ -175,6 +175,15 @@
     <div class="decor-palette" id="decor-palette" style="display:none"></div>
   </div>
   </div><!-- /zone-command -->
+
+  <!-- Human Gates: "Waiting for You" -->
+  <div class="section hg-panel" id="human-gates-panel" style="display:none">
+    <div class="section-header">
+      <span class="section-title">&#9203; Waiting for You</span>
+      <span class="badge badge-err" id="hg-panel-badge">0</span>
+    </div>
+    <div id="human-gates-list"></div>
+  </div>
 
   <!-- Dashboard Tasks -->
   <div class="section" id="tasks-section">
@@ -958,6 +967,15 @@
       </div>
       <div id="integration-reminders"></div>
 
+    <!-- Human Gates: "Waiting for You" (Tasks page) -->
+    <div class="section hg-panel" id="human-gates-panel-tasks" style="display:none">
+      <div class="section-header">
+        <span class="section-title">&#9203; Waiting for You</span>
+        <span class="badge badge-err" id="hg-panel-badge-tasks">0</span>
+      </div>
+      <div id="human-gates-list-tasks"></div>
+    </div>
+
     <!-- Workflow Triggers -->
     <div class="section">
       <div class="section-header">
@@ -1641,6 +1659,7 @@
         <a id="td-wf-run-link" href="#" onclick="return openWfRunFromTask()" style="font-size:11px;color:var(--accent)">View Full Run</a>
       </div>
       <div id="td-wf-steps" class="td-wf-steps"></div>
+      <div id="td-hg-inline" style="display:none;margin-top:8px"></div>
     </div>
     <!-- Comment Thread -->
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Comments</div>

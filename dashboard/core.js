@@ -73,7 +73,7 @@ function connectDashboardSSE() {
     pollTimer = setInterval(refresh, 5000);
   };
 
-  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying', 'agent_state', 'board_updated', 'worker_update', 'hook_event', 'plan_review'];
+  var eventTypes = ['task_received', 'task_routing', 'started', 'completed', 'error', 'task_queued', 'tool_call', 'tool_result', 'output_chunk', 'discord_processing', 'discord_replying', 'agent_state', 'board_updated', 'worker_update', 'hook_event', 'plan_review', 'human_gate_waiting', 'human_gate_responded'];
   eventTypes.forEach(function(evType) {
     es.addEventListener(evType, function(e) {
       try {
@@ -212,6 +212,19 @@ function handleActivityEvent(type, ev) {
       } else {
         detail = 'Plan update';
       }
+      break;
+    case 'human_gate_waiting':
+      badge = 'gate';
+      detail = 'Gate waiting: <b>' + esc(data.stepId || '') + '</b>';
+      if (data.subtype) detail += ' <span class="muted">[' + esc(data.subtype) + ']</span>';
+      if (typeof refreshHumanGates === 'function') refreshHumanGates();
+      addNotification('Gate waiting: ' + (data.stepId || 'step'), 'info', {tab:'dashboard'});
+      break;
+    case 'human_gate_responded':
+      badge = 'gate';
+      detail = 'Gate responded: <b>' + esc(data.stepId || '') + '</b>';
+      if (data.decision) detail += ' → ' + esc(data.decision);
+      if (typeof refreshHumanGates === 'function') refreshHumanGates();
       break;
     default:
       detail = type;
