@@ -3297,7 +3297,7 @@ func TestHumanGateApprovalFlow(t *testing.T) {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
-		body := `{"decision":"approved","response":"looks good"}`
+		body := `{"action":"approved","response":"looks good"}`
 		cm.Deliver(hgKey, CallbackResult{Body: body})
 	}()
 
@@ -3352,7 +3352,7 @@ func TestHumanGateRejectionFlow(t *testing.T) {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
-		body := `{"decision":"rejected","response":"not ready"}`
+		body := `{"action":"rejected","response":"not ready"}`
 		cm.Deliver(hgKey, CallbackResult{Body: body})
 	}()
 
@@ -3633,7 +3633,7 @@ func TestHumanGateRespondedBy(t *testing.T) {
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
-		body := `{"decision":"approved","response":"ship it","respondedBy":"takuma"}`
+		body := `{"action":"approved","response":"ship it","respondedBy":"takuma"}`
 		cm.Deliver(hgKey, CallbackResult{Body: body})
 	}()
 

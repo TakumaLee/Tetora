@@ -1868,7 +1868,7 @@ func startHTTPServer(s *Server) *http.Server {
 			rows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 				`SELECT key, run_id as runId, step_id as stepId, workflow_name as workflowName,
 				        subtype, COALESCE(prompt,'') as prompt, COALESCE(assignee,'') as assignee, status,
-				        COALESCE(decision,'') as decision, COALESCE(response,'') as response,
+				        COALESCE(decision,'') as action, COALESCE(response,'') as response,
 				        COALESCE(responded_by,'') as respondedBy, COALESCE(timeout_at,'') as timeoutAt,
 				        COALESCE(created_at,'') as createdAt, COALESCE(completed_at,'') as completedAt
 				 FROM workflow_human_gates%s ORDER BY created_at DESC`, where))
@@ -1884,7 +1884,7 @@ func startHTTPServer(s *Server) *http.Server {
 			rows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
 				`SELECT key, run_id as runId, step_id as stepId, workflow_name as workflowName,
 				        subtype, COALESCE(prompt,'') as prompt, COALESCE(assignee,'') as assignee, status,
-				        COALESCE(decision,'') as decision, COALESCE(response,'') as response,
+				        COALESCE(decision,'') as action, COALESCE(response,'') as response,
 				        COALESCE(responded_by,'') as respondedBy, COALESCE(timeout_at,'') as timeoutAt,
 				        COALESCE(created_at,'') as createdAt, COALESCE(completed_at,'') as completedAt
 				 FROM workflow_human_gates WHERE key='%s' LIMIT 1`, db.Escape(key)))
@@ -1906,7 +1906,7 @@ func startHTTPServer(s *Server) *http.Server {
 			}
 			// Build the callback body the workflow executor expects.
 			bodyJSON, _ := json.Marshal(map[string]string{
-				"decision":    action,
+				"action":      action,
 				"response":    response,
 				"respondedBy": respondedBy,
 			})
@@ -1927,7 +1927,7 @@ func startHTTPServer(s *Server) *http.Server {
 				return nil
 			}
 			bodyJSON, _ := json.Marshal(map[string]string{
-				"decision":    "cancelled",
+				"action":      "cancelled",
 				"response":    reason,
 				"respondedBy": cancelledBy,
 			})
