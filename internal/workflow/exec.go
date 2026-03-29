@@ -198,6 +198,10 @@ type Deps struct {
 	// If nil, external steps return an error.
 	RunExternalStep func(ctx context.Context, extCtx ExternalStepContext, step *WorkflowStep, result *StepRunResult)
 
+	// RunHumanStep handles human gate steps (approval/action/input).
+	// If nil, human steps return an error.
+	RunHumanStep func(ctx context.Context, hCtx HumanStepContext, step *WorkflowStep, result *StepRunResult)
+
 	// UpdateTaskWorkflowRunID updates a task's workflowRunId field (used on workflow resume).
 	UpdateTaskWorkflowRunID func(taskID, runID string)
 }
@@ -210,6 +214,15 @@ type ExternalStepContext struct {
 	ResolveTemplate    func(tmpl string) string
 	ResolveTemplateMap func(m map[string]string) map[string]string
 	PublishEvent       func(eventType string, data map[string]any)
+}
+
+// HumanStepContext provides executor state to the human gate step handler.
+type HumanStepContext struct {
+	Run             *WorkflowRun
+	WCtx            *WorkflowContext
+	ResolveTemplate func(tmpl string) string
+	PublishEvent    func(eventType string, data map[string]any)
+	Checkpoint      func()
 }
 
 // --- Executor ---
@@ -932,6 +945,13 @@ func (e *Executor) runStepOnce(ctx context.Context, step *WorkflowStep, result *
 		case "external":
 			result.Status = "success"
 			result.Output = fmt.Sprintf("[DRY-RUN] Would call external URL: %s (callback mode: %s)", step.ExternalURL, step.CallbackMode)
+		case "human":
+			subtype := step.HumanSubtype
+			if subtype == "" {
+				subtype = "approval"
+			}
+			result.Status = "success"
+			result.Output = fmt.Sprintf("[DRY-RUN] Would wait for human %s (assignee: %s)", subtype, step.HumanAssignee)
 		case "notify":
 			msg := ResolveTemplate(step.NotifyMsg, wCtx)
 			result.Status = "success"
@@ -973,6 +993,8 @@ func (e *Executor) runStepOnce(ctx context.Context, step *WorkflowStep, result *
 		e.runNotifyStep(step, result, wCtx)
 	case "external":
 		e.runExternalStep(ctx, step, result)
+	case "human":
+		e.runHumanStep(ctx, step, result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -1368,6 +1390,23 @@ func (e *Executor) runExternalStep(ctx context.Context, step *WorkflowStep, resu
 		PublishEvent:       e.publishEvent,
 	}
 	e.deps.RunExternalStep(ctx, extCtx, step, result)
+}
+
+func (e *Executor) runHumanStep(ctx context.Context, step *WorkflowStep, result *StepRunResult) {
+	if e.deps.RunHumanStep == nil {
+		result.Status = "error"
+		result.Error = "human step execution not configured"
+		return
+	}
+
+	hCtx := HumanStepContext{
+		Run:             e.run,
+		WCtx:            e.wCtx,
+		ResolveTemplate: e.resolveTemplateWithFields,
+		PublishEvent:    e.publishEvent,
+		Checkpoint:      e.checkpoint,
+	}
+	e.deps.RunHumanStep(ctx, hCtx, step, result)
 }
 
 // --- Dry-run implementations ---

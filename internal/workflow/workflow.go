@@ -284,6 +284,31 @@ func ValidateStep(s WorkflowStep, allIDs map[string]bool) []string {
 		if s.NotifyMsg == "" {
 			errs = append(errs, fmt.Sprintf("step %q: notify step requires a notifyMsg", s.ID))
 		}
+	case "human":
+		subtype := s.HumanSubtype
+		if subtype == "" {
+			subtype = "approval"
+		}
+		switch subtype {
+		case "approval", "action", "input":
+		default:
+			errs = append(errs, fmt.Sprintf("step %q: humanSubtype must be \"approval\", \"action\", or \"input\"", s.ID))
+		}
+		if subtype == "input" && s.HumanInputKey == "" {
+			errs = append(errs, fmt.Sprintf("step %q: input subtype requires humanInputKey", s.ID))
+		}
+		if s.HumanTimeout != "" {
+			if _, err := ParseDurationWithDays(s.HumanTimeout); err != nil {
+				errs = append(errs, fmt.Sprintf("step %q: invalid humanTimeout %q: %v", s.ID, s.HumanTimeout, err))
+			}
+		}
+		if s.HumanOnTimeout != "" {
+			switch s.HumanOnTimeout {
+			case "stop", "skip", "approve":
+			default:
+				errs = append(errs, fmt.Sprintf("step %q: humanOnTimeout must be \"stop\", \"skip\", or \"approve\"", s.ID))
+			}
+		}
 	case "external":
 		if s.ExternalBody != nil && s.ExternalRawBody != "" {
 			errs = append(errs, fmt.Sprintf("step %q: externalBody and externalRawBody are mutually exclusive", s.ID))
@@ -310,7 +335,7 @@ func ValidateStep(s WorkflowStep, allIDs map[string]bool) []string {
 			}
 		}
 	default:
-		errs = append(errs, fmt.Sprintf("step %q: unknown type %q (use dispatch, skill, condition, parallel, handoff, tool_call, delay, notify, external)", s.ID, stepType))
+		errs = append(errs, fmt.Sprintf("step %q: unknown type %q (use dispatch, skill, condition, parallel, handoff, tool_call, delay, notify, external, human)", s.ID, stepType))
 	}
 
 	// Validate dependency references.

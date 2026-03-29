@@ -3182,4 +3182,413 @@ func TestStepTypeDefault(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Human Gate Step Tests
+// =============================================================================
+
+// TestRunHumanStepDryRun — dry-run output format.
+func TestRunHumanStepDryRun(t *testing.T) {
+	exec := &workflowExecutor{
+		mode: WorkflowModeDryRun,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			StepResults: map[string]*StepRunResult{},
+		},
+	}
+
+	step := &WorkflowStep{
+		ID:            "hg1",
+		Type:          "human",
+		HumanSubtype:  "approval",
+		HumanAssignee: "takuma",
+	}
+	result := &StepRunResult{StepID: "hg1"}
+
+	exec.runStepOnce(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("dry-run status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "DRY-RUN") {
+		t.Errorf("dry-run output should contain DRY-RUN, got %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "approval") {
+		t.Errorf("dry-run output should contain subtype, got %q", result.Output)
+	}
+	if !strings.Contains(result.Output, "takuma") {
+		t.Errorf("dry-run output should contain assignee, got %q", result.Output)
+	}
+}
+
+// TestRunHumanStepDryRunDefaultSubtype — default subtype is "approval".
+func TestRunHumanStepDryRunDefaultSubtype(t *testing.T) {
+	exec := &workflowExecutor{
+		mode: WorkflowModeDryRun,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			StepResults: map[string]*StepRunResult{},
+		},
+	}
+
+	step := &WorkflowStep{
+		ID:   "hg2",
+		Type: "human",
+	}
+	result := &StepRunResult{StepID: "hg2"}
+
+	exec.runStepOnce(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "approval") {
+		t.Errorf("should default to approval, got %q", result.Output)
+	}
+}
+
+// TestHumanGateApprovalFlow — Register → Deliver("approved") → step success.
+func TestHumanGateApprovalFlow(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	// Create a CallbackManager with the test DB.
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-approval",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:            "approve1",
+		Type:          "human",
+		HumanSubtype:  "approval",
+		HumanPrompt:   "Please approve this deployment",
+		HumanAssignee: "takuma",
+		HumanTimeout:  "10s",
+	}
+	result := &StepRunResult{StepID: "approve1"}
+
+	// Simulate human approval via callback in a goroutine.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
+		body := `{"decision":"approved","response":"looks good"}`
+		cm.Deliver(hgKey, CallbackResult{Body: body})
+	}()
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "approved") {
+		t.Errorf("output should contain 'approved', got %q", result.Output)
+	}
+}
+
+// TestHumanGateRejectionFlow — Deliver("rejected") → step error.
+func TestHumanGateRejectionFlow(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-reject",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:            "reject1",
+		Type:          "human",
+		HumanSubtype:  "approval",
+		HumanPrompt:   "Approve?",
+		HumanAssignee: "takuma",
+		HumanTimeout:  "10s",
+	}
+	result := &StepRunResult{StepID: "reject1"}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
+		body := `{"decision":"rejected","response":"not ready"}`
+		cm.Deliver(hgKey, CallbackResult{Body: body})
+	}()
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "error" {
+		t.Errorf("status = %q, want error", result.Status)
+	}
+	if !strings.Contains(result.Error, "rejected") {
+		t.Errorf("error should contain 'rejected', got %q", result.Error)
+	}
+}
+
+// TestHumanGateInputFlow — Deliver response → step output contains inputKey.
+func TestHumanGateInputFlow(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-input",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:            "input1",
+		Type:          "human",
+		HumanSubtype:  "input",
+		HumanPrompt:   "Enter the target version",
+		HumanInputKey: "version",
+		HumanTimeout:  "10s",
+	}
+	result := &StepRunResult{StepID: "input1"}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
+		body := `{"response":"v2.3.1"}`
+		cm.Deliver(hgKey, CallbackResult{Body: body})
+	}()
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "version") || !strings.Contains(result.Output, "v2.3.1") {
+		t.Errorf("output should contain inputKey and response, got %q", result.Output)
+	}
+}
+
+// TestHumanGateTimeoutStop — timeout with onTimeout="stop" → step timeout.
+func TestHumanGateTimeoutStop(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-timeout-stop",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:             "timeout-stop",
+		Type:           "human",
+		HumanSubtype:   "approval",
+		HumanTimeout:   "200ms",
+		HumanOnTimeout: "stop",
+	}
+	result := &StepRunResult{StepID: "timeout-stop"}
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "timeout" {
+		t.Errorf("status = %q, want timeout", result.Status)
+	}
+}
+
+// TestHumanGateTimeoutSkip — timeout with onTimeout="skip" → step skipped.
+func TestHumanGateTimeoutSkip(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-timeout-skip",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:             "timeout-skip",
+		Type:           "human",
+		HumanSubtype:   "approval",
+		HumanTimeout:   "200ms",
+		HumanOnTimeout: "skip",
+	}
+	result := &StepRunResult{StepID: "timeout-skip"}
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "skipped" {
+		t.Errorf("status = %q, want skipped", result.Status)
+	}
+}
+
+// TestHumanGateTimeoutApprove — timeout with onTimeout="approve" → step success.
+func TestHumanGateTimeoutApprove(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-timeout-approve",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:             "timeout-approve",
+		Type:           "human",
+		HumanSubtype:   "approval",
+		HumanTimeout:   "200ms",
+		HumanOnTimeout: "approve",
+	}
+	result := &StepRunResult{StepID: "timeout-approve"}
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("status = %q, want success", result.Status)
+	}
+	if !strings.Contains(result.Output, "auto-approved") {
+		t.Errorf("output should contain 'auto-approved', got %q", result.Output)
+	}
+}
+
+// TestHumanStepValidation — validate human step field checks.
+func TestHumanStepValidation(t *testing.T) {
+	ids := map[string]bool{"hg1": true}
+
+	// Valid approval step.
+	errs := validateStep(WorkflowStep{ID: "hg1", Type: "human", HumanSubtype: "approval"}, ids)
+	if len(errs) != 0 {
+		t.Errorf("valid approval step should have no errors, got %v", errs)
+	}
+
+	// Input subtype without inputKey.
+	errs = validateStep(WorkflowStep{ID: "hg1", Type: "human", HumanSubtype: "input"}, ids)
+	if len(errs) == 0 {
+		t.Error("input subtype without humanInputKey should have error")
+	}
+
+	// Invalid subtype.
+	errs = validateStep(WorkflowStep{ID: "hg1", Type: "human", HumanSubtype: "invalid"}, ids)
+	if len(errs) == 0 {
+		t.Error("invalid subtype should have error")
+	}
+
+	// Invalid timeout.
+	errs = validateStep(WorkflowStep{ID: "hg1", Type: "human", HumanTimeout: "xyz"}, ids)
+	if len(errs) == 0 {
+		t.Error("invalid timeout should have error")
+	}
+
+	// Invalid onTimeout.
+	errs = validateStep(WorkflowStep{ID: "hg1", Type: "human", HumanOnTimeout: "explode"}, ids)
+	if len(errs) == 0 {
+		t.Error("invalid onTimeout should have error")
+	}
+}
+
 // TODO: TestIsValidWorkflowName removed — isValidWorkflowName is internal-only

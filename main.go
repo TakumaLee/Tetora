@@ -441,6 +441,8 @@ func main() {
 			}
 			// Init workflow callbacks table (external steps).
 			initCallbackTable(cfg.HistoryDB)
+			// Init human gate table (human steps).
+			initHumanGateTable(cfg.HistoryDB)
 		}
 
 		// --- P23.1: User Profile & Emotional Memory ---
@@ -2067,6 +2069,11 @@ func tryLoadConfig(path string) (*Config, error) {
 		cfg.TLS.KeyFile = filepath.Join(cfg.BaseDir, cfg.TLS.KeyFile)
 	}
 	cfg.TLSEnabled = cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""
+
+	// Load .env file before resolving secrets so $ENV_VAR references work.
+	if err := config.LoadDotEnv(filepath.Join(cfg.BaseDir, ".env")); err != nil {
+		log.Warn("failed to load .env file", "error", err)
+	}
 
 	// Resolve $ENV_VAR references in secret fields.
 	config.ResolveSecrets(&cfg)

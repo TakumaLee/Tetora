@@ -4,7 +4,7 @@ package workflow
 type WorkflowRun struct {
 	ID           string                    `json:"id"`
 	WorkflowName string                    `json:"workflowName"`
-	Status       string                    `json:"status"` // "running", "success", "error", "cancelled", "timeout", "resumed"
+	Status       string                    `json:"status"` // "running", "success", "error", "cancelled", "timeout", "resumed", "waiting"
 	StartedAt    string                    `json:"startedAt"`
 	FinishedAt   string                    `json:"finishedAt,omitempty"`
 	DurationMs   int64                     `json:"durationMs,omitempty"`
@@ -18,7 +18,7 @@ type WorkflowRun struct {
 // StepRunResult tracks the execution of one step.
 type StepRunResult struct {
 	StepID     string  `json:"stepId"`
-	Status     string  `json:"status"` // "pending", "running", "success", "error", "skipped", "timeout"
+	Status     string  `json:"status"` // "pending", "running", "success", "error", "skipped", "timeout", "waiting_human"
 	Output     string  `json:"output,omitempty"`
 	Error      string  `json:"error,omitempty"`
 	StartedAt  string  `json:"startedAt,omitempty"`

@@ -891,6 +891,14 @@ func (e *workflowExecutor) runStepOnce(ctx context.Context, step *WorkflowStep, 
 			result.Status = "success"
 			result.Output = fmt.Sprintf("[DRY-RUN] Would call external URL: %s (callback mode: %s)", step.ExternalURL, step.CallbackMode)
 			return
+		case "human":
+			subtype := step.HumanSubtype
+			if subtype == "" {
+				subtype = "approval"
+			}
+			result.Status = "success"
+			result.Output = fmt.Sprintf("[DRY-RUN] Would wait for human %s (assignee: %s)", subtype, step.HumanAssignee)
+			return
 		case "notify":
 			msg := resolveTemplate(step.NotifyMsg, wCtx)
 			result.Status = "success"
@@ -933,6 +941,8 @@ func (e *workflowExecutor) runStepOnce(ctx context.Context, step *WorkflowStep, 
 		e.runNotifyStep(step, result, wCtx)
 	case "external":
 		e.runExternalStep(ctx, step, result)
+	case "human":
+		e.runHumanStep(ctx, step, result)
 	default:
 		result.Status = "error"
 		result.Error = fmt.Sprintf("unknown step type: %s", step.Type)
@@ -1921,6 +1931,24 @@ func queryStreamingCallbacks(dbPath, key string) []CallbackResult {
 
 func cleanupExpiredCallbacks(dbPath string) { iwf.CleanupExpiredCallbacks(dbPath) }
 
+// --- Human gate DB wrappers ---
+
+type HumanGateRecord = iwf.HumanGateRecord
+
+func initHumanGateTable(dbPath string)   { iwf.InitHumanGateTable(dbPath) }
+func recordHumanGate(dbPath, key, runID, stepID, subtype, prompt, assignee, timeoutAt string) {
+	iwf.RecordHumanGate(dbPath, key, runID, stepID, subtype, prompt, assignee, timeoutAt)
+}
+func queryHumanGate(dbPath, key string) *HumanGateRecord       { return iwf.QueryHumanGate(dbPath, key) }
+func queryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
+	return iwf.QueryPendingHumanGatesByRun(dbPath, runID)
+}
+func completeHumanGate(dbPath, key, decision, response string) { iwf.CompleteHumanGate(dbPath, key, decision, response) }
+func rejectHumanGate(dbPath, key, reason string)               { iwf.RejectHumanGate(dbPath, key, reason) }
+func timeoutHumanGate(dbPath, key string)                      { iwf.TimeoutHumanGate(dbPath, key) }
+func resetHumanGate(dbPath, key string)                        { iwf.ResetHumanGate(dbPath, key) }
+func updateHumanGateRunID(dbPath, key, newRunID string)        { iwf.UpdateHumanGateRunID(dbPath, key, newRunID) }
+
 func recordTriggerRun(dbPath, triggerName, workflowName, runID, status, startedAt, finishedAt, errMsg string) {
 	iwf.RecordTriggerRun(dbPath, triggerName, workflowName, runID, status, startedAt, finishedAt, errMsg)
 }
@@ -2307,25 +2335,251 @@ func (e *workflowExecutor) runExternalStep(ctx context.Context, step *WorkflowSt
 }
 
 // =============================================================================
+// runHumanStep — root-only: accesses callbackMgr singleton for channel wait
+// =============================================================================
+
+// runHumanStep executes a human gate step: write DB, wait for human response via callback.
+func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep, result *StepRunResult) {
+	if callbackMgr == nil {
+		result.Status = "error"
+		result.Error = "callback manager not initialized"
+		return
+	}
+
+	// Resolve templates.
+	prompt := e.resolveTemplateWithFields(step.HumanPrompt)
+	assignee := e.resolveTemplateWithFields(step.HumanAssignee)
+
+	subtype := step.HumanSubtype
+	if subtype == "" {
+		subtype = "approval"
+	}
+
+	// Generate key.
+	hgKey := fmt.Sprintf("hg-%s-%s", e.run.ID, step.ID)
+
+	// Check for recovery-injected key.
+	if recoveredKey, ok := e.wCtx.Input["__hg_key_"+step.ID]; ok && recoveredKey != "" {
+		hgKey = recoveredKey
+	}
+
+	// Parse timeout (default 72h).
+	timeout := 72 * time.Hour
+	if step.HumanTimeout != "" {
+		if d, err := parseDurationWithDays(step.HumanTimeout); err == nil {
+			timeout = d
+		}
+	}
+
+	// Check DB state for resume/completed.
+	existing := queryHumanGate(callbackMgr.DBPath(), hgKey)
+	if existing != nil {
+		switch existing.Status {
+		case "completed":
+			// Already completed — apply result directly.
+			applyHumanGateResult(subtype, existing.Decision, existing.Response, step, result)
+			log.Info("human gate already completed, skipping", "step", step.ID, "key", hgKey)
+			return
+		case "rejected":
+			result.Status = "error"
+			result.Error = fmt.Sprintf("human gate rejected: %s", existing.Response)
+			log.Info("human gate already rejected, skipping", "step", step.ID, "key", hgKey)
+			return
+		case "timeout":
+			// Previous timeout — reset for retry.
+			resetHumanGate(callbackMgr.DBPath(), hgKey)
+			log.Info("human gate retrying (reset old timeout)", "step", step.ID, "key", hgKey)
+		case "waiting":
+			// Resume — skip DB write, go straight to wait.
+			log.Info("human gate resuming (already waiting)", "step", step.ID, "key", hgKey)
+		}
+	}
+
+	// If this is a recovered key, update the DB record to reference the new run ID.
+	if _, ok := e.wCtx.Input["__hg_key_"+step.ID]; ok {
+		updateHumanGateRunID(callbackMgr.DBPath(), hgKey, e.run.ID)
+	}
+
+	// Register channel BEFORE DB write to prevent race.
+	ch := callbackMgr.Register(hgKey, ctx, "single")
+	if ch == nil {
+		result.Status = "error"
+		result.Error = fmt.Sprintf("failed to register human gate channel (key collision): %s", hgKey)
+		return
+	}
+	defer callbackMgr.Unregister(hgKey)
+
+	timeoutAt := time.Now().Add(timeout)
+
+	// Write DB record (skip if already waiting from resume).
+	if existing == nil || existing.Status != "waiting" {
+		recordHumanGate(callbackMgr.DBPath(), hgKey, e.run.ID, step.ID, subtype, prompt, assignee,
+			timeoutAt.UTC().Format("2006-01-02 15:04:05"))
+	}
+
+	// Update run status to "waiting" and checkpoint.
+	e.mu.Lock()
+	e.run.Status = "waiting"
+	result.Status = "waiting_human"
+	e.mu.Unlock()
+	checkpointRun(e)
+
+	// Publish waiting event.
+	e.publishEvent("step_waiting_human", map[string]any{
+		"runId":    e.run.ID,
+		"stepId":   step.ID,
+		"hgKey":    hgKey,
+		"subtype":  subtype,
+		"prompt":   prompt,
+		"assignee": assignee,
+		"timeout":  timeout.String(),
+	})
+
+	log.Info("human gate waiting", "step", step.ID, "key", hgKey, "subtype", subtype, "assignee", assignee, "timeout", timeout.String())
+
+	// Wait for human response via callback channel.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case cbResult, ok := <-ch:
+		if !ok {
+			result.Status = "error"
+			result.Error = "human gate channel closed unexpectedly"
+			return
+		}
+
+		// Parse the callback body as JSON to extract decision/response.
+		var body struct {
+			Decision string `json:"decision"`
+			Response string `json:"response"`
+		}
+		if err := json.Unmarshal([]byte(cbResult.Body), &body); err != nil {
+			// Treat raw body as response text.
+			body.Response = cbResult.Body
+			if subtype == "approval" {
+				body.Decision = cbResult.Body // e.g. "approved" or "rejected"
+			}
+		}
+
+		// Record completion in DB.
+		completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response)
+
+		// Apply result based on subtype.
+		applyHumanGateResult(subtype, body.Decision, body.Response, step, result)
+
+		// Restore run status.
+		e.mu.Lock()
+		e.run.Status = "running"
+		e.mu.Unlock()
+		checkpointRun(e)
+
+		log.Info("human gate completed", "step", step.ID, "key", hgKey, "decision", body.Decision)
+
+	case <-timer.C:
+		// Timeout.
+		timeoutHumanGate(callbackMgr.DBPath(), hgKey)
+		applyHumanGateTimeout(step, result, timeout)
+
+		// Restore run status.
+		e.mu.Lock()
+		e.run.Status = "running"
+		e.mu.Unlock()
+		checkpointRun(e)
+
+		log.Warn("human gate timeout", "step", step.ID, "key", hgKey, "timeout", timeout.String())
+
+	case <-ctx.Done():
+		result.Status = "error"
+		result.Error = "workflow cancelled while waiting for human response"
+		e.mu.Lock()
+		e.run.Status = "running"
+		e.mu.Unlock()
+		checkpointRun(e)
+	}
+}
+
+// applyHumanGateResult maps human gate decision/response to step result.
+func applyHumanGateResult(subtype, decision, response string, step *WorkflowStep, result *StepRunResult) {
+	switch subtype {
+	case "approval":
+		if decision == "approved" || decision == "approve" {
+			result.Status = "success"
+			result.Output = fmt.Sprintf("approved: %s", response)
+		} else {
+			result.Status = "error"
+			result.Error = fmt.Sprintf("human gate rejected: %s", response)
+		}
+	case "action":
+		result.Status = "success"
+		result.Output = response
+		if result.Output == "" {
+			result.Output = "action completed"
+		}
+	case "input":
+		result.Status = "success"
+		if step.HumanInputKey != "" {
+			result.Output = fmt.Sprintf(`{%q:%q}`, step.HumanInputKey, response)
+		} else {
+			result.Output = response
+		}
+	default:
+		result.Status = "success"
+		result.Output = response
+	}
+}
+
+// applyHumanGateTimeout applies the timeout policy for a human gate step.
+func applyHumanGateTimeout(step *WorkflowStep, result *StepRunResult, timeout time.Duration) {
+	onTimeout := step.HumanOnTimeout
+	if onTimeout == "" {
+		onTimeout = "stop"
+	}
+	switch onTimeout {
+	case "skip":
+		result.Status = "skipped"
+		result.Error = fmt.Sprintf("human gate timeout after %s (skipped)", timeout)
+	case "approve":
+		result.Status = "success"
+		result.Output = fmt.Sprintf("auto-approved after timeout (%s)", timeout)
+	default: // "stop"
+		result.Status = "timeout"
+		result.Error = fmt.Sprintf("human gate timeout after %s", timeout)
+	}
+}
+
+// =============================================================================
 // Recovery helpers — root-only (use dispatchState + executeWorkflow)
 // =============================================================================
 
-// recoverPendingWorkflows scans for workflows with pending external steps and resumes them.
+// recoverPendingWorkflows scans for workflows with pending external/human steps and resumes them.
 func recoverPendingWorkflows(cfg *Config, state *dispatchState, sem, childSem chan struct{}) {
 	if cfg.HistoryDB == "" || callbackMgr == nil {
 		return
 	}
 
-	// Find all unique run IDs with waiting callbacks.
-	sql := `SELECT DISTINCT run_id FROM workflow_callbacks WHERE status='waiting'`
-	rows, err := db.Query(cfg.HistoryDB, sql)
-	if err != nil || len(rows) == 0 {
+	// Collect all unique run IDs with waiting callbacks OR waiting human gates.
+	pendingRunIDs := make(map[string]bool)
+
+	cbRows, err := db.Query(cfg.HistoryDB, `SELECT DISTINCT run_id FROM workflow_callbacks WHERE status='waiting'`)
+	if err == nil {
+		for _, row := range cbRows {
+			pendingRunIDs[fmt.Sprintf("%v", row["run_id"])] = true
+		}
+	}
+
+	hgRows, err := db.Query(cfg.HistoryDB, `SELECT DISTINCT run_id FROM workflow_human_gates WHERE status='waiting'`)
+	if err == nil {
+		for _, row := range hgRows {
+			pendingRunIDs[fmt.Sprintf("%v", row["run_id"])] = true
+		}
+	}
+
+	if len(pendingRunIDs) == 0 {
 		return
 	}
 
-	for _, row := range rows {
-		runID := fmt.Sprintf("%v", row["run_id"])
-
+	for runID := range pendingRunIDs {
 		// Load the workflow run.
 		run, err := queryWorkflowRunByID(cfg.HistoryDB, runID)
 		if err != nil || run == nil {
@@ -2352,6 +2606,12 @@ func recoverPendingWorkflows(cfg *Config, state *dispatchState, sem, childSem ch
 			recoveryVars["__cb_key_"+cb.StepID] = cb.Key
 		}
 
+		// Collect pending human gate keys for this run.
+		pendingHumanGates := queryPendingHumanGatesByRun(cfg.HistoryDB, runID)
+		for _, hg := range pendingHumanGates {
+			recoveryVars["__hg_key_"+hg.StepID] = hg.Key
+		}
+
 		// Mark old run as superseded so it's not left orphaned.
 		markRunSuperseded := func(oldRunID string) {
 			sql := fmt.Sprintf(
@@ -2372,10 +2632,10 @@ func checkpointRun(e *workflowExecutor) {
 	recordWorkflowRun(e.cfg.HistoryDB, e.run)
 }
 
-// hasWaitingExternalStep checks if any step result indicates a waiting external step.
+// hasWaitingExternalStep checks if any step result indicates a waiting external or human step.
 func hasWaitingExternalStep(results map[string]*StepRunResult) bool {
 	for _, r := range results {
-		if r.Status == "waiting" {
+		if r.Status == "waiting" || r.Status == "waiting_human" {
 			return true
 		}
 	}
