@@ -1950,6 +1950,7 @@ func rejectHumanGate(dbPath, key, reason, respondedBy string) {
 	iwf.RejectHumanGate(dbPath, key, reason, respondedBy)
 }
 func timeoutHumanGate(dbPath, key string)                      { iwf.TimeoutHumanGate(dbPath, key) }
+func cancelHumanGate(dbPath, key string)                       { iwf.CancelHumanGate(dbPath, key) }
 func resetHumanGate(dbPath, key string)                        { iwf.ResetHumanGate(dbPath, key) }
 func updateHumanGateRunID(dbPath, key, newRunID string)        { iwf.UpdateHumanGateRunID(dbPath, key, newRunID) }
 
@@ -2395,7 +2396,17 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 			log.Info("human gate retrying (reset old timeout)", "step", step.ID, "key", hgKey)
 		case "waiting":
 			// Resume — skip DB write, go straight to wait.
-			log.Info("human gate resuming (already waiting)", "step", step.ID, "key", hgKey)
+			// Recalculate remaining timeout from DB so recovery doesn't restart the full timer.
+			if existing.TimeoutAt != "" {
+				if t, err := time.Parse("2006-01-02 15:04:05", existing.TimeoutAt); err == nil {
+					if remaining := time.Until(t); remaining > 0 {
+						timeout = remaining
+					} else {
+						timeout = time.Millisecond // already expired, fire immediately
+					}
+				}
+			}
+			log.Info("human gate resuming (already waiting)", "step", step.ID, "key", hgKey, "remaining", timeout.String())
 		}
 	}
 
@@ -2429,7 +2440,7 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 	checkpointRun(e)
 
 	// Publish waiting event.
-	e.publishEvent("step_waiting_human", map[string]any{
+	e.publishEvent("human_gate_waiting", map[string]any{
 		"runId":    e.run.ID,
 		"stepId":   step.ID,
 		"hgKey":    hgKey,
@@ -2467,11 +2478,25 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 			}
 		}
 
-		// Record completion in DB.
-		completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response, body.RespondedBy)
+		// Record completion in DB — use rejectHumanGate for approval rejections so
+		// DB status is "rejected" and the resume path (existing.Status == "rejected") matches.
+		if subtype == "approval" && (body.Decision == "rejected" || body.Decision == "reject") {
+			rejectHumanGate(callbackMgr.DBPath(), hgKey, body.Response, body.RespondedBy)
+		} else {
+			completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response, body.RespondedBy)
+		}
 
 		// Apply result based on subtype.
 		applyHumanGateResult(subtype, body.Decision, body.Response, step, result)
+
+		// Publish responded event.
+		e.publishEvent("human_gate_responded", map[string]any{
+			"runId":       e.run.ID,
+			"stepId":      step.ID,
+			"hgKey":       hgKey,
+			"decision":    body.Decision,
+			"respondedBy": body.RespondedBy,
+		})
 
 		// Restore run status.
 		e.mu.Lock()
@@ -2486,6 +2511,14 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 		timeoutHumanGate(callbackMgr.DBPath(), hgKey)
 		applyHumanGateTimeout(step, result, timeout)
 
+		// Publish responded event (timeout).
+		e.publishEvent("human_gate_responded", map[string]any{
+			"runId":    e.run.ID,
+			"stepId":   step.ID,
+			"hgKey":    hgKey,
+			"decision": "timeout",
+		})
+
 		// Restore run status.
 		e.mu.Lock()
 		e.run.Status = "running"
@@ -2495,6 +2528,8 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 		log.Warn("human gate timeout", "step", step.ID, "key", hgKey, "timeout", timeout.String())
 
 	case <-ctx.Done():
+		// Mark gate as cancelled in DB so recovery skips it on restart.
+		cancelHumanGate(callbackMgr.DBPath(), hgKey)
 		result.Status = "error"
 		result.Error = "workflow cancelled while waiting for human response"
 		e.mu.Lock()

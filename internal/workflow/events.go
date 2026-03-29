@@ -956,6 +956,21 @@ func TimeoutHumanGate(dbPath, key string) {
 	}
 }
 
+// CancelHumanGate marks a human gate as cancelled (workflow context cancelled).
+func CancelHumanGate(dbPath, key string) {
+	if dbPath == "" {
+		return
+	}
+	sql := fmt.Sprintf(
+		`UPDATE workflow_human_gates SET status='cancelled', completed_at=datetime('now')
+		 WHERE key='%s' AND status='waiting'`,
+		db.Escape(key),
+	)
+	if _, err := db.Query(dbPath, sql); err != nil {
+		log.Warn("cancel human gate failed", "error", err, "key", key)
+	}
+}
+
 // ResetHumanGate resets a human gate for retry (back to waiting).
 func ResetHumanGate(dbPath, key string) {
 	if dbPath == "" {
