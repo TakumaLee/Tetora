@@ -39,7 +39,7 @@ type WorkflowRun struct {
 // StepRunResult tracks the execution of one step.
 type StepRunResult struct {
 	StepID     string  `json:"stepId"`
-	Status     string  `json:"status"` // "pending", "running", "success", "error", "skipped", "timeout"
+	Status     string  `json:"status"` // "pending", "running", "success", "error", "skipped", "timeout", "cancelled"
 	Output     string  `json:"output,omitempty"`
 	Error      string  `json:"error,omitempty"`
 	StartedAt  string  `json:"startedAt,omitempty"`
@@ -1936,8 +1936,8 @@ func cleanupExpiredCallbacks(dbPath string) { iwf.CleanupExpiredCallbacks(dbPath
 type HumanGateRecord = iwf.HumanGateRecord
 
 func initHumanGateTable(dbPath string)   { iwf.InitHumanGateTable(dbPath) }
-func recordHumanGate(dbPath, key, runID, stepID, workflowName, subtype, prompt, assignee, timeoutAt string) {
-	iwf.RecordHumanGate(dbPath, key, runID, stepID, workflowName, subtype, prompt, assignee, timeoutAt)
+func recordHumanGate(dbPath, key, runID, stepID, workflowName, subtype, prompt, assignee, timeoutAt, options, context string) {
+	iwf.RecordHumanGate(dbPath, key, runID, stepID, workflowName, subtype, prompt, assignee, timeoutAt, options, context)
 }
 func queryHumanGate(dbPath, key string) *HumanGateRecord       { return iwf.QueryHumanGate(dbPath, key) }
 func queryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
@@ -2430,10 +2430,24 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 
 	timeoutAt := time.Now().Add(timeout)
 
+	// Marshal options and context for DB storage.
+	optionsJSON := ""
+	if len(step.HumanOptions) > 0 {
+		if b, err := json.Marshal(step.HumanOptions); err == nil {
+			optionsJSON = string(b)
+		}
+	}
+	contextJSON := ""
+	if len(step.HumanContext) > 0 {
+		if b, err := json.Marshal(step.HumanContext); err == nil {
+			contextJSON = string(b)
+		}
+	}
+
 	// Write DB record (skip if already waiting from resume).
 	if existing == nil || existing.Status != "waiting" {
 		recordHumanGate(callbackMgr.DBPath(), hgKey, e.run.ID, step.ID, e.run.WorkflowName, subtype, prompt, assignee,
-			timeoutAt.UTC().Format("2006-01-02 15:04:05"))
+			timeoutAt.UTC().Format("2006-01-02 15:04:05"), optionsJSON, contextJSON)
 	}
 
 	// Update run status to "waiting" and checkpoint.
@@ -2534,7 +2548,7 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 	case <-ctx.Done():
 		// Mark gate as cancelled in DB so recovery skips it on restart.
 		cancelHumanGate(callbackMgr.DBPath(), hgKey)
-		result.Status = "error"
+		result.Status = "cancelled"
 		result.Error = "workflow cancelled while waiting for human response"
 		e.mu.Lock()
 		e.run.Status = "running"

@@ -83,7 +83,8 @@ type WorkflowStep struct {
 	HumanTimeout   string   `json:"humanTimeout,omitempty"`   // duration string, e.g. "24h" (empty = 72h default)
 	HumanOnTimeout string   `json:"humanOnTimeout,omitempty"` // "stop" (default), "skip", "approve"
 	HumanInputKey  string   `json:"humanInputKey,omitempty"`  // subtype=input: response written to step output under this key
-	HumanOptions   []string `json:"humanOptions,omitempty"`   // reserved: custom option labels for approval
+	HumanOptions   []string          `json:"humanOptions,omitempty"`   // reserved: custom option labels for approval
+	HumanContext    map[string]string `json:"humanContext,omitempty"`   // key-value context shown in gate card
 }
 
 // ResponseMapping extracts structured data from arbitrary webhook bodies.

@@ -3,6 +3,8 @@ package workflow
 import (
 	"path/filepath"
 	"testing"
+
+	"tetora/internal/db"
 )
 
 func setupTestDB(t *testing.T) string {
@@ -17,8 +19,8 @@ func TestQueryAllPendingHumanGates(t *testing.T) {
 	dbPath := setupTestDB(t)
 
 	// Insert two waiting gates for different workflows.
-	RecordHumanGate(dbPath, "key1", "run1", "step1", "wf-alpha", "approval", "Please approve", "alice", "2099-01-01 00:00:00")
-	RecordHumanGate(dbPath, "key2", "run2", "step1", "wf-beta", "input", "Enter value", "bob", "2099-01-01 00:00:00")
+	RecordHumanGate(dbPath, "key1", "run1", "step1", "wf-alpha", "approval", "Please approve", "alice", "2099-01-01 00:00:00", "", "")
+	RecordHumanGate(dbPath, "key2", "run2", "step1", "wf-beta", "input", "Enter value", "bob", "2099-01-01 00:00:00", "", "")
 
 	t.Run("Given status=waiting, When two gates exist, Then both are returned", func(t *testing.T) {
 		records := QueryAllPendingHumanGates(dbPath, "waiting")
@@ -75,8 +77,8 @@ func TestCountPendingHumanGates(t *testing.T) {
 		}
 	})
 
-	RecordHumanGate(dbPath, "key1", "run1", "step1", "wf-alpha", "approval", "Approve?", "alice", "2099-01-01 00:00:00")
-	RecordHumanGate(dbPath, "key2", "run2", "step1", "wf-beta", "input", "Enter", "bob", "2099-01-01 00:00:00")
+	RecordHumanGate(dbPath, "key1", "run1", "step1", "wf-alpha", "approval", "Approve?", "alice", "2099-01-01 00:00:00", "", "")
+	RecordHumanGate(dbPath, "key2", "run2", "step1", "wf-beta", "input", "Enter", "bob", "2099-01-01 00:00:00", "", "")
 
 	t.Run("Given two waiting gates, Then count is 2", func(t *testing.T) {
 		n := CountPendingHumanGates(dbPath)
@@ -105,7 +107,7 @@ func TestCountPendingHumanGates(t *testing.T) {
 func TestRecordHumanGateWorkflowName(t *testing.T) {
 	dbPath := setupTestDB(t)
 
-	RecordHumanGate(dbPath, "key1", "run1", "step1", "my-workflow", "approval", "Review this", "alice", "2099-01-01 00:00:00")
+	RecordHumanGate(dbPath, "key1", "run1", "step1", "my-workflow", "approval", "Review this", "alice", "2099-01-01 00:00:00", "", "")
 
 	t.Run("Given recorded gate with workflow_name, When queried by key, Then workflow_name matches", func(t *testing.T) {
 		r := QueryHumanGate(dbPath, "key1")
@@ -114,6 +116,44 @@ func TestRecordHumanGateWorkflowName(t *testing.T) {
 		}
 		if r.WorkflowName != "my-workflow" {
 			t.Errorf("expected WorkflowName 'my-workflow', got '%s'", r.WorkflowName)
+		}
+	})
+}
+
+func TestRecordHumanGateOptionsContext(t *testing.T) {
+	dbPath := setupTestDB(t)
+
+	opts := `["Approve","Reject","Delegate"]`
+	ctx := `{"pr_url":"https://github.com/example/pr/1","requester":"alice"}`
+	RecordHumanGate(dbPath, "key-oc", "run1", "step1", "wf-options", "approval", "Review PR", "bob", "2099-01-01 00:00:00", opts, ctx)
+
+	t.Run("Given gate with options and context, When queried, Then options and context are parsed", func(t *testing.T) {
+		r := QueryHumanGate(dbPath, "key-oc")
+		if r == nil {
+			t.Fatal("expected record, got nil")
+		}
+		if len(r.Options) != 3 {
+			t.Errorf("expected 3 options, got %d: %v", len(r.Options), r.Options)
+		}
+		if r.Options[0] != "Approve" {
+			t.Errorf("expected first option 'Approve', got '%s'", r.Options[0])
+		}
+		if r.Context["pr_url"] != "https://github.com/example/pr/1" {
+			t.Errorf("expected pr_url in context, got %v", r.Context)
+		}
+	})
+
+	t.Run("Given gate with empty options, When queried, Then options is nil", func(t *testing.T) {
+		RecordHumanGate(dbPath, "key-empty", "run2", "step1", "wf-empty", "approval", "p", "a", "2099-01-01 00:00:00", "", "")
+		r := QueryHumanGate(dbPath, "key-empty")
+		if r == nil {
+			t.Fatal("expected record")
+		}
+		if r.Options != nil {
+			t.Errorf("expected nil options, got %v", r.Options)
+		}
+		if r.Context != nil {
+			t.Errorf("expected nil context, got %v", r.Context)
 		}
 	})
 }
@@ -139,11 +179,14 @@ func TestMigrationWorkflowName(t *testing.T) {
 		created_at TEXT DEFAULT (datetime('now')),
 		completed_at TEXT
 	)`
-	// Use InitHumanGateTable which should run migration.
+	if err := db.Exec(dbPath, oldSQL); err != nil {
+		t.Fatalf("failed to create old schema: %v", err)
+	}
+	// Run InitHumanGateTable which should apply migration (ADD COLUMN workflow_name).
 	InitHumanGateTable(dbPath)
 
 	// Should be able to insert with workflow_name now.
-	RecordHumanGate(dbPath, "k1", "r1", "s1", "migrated-wf", "approval", "p", "a", "2099-01-01 00:00:00")
+	RecordHumanGate(dbPath, "k1", "r1", "s1", "migrated-wf", "approval", "p", "a", "2099-01-01 00:00:00", "", "")
 	r := QueryHumanGate(dbPath, "k1")
 	if r == nil {
 		t.Fatal("expected record after migration")
@@ -152,5 +195,4 @@ func TestMigrationWorkflowName(t *testing.T) {
 		t.Errorf("expected 'migrated-wf', got '%s'", r.WorkflowName)
 	}
 
-	_ = oldSQL // suppress unused warning
 }
