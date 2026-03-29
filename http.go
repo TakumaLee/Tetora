@@ -1858,6 +1858,70 @@ func startHTTPServer(s *Server) *http.Server {
 			})
 		},
 	})
+	httpapi.RegisterHumanGateRoutes(mux, httpapi.HumanGateDeps{
+		HistoryDB: func() string { return cfg.HistoryDB },
+		QueryHumanGates: func(status string) []map[string]any {
+			where := ""
+			if status != "" {
+				where = fmt.Sprintf(" WHERE status='%s'", db.Escape(status))
+			}
+			rows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
+				`SELECT key, run_id as runId, step_id as stepId, workflow_name as workflowName,
+				        subtype, COALESCE(prompt,'') as prompt, COALESCE(assignee,'') as assignee, status,
+				        COALESCE(decision,'') as decision, COALESCE(response,'') as response,
+				        COALESCE(responded_by,'') as respondedBy, COALESCE(timeout_at,'') as timeoutAt,
+				        COALESCE(created_at,'') as createdAt, COALESCE(completed_at,'') as completedAt
+				 FROM workflow_human_gates%s ORDER BY created_at DESC`, where))
+			if err != nil || rows == nil {
+				return []map[string]any{}
+			}
+			return rows
+		},
+		CountHumanGates: func() int {
+			return countPendingHumanGates(cfg.HistoryDB)
+		},
+		QueryHumanGateByKey: func(key string) map[string]any {
+			rows, err := db.Query(cfg.HistoryDB, fmt.Sprintf(
+				`SELECT key, run_id as runId, step_id as stepId, workflow_name as workflowName,
+				        subtype, COALESCE(prompt,'') as prompt, COALESCE(assignee,'') as assignee, status,
+				        COALESCE(decision,'') as decision, COALESCE(response,'') as response,
+				        COALESCE(responded_by,'') as respondedBy, COALESCE(timeout_at,'') as timeoutAt,
+				        COALESCE(created_at,'') as createdAt, COALESCE(completed_at,'') as completedAt
+				 FROM workflow_human_gates WHERE key='%s' LIMIT 1`, db.Escape(key)))
+			if err != nil || len(rows) == 0 {
+				return nil
+			}
+			return rows[0]
+		},
+		RespondHumanGate: func(key, action, response, respondedBy string) error {
+			if callbackMgr == nil {
+				// No live workflow manager — write directly to DB so the gate
+				// is picked up when the workflow resumes.
+				if action == "reject" || action == "rejected" {
+					rejectHumanGate(cfg.HistoryDB, key, response, respondedBy)
+				} else {
+					completeHumanGate(cfg.HistoryDB, key, action, response, respondedBy)
+				}
+				return nil
+			}
+			// Build the callback body the workflow executor expects.
+			bodyJSON, _ := json.Marshal(map[string]string{
+				"decision":    action,
+				"response":    response,
+				"respondedBy": respondedBy,
+			})
+			dr := callbackMgr.Deliver(key, CallbackResult{Body: string(bodyJSON)})
+			if dr == DeliverNoEntry {
+				// Workflow not currently waiting — write DB so resume picks it up.
+				if action == "reject" || action == "rejected" {
+					rejectHumanGate(cfg.HistoryDB, key, response, respondedBy)
+				} else {
+					completeHumanGate(cfg.HistoryDB, key, action, response, respondedBy)
+				}
+			}
+			return nil
+		},
+	})
 	httpapi.RegisterAgentRoleRoutes(mux, httpapi.AgentRoleDeps{
 		ListArchetypes: func() []httpapi.ArchetypeInfo {
 			out := make([]httpapi.ArchetypeInfo, len(builtinArchetypes))
