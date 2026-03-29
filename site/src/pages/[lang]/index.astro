@@ -6,6 +6,7 @@ import FeatureCard from '../../components/FeatureCard.astro';
 import InstallBox from '../../components/InstallBox.astro';
 import DownloadGrid from '../../components/DownloadGrid.astro';
 import { languages, ui, type Lang } from '../../i18n/ui';
+import { SITE } from '../../consts';
 
 export function getStaticPaths() {
   return Object.keys(languages)
@@ -23,7 +24,7 @@ const jsonLd = {
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'macOS, Linux, Windows',
   description: 'AI Agent Orchestration Platform — workflows, taskboards, and multi-agent collaboration in a single binary.',
-  url: 'https://tetora.dev',
+  url: SITE,
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
 };
 ---
