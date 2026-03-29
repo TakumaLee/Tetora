@@ -3591,4 +3591,67 @@ func TestHumanStepValidation(t *testing.T) {
 	}
 }
 
+// TestHumanGateRespondedBy — respondedBy field is persisted to DB after approval.
+func TestHumanGateRespondedBy(t *testing.T) {
+	cfg, sem := testWorkflowCfg(t)
+	initCallbackTable(cfg.HistoryDB)
+	initHumanGateTable(cfg.HistoryDB)
+
+	cm := newCallbackManager(cfg.HistoryDB)
+	oldMgr := callbackMgr
+	callbackMgr = cm
+	defer func() { callbackMgr = oldMgr }()
+
+	exec := &workflowExecutor{
+		cfg:  cfg,
+		mode: WorkflowModeLive,
+		wCtx: &WorkflowContext{
+			Input: map[string]string{},
+			Steps: map[string]*WorkflowStepResult{},
+			Env:   map[string]string{},
+		},
+		run: &WorkflowRun{
+			ID:          "run-hg-respondedby",
+			Status:      "running",
+			StepResults: map[string]*StepRunResult{},
+		},
+		sem:      sem,
+		childSem: make(chan struct{}, 1),
+	}
+
+	step := &WorkflowStep{
+		ID:            "approve-audit",
+		Type:          "human",
+		HumanSubtype:  "approval",
+		HumanPrompt:   "Approve release?",
+		HumanAssignee: "takuma",
+		HumanTimeout:  "10s",
+	}
+	result := &StepRunResult{StepID: "approve-audit"}
+
+	// Simulate human approval with respondedBy field.
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
+		body := `{"decision":"approved","response":"ship it","respondedBy":"takuma"}`
+		cm.Deliver(hgKey, CallbackResult{Body: body})
+	}()
+
+	exec.runHumanStep(context.Background(), step, result)
+
+	if result.Status != "success" {
+		t.Errorf("status = %q, want success", result.Status)
+	}
+
+	// Verify respondedBy was persisted to DB.
+	hgKey := fmt.Sprintf("hg-%s-%s", exec.run.ID, step.ID)
+	record := queryHumanGate(cfg.HistoryDB, hgKey)
+	if record == nil {
+		t.Fatal("human gate record not found in DB")
+	}
+	if record.RespondedBy != "takuma" {
+		t.Errorf("RespondedBy = %q, want %q", record.RespondedBy, "takuma")
+	}
+}
+
 // TODO: TestIsValidWorkflowName removed — isValidWorkflowName is internal-only

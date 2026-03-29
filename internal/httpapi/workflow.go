@@ -478,11 +478,19 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 		if callbacks == nil {
 			callbacks = []map[string]any{}
 		}
+		// Query human gates for this run.
+		hgSQL := fmt.Sprintf(`SELECT key, step_id, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as respondedBy, COALESCE(timeout_at,'') as timeoutAt, created_at as createdAt, COALESCE(completed_at,'') as completedAt
+			FROM workflow_human_gates WHERE run_id='%s' ORDER BY created_at`, db.Escape(runID))
+		humanGates, _ := db.Query(d.HistoryDB(), hgSQL)
+		if humanGates == nil {
+			humanGates = []map[string]any{}
+		}
 		result := map[string]any{
-			"run":       run,
-			"handoffs":  handoffs,
-			"messages":  messages,
-			"callbacks": callbacks,
+			"run":        run,
+			"handoffs":   handoffs,
+			"messages":   messages,
+			"callbacks":  callbacks,
+			"humanGates": humanGates,
 		}
 		json.NewEncoder(w).Encode(result)
 	})

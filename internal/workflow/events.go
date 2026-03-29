@@ -818,6 +818,7 @@ type HumanGateRecord struct {
 	Status      string // "waiting", "completed", "timeout", "rejected"
 	Decision    string // approval: "approved" / "rejected"
 	Response    string // input: human's text response
+	RespondedBy string // identity of the human who responded (audit trail)
 	TimeoutAt   string
 	CreatedAt   string
 	CompletedAt string
@@ -833,6 +834,7 @@ const HumanGateTableSQL = `CREATE TABLE IF NOT EXISTS workflow_human_gates (
 	status TEXT NOT NULL DEFAULT 'waiting',
 	decision TEXT,
 	response TEXT,
+	responded_by TEXT,
 	timeout_at TEXT,
 	created_at TEXT DEFAULT (datetime('now')),
 	completed_at TEXT
@@ -842,6 +844,12 @@ const HumanGateTableSQL = `CREATE TABLE IF NOT EXISTS workflow_human_gates (
 func InitHumanGateTable(dbPath string) {
 	if dbPath == "" {
 		return
+	}
+	// Migration: add responded_by column if missing (existing installations).
+	if err := db.Exec(dbPath, `ALTER TABLE workflow_human_gates ADD COLUMN responded_by TEXT DEFAULT '';`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") && !strings.Contains(err.Error(), "no such table") {
+			log.Warn("workflow_human_gates migration failed", "error", err)
+		}
 	}
 	if _, err := db.Query(dbPath, HumanGateTableSQL); err != nil {
 		log.Warn("init workflow_human_gates table failed", "error", err)
@@ -871,7 +879,7 @@ func QueryHumanGate(dbPath, key string) *HumanGateRecord {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT key, run_id, step_id, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at
+		`SELECT key, run_id, step_id, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at
 		 FROM workflow_human_gates WHERE key='%s' LIMIT 1`,
 		db.Escape(key),
 	)
@@ -888,7 +896,7 @@ func QueryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT key, run_id, step_id, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at
+		`SELECT key, run_id, step_id, subtype, prompt, assignee, status, COALESCE(decision,'') as decision, COALESCE(response,'') as response, COALESCE(responded_by,'') as responded_by, COALESCE(timeout_at,'') as timeout_at, created_at, COALESCE(completed_at,'') as completed_at
 		 FROM workflow_human_gates WHERE run_id='%s' AND status='waiting'`,
 		db.Escape(runID),
 	)
@@ -904,14 +912,14 @@ func QueryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
 }
 
 // CompleteHumanGate marks a human gate as completed with decision and response.
-func CompleteHumanGate(dbPath, key, decision, response string) {
+func CompleteHumanGate(dbPath, key, decision, response, respondedBy string) {
 	if dbPath == "" {
 		return
 	}
 	sql := fmt.Sprintf(
-		`UPDATE workflow_human_gates SET status='completed', decision='%s', response='%s', completed_at=datetime('now')
+		`UPDATE workflow_human_gates SET status='completed', decision='%s', response='%s', responded_by='%s', completed_at=datetime('now')
 		 WHERE key='%s' AND status='waiting'`,
-		db.Escape(decision), db.Escape(response), db.Escape(key),
+		db.Escape(decision), db.Escape(response), db.Escape(respondedBy), db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
 		log.Warn("complete human gate failed", "error", err, "key", key)
@@ -919,14 +927,14 @@ func CompleteHumanGate(dbPath, key, decision, response string) {
 }
 
 // RejectHumanGate marks a human gate as rejected.
-func RejectHumanGate(dbPath, key, reason string) {
+func RejectHumanGate(dbPath, key, reason, respondedBy string) {
 	if dbPath == "" {
 		return
 	}
 	sql := fmt.Sprintf(
-		`UPDATE workflow_human_gates SET status='rejected', decision='rejected', response='%s', completed_at=datetime('now')
+		`UPDATE workflow_human_gates SET status='rejected', decision='rejected', response='%s', responded_by='%s', completed_at=datetime('now')
 		 WHERE key='%s' AND status='waiting'`,
-		db.Escape(reason), db.Escape(key),
+		db.Escape(reason), db.Escape(respondedBy), db.Escape(key),
 	)
 	if _, err := db.Query(dbPath, sql); err != nil {
 		log.Warn("reject human gate failed", "error", err, "key", key)
@@ -988,6 +996,7 @@ func parseHumanGateRecord(row map[string]any) *HumanGateRecord {
 		Status:      fmt.Sprintf("%v", row["status"]),
 		Decision:    fmt.Sprintf("%v", row["decision"]),
 		Response:    fmt.Sprintf("%v", row["response"]),
+		RespondedBy: fmt.Sprintf("%v", row["responded_by"]),
 		TimeoutAt:   fmt.Sprintf("%v", row["timeout_at"]),
 		CreatedAt:   fmt.Sprintf("%v", row["created_at"]),
 		CompletedAt: fmt.Sprintf("%v", row["completed_at"]),

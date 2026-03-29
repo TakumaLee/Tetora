@@ -1943,8 +1943,12 @@ func queryHumanGate(dbPath, key string) *HumanGateRecord       { return iwf.Quer
 func queryPendingHumanGatesByRun(dbPath, runID string) []*HumanGateRecord {
 	return iwf.QueryPendingHumanGatesByRun(dbPath, runID)
 }
-func completeHumanGate(dbPath, key, decision, response string) { iwf.CompleteHumanGate(dbPath, key, decision, response) }
-func rejectHumanGate(dbPath, key, reason string)               { iwf.RejectHumanGate(dbPath, key, reason) }
+func completeHumanGate(dbPath, key, decision, response, respondedBy string) {
+	iwf.CompleteHumanGate(dbPath, key, decision, response, respondedBy)
+}
+func rejectHumanGate(dbPath, key, reason, respondedBy string) {
+	iwf.RejectHumanGate(dbPath, key, reason, respondedBy)
+}
 func timeoutHumanGate(dbPath, key string)                      { iwf.TimeoutHumanGate(dbPath, key) }
 func resetHumanGate(dbPath, key string)                        { iwf.ResetHumanGate(dbPath, key) }
 func updateHumanGateRunID(dbPath, key, newRunID string)        { iwf.UpdateHumanGateRunID(dbPath, key, newRunID) }
@@ -2449,10 +2453,11 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 			return
 		}
 
-		// Parse the callback body as JSON to extract decision/response.
+		// Parse the callback body as JSON to extract decision/response/respondedBy.
 		var body struct {
-			Decision string `json:"decision"`
-			Response string `json:"response"`
+			Decision    string `json:"decision"`
+			Response    string `json:"response"`
+			RespondedBy string `json:"respondedBy"`
 		}
 		if err := json.Unmarshal([]byte(cbResult.Body), &body); err != nil {
 			// Treat raw body as response text.
@@ -2463,7 +2468,7 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 		}
 
 		// Record completion in DB.
-		completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response)
+		completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response, body.RespondedBy)
 
 		// Apply result based on subtype.
 		applyHumanGateResult(subtype, body.Decision, body.Response, step, result)
