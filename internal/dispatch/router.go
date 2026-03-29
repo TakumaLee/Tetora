@@ -52,13 +52,30 @@ func CheckBindings(cfg *config.Config, req RouteRequest) *RouteResult {
 	return nil
 }
 
+// inAllowed returns true if agent is in the allowed list, or the list is empty/nil.
+func inAllowed(agent string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, a := range allowed {
+		if a == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // ClassifyByKeywords checks routing rules and agent keywords for a match.
+// allowedAgents restricts which agents may be returned; nil/empty means no restriction.
 // Returns nil if no keyword match is found.
-func ClassifyByKeywords(cfg *config.Config, prompt string) *RouteResult {
+func ClassifyByKeywords(cfg *config.Config, prompt string, allowedAgents []string) *RouteResult {
 	lower := strings.ToLower(prompt)
 
 	// Check explicit routing rules first (higher priority).
 	for _, rule := range cfg.SmartDispatch.Rules {
+		if !inAllowed(rule.Agent, allowedAgents) {
+			continue
+		}
 		for _, kw := range rule.Keywords {
 			if strings.Contains(lower, strings.ToLower(kw)) {
 				return &RouteResult{
@@ -87,6 +104,9 @@ func ClassifyByKeywords(cfg *config.Config, prompt string) *RouteResult {
 
 	// Check agent-level keywords (lower priority).
 	for agentName, rc := range cfg.Agents {
+		if !inAllowed(agentName, allowedAgents) {
+			continue
+		}
 		for _, kw := range rc.Keywords {
 			if strings.Contains(lower, strings.ToLower(kw)) {
 				return &RouteResult{
@@ -253,7 +273,7 @@ func RouteTask(ctx context.Context, cfg *config.Config, req RouteRequest, exec T
 	}
 
 	// Tier 2: Keyword matching.
-	if result := ClassifyByKeywords(cfg, req.Prompt); result != nil {
+	if result := ClassifyByKeywords(cfg, req.Prompt, nil); result != nil {
 		if _, ok := cfg.Agents[result.Agent]; ok {
 			return result
 		}

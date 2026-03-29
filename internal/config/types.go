@@ -749,7 +749,9 @@ type DiscordBotConfig struct {
 }
 
 type DiscordRouteConfig struct {
-	Agent string `json:"agent"`
+	Agent  string   `json:"agent,omitempty"`
+	Mode   string   `json:"mode,omitempty"`
+	Agents []string `json:"agents,omitempty"`
 }
 
 // UnmarshalJSON implements backward compat: accepts both "role" and "agent".

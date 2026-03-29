@@ -2069,7 +2069,7 @@ func checkBindings(cfg *Config, req RouteRequest) *RouteResult {
 
 // classifyByKeywords delegates to internal/dispatch.ClassifyByKeywords.
 func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
-	return dtypes.ClassifyByKeywords(cfg, prompt)
+	return dtypes.ClassifyByKeywords(cfg, prompt, nil)
 }
 
 // --- LLM Classification (Slow Path) ---
