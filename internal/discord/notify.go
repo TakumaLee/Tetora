@@ -10,15 +10,16 @@ import (
 	"tetora/internal/log"
 )
 
-// truncateStr truncates a string to maxLen with "..." suffix.
+// truncateStr truncates a string to maxLen runes with "..." suffix.
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
 	if maxLen < 4 {
-		return s[:maxLen]
+		return string(runes[:maxLen])
 	}
-	return s[:maxLen-3] + "..."
+	return string(runes[:maxLen-3]) + "..."
 }
 
 // TaskNotifier posts thread-per-task notifications to a fixed Discord channel.

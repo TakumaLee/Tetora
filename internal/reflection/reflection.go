@@ -105,12 +105,12 @@ func ShouldReflect(cfg *config.Config, task dispatch.Task, result dispatch.TaskR
 func Perform(ctx context.Context, cfg *config.Config, task dispatch.Task, result dispatch.TaskResult, deps Deps) (*Result, error) {
 	// Truncate prompt and output for the reflection prompt.
 	promptSnippet := task.Prompt
-	if len(promptSnippet) > 500 {
-		promptSnippet = promptSnippet[:500] + "..."
+	if runes := []rune(promptSnippet); len(runes) > 500 {
+		promptSnippet = string(runes[:500]) + "..."
 	}
 	outputSnippet := result.Output
-	if len(outputSnippet) > 1000 {
-		outputSnippet = outputSnippet[:1000] + "..."
+	if runes := []rune(outputSnippet); len(runes) > 1000 {
+		outputSnippet = string(runes[:1000]) + "..."
 	}
 
 	reflPrompt := fmt.Sprintf(

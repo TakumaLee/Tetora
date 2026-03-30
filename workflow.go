@@ -2740,8 +2740,8 @@ func notifyDiscordHumanGateWaiting(cfg *Config, subtype, prompt, assignee, workf
 	}
 
 	promptSnippet := prompt
-	if len(promptSnippet) > 300 {
-		promptSnippet = promptSnippet[:297] + "..."
+	if runes := []rune(promptSnippet); len(runes) > 300 {
+		promptSnippet = string(runes[:297]) + "..."
 	}
 	if promptSnippet == "" {
 		promptSnippet = "(no prompt)"

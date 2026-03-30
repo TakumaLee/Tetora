@@ -502,8 +502,8 @@ func mirrorWatchSSE(addr, token, sessionID string) {
 		case mirrorSSETaskReceived:
 			author, _ := dataMap["author"].(string)
 			prompt, _ := dataMap["prompt"].(string)
-			if len(prompt) > 300 {
-				prompt = prompt[:297] + "..."
+			if runes := []rune(prompt); len(runes) > 300 {
+				prompt = string(runes[:297]) + "..."
 			}
 			fmt.Printf("[%s] \U0001F4AC %s: %s\n", ts, author, prompt)
 
