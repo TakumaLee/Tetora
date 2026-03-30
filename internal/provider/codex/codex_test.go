@@ -134,6 +134,21 @@ func TestParseOutput_TurnFailed(t *testing.T) {
 	}
 }
 
+func TestParseOutput_QuotaMessageBecomesError(t *testing.T) {
+	jsonl := `{"type":"agent_message","content":"You're out of extra usage · resets 4am (Asia/Taipei)"}`
+
+	pr := ParseOutput([]byte(jsonl), nil, 0)
+	if !pr.IsError {
+		t.Fatal("expected quota message to be treated as error")
+	}
+	if pr.Output != "" {
+		t.Errorf("expected output to be cleared, got %q", pr.Output)
+	}
+	if !strings.Contains(strings.ToLower(pr.Error), "out of extra usage") {
+		t.Errorf("expected quota error, got %q", pr.Error)
+	}
+}
+
 // helpers
 func containsArg(args []string, target string) bool {
 	for _, a := range args {
