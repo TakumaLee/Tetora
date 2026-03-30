@@ -7322,7 +7322,10 @@ func resolveSessionScope(cfg *Config, agentName string, sessionType string) Sess
 func defaultToolProfile(cfg *Config) string                  { return workspace.DefaultToolProfile(cfg) }
 func minTrust(a, b string) string                            { return workspace.MinTrust(a, b) }
 func resolveMCPServers(cfg *Config, agentName string) []string { return workspace.ResolveMCPServers(cfg, agentName) }
-func loadSoulFile(cfg *Config, agentName string) string      { return workspace.LoadSoulFile(cfg, agentName) }
+func loadSoulFile(cfg *Config, agentName string) string      {
+	p, _ := roles.LoadAgentPrompt(cfg, agentName)
+	return p
+}
 func getWorkspaceMemoryPath(cfg *Config) string              { return workspace.GetWorkspaceMemoryPath(cfg) }
 func getWorkspaceSkillsPath(cfg *Config) string              { return workspace.GetWorkspaceSkillsPath(cfg) }
 

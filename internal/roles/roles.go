@@ -184,9 +184,21 @@ func LoadAgentPrompt(cfg *config.Config, agentName string) (string, error) {
 		return "", fmt.Errorf("agent %q not found in config", agentName)
 	}
 
+	// Helper to check for .local.md version of a given path.
+	localPath := func(p string) string {
+		if strings.HasSuffix(p, ".md") {
+			return strings.TrimSuffix(p, ".md") + ".local.md"
+		}
+		return p + ".local"
+	}
+
 	// Try workspace-resolved soul file first (per-agent workspace).
 	ws := resolveWorkspace(cfg, agentName)
 	if ws.SoulFile != "" {
+		// Check for local override first.
+		if data, err := os.ReadFile(localPath(ws.SoulFile)); err == nil {
+			return string(data), nil
+		}
 		if data, err := os.ReadFile(ws.SoulFile); err == nil {
 			return string(data), nil
 		}
@@ -194,6 +206,9 @@ func LoadAgentPrompt(cfg *config.Config, agentName string) (string, error) {
 
 	// Fallback: agents/{agent}/SOUL.md
 	agentSoulPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
+	if data, err := os.ReadFile(localPath(agentSoulPath)); err == nil {
+		return string(data), nil
+	}
 	if data, err := os.ReadFile(agentSoulPath); err == nil {
 		return string(data), nil
 	}

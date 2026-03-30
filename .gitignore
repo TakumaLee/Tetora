@@ -1,3 +1,7 @@
+# Personalization
+*.local.md
+**/*.local.md
+
 # Binary
 tetora
 tetora.exe
