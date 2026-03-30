@@ -1131,11 +1131,12 @@ func main() {
 		}
 		srv := startHTTPServer(srvInstance)
 
-		// Recover pending external step workflows.
-		go recoverPendingWorkflows(cfg, state, sem, childSem)
-
-		// Cleanup expired callbacks (timeout marking + old streaming records).
+		// Cleanup expired callbacks/human-gates BEFORE recovery so that recovery only
+		// picks up gates that are genuinely still within their timeout window.
 		cleanupExpiredCallbacks(cfg.HistoryDB)
+
+		// Recover pending external step workflows (gates still within timeout window).
+		go recoverPendingWorkflows(cfg, state, sem, childSem)
 
 		// Cleanup zombie sessions AFTER the HTTP server starts.
 		// Delayed so that if port binding fails (os.Exit in goroutine),

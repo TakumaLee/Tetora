@@ -801,6 +801,13 @@ func CleanupExpiredCallbacks(dbPath string) {
 	if _, err := db.Query(dbPath, sql2); err != nil {
 		log.Warn("cleanup old streaming records failed", "error", err)
 	}
+
+	// Mark expired waiting human gates as timeout.
+	sql3 := `UPDATE workflow_human_gates SET status='timeout', completed_at=datetime('now')
+		WHERE status='waiting' AND timeout_at != '' AND timeout_at < datetime('now')`
+	if _, err := db.Query(dbPath, sql3); err != nil {
+		log.Warn("cleanup expired human gates failed", "error", err)
+	}
 }
 
 // =============================================================================
