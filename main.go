@@ -337,6 +337,13 @@ func main() {
 	// backfills global vars for callers that haven't migrated yet.
 	app := &App{Cfg: cfg}
 
+	// Search Infrastructure
+	if s, err := newSearchService(cfg); err == nil {
+		app.Search = s
+	} else {
+		logError("failed to initialize search service", "err", err)
+	}
+
 	// Initialize hooks event receiver.
 	hookRecv := newHookReceiver(state.broker, cfg)
 	cfg.Runtime.HookRecv = hookRecv
@@ -1550,6 +1557,7 @@ type App struct {
 	ImageGenLimiter     *tools.ImageGenLimiter
 	Presence            *presenceManager
 	Reminder            *ReminderEngine
+	Search              *SearchService
 }
 
 // SyncToGlobals sets all global singletons from App fields.

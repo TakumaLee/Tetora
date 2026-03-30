@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+// SearchService coordinates multiple search providers and persistence.
 type SearchService struct {
 	Registry *Registry
 	Store    *IntelStore
@@ -60,7 +61,7 @@ func (s *SearchService) CompetitiveSearch(ctx context.Context, query string, opt
 		allResults = append(allResults, res...)
 	}
 
-	// 1. Deduplicate based on Normalized URL
+	// 1. URL Normalization & Deduplication
 	deduped := deduplicate(allResults)
 
 	// 2. Sort by Score (or relevance)
@@ -79,6 +80,10 @@ func deduplicate(results []SearchResult) []SearchResult {
 	var final []SearchResult
 	for _, r := range results {
 		norm := normalizeURL(r.URL)
+		if norm == "" {
+			final = append(final, r) // Keep results without valid URLs
+			continue
+		}
 		if !seen[norm] {
 			seen[norm] = true
 			final = append(final, r)
@@ -88,39 +93,15 @@ func deduplicate(results []SearchResult) []SearchResult {
 }
 
 func normalizeURL(u string) string {
+	if u == "" {
+		return ""
+	}
 	parsed, err := url.Parse(u)
 	if err != nil {
-		return u
+		return strings.ToLower(u)
 	}
-	// Remove tracking params, fragments, etc.
+	// Remove common tracking params and fragments
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return strings.ToLower(parsed.String())
-}
-
-// --- Registry ---
-
-type Registry struct {
-	providers map[string]SearchProvider
-	mu        sync.RWMutex
-}
-
-func NewRegistry() *Registry {
-	return &Registry{providers: make(map[string]SearchProvider)}
-}
-
-func (r *Registry) Register(p SearchProvider) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.providers[p.Name()] = p
-}
-
-func (r *Registry) List() []SearchProvider {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var list []SearchProvider
-	for _, p := range r.providers {
-		list = append(list, p)
-	}
-	return list
 }

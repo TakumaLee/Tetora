@@ -102,6 +102,8 @@ import (
 	"tetora/internal/voice"
 	"tetora/internal/webhook"
 	"tetora/internal/workspace"
+	"tetora/internal/search"
+	"tetora/internal/search/providers"
 )
 
 // ============================================================
@@ -1756,6 +1758,32 @@ type OpenAISTTProvider = voice.OpenAISTTProvider
 type OpenAITTSProvider = voice.OpenAITTSProvider
 type ElevenLabsTTSProvider = voice.ElevenLabsTTSProvider
 type VoiceEngine = voice.VoiceEngine
+
+// --- Search (from internal/search) ---
+
+type SearchProvider = search.SearchProvider
+type SearchResult = search.SearchResult
+type SearchOptions = search.SearchOptions
+type SearchService = search.SearchService
+type SerpAPIProvider = providers.SerpAPIProvider
+type FeloProvider = providers.FeloProvider
+
+func newSearchService(cfg *Config) (*SearchService, error) {
+	s, err := search.NewSearchService(cfg.BaseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register providers based on config
+	if cfg.Tools.WebSearch.Provider == "serp" && cfg.Tools.WebSearch.APIKey != "" {
+		s.Registry.Register(providers.NewSerpAPIProvider(cfg.Tools.WebSearch.APIKey))
+	}
+	
+	// Always register Felo as fallback
+	s.Registry.Register(providers.NewFeloProvider())
+
+	return s, nil
+}
 
 func newVoiceEngine(cfg *Config) *VoiceEngine {
 	return voice.NewVoiceEngine(voice.VoiceConfig{
@@ -3790,6 +3818,69 @@ func buildCoreDeps() tools.CoreDeps {
 		AgentListHandler:     toolAgentList,
 		AgentDispatchHandler: toolAgentDispatch,
 		AgentMessageHandler:  toolAgentMessage,
+		CompetitiveSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 10
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
+		NewsSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 5
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "news", Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
+		XSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 10
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "social", Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
 		SearchToolsHandler:   toolSearchTools,
 		ExecuteToolHandler:   toolExecuteTool,
 		ImageAnalyzeHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {

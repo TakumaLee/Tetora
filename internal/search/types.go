@@ -19,6 +19,7 @@ type SearchResult struct {
 
 // SearchOptions configures the search behavior.
 type SearchOptions struct {
+	Type       string // "web", "news", "social"
 	Limit      int
 	MaxAgeDays int
 	Language   string

@@ -25,6 +25,9 @@ type CoreDeps struct {
 	AgentListHandler   Handler
 	AgentDispatchHandler Handler
 	AgentMessageHandler  Handler
+	CompetitiveSearchHandler Handler
+	NewsSearchHandler    Handler
+	XSearchHandler       Handler
 	SearchToolsHandler Handler
 	ExecuteToolHandler Handler
 	ImageAnalyzeHandler Handler
@@ -137,6 +140,57 @@ func RegisterCoreTools(r *Registry, cfg *config.Config, enabled func(string) boo
 				"required": ["url"]
 			}`),
 			Handler: deps.WebFetchHandler,
+			Builtin: true,
+		})
+	}
+
+	if enabled("competitive_search") {
+		r.Register(&ToolDef{
+			Name:        "competitive_search",
+			Description: "High-quality, multi-source search with deduplication and ranking. Recommended for deep intelligence.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Search query"},
+					"limit": {"type": "number", "description": "Max results (default 10)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: deps.CompetitiveSearchHandler,
+			Builtin: true,
+		})
+	}
+
+	if enabled("news_search") {
+		r.Register(&ToolDef{
+			Name:        "news_search",
+			Description: "Search recent news articles from global sources. Best for current events and trends.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "News search query"},
+					"limit": {"type": "number", "description": "Max results (default 5)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: deps.NewsSearchHandler,
+			Builtin: true,
+		})
+	}
+
+	if enabled("x_search") {
+		r.Register(&ToolDef{
+			Name:        "x_search",
+			Description: "Search X (Twitter) posts for social intelligence and real-time community sentiment.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "X/Twitter search query"},
+					"limit": {"type": "number", "description": "Max results (default 10)"}
+				},
+				"required": ["query"]
+			}`),
+			Handler: deps.XSearchHandler,
 			Builtin: true,
 		})
 	}
