@@ -386,6 +386,40 @@ func (p *Provider) shouldUseDocker(req provider.Request) bool {
 }
 
 // BuildArgs constructs the claude CLI argument list from a Request.
+// inferDisallowedTools identifies Claude Code built-in tools that should be suppressed
+// when equivalent Tetora native tools are present in the request.
+func inferDisallowedTools(tools []provider.ToolDef) []string {
+	names := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		names[t.Name] = true
+	}
+	var disallowed []string
+
+	// Suppress generic built-in WebSearch if Tetora provides specialized tools.
+	if names["web_search"] || names["google_search"] || names["news_search"] || names["x_search"] || names["tweet_search"] {
+		disallowed = append(disallowed, "WebSearch")
+	}
+
+	return disallowed
+}
+
+// tetoraeBridgeMCPPath returns the path to the Tetora MCP bridge config if it exists.
+func tetoraeBridgeMCPPath() string {
+	candidates := []string{}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".tetora", "mcp", "bridge.json"))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "mcp", "bridge.json"))
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
 func BuildArgs(req provider.Request, streaming bool) []string {
 	outputFormat := "json"
 	if streaming {
@@ -419,6 +453,17 @@ func BuildArgs(req provider.Request, streaming bool) []string {
 
 	if req.MCPPath != "" {
 		args = append(args, "--mcp-config", req.MCPPath)
+	}
+
+	// Auto-inject Tetora MCP bridge so native tools (tweet_search, etc.) are
+	// callable from the claude-cli subprocess via MCP protocol.
+	if bridgePath := tetoraeBridgeMCPPath(); bridgePath != "" {
+		args = append(args, "--mcp-config", bridgePath)
+	}
+
+	// Suppress Claude Code built-in tools that Tetora native tools supersede.
+	for _, dt := range inferDisallowedTools(req.Tools) {
+		args = append(args, "--disallow-tool", dt)
 	}
 
 	if req.SystemPrompt != "" {
