@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#8b0000">
+    <title>大吳軍令狀 - Todo PWA</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚩 大吳軍令狀</h1>
+            <p>主公，今日有何軍務？</p>
+        </header>
+
+        <form id="todo-form">
+            <input type="text" id="todo-input" placeholder="輸入軍令..." required>
+            <button type="submit" id="add-btn">下令</button>
+        </form>
+
+        <ul id="todo-list">
+            <!-- 軍令項目將在此動態生成 -->
+        </ul>
+        
+        <footer>
+            <small>由 東吳科技幕府 呈獻</small>
+        </footer >
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker 已註冊'))
+                    .catch(err => console.log('Service Worker 註冊失敗', err));
+            });
+        }
+    </script>
+</body>
+</html>

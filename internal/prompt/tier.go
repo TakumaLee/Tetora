@@ -189,6 +189,29 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		deps.InjectWorkspaceContent(cfg, task, agentName)
 	}
 
+	// --- 9.5. RDD (Requirement-Driven Development) Engine ---
+	logInfo("RDD engine check", "enabled", cfg.RDDEngine.Enabled, "complexity", complexity, "workdir", task.Workdir)
+	if cfg.RDDEngine.Enabled && complexity == ComplexityComplex && task.Workdir != "" {
+		stateFileName := cfg.RDDEngine.stateFileNameOrDefault()
+		
+		// Ensure STATE.md exists
+		EnsureStateFile(task.Workdir, stateFileName, "")
+		
+		stateContent, _ := ReadState(task.Workdir, stateFileName)
+		if stateContent != "" {
+			task.SystemPrompt += "\n\n## Project State (RDD Engine)\n"
+			task.SystemPrompt += "You are operating under a Requirement-Driven Development (RDD) framework.\n"
+			task.SystemPrompt += "The current project state is defined below. You MUST update this state file (" + stateFileName + ") whenever you complete a task or make a significant architectural decision.\n\n"
+			task.SystemPrompt += "<rdd_state>\n" + stateContent + "\n</rdd_state>\n\n"
+			
+			// Inject GSD (Get Shit Done) strict workflow instructions
+			task.SystemPrompt += "### GSD (Get Shit Done) Workflow Instructions\n"
+			task.SystemPrompt += "1. Strict Task Flow: PENDING -> IN_PROGRESS -> SUCCEED/FAILED.\n"
+			task.SystemPrompt += "2. DO NOT write code before understanding the 'Objective' and 'Constraints'.\n"
+			task.SystemPrompt += "3. DO NOT complete the task until the 'Current Status' is marked as SUCCEED and verified.\n"
+		}
+	}
+
 	// --- 10. AddDirs control ---
 	// Simple: clear AddDirs, only keep baseDir.
 	// Standard/Complex: keep baseDir, workspace dir, and task workdir.

@@ -2345,13 +2345,19 @@ func startHTTPServer(s *Server) *http.Server {
 	mux.HandleFunc("/dashboard/office-bg.webp", handleOfficeBg)
 	mux.HandleFunc("/dashboard/sprites/", handleSprite)
 	mux.HandleFunc("/dashboard", handleDashboard)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { 
+		if r.URL.Path == "/" { 
+			http.Redirect(w, r, "/dashboard", http.StatusFound) 
+			return 
+		} 
+		http.NotFound(w, r) 
+	})
 
 	// Middleware chain: recovery → trace → body size → rate limit → dashboard auth → IP allowlist → API auth → client ID → mux
 	handler := recoveryMiddleware(trace.Middleware(bodySizeMiddleware(rateLimitMiddleware(cfg, s.apiLimiter,
 		dashboardAuthMiddleware(cfg,
 			ipAllowlistMiddleware(allowlist, cfg.HistoryDB,
-				authMiddleware(cfg, s.secMon,
-					clientMiddleware(cfg.DefaultClientID, mux))))))))
+				authMiddleware(cfg, s.secMon, clientMiddleware(cfg.DefaultClientID, mux))))))))
 
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: handler}
 

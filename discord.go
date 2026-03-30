@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -50,6 +51,7 @@ type DiscordBot struct {
 	notifier     *discord.TaskNotifier     // task notification (thread-per-task)
 	terminal     *terminalBridge         // terminal bridge (tmux sessions)
 	msgSem       chan struct{}            // limits concurrent message handlers
+	voiceEngine  *VoiceEngine            // STT/TTS engine for voice message transcription
 	// Message dedup: ring buffer of recently processed message IDs to prevent
 	// duplicate handling on gateway reconnect/resume event replay.
 	dedupMu    sync.Mutex
@@ -61,7 +63,7 @@ type DiscordBot struct {
 	chatLockMu sync.RWMutex
 }
 
-func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
+func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine, ve *VoiceEngine) *DiscordBot {
 	apiClient := discord.NewClient(cfg.Discord.BotToken)
 	db := &DiscordBot{
 		cfg:          cfg,
@@ -75,7 +77,9 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 		threads:       newThreadBindingStore(),      // P14.2
 		threadParents: newThreadParentCache(),
 		msgSem:        make(chan struct{}, 32),
+		voiceEngine:  ve,
 	}
+
 
 	// P14.3: Initialize reaction manager.
 	if cfg.Discord.Reactions.Enabled {
@@ -368,15 +372,32 @@ func (db *DiscordBot) handleMessage(msg discord.Message) {
 	text := discord.StripMention(msg.Content, db.botUserID)
 	text = strings.TrimSpace(text)
 
-	// Download attachments and inject into prompt.
+	// Download attachments: transcribe audio, inject other files into prompt.
 	var attachedFiles []*upload.File
 	for _, att := range msg.Attachments {
+		if db.voiceEngine != nil && isAudioAttachment(att) {
+			// Transcribe voice messages via STT engine.
+			transcript, err := transcribeDiscordAudio(msg.ChannelID, db.voiceEngine, att)
+			if err != nil {
+				log.Warn("discord: voice transcription failed", "file", att.Filename, "err", err)
+				db.sendMessage(msg.ChannelID, "⚠️ 語音辨識失敗，請重試或改用文字。")
+				return
+			}
+			log.Info("discord: voice transcribed", "file", att.Filename, "len", len(transcript))
+			if text == "" {
+				text = transcript
+			} else {
+				text = transcript + " " + text
+			}
+			continue
+		}
 		if f, err := downloadDiscordAttachment(db.cfg.BaseDir, att); err != nil {
 			log.Warn("discord: attachment download failed", "url", att.URL, "err", err)
 		} else {
 			attachedFiles = append(attachedFiles, f)
 		}
 	}
+
 	if prefix := upload.BuildPromptPrefix(attachedFiles); prefix != "" {
 		text = prefix + text
 	}
@@ -1279,6 +1300,7 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 	})
 }
 
+<<<<<<< HEAD
 // --- Voice (from discord_voice.go) ---
 
 // Type aliases.
@@ -3703,3 +3725,46 @@ func (db *DiscordBot) SetTyping(ctx context.Context, channelRef string) error {
 }
 
 func (db *DiscordBot) PresenceName() string { return "discord" }
+=======
+// --- Voice Message Helpers ---
+
+// isAudioAttachment returns true if the Discord attachment is a voice/audio file.
+func isAudioAttachment(att discordAttachment) bool {
+	if strings.HasPrefix(att.ContentType, "audio/") {
+		return true
+	}
+	lower := strings.ToLower(att.Filename)
+	return strings.HasSuffix(lower, ".ogg") ||
+		strings.HasSuffix(lower, ".mp3") ||
+		strings.HasSuffix(lower, ".wav") ||
+		strings.HasSuffix(lower, ".m4a") ||
+		strings.HasSuffix(lower, ".webm")
+}
+
+// transcribeDiscordAudio downloads a Discord audio attachment and transcribes it via STT.
+func transcribeDiscordAudio(channelID string, ve *VoiceEngine, att discordAttachment) (string, error) {
+	resp, err := http.Get(att.URL) //nolint:noctx
+	if err != nil {
+		return "", fmt.Errorf("download audio: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("download audio: HTTP %d", resp.StatusCode)
+	}
+
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(att.Filename)), ".")
+	if ext == "" {
+		ext = "ogg"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := ve.Transcribe(ctx, resp.Body, STTOptions{Format: ext})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Text), nil
+}
+
+>>>>>>> origin/main

@@ -62,7 +62,11 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 
 	// Pipe prompt via stdin to avoid OS ARG_MAX limits on long prompts.
 	if req.Prompt != "" {
-		cmd.Stdin = strings.NewReader(req.Prompt)
+		fullPrompt := req.Prompt
+		if req.SystemPrompt != "" {
+			fullPrompt = "SYSTEM PROMPT:\n" + req.SystemPrompt + "\n\nUSER PROMPT:\n" + req.Prompt
+		}
+		cmd.Stdin = strings.NewReader(fullPrompt)
 	}
 
 	// Streaming mode.
@@ -341,11 +345,6 @@ func BuildClaudeArgs(req Request, streaming bool) []string {
 	}
 	if resume && req.SessionID != "" {
 		args = append(args, "--resume", req.SessionID)
-	} else {
-		args = append(args, "--session-id", req.SessionID)
-		if !req.PersistSession {
-			args = append(args, "--no-session-persistence")
-		}
 	}
 
 	for _, dir := range req.AddDirs {
