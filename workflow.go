@@ -2709,11 +2709,11 @@ func resolveHumanAssigneeChannel(assigneeMap map[string]string, assignee, fallba
 }
 
 // humanGateDashboardURL builds the URL to the human-gates dashboard panel.
-// Uses cfg.Discord.DashboardBaseURL if set; otherwise falls back to http://localhost<listenAddr>.
+// Uses cfg.Discord.DashboardBaseURL if set; otherwise falls back to http://<listenAddr>.
 func humanGateDashboardURL(cfg *Config) string {
 	base := cfg.Discord.DashboardBaseURL
 	if base == "" {
-		base = "http://localhost" + cfg.ListenAddr
+		base = "http://" + cfg.ListenAddr
 	}
 	return strings.TrimRight(base, "/") + "/dashboard#human-gates-panel"
 }
