@@ -314,6 +314,11 @@ func ParseCodexOutput(stdout, stderr []byte, exitCode int) *Result {
 	}
 
 	pr.Output = strings.Join(outputParts, "")
+	if quotaErr := detectCodexQuotaError(pr.Output); quotaErr != "" {
+		pr.IsError = true
+		pr.Error = quotaErr
+		pr.Output = ""
+	}
 
 	if !pr.IsError && exitCode != 0 {
 		pr.IsError = true
@@ -325,6 +330,13 @@ func ParseCodexOutput(stdout, stderr []byte, exitCode int) *Result {
 			errStr = fmt.Sprintf("codex exited with code %d", exitCode)
 		}
 		pr.Error = errStr
+	}
+	if !pr.IsError {
+		if quotaErr := detectCodexQuotaError(string(stderr)); quotaErr != "" {
+			pr.IsError = true
+			pr.Error = quotaErr
+			pr.Output = ""
+		}
 	}
 
 	return pr
@@ -376,6 +388,19 @@ var (
 	codexPctRe   = regexp.MustCompile(`(\d+(?:\.\d+)?)%`)
 	codexResetRe = regexp.MustCompile(`resets?\s+(.+?)(?:\)|$)`)
 )
+
+func detectCodexQuotaError(text string) string {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return ""
+	}
+	if strings.Contains(lower, "out of extra usage") ||
+		(strings.Contains(lower, "extra usage") && strings.Contains(lower, "resets")) ||
+		(strings.Contains(lower, "usage limit") && strings.Contains(lower, "resets")) {
+		return strings.TrimSpace(text)
+	}
+	return ""
+}
 
 // ParseCodexStatusOutput parses codex status command output.
 func ParseCodexStatusOutput(output string) *CodexQuota {
