@@ -7280,7 +7280,7 @@ type AgentArchetype = roles.AgentArchetype
 var builtinArchetypes = roles.BuiltinArchetypes
 
 func loadAgentPrompt(cfg *Config, agentName string) (string, error) {
-	return roles.LoadAgentPrompt(cfg, agentName)
+	return workspace.LoadAgentPrompt(cfg, agentName)
 }
 
 func generateSoulContent(archetype *AgentArchetype, agentName string) string {
@@ -10904,6 +10904,17 @@ func initProviders(cfg *Config) *provider.Registry {
 				path = "claude"
 			}
 			reg.Register(name, &provider.ClaudeProvider{
+				BinaryPath:    path,
+				DockerEnabled: cfg.Docker.Enabled,
+				Docker:        newDockerRunner(cfg.Docker),
+			})
+
+		case "gemini-cli":
+			path := pc.Path
+			if path == "" {
+				path = "/usr/local/bin/gemini"
+			}
+			reg.Register(name, &provider.GeminiProvider{
 				BinaryPath:    path,
 				DockerEnabled: cfg.Docker.Enabled,
 				Docker:        newDockerRunner(cfg.Docker),

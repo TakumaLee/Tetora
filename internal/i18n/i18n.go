@@ -1214,3 +1214,15 @@ func GetInitStrings(lang string) InitStrings {
 	}
 	return Translations["en"]
 }
+
+var currentLang = "en"
+
+// SetLang sets the current global language.
+func SetLang(lang string) {
+	currentLang = lang
+}
+
+// CurrentLang returns the current global language.
+func CurrentLang() string {
+	return currentLang
+}

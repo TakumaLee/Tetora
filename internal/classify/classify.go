@@ -91,6 +91,43 @@ var KeywordClassifiedSources = map[string]bool{
 	"workflow": true,
 }
 
+// ChatSources are message sources that use chat-style interaction.
+var ChatSources = map[string]bool{
+	"discord":  true,
+	"telegram": true,
+	"whatsapp": true,
+	"slack":    true,
+	"line":     true,
+	"gchat":    true,
+}
+
+func (c Complexity) String() string {
+	switch c {
+	case Simple:
+		return "simple"
+	case Standard:
+		return "standard"
+	case Complex:
+		return "complex"
+	default:
+		return "unknown"
+	}
+}
+
+// Tool-intent keywords: short messages containing these need Standard (tools available).
+var toolIntentKeywordsZH = []string{
+	"搜尋", "搜索", "查詢", "查一下", "找一下", "找找", "查查",
+	"新聞", "情報", "最新", "趨勢", "分析", "報告",
+	"x.com", "twitter", "推特", "研究", "論文",
+	"看一下", "追蹤", "進度", "動態",
+}
+
+var toolIntentKeywordsEN = []string{
+	"search", "find", "look up", "lookup", "query", "research",
+	"news", "latest", "trending", "analyze", "report", "intel",
+	"update", "track", "monitor", "check", "browse",
+}
+
 // complexKeywordsEN contains coding-related keywords (English).
 // Matched as whole words (word-boundary aware).
 var complexKeywordsEN = []string{
@@ -131,16 +168,19 @@ func Classify(prompt string, source string) Complexity {
 
 	promptLower := strings.ToLower(prompt)
 
-	// Keyword-classified sources (cron, workflow, taskboard): use keyword counting
-	// instead of blanket Complex. This avoids injecting heavy context (3 reflections,
-	// writing style, all AddDirs) for simple scheduled/dispatch tasks.
-	if srcLower == "taskboard" || KeywordClassifiedSources[srcLower] {
-		if runeLen < 100 {
-			return Simple
+	// Short chat messages: check for tool intent
+	isChat := false
+	for k := range ChatSources {
+		if strings.HasPrefix(srcLower, k) {
+			isChat = true
+			break
 		}
-		kwCount := countComplexKeywords(promptLower, prompt)
-		if kwCount >= 3 {
-			return Complex
+	}
+
+	if runeLen < 100 && isChat {
+		if containsAnySubstring(prompt, toolIntentKeywordsZH) ||
+			containsAnyComplexWord(promptLower, toolIntentKeywordsEN) {
+			return Standard
 		}
 		return Standard
 	}

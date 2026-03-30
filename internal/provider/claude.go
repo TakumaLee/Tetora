@@ -87,6 +87,15 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 	pr := ParseClaudeOutput(stdout.Bytes(), stderr.Bytes(), exitCode)
 	pr.DurationMs = elapsed.Milliseconds()
 
+	// Debug log for troubleshooting 'success' as error
+	if pr.IsError && pr.Error == "" || pr.Error == "success" {
+		log.Warn("claude provider returned ambiguous error",
+			"exitCode", exitCode,
+			"stdout", string(stdout.Bytes()),
+			"stderr", string(stderr.Bytes()),
+			"pr_error", pr.Error)
+	}
+
 	// Budget soft-limit.
 	if req.Budget > 0 && pr.CostUSD >= req.Budget {
 		promptPreview := req.Prompt
@@ -293,10 +302,9 @@ func buildResultFromStream(resultMsg *claudeStreamMsg, stderr []byte, exitCode i
 	pr.ProviderMs = resultMsg.DurationMs
 	if resultMsg.IsError {
 		pr.Error = resultMsg.Subtype
-	}
-	if !pr.IsError && pr.TokensIn == 0 && pr.TokensOut == 0 && pr.CostUSD == 0 && strings.TrimSpace(pr.Output) == "" {
-		pr.IsError = true
-		pr.Error = "empty run: CLI returned success but no tokens were consumed"
+		if pr.Error == "success" || pr.Error == "" {
+			pr.Error = "unknown provider streaming error"
+		}
 	}
 	return pr
 }
@@ -485,9 +493,9 @@ func buildResultFromParsed(co claudeOutput) *Result {
 	if co.IsError {
 		r.IsError = true
 		r.Error = co.Subtype
-	} else if r.TokensIn == 0 && r.TokensOut == 0 && co.CostUSD == 0 && strings.TrimSpace(co.Result) == "" {
-		r.IsError = true
-		r.Error = "empty run: CLI returned success but no tokens were consumed"
+		if r.Error == "success" || r.Error == "" {
+			r.Error = "unknown provider error"
+		}
 	}
 	return r
 }

@@ -526,17 +526,24 @@ func CmdInit(deps InitDeps) {
 		}
 	}
 
-	fmt.Printf("\nConfig written: %s\n", configPath)
-	fmt.Printf("%s %s\n", L.APITokenLabel, apiToken)
-	fmt.Println(L.APITokenNote)
-
-	// Connection test (warn-only on failure).
-	if selectedPreset != nil {
-		fmt.Printf("  Testing connection to %s...", selectedPreset.DisplayName)
-		if err := provider.TestPresetConnection(*selectedPreset, presetAPIKey, defaultModel); err != nil {
-			fmt.Printf(" \033[33m⚠ %v\033[0m\n", err)
-		} else {
-			fmt.Printf(" \033[32m✓ OK\033[0m\n")
+	// --- Final Config ---
+	cfg := config.Config{
+		BaseDir:      configDir,
+		AgentsDir:    filepath.Join(configDir, "agents"),
+		WorkspaceDir: filepath.Join(configDir, "workspace"),
+		Agents:       agentConfigs,
+		DefaultAgent: "coordinator",
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {Type: "anthropic", APIKey: "$ANTHROPIC_API_KEY"},
+		},
+	}
+	if groqKey != "" {
+		cfg.Providers["groq"] = config.ProviderConfig{Type: "groq", APIKey: "$GROQ_API_KEY"}
+	}
+	if serpKey != "" {
+		cfg.Tools.WebSearch = config.WebSearchConfig{
+			Provider: "serp",
+			APIKey:   "$SERPAPI_KEY",
 		}
 	}
 
