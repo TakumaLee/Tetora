@@ -25,13 +25,27 @@ var KeywordClassifiedSources = map[string]bool{
 	"workflow": true,
 }
 
-var chatSources = map[string]bool{
+// ChatSources are message sources that use chat-style interaction.
+var ChatSources = map[string]bool{
 	"discord":  true,
 	"telegram": true,
 	"whatsapp": true,
 	"slack":    true,
 	"line":     true,
 	"gchat":    true,
+}
+
+func (c Complexity) String() string {
+	switch c {
+	case Simple:
+		return "simple"
+	case Standard:
+		return "standard"
+	case Complex:
+		return "complex"
+	default:
+		return "unknown"
+	}
 }
 
 // Tool-intent keywords: short messages containing these need Standard (tools available).
@@ -68,7 +82,15 @@ func Classify(prompt string, source string) Complexity {
 	promptLower := strings.ToLower(prompt)
 
 	// Short chat messages: check for tool intent
-	if runeLen < 100 && chatSources[srcLower] {
+	isChat := false
+	for k := range ChatSources {
+		if strings.HasPrefix(srcLower, k) {
+			isChat = true
+			break
+		}
+	}
+
+	if runeLen < 100 && isChat {
 		if containsAnySubstring(prompt, toolIntentKeywordsZH) ||
 			containsAnyComplexWord(promptLower, toolIntentKeywordsEN) {
 			return Standard

@@ -1062,6 +1062,8 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	taskStart := time.Now()
 	result := runSingleTask(taskCtx, db.cfg, task, db.sem, db.childSem, route.Agent)
 
+	log.Info("discord task done", "taskId", task.ID, "status", result.Status, "error", result.Error)
+
 	// Stop progress updater and clean up progress message.
 	if progressStopCh != nil {
 		close(progressStopCh)
@@ -1071,7 +1073,8 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 		db.interactions.remove(progressEscapeID)
 	}
 	if progressMsgID != "" {
-		if result.Status != "success" {
+		statusLower := strings.ToLower(strings.TrimSpace(result.Status))
+		if statusLower != "success" {
 			// On error, edit progress to show error instead of deleting.
 			// Clear components (remove escape button).
 			errMsg := result.Error
@@ -1125,7 +1128,8 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 
 	// P14.3: Set done/error reaction based on result.
 	if db.reactions != nil {
-		if result.Status == "success" {
+		statusLower := strings.ToLower(strings.TrimSpace(result.Status))
+		if statusLower == "success" {
 			db.reactions.ReactDone(msg.ChannelID, msg.ID)
 		} else {
 			db.reactions.ReactError(msg.ChannelID, msg.ID)
@@ -1192,20 +1196,21 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 
 func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, result TaskResult, task Task, skipOutput bool, replyMsgID string) {
 	color := 0x57F287
-	if result.Status != "success" {
+	statusLower := strings.ToLower(strings.TrimSpace(result.Status))
+	if statusLower != "success" {
 		color = 0xED4245
 	}
 
 	if !skipOutput {
 		output := result.Output
-		if result.Status != "success" {
+		if statusLower != "success" {
 			output = result.Error
 			if output == "" {
 				output = result.Status
 			}
 		}
 		// Fallback for empty/whitespace output on success (e.g. tool-only responses).
-		if strings.TrimSpace(output) == "" && result.Status == "success" {
+		if strings.TrimSpace(output) == "" && statusLower == "success" {
 			parts := []string{"Task completed successfully."}
 			if result.TokensIn > 0 || result.TokensOut > 0 {
 				parts = append(parts, fmt.Sprintf("Tokens: %d in / %d out", result.TokensIn, result.TokensOut))

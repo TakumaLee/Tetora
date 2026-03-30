@@ -47,11 +47,16 @@ func (p *FeloProvider) Search(ctx context.Context, query string, opts search.Sea
 		}
 	} else {
 		// Fallback: treat whole output as one result
+		outStr := strings.TrimSpace(string(out))
+		// Ignore "success" string and empty output
+		if outStr == "" || strings.ToLower(outStr) == "success" {
+			return nil, nil
+		}
 		results = append(results, search.SearchResult{
 			ID:        fmt.Sprintf("felo-%d-0", time.Now().Unix()),
 			Source:    p.Name(),
 			Title:     query,
-			Content:   strings.TrimSpace(string(out)),
+			Content:   outStr,
 			Score:     0.7,
 			Timestamp: time.Now(),
 		})

@@ -336,6 +336,7 @@ func main() {
 	// Services are initialized into app fields below, then SyncToGlobals()
 	// backfills global vars for callers that haven't migrated yet.
 	app := &App{Cfg: cfg}
+	globalApp = app
 
 	// Search Infrastructure
 	if s, err := newSearchService(cfg); err == nil {
@@ -1512,6 +1513,14 @@ func appFromCtx(ctx context.Context) *App {
 		return a
 	}
 	return nil
+}
+
+var (
+	globalApp *App
+)
+
+func logError(msg string, fields ...any) {
+	log.Error(msg, fields...)
 }
 
 // App is the top-level application container and single source of truth for all services.

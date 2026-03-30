@@ -178,12 +178,12 @@ func CmdInit(deps InitDeps) {
 		WorkspaceDir: filepath.Join(configDir, "workspace"),
 		Agents:       agentConfigs,
 		DefaultAgent: "coordinator",
-		Providers: config.ProvidersConfig{
-			Anthropic: config.AnthropicConfig{APIKey: "$ANTHROPIC_API_KEY"},
+		Providers: map[string]config.ProviderConfig{
+			"anthropic": {Type: "anthropic", APIKey: "$ANTHROPIC_API_KEY"},
 		},
 	}
 	if groqKey != "" {
-		cfg.Providers.Groq = config.GroqConfig{APIKey: "$GROQ_API_KEY"}
+		cfg.Providers["groq"] = config.ProviderConfig{Type: "groq", APIKey: "$GROQ_API_KEY"}
 	}
 	if serpKey != "" {
 		cfg.Tools.WebSearch = config.WebSearchConfig{
