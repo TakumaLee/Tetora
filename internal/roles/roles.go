@@ -1,7 +1,6 @@
 package roles
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,65 +169,4 @@ func WriteSoulFile(cfg *config.Config, agentName, content string) error {
 	path := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	return os.WriteFile(path, []byte(content), 0o644)
-}
-
-// LoadAgentPrompt reads the SOUL file for a given agent name
-// and returns its contents as a system prompt string.
-// Resolution order:
-//  1. Per-agent workspace soul file (via workspace config)
-//  2. agents/{agent}/SOUL.md
-//  3. Legacy fallback: {DefaultWorkdir}/{soulFile}
-func LoadAgentPrompt(cfg *config.Config, agentName string) (string, error) {
-	_, ok := cfg.Agents[agentName]
-	if !ok {
-		return "", fmt.Errorf("agent %q not found in config", agentName)
-	}
-
-	// Try workspace-resolved soul file first (per-agent workspace).
-	ws := resolveWorkspace(cfg, agentName)
-	if ws.SoulFile != "" {
-		if data, err := os.ReadFile(ws.SoulFile); err == nil {
-			return string(data), nil
-		}
-	}
-
-	// Fallback: agents/{agent}/SOUL.md
-	agentSoulPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
-	if data, err := os.ReadFile(agentSoulPath); err == nil {
-		return string(data), nil
-	}
-
-	// Legacy fallback: DefaultWorkdir resolution.
-	rc := cfg.Agents[agentName]
-	if rc.SoulFile == "" {
-		return "", nil
-	}
-	path := rc.SoulFile
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cfg.DefaultWorkdir, path)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read soul file %s: %w", path, err)
-	}
-
-	return string(data), nil
-}
-
-// resolveWorkspace returns the workspace config for an agent (local helper to avoid import cycle).
-func resolveWorkspace(cfg *config.Config, agentName string) config.WorkspaceConfig {
-	role, ok := cfg.Agents[agentName]
-	if !ok {
-		return config.WorkspaceConfig{Dir: cfg.WorkspaceDir}
-	}
-
-	ws := role.Workspace
-	if ws.Dir == "" {
-		ws.Dir = cfg.WorkspaceDir
-	}
-	if ws.SoulFile == "" {
-		ws.SoulFile = filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
-	}
-	return ws
 }
