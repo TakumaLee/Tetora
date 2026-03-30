@@ -55,3 +55,6 @@ tasks/todo.md
 
 # Claude Code
 .claude/
+
+# Agent personalization (local overrides)
+*.local.md
