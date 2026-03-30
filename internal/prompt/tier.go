@@ -60,6 +60,8 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			}
 		}
 		if soulPrompt != "" {
+			// Sanitize prompt to prevent injection of sensitive tags.
+			soulPrompt = SanitizePrompt(soulPrompt)
 			switch complexity {
 			case classify.Simple:
 				task.SystemPrompt = TruncateToChars(soulPrompt, 4000)
@@ -267,4 +269,25 @@ func TruncateToChars(s string, maxChars int) string {
 		cut = cut[:idx]
 	}
 	return cut + "\n\n[... truncated ...]"
+}
+
+// SanitizePrompt removes or neutralizes sensitive XML-like tags that could be used
+// for prompt injection (e.g. <system>, <instructions>, <user>).
+func SanitizePrompt(s string) string {
+	// Common tags used in prompt injection.
+	// We replace them with harmless bracketed versions.
+	tags := []string{
+		"<system>", "</system>",
+		"<instructions>", "</instructions>",
+		"<user>", "</user>",
+		"<assistant>", "</assistant>",
+		"<task>", "</task>",
+	}
+	result := s
+	for _, tag := range tags {
+		tagName := strings.Trim(tag, "</>")
+		safe := "[" + tagName + "]"
+		result = strings.ReplaceAll(result, tag, safe)
+	}
+	return result
 }
