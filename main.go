@@ -1872,6 +1872,39 @@ type ProactiveDelivery = config.ProactiveDelivery
 type VoiceWakeConfig = config.VoiceWakeConfig
 type VoiceRealtimeConfig = config.VoiceRealtimeConfig
 
+// deepMergeJSON merges two JSON documents. Values in override take precedence.
+// Objects are merged recursively (key-level); all other types are replaced.
+func deepMergeJSON(baseJSON, overrideJSON []byte) ([]byte, error) {
+	var base, override map[string]any
+	if err := json.Unmarshal(baseJSON, &base); err != nil {
+		return nil, fmt.Errorf("unmarshal base: %w", err)
+	}
+	if err := json.Unmarshal(overrideJSON, &override); err != nil {
+		return nil, fmt.Errorf("unmarshal override: %w", err)
+	}
+	deepMergeMaps(base, override)
+	return json.Marshal(base)
+}
+
+// deepMergeMaps recursively merges src into dst. src values win; nested maps
+// are merged at key level rather than replaced wholesale.
+func deepMergeMaps(dst, src map[string]any) {
+	for k, srcVal := range src {
+		dstVal, exists := dst[k]
+		if !exists {
+			dst[k] = srcVal
+			continue
+		}
+		srcMap, srcOK := srcVal.(map[string]any)
+		dstMap, dstOK := dstVal.(map[string]any)
+		if srcOK && dstOK {
+			deepMergeMaps(dstMap, srcMap)
+		} else {
+			dst[k] = srcVal
+		}
+	}
+}
+
 // --- Config Loading ---
 
 func loadConfig(path string) *Config {
@@ -1914,6 +1947,20 @@ func tryLoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// Load local config override (config.local.json) and deep merge.
+	localPath := strings.TrimSuffix(path, ".json") + ".local.json"
+	if localData, err := os.ReadFile(localPath); err == nil {
+		merged, mergeErr := deepMergeJSON(data, localData)
+		if mergeErr != nil {
+			return nil, fmt.Errorf("merge local config: %w", mergeErr)
+		}
+		cfg = Config{} // reset before re-unmarshal
+		if err := json.Unmarshal(merged, &cfg); err != nil {
+			return nil, fmt.Errorf("parse merged config: %w", err)
+		}
+		log.Info("loaded local config override", "path", localPath)
 	}
 
 	cfg.BaseDir = filepath.Dir(path)

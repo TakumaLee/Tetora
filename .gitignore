@@ -10,6 +10,7 @@ dist/
 *.db-wal
 *.db-shm
 config.json
+config.local.json
 jobs.json
 logs/
 *.log

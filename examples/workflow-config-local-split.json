@@ -1,0 +1,18 @@
+{
+  "name": "config-local-split",
+  "description": "實作 config.json + config.local.json 分層設定，分離共用設定與個人設定",
+  "timeout": "30m",
+  "steps": [
+    {
+      "id": "implement",
+      "agent": "tyrion",
+      "prompt": "實作 Tetora 的 config 分層載入功能。\n\n## 目標\n讓 Tetora 支援 `config.json`（共用，commit 到 git）+ `config.local.json`（個人，gitignore）的設定分層，啟動時 deep merge，local 覆蓋 shared。\n\n## 實作位置\n`/Users/ymow/projects/Tetora/main.go` 的 `tryLoadConfig` 函式（約第 1889 行）\n\n## 實作規格\n\n### 1. tryLoadConfig 加入 local override 載入\n在現有 `json.Unmarshal(data, &cfg)` 成功後，加入：\n- 推導 local config 路徑：把 `path` 的 `.json` 換成 `.local.json`\n- 嘗試讀取該檔案，不存在就跳過（不報錯）\n- 若存在，用 `json.Unmarshal` 把 local 內容 merge 進 cfg\n\n### 2. Deep merge 行為\nGo 的 struct unmarshal 是覆蓋語意，但 map（如 agents）需要 key-level merge，不能整個覆蓋。\n\n建議做法：\n- 先把 base cfg marshal 回 `map[string]any`\n- 再把 local JSON unmarshal 成 `map[string]any`\n- 做 recursive deep merge（local 覆蓋 base，但 map 要 key-level merge）\n- 最後把 merged map marshal 回 JSON，再 unmarshal 成 Config struct\n\n### 3. 加入 .gitignore\n在 `/Users/ymow/projects/Tetora/.gitignore` 加入 `config.local.json`\n\n### 4. 產生 config.local.example.json\n在 `/Users/ymow/projects/Tetora/` 建立範例檔，說明哪些欄位適合放 local：\n```json\n{\n  \"_comment\": \"個人設定，不要 commit。複製此檔為 config.local.json 後填入。\",\n  \"claudePath\": \"/Users/yourname/.claude/local/claude\",\n  \"apiToken\": \"your-api-token\",\n  \"listenAddr\": \"127.0.0.1:51184\",\n  \"telegram\": {\n    \"botToken\": \"your-bot-token\",\n    \"chatID\": 0\n  },\n  \"discord\": {\n    \"botToken\": \"your-discord-token\"\n  },\n  \"agents\": {\n    \"tyrion\": {\n      \"model\": \"opus\"\n    }\n  }\n}\n```\n\n## 注意事項\n- deep merge 函式放在 main.go 內（不需要新檔）\n- SIGHUP hot-reload 也要載入 local config（`tryLoadConfig` 已被 hot-reload 呼叫，所以自動涵蓋）\n- 不要動 config struct 定義，只改載入邏輯\n- 確保 `cfg.BaseDir` 在 merge 後仍然正確\n\n## 驗收標準\n1. `config.local.json` 不存在時，行為跟現在完全一樣\n2. `config.local.json` 存在時，其欄位覆蓋 `config.json` 的同名欄位\n3. agents map 做 key-level merge（local 只覆蓋有寫的 agent，不清空其他 agent）\n4. `.gitignore` 有加 `config.local.json`\n5. `config.local.example.json` 存在\n6. 編譯通過（`go build ./...`）"
+    },
+    {
+      "id": "review",
+      "agent": "stannis",
+      "prompt": "Review Tyrion 的實作：\n\n{{steps.implement.output}}\n\n重點檢查：\n1. deep merge 邏輯是否正確，agents map 有無 key-level merge\n2. local config 不存在時是否靜默跳過\n3. hot-reload 路徑是否也吃到 local config\n4. 有無 edge case（local JSON 格式錯誤時的處理）\n5. go build 是否通過\n\n若有問題列出，若通過就說明 approve 原因。",
+      "dependsOn": ["implement"]
+    }
+  ]
+}
