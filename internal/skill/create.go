@@ -188,6 +188,47 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 			skills = append(skills, *sc)
 		}
 	}
+	// --- Also scan skills/learned/ directory for agent-extracted skills pending review ---
+	learnedDir := filepath.Join(dir, "learned")
+	learnedEntries, err := os.ReadDir(learnedDir)
+	if err == nil {
+		for _, entry := range learnedEntries {
+			if !entry.IsDir() {
+				continue
+			}
+			skillDir := filepath.Join(learnedDir, entry.Name())
+			if sc := loadSkillFromFrontmatter(skillDir); sc != nil {
+				sc.Learned = true
+				skills = append(skills, *sc)
+				continue
+			}
+			// Also try metadata.json in learned skills.
+			metaPath := filepath.Join(skillDir, "metadata.json")
+			if data, err := os.ReadFile(metaPath); err == nil {
+				var meta SkillMetadata
+				if json.Unmarshal(data, &meta) == nil {
+					sc := SkillConfig{
+						Name:        meta.Name,
+						Description: meta.Description,
+						Command:     meta.Command,
+						Args:        meta.Args,
+						Env:         meta.Env,
+						Matcher:     meta.Matcher,
+						Example:     meta.Example,
+						Workdir:     skillDir,
+						Learned:     true,
+					}
+					skillMDPath := filepath.Join(skillDir, "SKILL.md")
+					if info, err := os.Stat(skillMDPath); err == nil {
+						sc.DocPath = skillMDPath
+						sc.DocSize = int(info.Size())
+					}
+					skills = append(skills, sc)
+				}
+			}
+		}
+	}
+
 	return skills
 }
 

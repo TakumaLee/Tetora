@@ -182,6 +182,27 @@ func BuildSkillCatalog(cfg *AppConfig) string {
 		sb.WriteString("~/.tetora/workspace/skills/{name}/SKILL.md\n")
 	}
 
+	// --- Learned (pending review) section ---
+	var pendingLearned []SkillConfig
+	for _, s := range all {
+		if s.Learned {
+			pendingLearned = append(pendingLearned, s)
+		}
+	}
+	if len(pendingLearned) > 0 {
+		sb.WriteString("\nLearned (pending review):\n")
+		for _, s := range pendingLearned {
+			sb.WriteString("- **")
+			sb.WriteString(s.Name)
+			sb.WriteString("**")
+			if s.Description != "" {
+				sb.WriteString(": ")
+				sb.WriteString(truncate(s.Description))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
 	return sb.String()
 }
 
