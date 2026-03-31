@@ -248,6 +248,61 @@ func TestShouldUseDocker_ConfigDisabled(t *testing.T) {
 	}
 }
 
+// --- isStaleSessionError tests ---
+
+func TestIsStaleSessionError_Match(t *testing.T) {
+	pr := &provider.Result{
+		IsError:   true,
+		Error:     "error_during_execution",
+		TokensIn:  0,
+		TokensOut: 0,
+	}
+	if !isStaleSessionError(pr) {
+		t.Error("expected true for error_during_execution with 0 tokens")
+	}
+}
+
+func TestIsStaleSessionError_NotAnError(t *testing.T) {
+	pr := &provider.Result{
+		IsError:   false,
+		TokensIn:  0,
+		TokensOut: 0,
+	}
+	if isStaleSessionError(pr) {
+		t.Error("expected false when IsError=false")
+	}
+}
+
+func TestIsStaleSessionError_DifferentSubtype(t *testing.T) {
+	pr := &provider.Result{
+		IsError:   true,
+		Error:     "api_error",
+		TokensIn:  0,
+		TokensOut: 0,
+	}
+	if isStaleSessionError(pr) {
+		t.Error("expected false for api_error (not error_during_execution)")
+	}
+}
+
+func TestIsStaleSessionError_NonZeroTokens(t *testing.T) {
+	pr := &provider.Result{
+		IsError:   true,
+		Error:     "error_during_execution",
+		TokensIn:  100,
+		TokensOut: 50,
+	}
+	if isStaleSessionError(pr) {
+		t.Error("expected false when tokens were consumed (error happened mid-execution)")
+	}
+}
+
+func TestIsStaleSessionError_Nil(t *testing.T) {
+	if isStaleSessionError(nil) {
+		t.Error("expected false for nil result")
+	}
+}
+
 // --- Test helpers ---
 
 func assertContains(t *testing.T, args []string, val string) {

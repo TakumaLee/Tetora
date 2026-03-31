@@ -73,6 +73,29 @@ func setProcessGroup(cmd *exec.Cmd) {
 }
 
 func (p *Provider) Execute(ctx context.Context, req provider.Request) (*provider.Result, error) {
+	pr, err := p.executeOnce(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retry once without --resume if the session file is stale (e.g. copied from
+	// another machine with a different project path). The existing sessionFileExists
+	// check in BuildArgs handles missing files; this handles files that exist but
+	// belong to the wrong project directory.
+	if req.Resume && isStaleSessionError(pr) {
+		log.Warn("session resume failed with error_during_execution, retrying with new session",
+			"sessionId", req.SessionID, "error", pr.Error)
+		req.Resume = false
+		pr, err = p.executeOnce(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return pr, nil
+}
+
+func (p *Provider) executeOnce(ctx context.Context, req provider.Request) (*provider.Result, error) {
 	args := BuildArgs(req, req.EventCh != nil)
 
 	var cmd *exec.Cmd
@@ -185,6 +208,17 @@ func (p *Provider) Execute(ctx context.Context, req provider.Request) (*provider
 	}
 
 	return pr, nil
+}
+
+// isStaleSessionError returns true when a resume attempt failed because the
+// session file is stale or belongs to a different project path. This is
+// detected by: is_error with subtype "error_during_execution" and zero tokens
+// consumed (meaning Claude never actually started processing).
+func isStaleSessionError(pr *provider.Result) bool {
+	return pr != nil &&
+		pr.IsError &&
+		pr.Error == "error_during_execution" &&
+		pr.TokensIn == 0 && pr.TokensOut == 0
 }
 
 // executeStreaming runs the command and parses stream-json output in real time.
