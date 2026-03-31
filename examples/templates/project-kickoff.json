@@ -1,0 +1,22 @@
+{
+  "name": "project-kickoff",
+  "description": "分析專案 roadmap 並建立開發卡片",
+  "variables": {
+    "path": "",
+    "phase": "all",
+    "description": ""
+  },
+  "steps": [
+    {
+      "id": "analyze",
+      "agent": "varys",
+      "prompt": "讀取位於 {{variables.path}} 的專案資訊（README, roadmap, 或 CLAUDE.md）。\n\n目標 Phase: {{variables.phase}}\n額外描述: {{variables.description}}\n\n請分析並列出所有需要執行的原子任務。每個任務包含：\n1. 標題\n2. 詳細描述\n3. 優先級 (P0/P1/P2)\n4. 預估點數 (1, 2, 3, 5, 8)\n\n輸出為 JSON 陣列格式：\n[\n  {\"title\": \"...\", \"description\": \"...\", \"priority\": \"P1\", \"points\": 3},\n  ...\n]"
+    },
+    {
+      "id": "create-tasks",
+      "agent": "tyrion",
+      "prompt": "根據 analyze 步驟產出的任務清單，在專案中建立對應的任務卡片。\n\n任務清單：\n{{steps.analyze.output}}\n\n請使用 task_create 具體工具來建立這些任務。每個任務應歸類到對應的 Phase。如果 taskBoard 未啟用，請先確認。",
+      "dependsOn": ["analyze"]
+    }
+  ]
+}

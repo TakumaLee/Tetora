@@ -1,0 +1,24 @@
+{
+  "name": "project-onboarding",
+  "description": "實作 tetora project add 互動式引導指令 + tetora guide 指令列表",
+  "timeout": "45m",
+  "steps": [
+    {
+      "id": "spec",
+      "agent": "varys",
+      "prompt": "分析以下功能需求，產出實作規格：\n\n## 功能 1：`tetora project add`\n\n互動式引導，讓用戶把一個現有專案接入 Tetora 開發流程。\n\n### 流程\n```\n1. 問：專案路徑（預設當前目錄）\n2. 自動偵測：README.md / tasks/roadmap*.md / CLAUDE.md 是否存在\n3. 若找到 roadmap，問：要分析哪個 phase？（列出偵測到的 phase，或「全部」）\n4. 若沒找到，問：請描述這個專案要做什麼？（自由輸入）\n5. 確認後，自動執行 tetora workflow run project-kickoff --var path=<path> --var phase=<phase>\n6. 印出結果：已建立 N 張卡，autoDispatch 正在執行\n```\n\n### 實作位置\n- 新增 CLI subcommand `project` 到 main.go（類似現有的 `init`, `workflow`, `task` subcommand 結構）\n- `project add` 子指令的互動邏輯參考 `/Users/ymow/projects/Tetora/internal/cli/init.go` 的互動模式（scanner + prompt 函式）\n- 執行 workflow 的方式：直接 exec 或呼叫現有 workflow run 邏輯\n\n## 功能 2：`tetora guide`\n\n純文字指令速查，給第一次用的人看。\n\n### 格式\n```\nTetora — Quick Guide\n\nGetting Started\n  tetora init              Set up Tetora for the first time\n  tetora project add       Onboard an existing project (analyze + create tasks)\n  tetora serve             Start the daemon + dashboard\n\nAgents\n  tetora agent list        List all configured agents\n  tetora agent chat <name> Start a chat session with an agent\n\nWorkflows\n  tetora workflow list     List available workflows\n  tetora workflow run <name> [--var k=v]  Run a workflow\n\nTask Board\n  tetora task list         List tasks\n  tetora task create       Create a new task\n  tetora task show <id>    Show task detail\n\nDiagnostics\n  tetora doctor            Check configuration health\n  tetora status            Show daemon status\n  tetora guide             Show this guide\n```\n\n### 實作位置\n- main.go 的 subcommand switch 加 `case \"guide\"` \n- 直接 fmt.Println 輸出，不需要新檔\n\n## 額外：`project-kickoff` workflow template\n\n建立 `/Users/ymow/projects/Tetora/examples/templates/project-kickoff.json`：\n```json\n{\n  \"name\": \"project-kickoff\",\n  \"description\": \"分析專案 roadmap 並建立開發卡片\",\n  \"variables\": {\n    \"path\": \"\",\n    \"phase\": \"all\"\n  },\n  \"steps\": [\n    {\n      \"id\": \"analyze\",\n      \"agent\": \"varys\",\n      \"prompt\": \"讀取 {{path}} 目錄下的 README.md 和 tasks/ 目錄，分析 phase {{phase}} 的待開發項目。產出每個任務的：標題、描述、驗收標準、建議 assignee、優先順序、依賴關係。\"\n    },\n    {\n      \"id\": \"create_tasks\",\n      \"agent\": \"sansa\",\n      \"prompt\": \"根據以下分析，用 taskboard_create 逐一建立卡片：\\n\\n{{steps.analyze.output}}\\n\\n每張卡片設定正確的 project、assignee、priority、description（含 AC）、dependsOn。\",\n      \"dependsOn\": [\"analyze\"]\n    }\n  ]\n}\n```\n\n## 產出\n請輸出詳細的實作規格，包含：\n1. main.go 要新增的 subcommand 結構（哪些 case、呼叫哪些函式）\n2. project add 互動邏輯的 pseudocode\n3. guide 輸出文字的完整內容\n4. 評估工作量與潛在風險"
+    },
+    {
+      "id": "implement",
+      "agent": "tyrion",
+      "prompt": "根據以下規格實作功能：\n\n{{steps.spec.output}}\n\n## 實作原則\n- 互動邏輯參考 `/Users/ymow/projects/Tetora/internal/cli/init.go` 的 scanner + prompt 模式\n- guide 輸出支援 `--json` flag（方便 dashboard 未來串接）\n- project add 若 taskBoard 未啟用，自動提示用戶先確認是否開啟\n- 偵測 roadmap 時支援：tasks/roadmap*.md、ROADMAP.md、docs/roadmap*.md\n- phase 偵測：掃 roadmap 標題中的 Phase A / Phase 1 / ## A. 等模式\n- 確保 go build ./... 通過",
+      "dependsOn": ["spec"]
+    },
+    {
+      "id": "review",
+      "agent": "stannis",
+      "prompt": "Review 實作：\n\n{{steps.implement.output}}\n\n檢查：\n1. 互動流程是否符合規格\n2. 邊界條件：路徑不存在、沒有 roadmap、taskBoard 未開\n3. go build 通過\n4. guide 輸出是否完整準確\n\nApprove 或列出問題。",
+      "dependsOn": ["implement"]
+    }
+  ]
+}
