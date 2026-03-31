@@ -66,7 +66,7 @@ func RecordWorkflowRun(dbPath string, run *WorkflowRun) {
 		db.Escape(run.ResumedFrom),
 	)
 
-	if _, err := db.Query(dbPath, sql); err != nil {
+	if err := db.Exec(dbPath, sql); err != nil {
 		log.Warn("record workflow run failed", "error", err)
 	}
 }
@@ -171,7 +171,7 @@ func markRunResumed(dbPath, originalRunID, newRunID string) {
 		`UPDATE workflow_runs SET status='resumed', error='resumed as %s' WHERE id='%s'`,
 		db.Escape(newRunID), db.Escape(originalRunID),
 	)
-	if _, err := db.Query(dbPath, sql); err != nil {
+	if err := db.Exec(dbPath, sql); err != nil {
 		log.Warn("markRunResumed: failed to mark original as resumed", "error", err)
 	}
 }
