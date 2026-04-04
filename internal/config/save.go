@@ -90,6 +90,58 @@ func DeleteProvider(configPath, name string) error {
 	return nil
 }
 
+// SaveInferenceMode atomically updates the inferenceMode field and multiple
+// agent entries in the on-disk config.json in a single write.
+func SaveInferenceMode(configPath, mode string, agents map[string]AgentConfig) error {
+	configFileMu.Lock()
+	defer configFileMu.Unlock()
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+
+	// Update inferenceMode.
+	modeJSON, _ := json.Marshal(mode)
+	raw["inferenceMode"] = modeJSON
+
+	// Merge updated agents into existing agents map.
+	var existingAgents map[string]json.RawMessage
+	if agentsRaw, ok := raw["agents"]; ok {
+		json.Unmarshal(agentsRaw, &existingAgents)
+	}
+	if existingAgents == nil {
+		existingAgents = make(map[string]json.RawMessage)
+	}
+	for name, ac := range agents {
+		acJSON, err := json.Marshal(&ac)
+		if err != nil {
+			return fmt.Errorf("marshal agent %s: %w", name, err)
+		}
+		existingAgents[name] = acJSON
+	}
+	agentsBytes, err := json.Marshal(existingAgents)
+	if err != nil {
+		return fmt.Errorf("marshal agents: %w", err)
+	}
+	raw["agents"] = agentsBytes
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+
+	if err := writeFileAtomic(configPath, append(out, '\n')); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
 // writeFileAtomic writes data to a .tmp file in the same directory as dst,
 // then renames it to dst. os.Rename is atomic on the same filesystem (POSIX),
 // so a crash mid-write leaves dst either fully updated or fully intact.

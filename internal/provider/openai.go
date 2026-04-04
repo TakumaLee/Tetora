@@ -19,6 +19,7 @@ type OpenAIProvider struct {
 	BaseURL      string
 	APIKey       string
 	DefaultModel string
+	IsLocal      bool // true for localhost endpoints (Ollama, LM Studio) — cost is $0
 }
 
 func (p *OpenAIProvider) Name() string { return p.Name_ }
@@ -187,17 +188,24 @@ func (p *OpenAIProvider) executeInternal(ctx context.Context, req Request) (*Res
 		}, nil
 	}
 
+	var result *Result
 	if req.OnEvent != nil {
-		return p.readStreamResponse(resp.Body, req, start), nil
+		result = p.readStreamResponse(resp.Body, req, start)
+	} else {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
+		elapsed := time.Since(start)
+		result = ParseOpenAIResponse(respBody, elapsed.Milliseconds())
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+	// Local endpoints (Ollama, LM Studio) are free — zero out estimated cost.
+	if p.IsLocal {
+		result.CostUSD = 0
 	}
-	elapsed := time.Since(start)
 
-	return ParseOpenAIResponse(respBody, elapsed.Milliseconds()), nil
+	return result, nil
 }
 
 // ConvertToOpenAIMessages converts a provider Message to one or more openAIMessages.
@@ -437,6 +445,11 @@ func EstimateOpenAICost(promptTokens, completionTokens int) float64 {
 	inputCost := float64(promptTokens) * 2.50 / 1_000_000
 	outputCost := float64(completionTokens) * 10.00 / 1_000_000
 	return inputCost + outputCost
+}
+
+// IsLocalEndpoint returns true if the base URL points to a local server (Ollama, LM Studio, etc.).
+func IsLocalEndpoint(baseURL string) bool {
+	return strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1")
 }
 
 // TruncateBytes truncates bytes to max length as string.

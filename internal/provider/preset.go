@@ -51,7 +51,7 @@ var Presets = []Preset{
 		Type:        "openai-compatible",
 		BaseURL:     "https://api.openai.com/v1",
 		RequiresKey: true,
-		Models:      []string{"gpt-4o", "gpt-4o-mini", "o3-mini"},
+		Models:      []string{"gpt-5.4", "gpt-5.3", "gpt-4o", "gpt-4o-mini", "o3-mini"},
 		Dynamic:     false,
 	},
 	{
@@ -82,6 +82,15 @@ var Presets = []Preset{
 		Dynamic:     true,
 	},
 	{
+		Name:        "codex",
+		DisplayName: "OpenAI Codex CLI",
+		Type:        "codex-cli",
+		BaseURL:     "",
+		RequiresKey: false,
+		Models:      []string{"gpt-5.4", "gpt-5.3", "o4-mini", "o3-mini", "gpt-4o"},
+		Dynamic:     false,
+	},
+	{
 		Name:        "custom",
 		DisplayName: "Custom",
 		Type:        "openai-compatible",
@@ -90,6 +99,69 @@ var Presets = []Preset{
 		Models:      []string{},
 		Dynamic:     false,
 	},
+}
+
+// modelPrefixToPreset maps model name prefixes to preset names for auto-inference.
+// OpenAI models map to "codex" (Codex CLI, subscription-based) rather than
+// "openai" (API key required) so users can use their Codex subscription.
+var modelPrefixToPreset = []struct {
+	prefix string
+	preset string
+}{
+	// OpenAI → Codex CLI (subscription login, no API key needed)
+	{"gpt-", "codex"},
+	{"o1-", "codex"},
+	{"o3-", "codex"},
+	{"o4-", "codex"},
+	{"codex-", "codex"},
+	// Anthropic → resolved via claudeProvider preference
+	{"claude-", "claude"},
+	// Google
+	{"gemini-", "google"},
+	// Groq
+	{"llama-", "groq"},
+	{"mixtral-", "groq"},
+}
+
+// InferProviderFromModel returns the preset name that likely serves the given
+// model, based on well-known model name prefixes. Returns ("", false) if the
+// model doesn't match any known pattern (e.g. custom or local models).
+//
+// For Claude models, the result depends on the configured preference:
+// if claudeProvider is set (e.g. "claude-code" or "anthropic"), it is used;
+// otherwise defaults to "claude-code" (CLI).
+func InferProviderFromModel(model string) (presetName string, ok bool) {
+	return InferProviderFromModelWithPref(model, "")
+}
+
+// InferProviderFromModelWithPref is like InferProviderFromModel but accepts
+// a claudeProvider preference to resolve Claude model ambiguity.
+func InferProviderFromModelWithPref(model, claudeProvider string) (presetName string, ok bool) {
+	if claudeProvider == "" {
+		claudeProvider = "claude-code" // default to CLI
+	}
+	lower := strings.ToLower(model)
+	for _, entry := range modelPrefixToPreset {
+		if strings.HasPrefix(lower, entry.prefix) {
+			// Resolve the "claude" placeholder to actual preference.
+			if entry.preset == "claude" {
+				return claudeProvider, true
+			}
+			return entry.preset, true
+		}
+	}
+	// Also check Anthropic short aliases: "sonnet", "opus", "haiku"
+	for _, alias := range []string{"sonnet", "opus", "haiku"} {
+		if strings.HasPrefix(lower, alias) {
+			return claudeProvider, true
+		}
+	}
+	return "", false
+}
+
+// IsLocalProvider returns true if the named provider runs locally (e.g. Ollama, LM Studio).
+func IsLocalProvider(name string) bool {
+	return name == "ollama" || name == "lmstudio"
 }
 
 // GetPreset returns the preset with the given name, or false if not found.

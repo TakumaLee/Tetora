@@ -1701,6 +1701,7 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 		OutputSummary: truncateStr(result.Output, 1000),
 		Error:         result.Error,
 		Model:         result.Model,
+		Provider:      result.Provider,
 		SessionID:     result.SessionID,
 		OutputFile:    outputFile,
 		TokensIn:      result.TokensIn,

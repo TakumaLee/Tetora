@@ -2329,22 +2329,34 @@ func updateConfigMCPs(configPath, mcpName string, mcpConfig json.RawMessage) err
 }
 
 
-// updateAgentModel updates an agent's model in config and returns the old model.
-func updateAgentModel(cfg *Config, agentName, model string) (string, error) {
+// modelChangeResult holds the old and new model/provider for display.
+type modelChangeResult struct {
+	OldModel    string
+	OldProvider string
+	NewProvider string // empty if provider was not changed
+}
+
+// updateAgentModel updates an agent's model (and optionally provider) in config.
+func updateAgentModel(cfg *Config, agentName, model, providerName string) (modelChangeResult, error) {
 	ac, ok := cfg.Agents[agentName]
 	if !ok {
-		return "", fmt.Errorf("agent %q not found", agentName)
+		return modelChangeResult{}, fmt.Errorf("agent %q not found", agentName)
 	}
-	old := ac.Model
+	res := modelChangeResult{OldModel: ac.Model, OldProvider: ac.Provider}
 	ac.Model = model
+	if providerName != "" && providerName != ac.Provider {
+		res.NewProvider = providerName
+		ac.Provider = providerName
+	}
 	cfg.Agents[agentName] = ac
 	configPath := findConfigPath()
 	agentJSON, err := json.Marshal(&ac)
 	if err != nil {
-		return "", err
+		return res, err
 	}
-	return old, cli.UpdateConfigAgents(configPath, agentName, agentJSON)
+	return res, cli.UpdateConfigAgents(configPath, agentName, agentJSON)
 }
+
 
 // --- from cli.go ---
 
