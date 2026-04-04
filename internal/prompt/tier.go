@@ -183,6 +183,17 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		task.SystemPrompt += skillsPrompt
 	}
 
+	// --- 8.6. Skill extraction instruction (Standard/Complex only) ---
+	// Encourage agents to identify reusable procedures and extract them as skills.
+	if complexity != classify.Simple {
+		task.SystemPrompt += "\n\n## Skill Extraction\n" +
+			"After completing this task, if you identified a reusable procedure or workflow " +
+			"that could benefit future tasks, extract it as a skill using the create_skill tool. " +
+			"Write the skill definition to `~/.tetora/workspace/skills/learned/{skill-name}/SKILL.md` " +
+			"with YAML frontmatter (name, description, matcher keywords). " +
+			"Learned skills are reviewed before promotion to the active skill catalog."
+	}
+
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call InjectWorkspaceContent.
 	if complexity != classify.Simple {

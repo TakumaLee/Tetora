@@ -51,6 +51,10 @@ func launchdInstall() {
 	os.MkdirAll(plistDir, 0o755)
 	plistPath := filepath.Join(plistDir, PlistLabel+".plist")
 
+	// Build PATH that includes common tool locations so spawned processes
+	// (e.g. claude CLI via homebrew) are reachable from the launchd environment.
+	daemonPath := "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -72,11 +76,23 @@ func launchdInstall() {
     <string>%s</string>
     <key>WorkingDirectory</key>
     <string>%s</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>%s</string>
+        <key>HOME</key>
+        <string>%s</string>
+        <key>USER</key>
+        <string>%s</string>
+    </dict>
 </dict>
 </plist>`, PlistLabel, exe,
 		filepath.Join(logDir, "tetora.log"),
 		filepath.Join(logDir, "tetora.err"),
-		tetoraDir)
+		tetoraDir,
+		daemonPath,
+		home,
+		os.Getenv("USER"))
 
 	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing plist: %v\n", err)

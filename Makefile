@@ -39,14 +39,20 @@ dev: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(INSTALL)/$(BINARY) .
 	@codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true
 
+PLIST := $(HOME)/Library/LaunchAgents/com.tetora.daemon.plist
+
 reload: dev
-	$(INSTALL)/$(BINARY) stop 2>/dev/null || true
+	@# Unload launchd first to prevent KeepAlive from re-spawning during binary replacement.
+	@if [ -f "$(PLIST)" ]; then launchctl bootout gui/$$(id -u)/com.tetora.daemon 2>/dev/null || true; fi
+	@$(INSTALL)/$(BINARY) stop 2>/dev/null || true
 	@sleep 1
-	@if lsof -ti :8991 >/dev/null 2>&1; then \
-		lsof -ti :8991 | xargs kill -9 2>/dev/null || true; \
-		sleep 1; \
+	@pgrep -f "tetora serve" | xargs kill -9 2>/dev/null || true
+	@sleep 1
+	@if [ -f "$(PLIST)" ]; then \
+		launchctl bootstrap gui/$$(id -u) "$(PLIST)" 2>/dev/null || true; \
+	else \
+		$(INSTALL)/$(BINARY) start 2>/dev/null || true; \
 	fi
-	$(INSTALL)/$(BINARY) start 2>/dev/null || true
 	@echo "Reloaded v$(VERSION)"
 
 install: build

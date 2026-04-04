@@ -8,19 +8,11 @@ import (
 
 	dtypes "tetora/internal/dispatch"
 	"tetora/internal/log"
+	"tetora/internal/text"
 )
 
-// truncateStr truncates a string to maxLen runes with "..." suffix.
-func truncateStr(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	if maxLen < 4 {
-		return string(runes[:maxLen])
-	}
-	return string(runes[:maxLen-3]) + "..."
-}
+// truncateStr delegates to text.TruncateStr.
+var truncateStr = text.TruncateStr
 
 // TaskNotifier posts thread-per-task notifications to a fixed Discord channel.
 type TaskNotifier struct {

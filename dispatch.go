@@ -1721,10 +1721,14 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 
 // truncateStr is like truncate() but avoids name collision if truncate is in another file.
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	if maxLen < 4 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
 }
 
 // stringSliceContains checks if a string slice contains a value.
