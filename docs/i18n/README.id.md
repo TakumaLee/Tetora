@@ -26,6 +26,14 @@ Tetora adalah orkestrator agen AI yang memungkinkan Anda mendefinisikan beberapa
 - **Memori persisten** -- agen mengingat konteks lintas sesi; lapisan memori terpadu dengan konsolidasi
 - **Dukungan MCP** -- hubungkan server Model Context Protocol sebagai penyedia tool
 - **Skill dan workflow** -- paket skill yang dapat digabungkan dan pipeline workflow multi-langkah
+- **Dashboard web** -- pusat komando CEO dengan metrik ROI, kantor pixel, dan umpan aktivitas langsung
+- **Mesin workflow** -- eksekusi pipeline berbasis DAG dengan cabang kondisi, langkah paralel, logika percobaan ulang, dan routing model dinamis (Sonnet untuk tugas rutin, Opus untuk yang kompleks)
+- **Marketplace template** -- tab Store untuk menjelajahi, mengimpor, dan mengekspor template workflow
+- **Dispatch otomatis taskboard** -- papan Kanban dengan penugasan tugas otomatis, slot bersamaan yang dapat dikonfigurasi, dan sistem tekanan slot yang menyimpan kapasitas untuk sesi interaktif
+- **GitLab MR + GitHub PR** -- pembuatan PR/MR otomatis setelah workflow selesai; deteksi otomatis host remote
+- **Pemadatan sesi** -- kompresi konteks otomatis berbasis token dan jumlah pesan untuk menjaga sesi dalam batas model
+- **Service Worker PWA** -- dashboard dengan kemampuan offline dan caching cerdas
+- **Status selesai sebagian** -- tugas yang selesai tetapi gagal di post-processing (git merge, review) masuk ke status antara yang dapat dipulihkan, bukan hilang
 - **Webhook** -- picu aksi agen dari sistem eksternal
 - **Tata kelola biaya** -- anggaran per-peran dan global dengan penurunan model otomatis
 - **Retensi data** -- kebijakan pembersihan yang dapat dikonfigurasi per tabel, dengan ekspor dan pembersihan penuh
@@ -125,6 +133,54 @@ You speak in a warm, concise tone and prefer actionable advice.
 
 ---
 
+## Dashboard
+
+Tetora dilengkapi dashboard web bawaan di `http://localhost:8991/dashboard`. Dashboard diatur dalam empat zona:
+
+| Zona | Isi |
+|------|----------|
+| **Pusat Komando** | Ringkasan eksekutif (kartu ROI), sprite tim pixel, kantor Agent World yang dapat diperluas |
+| **Operasi** | Bar ops ringkas, kartu skor agen + umpan aktivitas langsung (berdampingan), tugas berjalan |
+| **Wawasan** | Grafik tren 7 hari, grafik historis throughput dan biaya tugas |
+| **Detail Engineering** | Dashboard biaya, cron job, sesi, kesehatan provider, kepercayaan, SLA, riwayat versi, routing, memori, dan lainnya (dapat dilipat) |
+
+Editor agen mencakup **pemilih model sadar-provider** dengan peralihan satu klik antara model cloud dan lokal (Ollama). **Toggle mode inferensi** global memungkinkan Anda mengalihkan semua agen antara cloud dan lokal dengan satu tombol. Setiap kartu agen menampilkan lencana Cloud/Local dan dropdown peralihan cepat.
+
+Tersedia beberapa tema (Glass, Clean, Material, Boardroom, Retro). Kantor pixel Agent World dapat dikustomisasi dengan dekorasi dan kontrol zoom.
+
+```bash
+# Buka dashboard di browser default Anda
+tetora dashboard
+```
+
+---
+
+## Perintah Discord
+
+Tetora merespons perintah dengan awalan `!` di Discord:
+
+| Perintah | Deskripsi |
+|---------|-------------|
+| `!model` | Tampilkan semua agen dikelompokkan berdasarkan Cloud / Local |
+| `!model pick [agent]` | Pemilih model interaktif (tombol + dropdown) |
+| `!model <model> [agent]` | Atur model secara langsung (deteksi otomatis provider) |
+| `!local [agent]` | Beralih ke model lokal (Ollama) |
+| `!cloud [agent]` | Pulihkan model cloud |
+| `!mode` | Ringkasan mode inferensi dengan tombol toggle |
+| `!chat <agent>` | Kunci channel ke agen tertentu |
+| `!end` | Buka kunci channel, lanjutkan dispatch cerdas |
+| `!new` | Mulai sesi baru |
+| `!ask <prompt>` | Pertanyaan sekali pakai |
+| `!cancel` | Batalkan semua tugas yang berjalan |
+| `!approve [tool\|reset]` | Kelola tool yang disetujui otomatis |
+| `!status` / `!cost` / `!jobs` | Gambaran operasi |
+| `!help` | Tampilkan referensi perintah |
+| `@Tetora <text>` | Dispatch cerdas ke agen terbaik |
+
+**[Referensi Lengkap Perintah Discord](docs/discord-commands.md)** -- peralihan model, toggle remote/lokal, konfigurasi provider, dan lainnya.
+
+---
+
 ## Build dari Source
 
 ```bash
@@ -172,12 +228,19 @@ Semua data runtime berada di bawah `~/.tetora/`:
   config.json        Konfigurasi utama (provider, role, integrasi)
   jobs.json          Definisi cron job
   history.db         Database SQLite (riwayat, memori, sesi, embedding, ...)
-  sessions/          File sesi per-agen
-  knowledge/         Dokumen basis pengetahuan
-  logs/              File log terstruktur
-  outputs/           File output yang dihasilkan
-  uploads/           Penyimpanan upload sementara
   bin/               Binary yang terinstal
+  agents/            Soul file per agen (agents/{name}/SOUL.md)
+  workspace/
+    rules/           Aturan tata kelola, auto-injeksi ke semua prompt agen
+    memory/          Pengamatan bersama, dapat dibaca/ditulis oleh semua agen
+    knowledge/       Materi referensi (auto-injeksi hingga 50 KB)
+    skills/          Prosedur yang dapat digunakan kembali, dimuat melalui pencocokan prompt
+    tasks/           File tugas dan daftar pekerjaan
+  runtime/
+    sessions/        File sesi per agen
+    outputs/         File output yang dihasilkan
+    logs/            File log terstruktur
+    cache/           Cache sementara
 ```
 
 Konfigurasi menggunakan JSON biasa dengan dukungan referensi `$ENV_VAR`, sehingga rahasia tidak perlu di-hardcode. Wizard pengaturan (`tetora init`) menghasilkan `config.json` yang berfungsi secara interaktif.
@@ -231,6 +294,10 @@ Lihat [`examples/`](examples/) untuk file JSON workflow yang siap digunakan.
 | `tetora knowledge list` | Daftar dokumen basis pengetahuan |
 | `tetora skill list` | Daftar skill yang tersedia |
 | `tetora workflow list` | Daftar workflow yang terkonfigurasi |
+| `tetora workflow run <name>` | Jalankan workflow (gunakan `--var key=value` untuk variabel) |
+| `tetora workflow status <run-id>` | Tampilkan status eksekusi workflow |
+| `tetora workflow export <name>` | Ekspor workflow ke file JSON yang dapat dibagikan |
+| `tetora workflow create <file>` | Validasi dan impor workflow dari file JSON |
 | `tetora mcp list` | Daftar koneksi server MCP |
 | `tetora budget show` | Tampilkan status anggaran |
 | `tetora config show` | Tampilkan konfigurasi saat ini |
@@ -239,7 +306,14 @@ Lihat [`examples/`](examples/) untuk file JSON workflow yang siap digunakan.
 | `tetora restore <file>` | Pulihkan dari arsip cadangan |
 | `tetora dashboard` | Buka dashboard web di browser |
 | `tetora logs` | Lihat log daemon (`-f` untuk mengikuti, `--json` untuk output terstruktur) |
+| `tetora health` | Kesehatan runtime (daemon, worker, taskboard, disk) |
+| `tetora drain` | Shutdown elegan: hentikan tugas baru, tunggu agen yang berjalan |
 | `tetora data status` | Tampilkan status retensi data |
+| `tetora security scan` | Pemindaian keamanan dan baseline |
+| `tetora prompt list` | Kelola template prompt |
+| `tetora project add` | Tambahkan proyek ke workspace |
+| `tetora guide` | Panduan onboarding interaktif |
+| `tetora upgrade` | Upgrade ke versi terbaru |
 | `tetora service install` | Instal sebagai layanan launchd (macOS) |
 | `tetora completion <shell>` | Hasilkan completions shell (bash, zsh, fish) |
 | `tetora version` | Tampilkan versi |

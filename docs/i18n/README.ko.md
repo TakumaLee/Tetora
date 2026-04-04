@@ -26,6 +26,14 @@ Tetora는 여러 에이전트 역할을 정의할 수 있는 AI 에이전트 오
 - **영구 메모리** -- 에이전트가 세션 간 컨텍스트를 기억; 통합 메모리 계층과 정리 기능
 - **MCP 지원** -- Model Context Protocol 서버를 도구 제공자로 연결
 - **스킬과 워크플로우** -- 조합 가능한 스킬 팩과 다단계 워크플로우 파이프라인
+- **웹 대시보드** -- CEO 커맨드 센터, ROI 메트릭, 픽셀 오피스, 실시간 활동 피드
+- **워크플로우 엔진** -- DAG 기반 파이프라인 실행, 조건 분기, 병렬 단계, 재시도 로직, 동적 모델 라우팅 (루틴 작업은 Sonnet, 복잡한 작업은 Opus)
+- **템플릿 마켓플레이스** -- Store 탭에서 워크플로우 템플릿 탐색, 가져오기, 내보내기
+- **태스크보드 자동 디스패치** -- 칸반 보드, 자동 작업 할당, 설정 가능한 동시 슬롯, 대화형 세션을 위한 용량 예약 슬롯 압력 시스템
+- **GitLab MR + GitHub PR** -- 워크플로우 완료 후 PR/MR 자동 생성; 원격 호스트 자동 감지
+- **세션 컴팩션** -- 토큰 및 메시지 수 기반 자동 컨텍스트 압축으로 세션을 모델 제한 내 유지
+- **Service Worker PWA** -- 스마트 캐싱을 갖춘 오프라인 지원 대시보드
+- **부분 완료 상태** -- 작업은 완료되었으나 후처리(git merge, 리뷰)가 실패하면 손실 대신 복구 가능한 중간 상태로 전환
 - **웹훅** -- 외부 시스템에서 에이전트 동작을 트리거
 - **비용 관리** -- 역할별 및 전역 예산과 자동 모델 다운그레이드
 - **데이터 보존** -- 테이블별 설정 가능한 정리 정책, 전체 내보내기 및 삭제
@@ -125,6 +133,54 @@ You speak in a warm, concise tone and prefer actionable advice.
 
 ---
 
+## 대시보드
+
+Tetora에는 `http://localhost:8991/dashboard`에서 사용할 수 있는 내장 웹 대시보드가 포함되어 있습니다. 4개 영역으로 구성됩니다:
+
+| 영역 | 내용 |
+|------|----------|
+| **커맨드 센터** | 경영 요약 (ROI 카드), 픽셀 팀 스프라이트, 확장 가능한 Agent World 오피스 |
+| **운영** | 컴팩트 Ops 바, 에이전트 스코어카드 + 실시간 활동 피드 (나란히 표시), 실행 중 작업 |
+| **인사이트** | 7일 트렌드 차트, 작업 처리량 및 비용 이력 차트 |
+| **엔지니어링 상세** | 비용 대시보드, 크론 작업, 세션, 프로바이더 건강, 신뢰도, SLA, 버전 이력, 라우팅, 메모리 등 (접기 가능) |
+
+에이전트 에디터에는 클라우드와 로컬 모델(Ollama) 간 원클릭 전환이 가능한 **프로바이더 인식 모델 피커**가 포함되어 있습니다. 글로벌 **추론 모드 토글**로 모든 에이전트를 클라우드와 로컬 간 한 번의 버튼으로 전환할 수 있습니다. 각 에이전트 카드에는 Cloud/Local 배지와 빠른 전환 드롭다운이 표시됩니다.
+
+다양한 테마를 사용할 수 있습니다 (Glass, Clean, Material, Boardroom, Retro). Agent World 픽셀 오피스는 장식과 줌 컨트롤로 커스터마이징할 수 있습니다.
+
+```bash
+# 기본 브라우저에서 대시보드 열기
+tetora dashboard
+```
+
+---
+
+## Discord 명령어
+
+Tetora는 Discord에서 `!` 접두사 명령어에 응답합니다:
+
+| 명령어 | 설명 |
+|---------|-------------|
+| `!model` | 모든 에이전트를 Cloud / Local로 그룹화하여 표시 |
+| `!model pick [agent]` | 대화형 모델 피커 (버튼 + 드롭다운) |
+| `!model <model> [agent]` | 모델 직접 설정 (프로바이더 자동 감지) |
+| `!local [agent]` | 로컬 모델(Ollama)로 전환 |
+| `!cloud [agent]` | 클라우드 모델 복원 |
+| `!mode` | 추론 모드 요약 및 토글 버튼 |
+| `!chat <agent>` | 채널을 특정 에이전트에 잠금 |
+| `!end` | 채널 잠금 해제, 스마트 디스패치 재개 |
+| `!new` | 새 세션 시작 |
+| `!ask <prompt>` | 일회성 질문 |
+| `!cancel` | 실행 중인 모든 작업 취소 |
+| `!approve [tool\|reset]` | 자동 승인 도구 관리 |
+| `!status` / `!cost` / `!jobs` | 운영 개요 |
+| `!help` | 명령어 레퍼런스 표시 |
+| `@Tetora <text>` | 최적의 에이전트에 스마트 디스패치 |
+
+**[Discord 명령어 전체 레퍼런스](docs/discord-commands.md)** -- 모델 전환, 원격/로컬 토글, 프로바이더 설정 등.
+
+---
+
 ## 소스에서 빌드
 
 ```bash
@@ -172,12 +228,19 @@ make test
   config.json        메인 설정 (프로바이더, 역할, 통합)
   jobs.json          크론 작업 정의
   history.db         SQLite 데이터베이스 (히스토리, 메모리, 세션, 임베딩, ...)
-  sessions/          에이전트별 세션 파일
-  knowledge/         지식 베이스 문서
-  logs/              구조화된 로그 파일
-  outputs/           생성된 출력 파일
-  uploads/           임시 업로드 저장소
   bin/               설치된 바이너리
+  agents/            에이전트별 소울 파일 (agents/{name}/SOUL.md)
+  workspace/
+    rules/           거버넌스 규칙, 모든 에이전트 프롬프트에 자동 주입
+    memory/          공유 관찰 기록, 모든 에이전트가 읽기/쓰기 가능
+    knowledge/       참조 문서 (자동 주입, 50 KB 제한)
+    skills/          재사용 가능한 프로시저, 프롬프트 매칭으로 로드
+    tasks/           작업 파일 및 할 일 목록
+  runtime/
+    sessions/        에이전트별 세션 파일
+    outputs/         생성된 출력 파일
+    logs/            구조화된 로그 파일
+    cache/           임시 캐시
 ```
 
 설정은 `$ENV_VAR` 참조를 지원하는 일반 JSON을 사용하므로, 비밀 값을 하드코딩할 필요가 없습니다. 설정 마법사(`tetora init`)가 대화형으로 작동하는 `config.json`을 생성합니다.
@@ -231,6 +294,10 @@ tetora workflow status <run-id>
 | `tetora knowledge list` | 지식 베이스 문서 목록 |
 | `tetora skill list` | 사용 가능한 스킬 목록 |
 | `tetora workflow list` | 설정된 워크플로우 목록 |
+| `tetora workflow run <name>` | 워크플로우 실행 (`--var key=value`로 변수 전달) |
+| `tetora workflow status <run-id>` | 워크플로우 실행 상태 표시 |
+| `tetora workflow export <name>` | 워크플로우를 공유 가능한 JSON 파일로 내보내기 |
+| `tetora workflow create <file>` | JSON 파일에서 워크플로우 유효성 검사 및 가져오기 |
 | `tetora mcp list` | MCP 서버 연결 목록 |
 | `tetora budget show` | 예산 상태 표시 |
 | `tetora config show` | 현재 설정 표시 |
@@ -239,7 +306,14 @@ tetora workflow status <run-id>
 | `tetora restore <file>` | 백업 아카이브에서 복원 |
 | `tetora dashboard` | 브라우저에서 웹 대시보드 열기 |
 | `tetora logs` | 데몬 로그 보기 (`-f`로 실시간 추적, `--json`으로 구조화된 출력) |
+| `tetora health` | 런타임 상태 점검 (데몬, 워커, 태스크보드, 디스크) |
+| `tetora drain` | 우아한 종료: 새 작업 중지, 실행 중인 에이전트 대기 |
 | `tetora data status` | 데이터 보존 상태 표시 |
+| `tetora security scan` | 보안 스캔 및 베이스라인 |
+| `tetora prompt list` | 프롬프트 템플릿 관리 |
+| `tetora project add` | 워크스페이스에 프로젝트 추가 |
+| `tetora guide` | 대화형 온보딩 가이드 |
+| `tetora upgrade` | 최신 버전으로 업그레이드 |
 | `tetora service install` | launchd 서비스로 설치 (macOS) |
 | `tetora completion <shell>` | 셸 자동완성 생성 (bash, zsh, fish) |
 | `tetora version` | 버전 표시 |

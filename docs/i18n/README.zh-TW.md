@@ -144,12 +144,40 @@ Tetora 內建網頁儀表板，位於 `http://localhost:8991/dashboard`。儀表
 | **洞察** | 7 天趨勢圖、歷史任務產出與成本圖表 |
 | **工程細節** | 成本儀表板、排程任務、工作階段、供應商健康度、信任度、SLA、版本歷史、路由、記憶等（可收合） |
 
+代理編輯器內建**供應商感知的模型選擇器**，可一鍵切換雲端與本地模型（Ollama）。全域**推論模式切換**按鈕可一次將所有代理切換至雲端或本地。每張代理卡片顯示 Cloud/Local 標章與快速切換下拉選單。
+
 提供多種主題（Glass、Clean、Material、Boardroom、Retro）。Agent World 像素辦公室可自訂裝飾與縮放控制。
 
 ```bash
 # 在預設瀏覽器中開啟儀表板
 tetora dashboard
 ```
+
+---
+
+## Discord 指令
+
+Tetora 在 Discord 中回應 `!` 前綴指令：
+
+| 指令 | 說明 |
+|---------|-------------|
+| `!model` | 顯示所有代理，依 Cloud / Local 分組 |
+| `!model pick [agent]` | 互動式模型選擇器（按鈕 + 下拉選單） |
+| `!model <model> [agent]` | 直接設定模型（自動偵測供應商） |
+| `!local [agent]` | 切換至本地模型（Ollama） |
+| `!cloud [agent]` | 恢復雲端模型 |
+| `!mode` | 推論模式摘要與切換按鈕 |
+| `!chat <agent>` | 鎖定頻道至指定代理 |
+| `!end` | 解鎖頻道，恢復智慧派工 |
+| `!new` | 開始新工作階段 |
+| `!ask <prompt>` | 單次提問 |
+| `!cancel` | 取消所有執行中任務 |
+| `!approve [tool\|reset]` | 管理自動核准工具 |
+| `!status` / `!cost` / `!jobs` | 營運概覽 |
+| `!help` | 顯示指令參考 |
+| `@Tetora <text>` | 智慧派工至最佳代理 |
+
+**[完整 Discord 指令參考](docs/discord-commands.md)** -- 模型切換、遠端/本地切換、供應商設定等。
 
 ---
 
@@ -278,7 +306,14 @@ tetora workflow status <run-id>
 | `tetora restore <file>` | 從備份封存檔還原 |
 | `tetora dashboard` | 在瀏覽器中開啟網頁儀表板 |
 | `tetora logs` | 檢視常駐程式日誌（`-f` 即時追蹤，`--json` 結構化輸出） |
+| `tetora health` | 執行階段健康檢查（常駐程式、worker、看板、磁碟） |
+| `tetora drain` | 優雅關閉：停止新任務，等待執行中代理完成 |
 | `tetora data status` | 顯示資料保留狀態 |
+| `tetora security scan` | 安全掃描與基線檢查 |
+| `tetora prompt list` | 管理提示詞範本 |
+| `tetora project add` | 將專案加入工作空間 |
+| `tetora guide` | 互動式新手引導 |
+| `tetora upgrade` | 升級至最新版本 |
 | `tetora service install` | 安裝為 launchd 服務（macOS） |
 | `tetora completion <shell>` | 產生 shell 自動補全（bash、zsh、fish） |
 | `tetora version` | 顯示版本 |

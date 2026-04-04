@@ -26,6 +26,14 @@ Ang Tetora ay isang AI agent orchestrator na nagbibigay-daan sa iyo na mag-defin
 - **Persistent memory** -- natatandaan ng mga agent ang konteksto sa mga session; pinag-isang memory layer na may consolidation
 - **Suporta sa MCP** -- ikonekta ang mga Model Context Protocol server bilang tool provider
 - **Skill at workflow** -- mapagsama-samang skill pack at multi-step workflow pipeline
+- **Web dashboard** -- CEO command center na may ROI metrics, pixel office, at live activity feed
+- **Workflow engine** -- DAG-based pipeline execution na may condition branch, parallel step, retry logic, at dynamic model routing (Sonnet para sa routine tasks, Opus para sa complex)
+- **Template marketplace** -- Store tab para mag-browse, mag-import, at mag-export ng workflow template
+- **Taskboard auto-dispatch** -- Kanban board na may automatic task assignment, configurable concurrent slots, at slot pressure system na nagreserba ng kapasidad para sa interactive sessions
+- **GitLab MR + GitHub PR** -- automatic na paggawa ng PR/MR pagkatapos matapos ang workflow; auto-detect ng remote host
+- **Session compaction** -- awtomatikong token-based at message-count-based context compression para manatili ang session sa loob ng model limits
+- **Service Worker PWA** -- offline-capable na dashboard na may smart caching
+- **Partial-done status** -- ang mga task na nakumpleto pero nabigo sa post-processing (git merge, review) ay pumapasok sa recoverable na intermediate state sa halip na mawala
 - **Webhook** -- mag-trigger ng agent action mula sa mga external system
 - **Pamamahala ng gastos** -- per-role at global na budget na may awtomatikong model downgrade
 - **Data retention** -- nako-configure na cleanup policy bawat table, na may buong export at purge
@@ -125,6 +133,54 @@ Ang `tetora init` ay gagabay sa iyo sa paggawa ng iyong unang role at awtomatiko
 
 ---
 
+## Dashboard
+
+May kasamang built-in na web dashboard ang Tetora sa `http://localhost:8991/dashboard`. Ito ay naka-organize sa apat na zona:
+
+| Zona | Nilalaman |
+|------|----------|
+| **Command Center** | Executive summary (ROI cards), pixel team sprites, expandable Agent World office |
+| **Operations** | Compact ops bar, agent scorecard + live activity feed (magkatabi), running tasks |
+| **Insights** | 7-day trend chart, historical task throughput at cost charts |
+| **Engineering Details** | Cost dashboard, cron jobs, sessions, provider health, trust, SLA, version history, routing, memory, at iba pa (nai-collapse) |
+
+Ang agent editor ay may kasamang **provider-aware model picker** na may one-click switching sa pagitan ng cloud at local models (Ollama). Ang global na **inference mode toggle** ay nagbibigay-daan sa pagpapalit ng lahat ng agent sa pagitan ng cloud at local sa isang button. Ang bawat agent card ay nagpapakita ng Cloud/Local badge at quick-switch dropdown.
+
+Maraming tema ang available (Glass, Clean, Material, Boardroom, Retro). Ang Agent World pixel office ay maaaring i-customize gamit ang mga dekorasyon at zoom controls.
+
+```bash
+# Buksan ang dashboard sa default browser
+tetora dashboard
+```
+
+---
+
+## Mga Utos sa Discord
+
+Ang Tetora ay tumutugon sa mga utos na may `!` prefix sa Discord:
+
+| Utos | Paglalarawan |
+|---------|-------------|
+| `!model` | Ipakita ang lahat ng agent na naka-group ayon sa Cloud / Local |
+| `!model pick [agent]` | Interactive model picker (mga button + dropdown) |
+| `!model <model> [agent]` | Direktang itakda ang model (auto-detect ng provider) |
+| `!local [agent]` | Lumipat sa local models (Ollama) |
+| `!cloud [agent]` | Ibalik ang cloud models |
+| `!mode` | Buod ng inference mode na may toggle button |
+| `!chat <agent>` | I-lock ang channel sa isang partikular na agent |
+| `!end` | I-unlock ang channel, ipagpatuloy ang smart dispatch |
+| `!new` | Magsimula ng bagong session |
+| `!ask <prompt>` | Isang tanong lang |
+| `!cancel` | Kanselahin ang lahat ng tumatakbong gawain |
+| `!approve [tool\|reset]` | Pamahalaan ang mga auto-approved na tool |
+| `!status` / `!cost` / `!jobs` | Pangkalahatang-tanaw ng operasyon |
+| `!help` | Ipakita ang sanggunian ng mga utos |
+| `@Tetora <text>` | Smart dispatch sa pinakamainam na agent |
+
+**[Kumpletong Sanggunian ng Discord Commands](docs/discord-commands.md)** -- pagpapalit ng model, remote/local toggle, provider config, at iba pa.
+
+---
+
 ## Build mula sa Source
 
 ```bash
@@ -172,12 +228,19 @@ Lahat ng runtime data ay nasa ilalim ng `~/.tetora/`:
   config.json        Pangunahing configuration (provider, role, integration)
   jobs.json          Mga cron job definition
   history.db         SQLite database (kasaysayan, memory, session, embedding, ...)
-  sessions/          Mga session file bawat agent
-  knowledge/         Mga dokumento ng knowledge base
-  logs/              Mga structured log file
-  outputs/           Mga nabuong output file
-  uploads/           Pansamantalang upload storage
   bin/               Naka-install na binary
+  agents/            Soul file bawat agent (agents/{name}/SOUL.md)
+  workspace/
+    rules/           Mga governance rule, auto-inject sa lahat ng agent prompt
+    memory/          Mga shared observation, mababasa/masusulat ng kahit anong agent
+    knowledge/       Mga reference material (auto-inject hanggang 50 KB)
+    skills/          Mga reusable procedure, nilo-load sa pamamagitan ng prompt matching
+    tasks/           Mga task file at todo list
+  runtime/
+    sessions/        Mga session file bawat agent
+    outputs/         Mga nabuong output file
+    logs/            Mga structured log file
+    cache/           Pansamantalang cache
 ```
 
 Ang configuration ay gumagamit ng simpleng JSON na may suporta sa `$ENV_VAR` reference, kaya hindi na kailangang i-hardcode ang mga lihim. Ang setup wizard (`tetora init`) ay bumubuo ng gumaganang `config.json` nang interactive.
@@ -231,6 +294,10 @@ Tingnan ang [`examples/`](examples/) para sa mga handang gamitin na workflow JSO
 | `tetora knowledge list` | Ilista ang mga dokumento ng knowledge base |
 | `tetora skill list` | Ilista ang mga available na skill |
 | `tetora workflow list` | Ilista ang mga naka-configure na workflow |
+| `tetora workflow run <name>` | Patakbuhin ang isang workflow (gamitin ang `--var key=value` para sa mga variable) |
+| `tetora workflow status <run-id>` | Ipakita ang status ng isang workflow run |
+| `tetora workflow export <name>` | I-export ang workflow bilang naibabahaging JSON file |
+| `tetora workflow create <file>` | I-validate at i-import ang workflow mula sa JSON file |
 | `tetora mcp list` | Ilista ang mga koneksyon sa MCP server |
 | `tetora budget show` | Ipakita ang katayuan ng budget |
 | `tetora config show` | Ipakita ang kasalukuyang configuration |
@@ -239,7 +306,14 @@ Tingnan ang [`examples/`](examples/) para sa mga handang gamitin na workflow JSO
 | `tetora restore <file>` | Mag-restore mula sa backup archive |
 | `tetora dashboard` | Buksan ang web dashboard sa browser |
 | `tetora logs` | Tingnan ang daemon log (`-f` para sundan, `--json` para sa structured output) |
+| `tetora health` | Runtime health (daemon, workers, taskboard, disk) |
+| `tetora drain` | Maayos na shutdown: ihinto ang bagong gawain, hintayin ang mga tumatakbong agent |
 | `tetora data status` | Ipakita ang katayuan ng data retention |
+| `tetora security scan` | Security scanning at baseline |
+| `tetora prompt list` | Pamahalaan ang mga prompt template |
+| `tetora project add` | Magdagdag ng proyekto sa workspace |
+| `tetora guide` | Interactive onboarding guide |
+| `tetora upgrade` | I-upgrade sa pinakabagong bersyon |
 | `tetora service install` | I-install bilang launchd service (macOS) |
 | `tetora completion <shell>` | Bumuo ng shell completion (bash, zsh, fish) |
 | `tetora version` | Ipakita ang bersyon |

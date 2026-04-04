@@ -26,6 +26,14 @@ Tetora est un orchestrateur d'agents IA qui vous permet de définir plusieurs r�
 - **Mémoire persistante** -- les agents se souviennent du contexte entre les sessions ; couche de mémoire unifiée avec consolidation
 - **Support MCP** -- connectez des serveurs Model Context Protocol en tant que fournisseurs d'outils
 - **Skills et workflows** -- paquets de compétences composables et pipelines de workflows multi-étapes
+- **Tableau de bord web** -- centre de commande CEO avec métriques ROI, bureau en pixels et flux d'activité en direct
+- **Moteur de workflows** -- exécution de pipeline basée sur DAG avec branches conditionnelles, étapes parallèles, logique de réessai et routage dynamique de modèles (Sonnet pour les tâches routinières, Opus pour les complexes)
+- **Marketplace de modèles** -- onglet Store pour parcourir, importer et exporter des modèles de workflow
+- **Dispatch automatique du tableau de tâches** -- tableau Kanban avec attribution automatique des tâches, slots concurrents configurables et système de pression des slots qui réserve de la capacité pour les sessions interactives
+- **GitLab MR + GitHub PR** -- création automatique de PR/MR après complétion du workflow ; détection automatique de l'hôte distant
+- **Compaction de sessions** -- compression automatique du contexte basée sur les tokens et le nombre de messages pour maintenir les sessions dans les limites du modèle
+- **Service Worker PWA** -- tableau de bord hors ligne avec mise en cache intelligente
+- **Statut partiellement terminé** -- les tâches qui se terminent mais échouent au post-traitement (git merge, revue) entrent dans un état intermédiaire récupérable au lieu d'être perdues
 - **Webhooks** -- déclenchez des actions d'agents depuis des systèmes externes
 - **Gouvernance des coûts** -- budgets par rôle et globaux avec rétrogradation automatique de modèle
 - **Rétention des données** -- politiques de nettoyage configurables par table, avec export et purge complets
@@ -125,6 +133,54 @@ You speak in a warm, concise tone and prefer actionable advice.
 
 ---
 
+## Tableau de Bord
+
+Tetora intègre un tableau de bord web accessible à `http://localhost:8991/dashboard`. Il est organisé en quatre zones :
+
+| Zone | Contenu |
+|------|----------|
+| **Centre de Commande** | Résumé exécutif (cartes ROI), sprites d'équipe en pixels, bureau Agent World extensible |
+| **Opérations** | Barre d'ops compacte, scorecard des agents + flux d'activité en direct (côte à côte), tâches en cours |
+| **Analyses** | Graphique de tendances sur 7 jours, graphiques historiques de débit et de coûts des tâches |
+| **Détails d'Ingénierie** | Tableau de bord des coûts, cron jobs, sessions, santé des fournisseurs, confiance, SLA, historique des versions, routage, mémoire et plus (repliable) |
+
+L'éditeur d'agents inclut un **sélecteur de modèles avec reconnaissance du fournisseur** permettant de basculer en un clic entre les modèles cloud et locaux (Ollama). Un **interrupteur global de mode d'inférence** permet de basculer tous les agents entre cloud et local d'un seul bouton. Chaque carte d'agent affiche un badge Cloud/Local et un menu déroulant de changement rapide.
+
+Plusieurs thèmes sont disponibles (Glass, Clean, Material, Boardroom, Retro). Le bureau en pixels Agent World peut être personnalisé avec des décorations et des contrôles de zoom.
+
+```bash
+# Ouvrir le tableau de bord dans votre navigateur par défaut
+tetora dashboard
+```
+
+---
+
+## Commandes Discord
+
+Tetora répond aux commandes préfixées par `!` dans Discord :
+
+| Commande | Description |
+|---------|-------------|
+| `!model` | Afficher tous les agents groupés par Cloud / Local |
+| `!model pick [agent]` | Sélecteur de modèle interactif (boutons + menus déroulants) |
+| `!model <model> [agent]` | Définir le modèle directement (détection automatique du fournisseur) |
+| `!local [agent]` | Basculer vers les modèles locaux (Ollama) |
+| `!cloud [agent]` | Restaurer les modèles cloud |
+| `!mode` | Résumé du mode d'inférence avec boutons bascule |
+| `!chat <agent>` | Verrouiller le canal sur un agent spécifique |
+| `!end` | Déverrouiller le canal, reprendre le dispatch intelligent |
+| `!new` | Démarrer une nouvelle session |
+| `!ask <prompt>` | Question ponctuelle |
+| `!cancel` | Annuler toutes les tâches en cours |
+| `!approve [tool\|reset]` | Gérer les outils auto-approuvés |
+| `!status` / `!cost` / `!jobs` | Aperçu des opérations |
+| `!help` | Afficher la référence des commandes |
+| `@Tetora <text>` | Dispatch intelligent vers le meilleur agent |
+
+**[Référence Complète des Commandes Discord](docs/discord-commands.md)** -- changement de modèles, bascule distant/local, configuration des fournisseurs et plus.
+
+---
+
 ## Compiler depuis les Sources
 
 ```bash
@@ -172,12 +228,19 @@ Toutes les données d'exécution sont stockées dans `~/.tetora/` :
   config.json        Configuration principale (fournisseurs, rôles, intégrations)
   jobs.json          Définitions des cron jobs
   history.db         Base de données SQLite (historique, mémoire, sessions, embeddings, ...)
-  sessions/          Fichiers de session par agent
-  knowledge/         Documents de la base de connaissances
-  logs/              Fichiers de logs structurés
-  outputs/           Fichiers de sortie générés
-  uploads/           Stockage temporaire des uploads
   bin/               Binaire installé
+  agents/            Fichiers d'âme par agent (agents/{name}/SOUL.md)
+  workspace/
+    rules/           Règles de gouvernance, auto-injectées dans tous les prompts d'agents
+    memory/          Observations partagées, lisibles/modifiables par tout agent
+    knowledge/       Documents de référence (auto-injectés jusqu'à 50 Ko)
+    skills/          Procédures réutilisables, chargées par correspondance de prompts
+    tasks/           Fichiers de tâches et listes de choses à faire
+  runtime/
+    sessions/        Fichiers de session par agent
+    outputs/         Fichiers de sortie générés
+    logs/            Fichiers de logs structurés
+    cache/           Cache temporaire
 ```
 
 La configuration utilise du JSON brut avec support des références `$ENV_VAR`, afin que les secrets n'aient jamais besoin d'être codés en dur. L'assistant de configuration (`tetora init`) génère un `config.json` fonctionnel de manière interactive.
@@ -231,6 +294,10 @@ Consultez [`examples/`](examples/) pour des fichiers JSON de workflow prêts à 
 | `tetora knowledge list` | Lister les documents de la base de connaissances |
 | `tetora skill list` | Lister les skills disponibles |
 | `tetora workflow list` | Lister les workflows configurés |
+| `tetora workflow run <name>` | Exécuter un workflow (passer `--var key=value` pour les variables) |
+| `tetora workflow status <run-id>` | Afficher le statut d'une exécution de workflow |
+| `tetora workflow export <name>` | Exporter un workflow en fichier JSON partageable |
+| `tetora workflow create <file>` | Valider et importer un workflow depuis un fichier JSON |
 | `tetora mcp list` | Lister les connexions aux serveurs MCP |
 | `tetora budget show` | Afficher l'état du budget |
 | `tetora config show` | Afficher la configuration actuelle |
@@ -239,7 +306,14 @@ Consultez [`examples/`](examples/) pour des fichiers JSON de workflow prêts à 
 | `tetora restore <file>` | Restaurer depuis une archive de sauvegarde |
 | `tetora dashboard` | Ouvrir le tableau de bord web dans un navigateur |
 | `tetora logs` | Voir les logs du daemon (`-f` pour suivre, `--json` pour la sortie structurée) |
+| `tetora health` | Santé de l'exécution (daemon, workers, tableau de tâches, disque) |
+| `tetora drain` | Arrêt gracieux : arrêter les nouvelles tâches, attendre les agents en cours |
 | `tetora data status` | Afficher l'état de rétention des données |
+| `tetora security scan` | Analyse de sécurité et ligne de base |
+| `tetora prompt list` | Gérer les modèles de prompts |
+| `tetora project add` | Ajouter un projet au workspace |
+| `tetora guide` | Guide d'intégration interactif |
+| `tetora upgrade` | Mettre à jour vers la dernière version |
 | `tetora service install` | Installer en tant que service launchd (macOS) |
 | `tetora completion <shell>` | Générer les complétions shell (bash, zsh, fish) |
 | `tetora version` | Afficher la version |
