@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"tetora/internal/provider"
@@ -58,13 +57,7 @@ func (p *Provider) Execute(ctx context.Context, req provider.Request) (*provider
 	cmd.Dir = req.Workdir
 	cmd.Env = os.Environ()
 	// Kill entire process group on timeout to prevent orphaned child processes.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return os.ErrProcessDone
-	}
+	setProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
 	if req.EventCh != nil {
