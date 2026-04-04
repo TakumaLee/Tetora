@@ -20,19 +20,28 @@ type SkillConfig struct {
 	Example     string            `json:"example,omitempty"`   // usage example for LLM
 	Workdir     string            `json:"workdir,omitempty"`   // working directory
 	Timeout     string            `json:"timeout,omitempty"`   // default "30s"
-	OutputAs    string            `json:"outputAs,omitempty"`  // "text" (default), "json"
-	DocPath     string            `json:"-"`                   // runtime: SKILL.md full path (not serialized)
-	DocSize     int               `json:"-"`                   // runtime: SKILL.md byte size (not serialized)
-	Learned     bool              `json:"-"`                   // runtime: true if loaded from skills/learned/
+	OutputAs         string            `json:"outputAs,omitempty"`     // "text" (default), "json"
+	AllowedTools     []string          `json:"allowedTools,omitempty"` // tools this skill needs (e.g. ["Bash","Read"])
+	DocPath          string            `json:"-"`                      // runtime: SKILL.md full path (not serialized)
+	DocSize          int               `json:"-"`                      // runtime: SKILL.md byte size (not serialized)
+	Learned          bool              `json:"-"`                      // runtime: true if loaded from skills/learned/
+	ValidationScript string            `json:"-"`                      // runtime: scripts/validate.* path (not serialized)
+}
+
+// ValidationResult is the output of a post-execution validation script.
+type ValidationResult struct {
+	Status string `json:"status"` // "pass", "fail", "error"
+	Output string `json:"output"`
 }
 
 // SkillResult is the output of a skill execution.
 type SkillResult struct {
-	Name     string `json:"name"`
-	Status   string `json:"status"` // "success", "error", "timeout"
-	Output   string `json:"output"`
-	Error    string `json:"error,omitempty"`
-	Duration int64  `json:"durationMs"`
+	Name       string            `json:"name"`
+	Status     string            `json:"status"` // "success", "error", "timeout"
+	Output     string            `json:"output"`
+	Error      string            `json:"error,omitempty"`
+	Duration   int64             `json:"durationMs"`
+	Validation *ValidationResult `json:"validation,omitempty"`
 }
 
 // RunWorkflow is an optional callback set by the root package (wire.go) to
@@ -101,7 +110,36 @@ func ExecuteSkill(ctx context.Context, skill SkillConfig, vars map[string]string
 		result.Status = "success"
 	}
 
+	// Run validation script if configured and skill succeeded.
+	// Validation is meaningless when the skill itself timed out or errored.
+	if skill.ValidationScript != "" && result.Status == "success" {
+		result.Validation = runValidationScript(ctx, skill.ValidationScript, cmd.Dir)
+	}
+
 	return result, nil
+}
+
+// runValidationScript executes a validation script with a fixed 10s timeout.
+// Exit 0 → "pass", exit != 0 → "fail", exec error → "error".
+// The main skill result.Status is never altered by validation outcome.
+func runValidationScript(ctx context.Context, scriptPath, workDir string) *ValidationResult {
+	valCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(valCtx, scriptPath, workDir)
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+
+	vr := &ValidationResult{Output: string(output)}
+	if valCtx.Err() == context.DeadlineExceeded {
+		vr.Status = "error"
+		vr.Output = fmt.Sprintf("validation timed out after 10s\n%s", vr.Output)
+	} else if err != nil {
+		vr.Status = "fail"
+	} else {
+		vr.Status = "pass"
+	}
+	return vr
 }
 
 // ExpandSkillVars replaces {{key}} with values from the vars map.

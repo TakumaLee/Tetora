@@ -46,6 +46,9 @@ type Request struct {
 	Resume         bool // use --resume to resume existing CLI session
 	PersistSession bool // don't add --no-session-persistence (channel sessions)
 
+	// AllowedTools restricts which tools the CLI agent can use (Claude --allowedTools).
+	AllowedTools []string
+
 	// AgentName is the Tetora agent name (e.g. "ruri") for worker display.
 	AgentName string
 

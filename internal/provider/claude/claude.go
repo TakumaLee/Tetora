@@ -455,6 +455,10 @@ func BuildArgs(req provider.Request, streaming bool) []string {
 		args = append(args, "--mcp-config", req.MCPPath)
 	}
 
+	if len(req.AllowedTools) > 0 {
+		args = append(args, "--allowedTools", strings.Join(req.AllowedTools, ","))
+	}
+
 	if req.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", req.SystemPrompt)
 	}

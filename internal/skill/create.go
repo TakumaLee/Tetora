@@ -21,8 +21,9 @@ type SkillMetadata struct {
 	Args        []string          `json:"args,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
 	Matcher     *SkillMatcher     `json:"matcher,omitempty"`
-	Example     string            `json:"example,omitempty"`
-	CreatedBy   string            `json:"createdBy,omitempty"`
+	Example      string            `json:"example,omitempty"`
+	AllowedTools []string          `json:"allowedTools,omitempty"`
+	CreatedBy    string            `json:"createdBy,omitempty"`
 	Approved    bool              `json:"approved"`
 	Sandbox     bool              `json:"sandbox,omitempty"`
 	CreatedAt   string            `json:"createdAt"`
@@ -164,20 +165,32 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 				continue
 			}
 			sc := SkillConfig{
-				Name:        meta.Name,
-				Description: meta.Description,
-				Command:     meta.Command,
-				Args:        meta.Args,
-				Env:         meta.Env,
-				Matcher:     meta.Matcher,
-				Example:     meta.Example,
-				Workdir:     skillDir,
+				Name:         meta.Name,
+				Description:  meta.Description,
+				Command:      meta.Command,
+				Args:         meta.Args,
+				Env:          meta.Env,
+				Matcher:      meta.Matcher,
+				Example:      meta.Example,
+				AllowedTools: meta.AllowedTools,
+				Workdir:      skillDir,
 			}
 			// Detect SKILL.md for Tier 2 doc injection.
 			skillMDPath := filepath.Join(skillDir, "SKILL.md")
 			if info, err := os.Stat(skillMDPath); err == nil {
 				sc.DocPath = skillMDPath
 				sc.DocSize = int(info.Size())
+			}
+			// Detect validation script.
+			scriptGlob := filepath.Join(skillDir, "scripts", "validate.*")
+			if matches, _ := filepath.Glob(scriptGlob); len(matches) > 0 {
+				sc.ValidationScript = matches[0]
+			}
+			// Fallback: parse allowed-tools from SKILL.md frontmatter if not set in metadata.json.
+			if sc.DocPath != "" && len(sc.AllowedTools) == 0 {
+				if tools := parseAllowedToolsFromFrontmatter(sc.DocPath); len(tools) > 0 {
+					sc.AllowedTools = tools
+				}
 			}
 			skills = append(skills, sc)
 			continue
@@ -335,6 +348,66 @@ func parseFrontmatterList(raw string) []string {
 		}
 	}
 	return result
+}
+
+// parseAllowedToolsFromFrontmatter extracts allowed-tools from SKILL.md YAML frontmatter.
+// Supports both inline format: `allowed-tools: [Bash, Read, Grep]`
+// and multi-line list format:
+//
+//	allowed-tools:
+//	  - Bash
+//	  - Read
+func parseAllowedToolsFromFrontmatter(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	text := string(data)
+	if !strings.HasPrefix(text, "---") {
+		return nil
+	}
+	parts := strings.SplitN(text, "---", 3)
+	if len(parts) < 3 {
+		return nil
+	}
+
+	frontmatter := strings.TrimSpace(parts[1])
+	var tools []string
+	inAllowedTools := false
+
+	for _, line := range strings.Split(frontmatter, "\n") {
+		stripped := strings.TrimSpace(line)
+		if strings.HasPrefix(stripped, "- ") && inAllowedTools {
+			item := strings.TrimSpace(strings.TrimPrefix(stripped, "- "))
+			item = strings.Trim(item, `"'`)
+			if item != "" {
+				tools = append(tools, item)
+			}
+			continue
+		}
+		if idx := strings.Index(stripped, ":"); idx > 0 {
+			key := strings.TrimSpace(stripped[:idx])
+			val := strings.TrimSpace(stripped[idx+1:])
+			if key == "allowed-tools" {
+				inAllowedTools = true
+				// Inline format: [Bash, Read, Grep]
+				if strings.HasPrefix(val, "[") {
+					val = strings.Trim(val, "[]")
+					for _, item := range strings.Split(val, ",") {
+						item = strings.TrimSpace(item)
+						item = strings.Trim(item, `"'`)
+						if item != "" {
+							tools = append(tools, item)
+						}
+					}
+					return tools
+				}
+			} else {
+				inAllowedTools = false
+			}
+		}
+	}
+	return tools
 }
 
 // LoadAllFileSkillMetas scans the skills directory and returns all metadata (including unapproved).

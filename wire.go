@@ -4352,8 +4352,9 @@ func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity cla
 		ResolveWorkspace:       resolveWorkspace,
 		BuildReflectionContext: buildReflectionContext,
 		LoadWritingStyle:       loadWritingStyle,
-		BuildSkillsPrompt:      buildSkillsPrompt,
-		InjectWorkspaceContent: injectWorkspaceContent,
+		BuildSkillsPrompt:        buildSkillsPrompt,
+		CollectSkillAllowedTools: collectSkillAllowedTools,
+		InjectWorkspaceContent:   injectWorkspaceContent,
 		EstimateDirSize:        estimateDirSize,
 	})
 }
@@ -8705,6 +8706,10 @@ func buildSkillsPrompt(cfg *Config, task Task, complexity classify.Complexity) s
 	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), complexity)
 }
 
+func collectSkillAllowedTools(cfg *Config, task Task) []string {
+	return skill.CollectSkillAllowedTools(toSkillAppConfig(cfg), toSkillTask(task))
+}
+
 func skillMatchesContext(s SkillConfig, role, prompt, source string) bool {
 	return skill.SkillMatchesContext(s, role, prompt, source)
 }
@@ -11212,6 +11217,7 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 		Resume:         task.Resume,
 		PersistSession: task.PersistSession,
 		Docker:         docker,
+		AllowedTools:   task.AllowedTools,
 		OnEvent:        onEvent,
 		AgentName:      agentName,
 	}

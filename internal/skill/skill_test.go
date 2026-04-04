@@ -2,6 +2,8 @@ package skill
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -233,5 +235,126 @@ func TestExecuteSkill_EnvVars(t *testing.T) {
 	}
 	if result.Output != "hello_from_skill\n" {
 		t.Errorf("output = %q, want %q", result.Output, "hello_from_skill\n")
+	}
+}
+
+func TestExecuteSkill_ValidationPass(t *testing.T) {
+	// Create a temp validation script that exits 0.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/bash\necho ok\nexit 0\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_val_pass",
+		Command:          "echo",
+		Args:             []string{"hello"},
+		Timeout:          "5s",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Status != "success" {
+		t.Errorf("status = %q, want %q", result.Status, "success")
+	}
+	if result.Validation == nil {
+		t.Fatal("expected Validation to be non-nil")
+	}
+	if result.Validation.Status != "pass" {
+		t.Errorf("validation status = %q, want %q", result.Validation.Status, "pass")
+	}
+}
+
+func TestExecuteSkill_ValidationFail(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/bash\necho bad\nexit 1\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_val_fail",
+		Command:          "echo",
+		Args:             []string{"hello"},
+		Timeout:          "5s",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	// Main status should still be success.
+	if result.Status != "success" {
+		t.Errorf("status = %q, want %q", result.Status, "success")
+	}
+	if result.Validation == nil {
+		t.Fatal("expected Validation to be non-nil")
+	}
+	if result.Validation.Status != "fail" {
+		t.Errorf("validation status = %q, want %q", result.Validation.Status, "fail")
+	}
+}
+
+func TestExecuteSkill_NoValidation(t *testing.T) {
+	s := SkillConfig{
+		Name:    "test_no_val",
+		Command: "echo",
+		Args:    []string{"hello"},
+		Timeout: "5s",
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Validation != nil {
+		t.Errorf("expected Validation to be nil, got %+v", result.Validation)
+	}
+}
+
+func TestExecuteSkill_SkipValidationOnError(t *testing.T) {
+	// Validation script that would always pass — but should never run.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_skip_val_error",
+		Command:          "false", // exits non-zero → status "error"
+		Timeout:          "5s",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Status != "error" {
+		t.Errorf("status = %q, want %q", result.Status, "error")
+	}
+	if result.Validation != nil {
+		t.Errorf("expected Validation to be nil when skill errored, got %+v", result.Validation)
+	}
+}
+
+func TestExecuteSkill_SkipValidationOnTimeout(t *testing.T) {
+	// Validation script that would always pass — but should never run.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "validate.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	s := SkillConfig{
+		Name:             "test_skip_val_timeout",
+		Command:          "sleep",
+		Args:             []string{"10"},
+		Timeout:          "100ms",
+		ValidationScript: script,
+	}
+	result, err := ExecuteSkill(context.Background(), s, nil)
+	if err != nil {
+		t.Fatalf("ExecuteSkill returned error: %v", err)
+	}
+	if result.Status != "timeout" {
+		t.Errorf("status = %q, want %q", result.Status, "timeout")
+	}
+	if result.Validation != nil {
+		t.Errorf("expected Validation to be nil when skill timed out, got %+v", result.Validation)
 	}
 }
