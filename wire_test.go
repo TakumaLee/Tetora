@@ -15424,7 +15424,8 @@ CREATE TABLE IF NOT EXISTS job_runs (
   error TEXT DEFAULT '', model TEXT DEFAULT '',
   session_id TEXT DEFAULT '', output_file TEXT DEFAULT '',
   tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
-  agent TEXT DEFAULT '', parent_id TEXT DEFAULT ''
+  agent TEXT DEFAULT '', parent_id TEXT DEFAULT '',
+  provider TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
