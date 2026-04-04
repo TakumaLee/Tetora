@@ -1960,6 +1960,7 @@ func startHTTPServer(s *Server) *http.Server {
 				ri := httpapi.AgentInfo{
 					Name:           name,
 					Model:          rc.Model,
+					Provider:       rc.Provider,
 					PermissionMode: rc.PermissionMode,
 					SoulFile:       rc.SoulFile,
 					Description:    rc.Description,
@@ -1989,6 +1990,7 @@ func startHTTPServer(s *Server) *http.Server {
 			result := map[string]any{
 				"name":           name,
 				"model":          rc.Model,
+				"provider":       rc.Provider,
 				"permissionMode": rc.PermissionMode,
 				"soulFile":       rc.SoulFile,
 				"description":    rc.Description,
@@ -2025,7 +2027,7 @@ func startHTTPServer(s *Server) *http.Server {
 			cfg.Agents[name] = rc
 			return nil
 		},
-		UpdateAgent: func(name, model, permMode, desc, soulFile, soulContent string) error {
+		UpdateAgent: func(name, model, permMode, desc, soulFile, soulContent, providerName string) error {
 			cfg := s.cfg
 			rc := cfg.Agents[name]
 			if model != "" {
@@ -2039,6 +2041,9 @@ func startHTTPServer(s *Server) *http.Server {
 			}
 			if soulFile != "" {
 				rc.SoulFile = soulFile
+			}
+			if providerName != "" {
+				rc.Provider = providerName
 			}
 			if soulContent != "" {
 				if err := writeSoulFile(cfg, name, soulContent); err != nil {
@@ -2807,6 +2812,7 @@ var docsList = []httpapi.DocsPageEntry{
 	{Name: "Taskboard", File: "docs/taskboard.md", Description: "Kanban & Auto-Dispatch"},
 	{Name: "Hooks", File: "docs/hooks.md", Description: "Claude Code Hooks"},
 	{Name: "MCP", File: "docs/mcp.md", Description: "Model Context Protocol"},
+	{Name: "Discord Commands", File: "docs/discord-commands.md", Description: "Chat Commands & Model Switching"},
 	{Name: "Discord Multitasking", File: "docs/discord-multitasking.md", Description: "Thread & Focus"},
 	{Name: "Troubleshooting", File: "docs/troubleshooting.md", Description: "Common Issues"},
 	{Name: "Changelog", File: "CHANGELOG.md", Description: "Release History"},
@@ -4025,6 +4031,149 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			signalSelfReload()
 			audit.Log(cfg.HistoryDB, "config.provider.delete", "dashboard", fmt.Sprintf("provider=%s", name), "")
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": name})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		}
+	})
+
+	// --- Inference Mode (cloud/local toggle) ---
+	mux.HandleFunc("/api/inference-mode", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			cfg2 := s.Cfg()
+			mode := cfg2.InferenceMode
+			if mode == "" {
+				mode = "mixed"
+			}
+			// Count agents by mode.
+			cloud, local := 0, 0
+			for _, ac := range cfg2.Agents {
+				p := ac.Provider
+				if p == "" {
+					p = cfg2.DefaultProvider
+				}
+				if provider.IsLocalProvider(p) {
+					local++
+				} else {
+					cloud++
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"mode": mode, "cloud": cloud, "local": local, "total": cloud + local,
+			})
+
+		case http.MethodPost:
+			var req struct {
+				Mode string `json:"mode"` // "cloud" | "local" | "mixed"
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				jsonError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if req.Mode != "cloud" && req.Mode != "local" && req.Mode != "mixed" {
+				jsonError(w, `mode must be "cloud", "local", or "mixed"`, http.StatusBadRequest)
+				return
+			}
+
+			cfg2 := s.Cfg()
+
+			// For "local" mode, verify Ollama is reachable and get available models.
+			var ollamaModels []string
+			if req.Mode == "local" {
+				ollamaPreset, _ := provider.GetPreset("ollama")
+				models, err := provider.FetchPresetModels(ollamaPreset)
+				if err != nil || len(models) == 0 {
+					jsonError(w, "Ollama is not reachable or has no models. Start it with: ollama serve", http.StatusServiceUnavailable)
+					return
+				}
+				ollamaModels = models
+			}
+
+			switched := 0
+			pinned := 0
+			var errors []string
+			updatedAgents := make(map[string]tetoraConfig.AgentConfig)
+
+			for name, ac := range cfg2.Agents {
+				// Skip agents with PinMode set.
+				if ac.PinMode != "" {
+					pinned++
+					continue
+				}
+
+				switch req.Mode {
+				case "local":
+					// Already on a local provider? Skip.
+					if provider.IsLocalProvider(ac.Provider) {
+						continue
+					}
+					// Save current cloud model.
+					ac.CloudModel = ac.Model
+					// Use agent's preferred local model, or first Ollama model.
+					if ac.LocalModel != "" {
+						ac.Model = ac.LocalModel
+					} else if len(ollamaModels) > 0 {
+						ac.Model = ollamaModels[0]
+					} else {
+						errors = append(errors, name+": no local model available")
+						continue
+					}
+					ac.Provider = "ollama"
+					switched++
+
+				case "cloud":
+					// Not on a local provider? Skip.
+					if !provider.IsLocalProvider(ac.Provider) {
+						continue
+					}
+					// Restore cloud model.
+					if ac.CloudModel != "" {
+						ac.Model = ac.CloudModel
+						// Infer provider from the cloud model name.
+						if preset, ok := provider.InferProviderFromModelWithPref(ac.CloudModel, cfg2.ClaudeProvider); ok {
+							ac.Provider = preset
+						} else {
+							ac.Provider = cfg2.DefaultProvider
+						}
+					} else {
+						// No saved cloud model — use defaults.
+						ac.Model = cfg2.DefaultModel
+						ac.Provider = cfg2.DefaultProvider
+					}
+					switched++
+
+				case "mixed":
+					// Just set the mode flag, don't change any models.
+				}
+
+				cfg2.Agents[name] = ac
+				updatedAgents[name] = ac
+			}
+
+			// Persist to config.json in a single atomic write.
+			configPath := findConfigPath()
+			modeStr := req.Mode
+			if modeStr == "mixed" {
+				modeStr = "" // empty = mixed in config
+			}
+			if err := tetoraConfig.SaveInferenceMode(configPath, modeStr, updatedAgents); err != nil {
+				jsonError(w, "save config: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			cfg2.InferenceMode = modeStr
+
+			signalSelfReload()
+			audit.Log(cfg.HistoryDB, "config.inference_mode", "dashboard",
+				fmt.Sprintf("mode=%s switched=%d pinned=%d", req.Mode, switched, pinned), "")
+
+			json.NewEncoder(w).Encode(map[string]any{
+				"mode":    req.Mode,
+				"switched": switched,
+				"pinned":  pinned,
+				"errors":  errors,
+			})
 
 		default:
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)

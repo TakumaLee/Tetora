@@ -155,6 +155,29 @@ tetora dashboard
 
 ---
 
+## Discord Commands
+
+Tetora responds to `!` prefix commands in Discord:
+
+| Command | Description |
+|---------|-------------|
+| `!model` | Show all agents grouped by Cloud / Local |
+| `!model pick [agent]` | Interactive model picker (buttons + dropdowns) |
+| `!model <model> [agent]` | Set model directly (auto-detects provider) |
+| `!local [agent]` | Switch to local models (Ollama) |
+| `!cloud [agent]` | Restore cloud models |
+| `!mode` | Inference mode summary with toggle buttons |
+| `!chat <agent>` | Lock channel to a specific agent |
+| `!end` | Unlock channel, resume smart dispatch |
+| `!new` | Start new session |
+| `!ask <prompt>` | One-off question |
+| `!status` / `!cost` / `!jobs` | Operations overview |
+| `@Tetora <text>` | Smart dispatch to best agent |
+
+**[Full Discord Commands Reference](docs/discord-commands.md)** -- model switching, remote/local toggle, provider config, and more.
+
+---
+
 ## Build from Source
 
 ```bash

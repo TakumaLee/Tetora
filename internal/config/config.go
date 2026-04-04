@@ -124,6 +124,8 @@ type Config struct {
 	Logging               LoggingConfig              `json:"logging,omitempty"`
 	CircuitBreaker        CircuitBreakerConfig       `json:"circuitBreaker,omitempty"`
 	FallbackProviders     []string                   `json:"fallbackProviders,omitempty"`
+	InferenceMode         string                     `json:"inferenceMode,omitempty"` // "cloud" | "local" | "" (mixed)
+	ClaudeProvider        string                     `json:"claudeProvider,omitempty"` // "claude-code" | "anthropic" — how to run Claude models
 	SLA                   SLAConfig                  `json:"sla,omitempty"`
 	OfflineQueue          OfflineQueueConfig         `json:"offlineQueue,omitempty"`
 	Budgets               BudgetConfig               `json:"budgets,omitempty"`

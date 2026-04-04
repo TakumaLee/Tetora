@@ -39,6 +39,7 @@ import (
 	"tetora/internal/automation/insights"
 	"tetora/internal/circuit"
 	"tetora/internal/classify"
+	"tetora/internal/cli"
 	"tetora/internal/config"
 	"tetora/internal/cost"
 	"tetora/internal/cron"
@@ -9411,7 +9412,13 @@ func (r *telegramRuntime) AgentModels() map[string]string {
 }
 
 func (r *telegramRuntime) UpdateAgentModelByName(agent, model string) (old string, err error) {
-	return updateAgentModel(r.cfg, agent, model)
+	inferredProvider := ""
+	if presetName, ok := provider.InferProviderFromModelWithPref(model, r.cfg.ClaudeProvider); ok {
+		_ = ensureProvider(r.cfg, presetName)
+		inferredProvider = presetName
+	}
+	res, err := updateAgentModel(r.cfg, agent, model, inferredProvider)
+	return res.OldModel, err
 }
 
 func (r *telegramRuntime) DefaultSmartDispatchAgent() string {
@@ -9627,7 +9634,12 @@ func (r *messagingRuntime) QueryCostStats() (today, week, month float64) {
 }
 
 func (r *messagingRuntime) UpdateAgentModel(agent, model string) error {
-	_, err := updateAgentModel(r.cfg, agent, model)
+	inferredProvider := ""
+	if presetName, ok := provider.InferProviderFromModelWithPref(model, r.cfg.ClaudeProvider); ok {
+		_ = ensureProvider(r.cfg, presetName)
+		inferredProvider = presetName
+	}
+	_, err := updateAgentModel(r.cfg, agent, model, inferredProvider)
 	return err
 }
 
@@ -10896,6 +10908,77 @@ func providersChanged(oldCfg, newCfg *Config) bool {
 	return string(oldJSON) != string(newJSON)
 }
 
+// ensureProvider creates a provider entry from a preset if it doesn't already
+// exist in cfg.Providers, persists it to config.json, and registers it in the
+// runtime provider registry so it can be used immediately without restart.
+func ensureProvider(cfg *Config, presetName string) error {
+	if _, exists := cfg.Providers[presetName]; exists {
+		return nil
+	}
+
+	preset, ok := provider.GetPreset(presetName)
+	if !ok {
+		return fmt.Errorf("unknown provider preset %q", presetName)
+	}
+
+	apiKeyRef := ""
+	if preset.RequiresKey {
+		apiKeyRef = "$" + strings.ToUpper(presetName) + "_API_KEY"
+	}
+
+	defaultModel := ""
+	if len(preset.Models) > 0 {
+		defaultModel = preset.Models[0]
+	}
+
+	pc := config.ProviderConfig{
+		Type:    preset.Type,
+		BaseURL: preset.BaseURL,
+		APIKey:  apiKeyRef,
+		Model:   defaultModel,
+	}
+
+	if cfg.Providers == nil {
+		cfg.Providers = make(map[string]config.ProviderConfig)
+	}
+	cfg.Providers[presetName] = pc
+
+	providersJSON, err := json.Marshal(cfg.Providers)
+	if err != nil {
+		return fmt.Errorf("marshal providers: %w", err)
+	}
+	if err := cli.UpdateConfigField(findConfigPath(), "providers", providersJSON); err != nil {
+		return fmt.Errorf("persist providers: %w", err)
+	}
+
+	resolvedKey := config.ResolveEnvRef(apiKeyRef, "providers."+presetName+".apiKey")
+
+	if cfg.Runtime.ProviderRegistry != nil {
+		reg := cfg.Runtime.ProviderRegistry.(*providerRegistry)
+		switch preset.Type {
+		case "anthropic":
+			reg.Register(presetName, anthropicprovider.New(presetName, preset.BaseURL, resolvedKey, defaultModel))
+		case "codex-cli":
+			path := pc.Path
+			if path == "" {
+				path = "codex"
+			}
+			reg.Register(presetName, &provider.CodexProvider{BinaryPath: path})
+		default: // "openai-compatible" and others
+			reg.Register(presetName, &provider.OpenAIProvider{
+				Name_:        presetName,
+				BaseURL:      preset.BaseURL,
+				APIKey:       resolvedKey,
+				DefaultModel: defaultModel,
+				IsLocal:      provider.IsLocalEndpoint(preset.BaseURL),
+			})
+		}
+	}
+
+	log.Info("auto-created provider from preset", "provider", presetName, "type", preset.Type)
+	return nil
+}
+
 // --- initProviders creates provider instances from config ---
 // Stays in root because it depends on Config and root-level Docker/Tmux adapters.
 
@@ -10927,6 +11010,7 @@ func initProviders(cfg *Config) *provider.Registry {
 				BaseURL:      pc.BaseURL,
 				APIKey:       pc.APIKey,
 				DefaultModel: pc.Model,
+				IsLocal:      provider.IsLocalEndpoint(pc.BaseURL),
 			})
 
 		case "claude-api":
@@ -11154,7 +11238,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 			if !cb.Allow() {
 				log.DebugCtx(ctx, "circuit open, skipping provider", "provider", providerName)
 				if i == 0 && len(candidates) > 1 {
-					publishFailoverEvent(eventCh, task.ID, providerName, candidates[i+1], "circuit open")
+					publishFailoverEventAgent(eventCh, task.ID, agentName, providerName, candidates[i+1], "circuit open")
 				}
 				continue
 			}
@@ -11186,7 +11270,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 
 				if i < len(candidates)-1 {
 					next := candidates[i+1]
-					publishFailoverEvent(eventCh, task.ID, providerName, next, errMsg)
+					publishFailoverEventAgent(eventCh, task.ID, agentName, providerName, next, errMsg)
 					log.InfoCtx(ctx, "failing over to next provider", "from", providerName, "to", next)
 					continue
 				}
@@ -11222,21 +11306,25 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 	}
 }
 
-// publishFailoverEvent sends a provider_failover SSE event if eventCh is available.
+// publishFailoverEventAgent sends a provider_failover SSE event if eventCh is available.
 // The send is non-blocking to avoid blocking executeWithProvider on a full channel.
-func publishFailoverEvent(eventCh chan<- SSEEvent, taskID, from, to, reason string) {
+func publishFailoverEventAgent(eventCh chan<- SSEEvent, taskID, agent, from, to, reason string) {
 	if eventCh == nil {
 		return
+	}
+	data := map[string]any{
+		"from":   from,
+		"to":     to,
+		"reason": reason,
+	}
+	if agent != "" {
+		data["agent"] = agent
 	}
 	select {
 	case eventCh <- SSEEvent{
 		Type:   "provider_failover",
 		TaskID: taskID,
-		Data: map[string]any{
-			"from":   from,
-			"to":     to,
-			"reason": reason,
-		},
+		Data:   data,
 	}:
 	default:
 	}

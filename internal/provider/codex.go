@@ -30,6 +30,11 @@ func (p *CodexProvider) Execute(ctx context.Context, req Request) (*Result, erro
 	cmd := exec.CommandContext(ctx, p.BinaryPath, args...)
 	cmd.Dir = req.Workdir
 	cmd.Env = os.Environ()
+	// Close stdin so codex doesn't hang on "Reading additional input from stdin...".
+	if devNull, err := os.Open(os.DevNull); err == nil {
+		cmd.Stdin = devNull
+		defer devNull.Close()
+	}
 	// Kill entire process group on timeout to prevent orphaned child processes.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -112,25 +117,23 @@ func (p *CodexProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req
 			continue
 		}
 
-		switch ev.Type {
-		case "agent_message":
-			if ev.Content != "" {
-				outputParts = append(outputParts, ev.Content)
+		if ev.isAgentMessage() {
+			if text := ev.agentText(); text != "" {
+				outputParts = append(outputParts, text)
 				if req.OnEvent != nil {
 					req.OnEvent(Event{
 						Type:      EventOutputChunk,
 						TaskID:    req.SessionID,
 						SessionID: req.SessionID,
 						Data: map[string]any{
-							"chunk":     ev.Content,
+							"chunk":     text,
 							"chunkType": "text",
 						},
 						Timestamp: time.Now().Format(time.RFC3339),
 					})
 				}
 			}
-
-		case "exec_command_begin":
+		} else if ev.isCommandBegin() {
 			if req.OnEvent != nil {
 				req.OnEvent(Event{
 					Type:      EventToolCall,
@@ -138,16 +141,15 @@ func (p *CodexProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req
 					SessionID: req.SessionID,
 					Data: map[string]any{
 						"name":  "exec_command",
-						"id":    ev.Command,
-						"input": ev.Command,
+						"id":    ev.commandName(),
+						"input": ev.commandName(),
 					},
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
 			}
-
-		case "exec_command_end":
+		} else if ev.isCommandEnd() {
 			if req.OnEvent != nil {
-				output := ev.Output
+				output := ev.commandOutput()
 				if len(output) > 500 {
 					output = output[:500] + "..."
 				}
@@ -156,15 +158,14 @@ func (p *CodexProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req
 					TaskID:    req.SessionID,
 					SessionID: req.SessionID,
 					Data: map[string]any{
-						"toolUseId": ev.Command,
+						"toolUseId": ev.commandName(),
 						"name":      "exec_command",
 						"content":   output,
 					},
 					Timestamp: time.Now().Format(time.RFC3339),
 				})
 			}
-
-		case "turn.completed":
+		} else if ev.Type == "turn.completed" {
 			pr := &Result{
 				Output: strings.Join(outputParts, ""),
 			}
@@ -174,8 +175,7 @@ func (p *CodexProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req
 			}
 			pr.CostUSD = 0
 			finalResult = pr
-
-		case "turn.failed":
+		} else if ev.Type == "turn.failed" {
 			finalResult = &Result{
 				Output:  strings.Join(outputParts, ""),
 				IsError: true,
@@ -219,19 +219,73 @@ func (p *CodexProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req
 
 // --- Codex JSONL Event Types ---
 
+// codexEvent handles both legacy (pre-v0.118) and new (v0.118+) JSONL formats.
+// Legacy: {"type":"agent_message","content":"..."}
+// New:    {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
 type codexEvent struct {
-	Type     string      `json:"type"`
-	Content  string      `json:"content,omitempty"`
-	Command  string      `json:"command,omitempty"`
-	ExitCode *int        `json:"exit_code,omitempty"`
-	Output   string      `json:"output,omitempty"`
-	Usage    *codexUsage `json:"usage,omitempty"`
-	Error    string      `json:"error,omitempty"`
+	Type  string     `json:"type"`
+	Item  *codexItem `json:"item,omitempty"`
+	Usage *codexUsage `json:"usage,omitempty"`
+	Error string     `json:"error,omitempty"`
+	// Legacy flat fields.
+	Content string `json:"content,omitempty"`
+	Command string `json:"command,omitempty"`
+	Output  string `json:"output,omitempty"`
+}
+
+type codexItem struct {
+	ID     string `json:"id,omitempty"`
+	Type   string `json:"type"`
+	Text   string `json:"text,omitempty"`
+	Cmd    string `json:"command,omitempty"`
+	Output string `json:"aggregated_output,omitempty"`
 }
 
 type codexUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
+}
+
+func (ev *codexEvent) agentText() string {
+	if ev.Item != nil && ev.Item.Type == "agent_message" {
+		return ev.Item.Text
+	}
+	return ev.Content
+}
+
+func (ev *codexEvent) isAgentMessage() bool {
+	if ev.Type == "agent_message" {
+		return true
+	}
+	return (ev.Type == "item.completed") && ev.Item != nil && ev.Item.Type == "agent_message"
+}
+
+func (ev *codexEvent) isCommandBegin() bool {
+	if ev.Type == "exec_command_begin" {
+		return true
+	}
+	return ev.Type == "item.started" && ev.Item != nil && ev.Item.Type == "command_execution"
+}
+
+func (ev *codexEvent) isCommandEnd() bool {
+	if ev.Type == "exec_command_end" {
+		return true
+	}
+	return ev.Type == "item.completed" && ev.Item != nil && ev.Item.Type == "command_execution"
+}
+
+func (ev *codexEvent) commandName() string {
+	if ev.Item != nil {
+		return ev.Item.Cmd
+	}
+	return ev.Command
+}
+
+func (ev *codexEvent) commandOutput() string {
+	if ev.Item != nil {
+		return ev.Item.Output
+	}
+	return ev.Output
 }
 
 // BuildCodexArgs constructs the codex CLI argument list.
@@ -297,17 +351,16 @@ func ParseCodexOutput(stdout, stderr []byte, exitCode int) *Result {
 			outputParts = append(outputParts, string(line))
 			continue
 		}
-		switch ev.Type {
-		case "agent_message":
-			if ev.Content != "" {
-				outputParts = append(outputParts, ev.Content)
+		if ev.isAgentMessage() {
+			if text := ev.agentText(); text != "" {
+				outputParts = append(outputParts, text)
 			}
-		case "turn.completed":
+		} else if ev.Type == "turn.completed" {
 			if ev.Usage != nil {
 				pr.TokensIn = ev.Usage.InputTokens
 				pr.TokensOut = ev.Usage.OutputTokens
 			}
-		case "turn.failed":
+		} else if ev.Type == "turn.failed" {
 			pr.IsError = true
 			pr.Error = ev.Error
 		}

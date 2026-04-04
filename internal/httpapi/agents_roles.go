@@ -23,6 +23,7 @@ type ArchetypeInfo struct {
 type AgentInfo struct {
 	Name           string `json:"name"`
 	Model          string `json:"model"`
+	Provider       string `json:"provider,omitempty"`
 	PermissionMode string `json:"permissionMode,omitempty"`
 	SoulFile       string `json:"soulFile"`
 	Description    string `json:"description"`
@@ -48,7 +49,7 @@ type AgentRoleDeps struct {
 	CreateAgent func(name, model, permMode, desc, soulFile, soulContent string) error
 
 	// UpdateAgent updates an existing agent. Returns error on failure.
-	UpdateAgent func(name, model, permMode, desc, soulFile, soulContent string) error
+	UpdateAgent func(name, model, permMode, desc, soulFile, soulContent, providerName string) error
 
 	// DeleteAgent deletes an agent. Returns (error, conflict) — conflict=true means
 	// the agent is in use by a cron job (HTTP 409); other errors yield HTTP 500.
@@ -162,13 +163,14 @@ func (h *agentRoleHandler) handleRole(w http.ResponseWriter, r *http.Request) {
 			Description    string `json:"description"`
 			SoulFile       string `json:"soulFile"`
 			SoulContent    string `json:"soulContent"`
+			Provider       string `json:"provider"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 			return
 		}
 
-		if err := h.d.UpdateAgent(name, body.Model, body.PermissionMode, body.Description, body.SoulFile, body.SoulContent); err != nil {
+		if err := h.d.UpdateAgent(name, body.Model, body.PermissionMode, body.Description, body.SoulFile, body.SoulContent, body.Provider); err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}

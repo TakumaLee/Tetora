@@ -24,6 +24,7 @@ type JobRun struct {
 	OutputSummary string  `json:"outputSummary"`
 	Error         string  `json:"error"`
 	Model         string  `json:"model"`
+	Provider      string  `json:"provider,omitempty"`
 	SessionID     string  `json:"sessionId"`
 	OutputFile    string  `json:"outputFile,omitempty"`
 	TokensIn      int     `json:"tokensIn,omitempty"`
@@ -80,10 +81,12 @@ type DailyMetrics struct {
 	AvgDurMs  int64   `json:"avgDurMs"`
 }
 
-// ProviderMetrics holds per-provider (model) metrics breakdown.
+// ProviderMetrics holds per-model metrics breakdown.
 type ProviderMetrics struct {
 	Model     string  `json:"model"`
+	Provider  string  `json:"provider"`
 	Tasks     int     `json:"tasks"`
+	TotalCost float64 `json:"totalCost"`
 	AvgCost   float64 `json:"avgCost"`
 	AvgDurMs  int64   `json:"avgDurMs"`
 	ErrorRate float64 `json:"errorRate"`
@@ -131,6 +134,7 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		`ALTER TABLE job_runs ADD COLUMN tokens_out INTEGER DEFAULT 0;`,
 		`ALTER TABLE job_runs ADD COLUMN agent TEXT DEFAULT '';`,
 		`ALTER TABLE job_runs ADD COLUMN parent_id TEXT DEFAULT '';`,
+		`ALTER TABLE job_runs ADD COLUMN provider TEXT DEFAULT '';`,
 	} {
 		if err := db.Exec(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") {
@@ -219,8 +223,8 @@ func JobRunExistsNear(dbPath, jobID string, near time.Time) bool {
 
 func InsertRun(dbPath string, run JobRun) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
-		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
+		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
 		db.Escape(run.JobID),
 		db.Escape(run.Name),
 		db.Escape(run.Source),
@@ -232,6 +236,7 @@ func InsertRun(dbPath string, run JobRun) error {
 		db.Escape(run.OutputSummary),
 		db.Escape(run.Error),
 		db.Escape(run.Model),
+		db.Escape(run.Provider),
 		db.Escape(run.SessionID),
 		db.Escape(run.OutputFile),
 		run.TokensIn,
@@ -255,7 +260,7 @@ func Query(dbPath, jobID string, limit int) ([]JobRun, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -274,7 +279,7 @@ func Query(dbPath, jobID string, limit int) ([]JobRun, error) {
 // QueryByID returns a single job run by its ID.
 func QueryByID(dbPath string, id int) (*JobRun, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE id = %d`, id)
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
@@ -305,6 +310,7 @@ func runFromRow(row map[string]any) JobRun {
 		OutputSummary: db.Str(row["output_summary"]),
 		Error:         db.Str(row["error"]),
 		Model:         db.Str(row["model"]),
+		Provider:      db.Str(row["provider"]),
 		SessionID:     db.Str(row["session_id"]),
 		OutputFile:    db.Str(row["output_file"]),
 		TokensIn:      db.Int(row["tokens_in"]),
@@ -389,7 +395,7 @@ func QueryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) {
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -461,7 +467,7 @@ func QueryLastRun(dbPath, jobID string) *JobRun {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT 1`,
 		db.Escape(jobID))
 
@@ -562,7 +568,7 @@ func QueryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	// Failed runs details.
 	if fail > 0 {
 		failSQL := fmt.Sprintf(
-			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 			 FROM job_runs
 			 WHERE started_at >= '%s' AND started_at < '%s' AND status != 'success'
 			 ORDER BY id DESC LIMIT 10`,
@@ -606,7 +612,7 @@ func QueryRecentFails(dbPath string, q FailQuery) ([]JobRun, error) {
 
 	where := "WHERE " + strings.Join(conditions, " AND ")
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -699,7 +705,7 @@ func QueryJobTrace(dbPath, jobID string, limit int) ([]JobRun, error) {
 		limit = 10
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT %d`,
 		db.Escape(jobID), limit)
 
@@ -835,7 +841,9 @@ func QueryProviderMetrics(dbPath string, days int) ([]ProviderMetrics, error) {
 	sql := fmt.Sprintf(
 		`SELECT
 			model,
+			COALESCE(provider, '') as provider,
 			COUNT(*) as total,
+			COALESCE(SUM(cost_usd), 0) as total_cost,
 			COALESCE(AVG(cost_usd), 0) as avg_cost,
 			COALESCE(AVG(CAST(
 				(julianday(finished_at) - julianday(started_at)) * 86400000 AS INTEGER
@@ -846,7 +854,7 @@ func QueryProviderMetrics(dbPath string, days int) ([]ProviderMetrics, error) {
 		 FROM job_runs
 		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')
 		   AND model != ''
-		 GROUP BY model ORDER BY total DESC`, days)
+		 GROUP BY model, provider ORDER BY total DESC`, days)
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
@@ -863,7 +871,9 @@ func QueryProviderMetrics(dbPath string, days int) ([]ProviderMetrics, error) {
 		}
 		metrics = append(metrics, ProviderMetrics{
 			Model:     db.Str(row["model"]),
+			Provider:  db.Str(row["provider"]),
 			Tasks:     total,
+			TotalCost: db.Float(row["total_cost"]),
 			AvgCost:   db.Float(row["avg_cost"]),
 			AvgDurMs:  int64(db.Float(row["avg_dur_ms"])),
 			ErrorRate: errorRate,

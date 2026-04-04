@@ -25,8 +25,11 @@ type AgentConfig struct {
 	ToolProfile       string          `json:"toolProfile,omitempty"`
 	Workspace         WorkspaceConfig `json:"workspace,omitempty"`
 	Portrait              string          `json:"portrait,omitempty"`
-	VoicePreset           string          `json:"voicePreset,omitempty"` // e.g. "alice", "carter", "maya"
+	VoicePreset           string          `json:"voicePreset,omitempty"`           // e.g. "alice", "carter", "maya"
 	DangerousOpsWhitelist []string        `json:"dangerousOpsWhitelist,omitempty"` // patterns allowed for this agent
+	CloudModel            string          `json:"cloudModel,omitempty"`            // preserved cloud model when switching to local
+	LocalModel            string          `json:"localModel,omitempty"`            // preferred local model for this agent
+	PinMode               string          `json:"pinMode,omitempty"`               // "cloud" | "local" | "" (follows global)
 }
 
 type ProviderConfig struct {
