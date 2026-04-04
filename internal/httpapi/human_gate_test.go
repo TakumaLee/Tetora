@@ -22,7 +22,7 @@ func testHumanGateDeps() (httpapi.HumanGateDeps, func(key, action, response, res
 		Prompt       string `json:"prompt"`
 		Assignee     string `json:"assignee"`
 		Status       string `json:"status"`
-		Decision     string `json:"decision"`
+		Action       string `json:"action"`
 		Response     string `json:"response"`
 		RespondedBy  string `json:"respondedBy"`
 	}
@@ -30,7 +30,7 @@ func testHumanGateDeps() (httpapi.HumanGateDeps, func(key, action, response, res
 	store := map[string]*gate{
 		"gate-1": {Key: "gate-1", RunID: "run-1", StepID: "step-1", WorkflowName: "wf-alpha", Subtype: "approval", Prompt: "Please approve", Status: "waiting"},
 		"gate-2": {Key: "gate-2", RunID: "run-2", StepID: "step-2", WorkflowName: "wf-beta", Subtype: "input", Prompt: "Enter value", Status: "waiting"},
-		"gate-3": {Key: "gate-3", RunID: "run-3", StepID: "step-1", WorkflowName: "wf-gamma", Subtype: "action", Prompt: "Do something", Status: "completed", Decision: "done"},
+		"gate-3": {Key: "gate-3", RunID: "run-3", StepID: "step-1", WorkflowName: "wf-gamma", Subtype: "action", Prompt: "Do something", Status: "completed", Action: "done"},
 	}
 
 	toMap := func(g *gate) map[string]any {
@@ -76,7 +76,7 @@ func testHumanGateDeps() (httpapi.HumanGateDeps, func(key, action, response, res
 			lastResponded.respondedBy = respondedBy
 			if g, ok := store[key]; ok {
 				g.Status = "completed"
-				g.Decision = action
+				g.Action = action
 				g.Response = response
 				g.RespondedBy = respondedBy
 			}

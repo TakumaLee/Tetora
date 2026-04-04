@@ -2540,8 +2540,10 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 			return
 		}
 
-		// Parse the callback body as JSON to extract decision/response/respondedBy.
+		// Parse the callback body as JSON to extract action/response/respondedBy.
+		// Accepts both "action" (canonical) and "decision" (legacy) field names.
 		var body struct {
+			Action      string `json:"action"`
 			Decision    string `json:"decision"`
 			Response    string `json:"response"`
 			RespondedBy string `json:"respondedBy"`
@@ -2550,12 +2552,16 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 			// Treat raw body as response text.
 			body.Response = cbResult.Body
 			if subtype == "approval" {
-				body.Decision = cbResult.Body // e.g. "approved" or "rejected"
+				body.Action = cbResult.Body // e.g. "approve" or "reject"
 			}
+		}
+		// Normalize: prefer "action", fall back to legacy "decision".
+		if body.Action == "" && body.Decision != "" {
+			body.Action = body.Decision
 		}
 
 		// Cancel — stop the step without completing.
-		if body.Decision == "cancelled" {
+		if body.Action == "cancelled" {
 			cancelHumanGate(callbackMgr.DBPath(), hgKey)
 			result.Status = "cancelled"
 			result.Error = "human gate cancelled by operator"
@@ -2564,7 +2570,7 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 				"runId":       e.run.ID,
 				"stepId":      step.ID,
 				"hgKey":       hgKey,
-				"decision":    "cancelled",
+				"action":      "cancelled",
 				"cancelledBy": body.RespondedBy,
 			})
 
@@ -2579,21 +2585,21 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 
 		// Record completion in DB — use rejectHumanGate for approval rejections so
 		// DB status is "rejected" and the resume path (existing.Status == "rejected") matches.
-		if subtype == "approval" && (body.Decision == "rejected" || body.Decision == "reject") {
+		if subtype == "approval" && (body.Action == "rejected" || body.Action == "reject") {
 			rejectHumanGate(callbackMgr.DBPath(), hgKey, body.Response, body.RespondedBy)
 		} else {
-			completeHumanGate(callbackMgr.DBPath(), hgKey, body.Decision, body.Response, body.RespondedBy)
+			completeHumanGate(callbackMgr.DBPath(), hgKey, body.Action, body.Response, body.RespondedBy)
 		}
 
 		// Apply result based on subtype.
-		applyHumanGateResult(subtype, body.Decision, body.Response, step, result)
+		applyHumanGateResult(subtype, body.Action, body.Response, step, result)
 
 		// Publish responded event.
 		e.publishEvent("human_gate_responded", map[string]any{
 			"runId":       e.run.ID,
 			"stepId":      step.ID,
 			"hgKey":       hgKey,
-			"decision":    body.Decision,
+			"action":      body.Action,
 			"respondedBy": body.RespondedBy,
 		})
 
@@ -2603,7 +2609,7 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 		e.mu.Unlock()
 		checkpointRun(e)
 
-		log.Info("human gate completed", "step", step.ID, "key", hgKey, "decision", body.Decision)
+		log.Info("human gate completed", "step", step.ID, "key", hgKey, "action", body.Action)
 
 	case <-timer.C:
 		// Timeout.
@@ -2612,10 +2618,10 @@ func (e *workflowExecutor) runHumanStep(ctx context.Context, step *WorkflowStep,
 
 		// Publish responded event (timeout).
 		e.publishEvent("human_gate_responded", map[string]any{
-			"runId":    e.run.ID,
-			"stepId":   step.ID,
-			"hgKey":    hgKey,
-			"decision": "timeout",
+			"runId":  e.run.ID,
+			"stepId": step.ID,
+			"hgKey":  hgKey,
+			"action": "timeout",
 		})
 
 		// Restore run status.
