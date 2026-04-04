@@ -50,9 +50,10 @@ type WorkflowStep struct {
 	Parallel []WorkflowStep `json:"parallel,omitempty"` // sub-steps to run in parallel
 
 	// Failure handling.
-	RetryMax   int    `json:"retryMax,omitempty"`   // max retries on failure
-	RetryDelay string `json:"retryDelay,omitempty"` // delay between retries
-	OnError    string `json:"onError,omitempty"`    // "stop" (default), "skip", "retry"
+	RetryMax      int    `json:"retryMax,omitempty"`      // max retries on failure
+	RetryDelay    string `json:"retryDelay,omitempty"`    // delay between retries
+	OnError       string `json:"onError,omitempty"`       // "stop" (default), "skip", "retry"
+	AllowDangerous bool  `json:"allowDangerous,omitempty"` // bypass dangerous-ops check for this step
 
 	// New step types: tool_call, delay, notify, external.
 	ToolName  string            `json:"toolName,omitempty"`  // for type="tool_call"

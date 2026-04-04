@@ -1,0 +1,18 @@
+{
+  "_comment": "個人設定，不要 commit。複製此檔為 config.local.json 後填入。",
+  "claudePath": "/Users/yourname/.claude/local/claude",
+  "apiToken": "your-api-token",
+  "listenAddr": "127.0.0.1:51184",
+  "telegram": {
+    "botToken": "your-bot-token",
+    "chatID": 0
+  },
+  "discord": {
+    "botToken": "your-discord-token"
+  },
+  "agents": {
+    "tyrion": {
+      "model": "opus"
+    }
+  }
+}
