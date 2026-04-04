@@ -13,10 +13,9 @@ export function getStaticPaths() {
 const { lang } = Astro.params as { lang: Lang };
 const allTips = await getCollection('tips');
 const langTips = allTips.filter(p => p.data.lang === lang);
-const toSlug = (p: any) => p.id.replace(`${p.data.lang}/`, '').replace(/\.mdx?$/, '');
-const langSlugs = new Set(langTips.map(toSlug));
+const langFiles = new Set(langTips.map(p => p.id.split('/').pop()?.replace(/\.mdx?$/, '') ?? ''));
 const fallbackTips = lang === 'en' ? [] : allTips
-  .filter(p => p.data.lang === 'en' && !langSlugs.has(toSlug(p)));
+  .filter(p => p.data.lang === 'en' && !langFiles.has(p.id.split('/').pop()?.replace(/\.mdx?$/, '') ?? ''));
 const tips = [...langTips, ...fallbackTips]
   .sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
 ---

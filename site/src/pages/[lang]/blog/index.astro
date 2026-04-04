@@ -12,12 +12,20 @@ export function getStaticPaths() {
 
 const { lang } = Astro.params as { lang: Lang };
 const allPosts = await getCollection('blog');
+// Filter by current language. Fallback to English only for posts with no translation.
 const langPosts = allPosts.filter(p => p.data.lang === lang);
-// Extract slug by stripping lang prefix and .md extension from content collection id.
-const toSlug = (p: any) => p.id.replace(`${p.data.lang}/`, '').replace(/\.mdx?$/, '');
-const langSlugs = new Set(langPosts.map(toSlug));
+// Build a set of base filenames that exist in the current language.
+// Use the same slug extraction as [...slug].astro: split('/').slice(1).join('/')
+const toBaseSlug = (p: any) => p.id.split('/').slice(1).join('/').replace(/\.mdx?$/, '');
+const langSlugs = new Set(langPosts.map(toBaseSlug));
 const fallbackPosts = lang === 'en' ? [] : allPosts
-  .filter(p => p.data.lang === 'en' && !langSlugs.has(toSlug(p)));
+  .filter(p => p.data.lang === 'en' && !langSlugs.has(toBaseSlug(p)));
+// Debug: log during build to verify dedup is working
+if (lang === 'zh-TW') {
+  console.log('[blog-debug] zh-TW langPosts:', langPosts.length, 'langSlugs:', [...langSlugs]);
+  console.log('[blog-debug] en candidates:', allPosts.filter(p => p.data.lang === 'en').map(p => `${p.id} → ${toBaseSlug(p)}`));
+  console.log('[blog-debug] fallbackPosts:', fallbackPosts.length);
+}
 const posts = [...langPosts, ...fallbackPosts]
   .sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
 
