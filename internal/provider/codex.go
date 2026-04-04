@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"tetora/internal/log"
@@ -36,13 +35,7 @@ func (p *CodexProvider) Execute(ctx context.Context, req Request) (*Result, erro
 		defer devNull.Close()
 	}
 	// Kill entire process group on timeout to prevent orphaned child processes.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return os.ErrProcessDone
-	}
+	SetProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 
 	if req.OnEvent != nil {
