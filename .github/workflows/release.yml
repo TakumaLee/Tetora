@@ -226,3 +226,28 @@ jobs:
             exit 1
           fi
           echo "All assets verified successfully."
+
+      - name: Update site version and install.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+
+          # Update DownloadGrid.astro
+          sed -i "s/const version = 'v[^']*'/const version = 'v${VERSION}'/" site/src/components/DownloadGrid.astro
+
+          # Update install.sh
+          sed -i "s/local VERSION=\"\${TETORA_VERSION:-[^\"]*}\"/local VERSION=\"\${TETORA_VERSION:-${VERSION}}\"/" install.sh
+
+          if git diff --quiet; then
+            echo "No version changes needed."
+          else
+            git add site/src/components/DownloadGrid.astro install.sh
+            git commit -m "chore: auto-update site version to v${VERSION} [skip ci]"
+            git push origin main
+            echo "Site version updated to v${VERSION}"
+          fi
