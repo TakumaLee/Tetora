@@ -244,7 +244,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	prompt += "- Before starting: identify what is OUT OF SCOPE and note it in your todo.md. Prevent scope creep.\n"
 	prompt += "- Use precise language in all outputs. Forbidden: 'should work', 'probably', 'might need', 'I think', 'seems to'. State facts or unknowns explicitly.\n"
 	prompt += "- Before marking task complete: verify that a reviewer can understand your changes without asking clarifying questions. If not, add missing context.\n"
-	prompt += fmt.Sprintf("- Git commit message format: `[%s] %s` — copy the task title character-for-character. Never paraphrase, translate, or convert between Traditional/Simplified Chinese.\n", t.ID, t.Title)
+	prompt += fmt.Sprintf("\n## ⚠️ Git Commit Message — Hard Requirement\n\nYour commit message MUST be **exactly** the following string (copy verbatim, no changes):\n\n```\n[%s] %s\n```\n\nDo NOT paraphrase. Do NOT translate. Do NOT convert between Traditional/Simplified Chinese or any other script. The characters above are the only acceptable commit message. Any deviation will be rejected in review.\n", t.ID, t.Title)
 
 	// Inject agent's existing todo.md for retry awareness.
 	todoPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todo.md")
