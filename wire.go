@@ -10006,6 +10006,8 @@ func cleanupZombieSessions(dbPath string)         { session.CleanupZombieSession
 
 func createSession(dbPath string, s Session) error            { return session.CreateSession(dbPath, s) }
 func addSessionMessage(dbPath string, msg SessionMessage) error { return session.AddSessionMessage(dbPath, msg) }
+func createSessionCtx(ctx context.Context, dbPath string, s Session) error { return session.CreateSessionCtx(ctx, dbPath, s) }
+func addSessionMessageCtx(ctx context.Context, dbPath string, msg SessionMessage) error { return session.AddSessionMessageCtx(ctx, dbPath, msg) }
 
 // correctionSem limits concurrent correction-detection goroutines.
 var correctionSem = make(chan struct{}, 4)
@@ -10035,6 +10037,14 @@ func updateSessionStats(dbPath, sessionID string, costDelta float64, tokensInDel
 
 func updateSessionStatus(dbPath, sessionID, status string) error {
 	return session.UpdateSessionStatus(dbPath, sessionID, status)
+}
+
+func updateSessionStatsCtx(ctx context.Context, dbPath, sessionID string, costDelta float64, tokensInDelta, tokensOutDelta, msgCountDelta int) error {
+	return session.UpdateSessionStatsCtx(ctx, dbPath, sessionID, costDelta, tokensInDelta, tokensOutDelta, msgCountDelta)
+}
+
+func updateSessionStatusCtx(ctx context.Context, dbPath, sessionID, status string) error {
+	return session.UpdateSessionStatusCtx(ctx, dbPath, sessionID, status)
 }
 
 func updateSessionTitle(dbPath, sessionID, title string) error {
@@ -10375,6 +10385,83 @@ func recordSessionActivity(dbPath string, task Task, result TaskResult, role str
 		existing, _ := querySessionByID(dbPath, sessionID)
 		if existing == nil || existing.ChannelKey == "" {
 			updateSessionStatus(dbPath, sessionID, "completed")
+		}
+	}()
+}
+
+// recordSessionActivityCtx is like recordSessionActivity but respects context cancellation.
+func recordSessionActivityCtx(ctx context.Context, dbPath string, task Task, result TaskResult, role string) {
+	if dbPath == "" {
+		return
+	}
+	go func() {
+		sessionID := result.SessionID
+		if sessionID == "" {
+			sessionID = task.SessionID
+		}
+		if sessionID == "" {
+			return
+		}
+		now := time.Now().Format(time.RFC3339)
+
+		title := task.Prompt
+		if len(title) > 100 {
+			title = title[:100]
+		}
+
+		if err := createSessionCtx(ctx, dbPath, Session{
+			ID:        sessionID,
+			Agent:     role,
+			Source:    task.Source,
+			Status:    "active",
+			Title:     title,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}); err != nil {
+			log.Warn("create session failed", "session", sessionID, "error", err)
+		}
+
+		if err := addSessionMessageCtx(ctx, dbPath, SessionMessage{
+			SessionID: sessionID,
+			Role:      "user",
+			Content:   truncateStr(task.Prompt, 5000),
+			TaskID:    task.ID,
+			CreatedAt: now,
+		}); err != nil {
+			log.Warn("add user message failed", "session", sessionID, "error", err)
+		}
+
+		msgRole := "assistant"
+		content := truncateStr(result.Output, 5000)
+		if result.Status != "success" {
+			msgRole = "system"
+			errMsg := result.Error
+			if errMsg == "" {
+				errMsg = result.Status
+			}
+			content = fmt.Sprintf("[%s] %s", result.Status, truncateStr(errMsg, 2000))
+		}
+		if err := addSessionMessageCtx(ctx, dbPath, SessionMessage{
+			SessionID: sessionID,
+			Role:      msgRole,
+			Content:   content,
+			CostUSD:   result.CostUSD,
+			TokensIn:  result.TokensIn,
+			TokensOut: result.TokensOut,
+			Model:     result.Model,
+			TaskID:    task.ID,
+			CreatedAt: now,
+		}); err != nil {
+			log.Warn("add assistant message failed", "session", sessionID, "error", err)
+		}
+
+		if err := updateSessionStatsCtx(ctx, dbPath, sessionID, result.CostUSD, result.TokensIn, result.TokensOut, 2); err != nil {
+			log.Warn("update session stats failed", "session", sessionID, "error", err)
+		}
+
+		existing, _ := querySessionByID(dbPath, sessionID)
+		if existing == nil || existing.ChannelKey == "" {
+			updateSessionStatusCtx(ctx, dbPath, sessionID, "completed")
 		}
 	}()
 }

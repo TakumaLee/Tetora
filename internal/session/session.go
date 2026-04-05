@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log/slog"
@@ -304,6 +305,77 @@ func UpdateSessionStatus(dbPath, sessionID, status string) error {
 		db.Escape(status), db.Escape(now), db.Escape(sessionID),
 	)
 	return db.Exec(dbPath, sql)
+}
+
+// CreateSessionCtx is like CreateSession but respects context cancellation.
+func CreateSessionCtx(ctx context.Context, dbPath string, s Session) error {
+	sql := fmt.Sprintf(
+		`INSERT OR IGNORE INTO sessions (id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at)
+		 VALUES ('%s','%s','%s','%s','%s','%s',0,0,0,0,'%s','%s')`,
+		sessionAgentCol,
+		db.Escape(s.ID),
+		db.Escape(s.Agent),
+		db.Escape(s.Source),
+		db.Escape(s.Status),
+		db.Escape(s.Title),
+		db.Escape(s.ChannelKey),
+		db.Escape(s.CreatedAt),
+		db.Escape(s.UpdatedAt),
+	)
+	return db.ExecContext(ctx, dbPath, sql)
+}
+
+// AddSessionMessageCtx is like AddSessionMessage but respects context cancellation.
+func AddSessionMessageCtx(ctx context.Context, dbPath string, msg SessionMessage) error {
+	content := msg.Content
+	if k := getEncryptionKey(); k != "" {
+		if EncryptFn != nil {
+			if enc, err := EncryptFn(content, k); err == nil {
+				content = enc
+			}
+		}
+	}
+	sql := fmt.Sprintf(
+		`INSERT INTO session_messages (session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at)
+		 VALUES ('%s','%s','%s',%f,%d,%d,'%s','%s','%s')`,
+		db.Escape(msg.SessionID),
+		db.Escape(msg.Role),
+		db.Escape(content),
+		msg.CostUSD,
+		msg.TokensIn,
+		msg.TokensOut,
+		db.Escape(msg.Model),
+		db.Escape(msg.TaskID),
+		db.Escape(msg.CreatedAt),
+	)
+	return db.ExecContext(ctx, dbPath, sql)
+}
+
+// UpdateSessionStatsCtx is like UpdateSessionStats but respects context cancellation.
+func UpdateSessionStatsCtx(ctx context.Context, dbPath, sessionID string, costDelta float64, tokensInDelta, tokensOutDelta, msgCountDelta int) error {
+	now := time.Now().Format(time.RFC3339)
+	sql := fmt.Sprintf(
+		`UPDATE sessions SET
+		  total_cost = total_cost + %f,
+		  total_tokens_in = total_tokens_in + %d,
+		  total_tokens_out = total_tokens_out + %d,
+		  message_count = message_count + %d,
+		  updated_at = '%s'
+		 WHERE id = '%s'`,
+		costDelta, tokensInDelta, tokensOutDelta, msgCountDelta,
+		db.Escape(now), db.Escape(sessionID),
+	)
+	return db.ExecContext(ctx, dbPath, sql)
+}
+
+// UpdateSessionStatusCtx is like UpdateSessionStatus but respects context cancellation.
+func UpdateSessionStatusCtx(ctx context.Context, dbPath, sessionID, status string) error {
+	now := time.Now().Format(time.RFC3339)
+	sql := fmt.Sprintf(
+		`UPDATE sessions SET status = '%s', updated_at = '%s' WHERE id = '%s'`,
+		db.Escape(status), db.Escape(now), db.Escape(sessionID),
+	)
+	return db.ExecContext(ctx, dbPath, sql)
 }
 
 func UpdateSessionTitle(dbPath, sessionID, title string) error {

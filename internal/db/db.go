@@ -3,6 +3,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -52,6 +53,40 @@ func Exec(dbPath, sql string) error {
 // Uses .timeout dot-command (no output) instead of PRAGMA busy_timeout (produces JSON).
 func Query(dbPath, sql string) ([]map[string]any, error) {
 	cmd := exec.Command("sqlite3", "-json", dbPath, ".timeout 30000", sql)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("sqlite3: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("sqlite3: %w", err)
+	}
+
+	outStr := strings.TrimSpace(string(out))
+	if outStr == "" || outStr == "[]" {
+		return nil, nil
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(outStr), &rows); err != nil {
+		return nil, fmt.Errorf("parse sqlite3 output: %w", err)
+	}
+	return rows, nil
+}
+
+// ExecContext runs a write SQL statement with context cancellation support.
+func ExecContext(ctx context.Context, dbPath, sql string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	cmd := exec.CommandContext(ctx, "sqlite3", dbPath, ".timeout 30000", sql)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("sqlite3: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// QueryContext runs a SQL query with context cancellation support.
+func QueryContext(ctx context.Context, dbPath, sql string) ([]map[string]any, error) {
+	cmd := exec.CommandContext(ctx, "sqlite3", "-json", dbPath, ".timeout 30000", sql)
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

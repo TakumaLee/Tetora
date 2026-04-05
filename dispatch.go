@@ -1718,6 +1718,39 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 	recordSkillCompletion(dbPath, task, result, role, startedAt, finishedAt)
 }
 
+// recordHistoryCtx is like recordHistory but respects context cancellation.
+func recordHistoryCtx(ctx context.Context, dbPath string, jobID, name, source, role string, task Task, result TaskResult, startedAt, finishedAt, outputFile string) {
+	if dbPath == "" {
+		return
+	}
+	run := JobRun{
+		JobID:         jobID,
+		Name:          name,
+		Source:        source,
+		StartedAt:     startedAt,
+		FinishedAt:    finishedAt,
+		Status:        result.Status,
+		ExitCode:      result.ExitCode,
+		CostUSD:       result.CostUSD,
+		OutputSummary: truncateStr(result.Output, 1000),
+		Error:         result.Error,
+		Model:         result.Model,
+		Provider:      result.Provider,
+		SessionID:     result.SessionID,
+		OutputFile:    outputFile,
+		TokensIn:      result.TokensIn,
+		TokensOut:     result.TokensOut,
+		Agent:         role,
+		ParentID:      task.ParentID,
+	}
+	if err := history.InsertRunCtx(ctx, dbPath, run); err != nil {
+		log.Warn("record history failed", "error", err)
+	}
+
+	// NOTE: recordSkillCompletion is not updated to ctx-aware; it's non-critical telemetry.
+	recordSkillCompletion(dbPath, task, result, role, startedAt, finishedAt)
+}
+
 // --- Generic helpers ---
 
 // truncateStr is like truncate() but avoids name collision if truncate is in another file.

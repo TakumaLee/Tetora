@@ -5718,18 +5718,23 @@ func triggerWebhookDispatch(ctx context.Context, cfg *Config, name string, whCfg
 	fillDefaults(cfg, &task)
 
 	// Run async.
+	bgCtx, bgCancel := context.WithTimeout(
+		trace.WithID(context.Background(), trace.IDFromContext(ctx)),
+		10*time.Minute,
+	)
 	go func() {
-		result := runSingleTask(ctx, cfg, task, sem, childSem, whCfg.Agent)
+		defer bgCancel()
+		result := runSingleTask(bgCtx, cfg, task, sem, childSem, whCfg.Agent)
 
 		// Record history.
 		start := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
-		recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, whCfg.Agent, task, result,
+		recordHistoryCtx(bgCtx, cfg.HistoryDB, task.ID, task.Name, task.Source, whCfg.Agent, task, result,
 			start.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
 		// Record session activity.
-		recordSessionActivity(cfg.HistoryDB, task, result, whCfg.Agent)
+		recordSessionActivityCtx(bgCtx, cfg.HistoryDB, task, result, whCfg.Agent)
 
-		log.InfoCtx(ctx, "incoming webhook task done", "name", name, "taskId", task.ID[:8],
+		log.InfoCtx(bgCtx, "incoming webhook task done", "name", name, "taskId", task.ID[:8],
 			"status", result.Status, "cost", result.CostUSD)
 	}()
 
@@ -5775,9 +5780,14 @@ func triggerWebhookWorkflow(ctx context.Context, cfg *Config, name string, whCfg
 	}
 
 	// Run async.
+	bgCtx, bgCancel := context.WithTimeout(
+		trace.WithID(context.Background(), trace.IDFromContext(ctx)),
+		10*time.Minute,
+	)
 	go func() {
-		run := executeWorkflow(ctx, cfg, wf, vars, state, sem, childSem)
-		log.InfoCtx(ctx, "incoming webhook workflow done", "name", name,
+		defer bgCancel()
+		run := executeWorkflow(bgCtx, cfg, wf, vars, state, sem, childSem)
+		log.InfoCtx(bgCtx, "incoming webhook workflow done", "name", name,
 			"workflow", whCfg.Workflow, "status", run.Status, "cost", run.TotalCost)
 	}()
 

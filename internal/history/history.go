@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -245,6 +246,33 @@ func InsertRun(dbPath string, run JobRun) error {
 		db.Escape(run.ParentID),
 	)
 	return db.Exec(dbPath, sql)
+}
+
+// InsertRunCtx is like InsertRun but respects context cancellation.
+func InsertRunCtx(ctx context.Context, dbPath string, run JobRun) error {
+	sql := fmt.Sprintf(
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
+		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
+		db.Escape(run.JobID),
+		db.Escape(run.Name),
+		db.Escape(run.Source),
+		db.Escape(run.StartedAt),
+		db.Escape(run.FinishedAt),
+		db.Escape(run.Status),
+		run.ExitCode,
+		run.CostUSD,
+		db.Escape(run.OutputSummary),
+		db.Escape(run.Error),
+		db.Escape(run.Model),
+		db.Escape(run.Provider),
+		db.Escape(run.SessionID),
+		db.Escape(run.OutputFile),
+		run.TokensIn,
+		run.TokensOut,
+		db.Escape(run.Agent),
+		db.Escape(run.ParentID),
+	)
+	return db.ExecContext(ctx, dbPath, sql)
 }
 
 // --- Query ---
