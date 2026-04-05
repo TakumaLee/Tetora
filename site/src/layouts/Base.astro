@@ -1,12 +1,7 @@
 ---
 import '../styles/global.css';
-import { SITE, ACCENT_COLOR } from '../consts';
+import { SITE, ACCENT_COLOR, OG_LOCALE_MAP } from '../consts';
 const LOCALES = ['en', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'de', 'th', 'id', 'fil'] as const;
-
-const OG_LOCALE_MAP: Record<string, string> = {
-  en: 'en_US', 'zh-TW': 'zh_TW', ja: 'ja_JP', ko: 'ko_KR',
-  es: 'es_ES', fr: 'fr_FR', de: 'de_DE', th: 'th_TH', id: 'id_ID', fil: 'fil_PH',
-};
 
 interface Props {
   title: string;
