@@ -1357,3 +1357,47 @@ func TestWorktreeFailure_NoChanges_DiscardsWorktree(t *testing.T) {
 		t.Errorf("expected 'no changes found' comment, got: %v", comments)
 	}
 }
+
+// =============================================================================
+// dispatchTask prompt construction tests
+// =============================================================================
+
+// capturingExecutor records the last prompt passed to RunTask.
+type capturingExecutor struct {
+	capturedPrompt string
+	result         dispatch.TaskResult
+}
+
+func (c *capturingExecutor) RunTask(_ context.Context, task dispatch.Task, _ string) dispatch.TaskResult {
+	c.capturedPrompt = task.Prompt
+	return c.result
+}
+
+// TestDispatchTask_PromptContainsTaskIDTitle asserts that the prompt built by
+// dispatchTask includes the exact "[task-ID] title" string required for git
+// commit messages. This is a regression guard: if the formatting line in
+// processing.go is accidentally changed or removed, this test will catch it.
+func TestDispatchTask_PromptContainsTaskIDTitle(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "修正 dispatch prompt 格式（繁體中文）",
+		Status:   "todo",
+		Assignee: "kokuyou",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	want := fmt.Sprintf("[%s] %s", task.ID, task.Title)
+	if !strings.Contains(ex.capturedPrompt, want) {
+		t.Errorf("prompt does not contain %q\nfull prompt:\n%s", want, ex.capturedPrompt)
+	}
+}
