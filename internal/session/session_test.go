@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -610,5 +611,39 @@ func TestQuerySessionsByPrefix(t *testing.T) {
 	}
 	if len(matches3) != 0 {
 		t.Errorf("expected 0 matches for prefix 'cccc', got %d", len(matches3))
+	}
+}
+
+func TestQuerySessionByIDCtxCancellation(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	if err := InitSessionDB(dbPath); err != nil {
+		t.Fatalf("InitSessionDB: %v", err)
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	CreateSession(dbPath, Session{
+		ID: "ctx-cancel-001", Agent: "黒曜", Source: "test", Status: "active",
+		Title: "Ctx cancellation test", CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Cancel the context before calling QuerySessionByIDCtx.
+	// exec.CommandContext sends SIGKILL on cancel, so the sqlite3 subprocess
+	// should terminate immediately rather than blocking.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	_, err := QuerySessionByIDCtx(ctx, dbPath, "ctx-cancel-001")
+	elapsed := time.Since(start)
+
+	// Must return within 2s budget; a leaked process would block much longer.
+	if elapsed > 2*time.Second {
+		t.Fatalf("blocked for %v with cancelled ctx (budget: 2s)", elapsed)
+	}
+	// exec.CommandContext wraps the kill in *exec.ExitError, so context.Canceled
+	// is not preserved in the error chain. Just assert err != nil.
+	if err == nil {
+		t.Error("expected error with cancelled context, got nil")
 	}
 }

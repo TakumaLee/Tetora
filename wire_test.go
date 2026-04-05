@@ -19943,3 +19943,57 @@ func TestCompactionBackoff_SuccessClearsState(t *testing.T) {
 		t.Fatal("state should be deleted after success")
 	}
 }
+
+func TestRecordSessionActivityCtxGoroutineBudget(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 not found, skipping test")
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	if err := initSessionDB(dbPath); err != nil {
+		t.Fatalf("initSessionDB: %v", err)
+	}
+
+	// Baseline goroutine count.
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond) // let GC finalizers settle
+	before := runtime.NumGoroutine()
+
+	// Context that expires in 100ms — simulates a short-lived budget scenario.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	task := Task{
+		ID:        "budget-test-task",
+		Prompt:    "goroutine budget test",
+		SessionID: "budget-test-session",
+		Source:    "test",
+	}
+	result := TaskResult{
+		ID:        "budget-test-result",
+		SessionID: "budget-test-session",
+		Status:    "success",
+		Output:    "ok",
+	}
+
+	// recordSessionActivityCtx spawns a goroutine and returns immediately.
+	callStart := time.Now()
+	recordSessionActivityCtx(ctx, dbPath, task, result, "黒曜")
+	if elapsed := time.Since(callStart); elapsed > 50*time.Millisecond {
+		t.Errorf("recordSessionActivityCtx blocked caller for %v", elapsed)
+	}
+
+	// Wait for ctx to expire, then give goroutines time to exit.
+	// exec.CommandContext sends SIGKILL on cancel, so cleanup is fast.
+	<-ctx.Done()
+	time.Sleep(500 * time.Millisecond)
+
+	runtime.GC()
+	after := runtime.NumGoroutine()
+
+	// Allow +2 margin for test runner fluctuations.
+	if after > before+2 {
+		t.Errorf("goroutine leak: before=%d after=%d (ctx was cancelled 500ms ago)", before, after)
+	}
+}
