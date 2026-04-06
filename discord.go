@@ -1431,31 +1431,41 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 		defer db.state.removeDiscordActivity(activityID)
 	}
 
-	// Update Discord activity with resolved agent.
+	// Channel session.
+	// Look up existing session once; reuse it directly when the agent matches
+	// to avoid a redundant DB read inside getOrCreateChannelSession.
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	agent := route.Agent
+
+	existing, findErr := findChannelSession(dbPath, chKey)
+	if findErr != nil {
+		log.WarnCtx(ctx, "discord findChannelSession error", "error", findErr)
+	}
+
+	// For non-deterministic routes (keyword/LLM), keep the existing session's
+	// agent to avoid constant session churn.
+	if route.Method != "binding" && route.Method != "explicit" && existing != nil {
+		agent = existing.Agent
+	}
+
+	var sess *Session
+	if existing != nil && existing.Agent == agent {
+		sess = existing
+	} else {
+		var err error
+		sess, err = getOrCreateChannelSession(dbPath, "discord", chKey, agent, "")
+		if err != nil {
+			log.ErrorCtx(ctx, "discord session error", "error", err)
+		}
+	}
+
+	// Update Discord activity with resolved agent (after session-stickiness override).
 	if db.state != nil {
 		db.state.mu.Lock()
 		if da, ok := db.state.discordActivities[activityID]; ok {
-			da.Agent = route.Agent
+			da.Agent = agent
 		}
 		db.state.mu.Unlock()
-	}
-
-	// Channel session.
-	// If an active session exists and the route was NOT from a high-confidence
-	// binding/explicit, keep the existing session's agent to avoid constant
-	// session churn caused by non-deterministic LLM routing.
-	chKey := channelSessionKey("discord", msg.ChannelID)
-	agent := route.Agent
-	if route.Method != "binding" && route.Method != "explicit" {
-		if existing, err := findChannelSession(dbPath, chKey); err != nil {
-			log.WarnCtx(ctx, "discord findChannelSession error", "error", err)
-		} else if existing != nil {
-			agent = existing.Agent
-		}
-	}
-	sess, err := getOrCreateChannelSession(dbPath, "discord", chKey, agent, "")
-	if err != nil {
-		log.ErrorCtx(ctx, "discord session error", "error", err)
 	}
 
 	// Context-aware prompt.
