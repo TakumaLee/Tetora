@@ -1380,7 +1380,7 @@ func (db *DiscordBot) cmdApprove(msg discord.Message, args string) {
 
 // handleDirectRoute dispatches a message directly to a known agent without smart routing.
 func (db *DiscordBot) handleDirectRoute(msg discord.Message, prompt string, agent string) {
-	route := RouteResult{Agent: agent, Method: "default", Confidence: "high"}
+	route := RouteResult{Agent: agent, Method: "explicit", Confidence: "high"}
 	db.executeRoute(msg, prompt, route)
 }
 
@@ -1388,7 +1388,13 @@ func (db *DiscordBot) handleDirectRoute(msg discord.Message, prompt string, agen
 
 func (db *DiscordBot) handleRoute(msg discord.Message, prompt string) {
 	ctx := trace.WithID(context.Background(), trace.NewID("discord"))
-	route := routeTask(ctx, db.cfg, RouteRequest{Prompt: prompt, Source: "discord"})
+	route := routeTask(ctx, db.cfg, RouteRequest{
+		Prompt:    prompt,
+		Source:    "discord",
+		ChannelID: msg.ChannelID,
+		GuildID:   msg.GuildID,
+		UserID:    msg.Author.ID,
+	})
 	log.InfoCtx(ctx, "discord route result", "prompt", truncate(prompt, 60), "agent", route.Agent, "method", route.Method)
 	db.executeRoute(msg, prompt, *route)
 }
@@ -1425,20 +1431,41 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 		defer db.state.removeDiscordActivity(activityID)
 	}
 
-	// Update Discord activity with resolved agent.
+	// Channel session.
+	// Look up existing session once; reuse it directly when the agent matches
+	// to avoid a redundant DB read inside getOrCreateChannelSession.
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	agent := route.Agent
+
+	existing, findErr := findChannelSession(dbPath, chKey)
+	if findErr != nil {
+		log.WarnCtx(ctx, "discord findChannelSession error", "error", findErr)
+	}
+
+	// For non-deterministic routes (keyword/LLM), keep the existing session's
+	// agent to avoid constant session churn.
+	if route.Method != "binding" && route.Method != "explicit" && existing != nil {
+		agent = existing.Agent
+	}
+
+	var sess *Session
+	if existing != nil && existing.Agent == agent {
+		sess = existing
+	} else {
+		var err error
+		sess, err = getOrCreateChannelSession(dbPath, "discord", chKey, agent, "")
+		if err != nil {
+			log.ErrorCtx(ctx, "discord session error", "error", err)
+		}
+	}
+
+	// Update Discord activity with resolved agent (after session-stickiness override).
 	if db.state != nil {
 		db.state.mu.Lock()
 		if da, ok := db.state.discordActivities[activityID]; ok {
-			da.Agent = route.Agent
+			da.Agent = agent
 		}
 		db.state.mu.Unlock()
-	}
-
-	// Channel session.
-	chKey := channelSessionKey("discord", msg.ChannelID)
-	sess, err := getOrCreateChannelSession(dbPath, "discord", chKey, route.Agent, "")
-	if err != nil {
-		log.ErrorCtx(ctx, "discord session error", "error", err)
 	}
 
 	// Context-aware prompt.
