@@ -10173,6 +10173,7 @@ func compactSession(ctx context.Context, cfg *Config, dbPath, sessionID string, 
 	summaryPrompt := fmt.Sprintf(
 		`Summarize this conversation history into a concise context summary (max 500 words).
 Focus on key topics discussed, decisions made, and important information.
+IMPORTANT: Preserve all URLs, file paths, code snippets, and specific identifiers exactly as they appear — do not paraphrase or omit them.
 Output ONLY the summary text, no headers or formatting.
 
 Conversation (%d messages):
