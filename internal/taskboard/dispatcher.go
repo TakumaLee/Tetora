@@ -437,15 +437,15 @@ func (d *Dispatcher) findRunningWorkflowForTask(taskID string) string {
 	return fmt.Sprintf("%v", rows[0]["id"])
 }
 
-// HasDoingTasksForAgent returns true if the given agent already has one or more
-// tasks in 'doing' state on the taskboard. Used by the HTTP dispatch handler to
-// prevent double-dispatching work that the auto-dispatcher has already claimed.
-func (d *Dispatcher) HasDoingTasksForAgent(agent string) bool {
+// DoingTaskCountForAgent returns the number of tasks in 'doing' state for the
+// given agent. Used by the HTTP dispatch handler to enforce per-agent concurrency.
+func (d *Dispatcher) DoingTaskCountForAgent(agent string) int {
 	tasks, err := d.engine.ListTasks("doing", agent, "")
 	if err != nil {
-		return false
+		log.Warn("DoingTaskCountForAgent: ListTasks error", "agent", agent, "error", err)
+		return 0
 	}
-	return len(tasks) > 0
+	return len(tasks)
 }
 
 func (d *Dispatcher) ResetStuckDoing() {
@@ -652,6 +652,13 @@ func (d *Dispatcher) scan() {
 		if HasBlockingDeps(d.engine, t) {
 			log.Debug("taskboard dispatch: skipping task with blocking deps",
 				"id", t.ID, "title", t.Title, "dependsOn", t.DependsOn)
+			continue
+		}
+
+		maxPerAgent := d.engine.config.AutoDispatch.MaxTasksPerAgentOrDefault()
+		if n := d.DoingTaskCountForAgent(t.Assignee); n >= maxPerAgent {
+			log.Debug("taskboard dispatch: agent at per-agent limit, skipping",
+				"id", t.ID, "assignee", t.Assignee, "doing", n, "max", maxPerAgent)
 			continue
 		}
 

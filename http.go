@@ -4970,21 +4970,21 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			s.taskBoardDispatcher.ResetStuckDoing()
 		}
 
-		// Doing-state dedup guard: reject if any target agent already has an
-		// active taskboard task in 'doing' state. This prevents external callers
-		// (e.g. Daiya sweep) from double-dispatching work that the auto-dispatcher
-		// has already claimed.
+		// Per-agent concurrency guard: reject if any target agent already has
+		// too many tasks in 'doing' state. Configurable via maxTasksPerAgent
+		// (default 1).
 		if s.taskBoardDispatcher != nil {
+			maxPerAgent := cfg.TaskBoard.AutoDispatch.MaxTasksPerAgentOrDefault()
 			for i, t := range tasks {
 				if t.Agent == "" {
 					continue
 				}
-				if s.taskBoardDispatcher.HasDoingTasksForAgent(t.Agent) {
-					log.Warn("dispatch: agent already has doing task on taskboard, rejecting",
-						"agent", t.Agent, "taskName", t.Name)
+				if n := s.taskBoardDispatcher.DoingTaskCountForAgent(t.Agent); n >= maxPerAgent {
+					log.Warn("dispatch: agent at per-agent concurrency limit",
+						"agent", t.Agent, "taskName", t.Name, "doing", n, "max", maxPerAgent)
 					jsonError(w, fmt.Sprintf(
-						"task[%d]: agent %q already has active task(s) on taskboard",
-						i, t.Agent), http.StatusConflict)
+						"task[%d]: agent %q at concurrency limit (%d/%d active tasks)",
+						i, t.Agent, n, maxPerAgent), http.StatusConflict)
 					return
 				}
 			}

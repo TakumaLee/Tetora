@@ -1078,11 +1078,19 @@ type TaskBoardDispatchConfig struct {
 	EscalateAssignee      string                `json:"escalateAssignee,omitempty"`
 	StuckThreshold        string                `json:"stuckThreshold,omitempty"`
 	MaxConcurrentTasks    int                   `json:"maxConcurrentTasks,omitempty"`
+	MaxTasksPerAgent      int                   `json:"maxTasksPerAgent,omitempty"`
 	BacklogTriageInterval string                `json:"backlogTriageInterval,omitempty"`
 	ReviewLoop            bool                  `json:"reviewLoop,omitempty"`
 	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
 	TriageBudget          float64               `json:"triageBudget,omitempty"`
 	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
+}
+
+func (c TaskBoardDispatchConfig) MaxTasksPerAgentOrDefault() int {
+	if c.MaxTasksPerAgent > 0 {
+		return c.MaxTasksPerAgent
+	}
+	return 1
 }
 
 func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
