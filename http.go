@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -4276,7 +4277,17 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		entries := make([]wsEntry, 0)
 		for _, e := range dirEntries {
 			name := e.Name()
-			if e.IsDir() {
+			entryPath := filepath.Join(targetDir, name)
+
+			// Resolve symlinks: if entry is a symlink, follow it to determine isDir
+			isDir := e.IsDir()
+			if e.Type()&fs.ModeSymlink != 0 {
+				if info, err := os.Stat(entryPath); err == nil {
+					isDir = info.IsDir()
+				}
+			}
+
+			if isDir {
 				if skipDirs[name] || strings.HasPrefix(name, ".") {
 					continue
 				}
@@ -4297,7 +4308,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 
 			var size int64
 			var modTime string
-			if info, err := e.Info(); err == nil {
+			// Use os.Stat to follow symlinks for file metadata
+			if info, err := os.Stat(entryPath); err == nil {
 				size = info.Size()
 				modTime = info.ModTime().Format(time.RFC3339)
 			}
@@ -4305,7 +4317,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 			entries = append(entries, wsEntry{
 				Path:    relPath,
 				Name:    name,
-				IsDir:   e.IsDir(),
+				IsDir:   isDir,
 				Size:    size,
 				ModTime: modTime,
 			})
