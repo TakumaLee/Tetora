@@ -2722,6 +2722,13 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 			}
 			toolResults = append(toolResults, tr)
 
+			// Record tool usage for reranking popularity bonus.
+			if cfg.Runtime.ToolRegistry != nil {
+				if reg, ok := cfg.Runtime.ToolRegistry.(*ToolRegistry); ok {
+					reg.RecordUsage(tc.Name)
+				}
+			}
+
 			// P27.3: Send tool status to channel.
 			if cfg.StreamToChannels && task.ChannelNotifier != nil {
 				statusMsg := fmt.Sprintf("%s: done (%dms)", tc.Name, toolDuration.Milliseconds())

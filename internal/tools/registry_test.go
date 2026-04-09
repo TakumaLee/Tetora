@@ -259,3 +259,51 @@ func TestRerankingNameVsDescription(t *testing.T) {
 			results[0].Tool.Name, results[0].BM25Score, results[0].FinalScore)
 	}
 }
+
+func TestUsageFrequencyBoost(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&ToolDef{Name: "tool_a", Description: "Do something useful."})
+	r.Register(&ToolDef{Name: "tool_b", Description: "Do something similar."})
+
+	// Simulate tool_a being used many times.
+	for i := 0; i < 100; i++ {
+		r.RecordUsage("tool_a")
+	}
+
+	// Both tools have identical BM25 scores for "something".
+	// But tool_a should rank higher due to usage frequency bonus.
+	results := r.SearchBM25("something", 2)
+	if len(results) < 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Tool.Name != "tool_a" {
+		t.Errorf("top result = %q, want tool_a (usage frequency boost). scores: bm25=%.4f final=%.4f",
+			results[0].Tool.Name, results[0].BM25Score, results[0].FinalScore)
+	}
+	if results[0].FinalScore <= results[1].FinalScore {
+		t.Errorf("tool_a final %.4f should be > tool_b final %.4f (usage bonus)",
+			results[0].FinalScore, results[1].FinalScore)
+	}
+}
+
+func TestGetUsage(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&ToolDef{Name: "my_tool", Description: "A test tool"})
+
+	if r.GetUsage("my_tool") != 0 {
+		t.Errorf("expected 0 usage initially, got %d", r.GetUsage("my_tool"))
+	}
+
+	r.RecordUsage("my_tool")
+	r.RecordUsage("my_tool")
+	r.RecordUsage("my_tool")
+
+	if r.GetUsage("my_tool") != 3 {
+		t.Errorf("expected 3 usage after 3 calls, got %d", r.GetUsage("my_tool"))
+	}
+
+	// Unknown tool returns 0.
+	if r.GetUsage("nonexistent") != 0 {
+		t.Errorf("expected 0 for unknown tool, got %d", r.GetUsage("nonexistent"))
+	}
+}

@@ -15,14 +15,15 @@ import (
 
 // ToolDef defines a tool that can be called by agents.
 type ToolDef struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"input_schema"`
-	Keywords     []string        `json:"-"` // Extra searchable keywords for BM25
-	DeferLoading bool            `json:"-"` // When true, tool is deferred (loaded on-demand via search_tools)
-	Handler      Handler         `json:"-"`
-	Builtin      bool            `json:"-"`
-	RequireAuth  bool            `json:"requireAuth,omitempty"`
+	Name              string          `json:"name"`
+	Description       string          `json:"description"`
+	ContextualSummary string          `json:"-"` // AI-generated contextual summary for better retrieval
+	InputSchema       json.RawMessage `json:"input_schema"`
+	Keywords          []string        `json:"-"` // Extra searchable keywords for BM25
+	DeferLoading      bool            `json:"-"` // When true, tool is deferred (loaded on-demand via search_tools)
+	Handler           Handler         `json:"-"`
+	Builtin           bool            `json:"-"`
+	RequireAuth       bool            `json:"requireAuth,omitempty"`
 }
 
 // ToolCall is an alias for provider.ToolCall.
@@ -43,12 +44,14 @@ type Registry struct {
 	mu         sync.RWMutex
 	tools      map[string]*ToolDef
 	bm25Index  *bm25.BM25
+	usageCount map[string]int // tool name -> call count (for reranking boost)
 }
 
 // NewRegistry creates a new empty tool registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		tools: make(map[string]*ToolDef),
+		tools:      make(map[string]*ToolDef),
+		usageCount: make(map[string]int),
 	}
 }
 
@@ -65,12 +68,15 @@ func (r *Registry) Register(tool *ToolDef) {
 func (r *Registry) rebuildBM25IndexLocked() {
 	docs := make([]bm25.Document, 0, len(r.tools))
 	for _, t := range r.tools {
-		// Build searchable text: name + description + keywords
+		// Build searchable text: name + description + contextual summary + keywords
 		var parts []string
 		// Split underscored names into separate terms for better matching
 		nameTerms := strings.ReplaceAll(t.Name, "_", " ")
 		parts = append(parts, nameTerms)
 		parts = append(parts, t.Description)
+		if t.ContextualSummary != "" {
+			parts = append(parts, t.ContextualSummary)
+		}
 		parts = append(parts, strings.Join(t.Keywords, " "))
 		docs = append(docs, bm25.Document{
 			ID:    t.Name,
@@ -114,6 +120,20 @@ func (r *Registry) ListFiltered(allowed map[string]bool) []*ToolDef {
 		}
 	}
 	return result
+}
+
+// RecordUsage increments the call count for a tool (used in reranking bonus).
+func (r *Registry) RecordUsage(name string) {
+	r.mu.Lock()
+	r.usageCount[name]++
+	r.mu.Unlock()
+}
+
+// GetUsage returns the call count for a tool.
+func (r *Registry) GetUsage(name string) int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.usageCount[name]
 }
 
 // SearchResult holds a tool search result with its BM25 score.
@@ -164,9 +184,10 @@ func (r *Registry) SearchBM25(query string, topN int) []SearchResult {
 			return bm25.DocMeta{}
 		}
 		return bm25.DocMeta{
-			Name:     t.Name,
-			Keywords: t.Keywords,
-			DocLen:   len(bm25.Tokenize(t.Description)),
+			Name:       t.Name,
+			Keywords:   t.Keywords,
+			DocLen:     len(bm25.Tokenize(t.Description)),
+			UsageCount: r.usageCount[t.Name],
 		}
 	}
 

@@ -205,6 +205,8 @@ type RerankConfig struct {
 	LengthPenaltyFactor float64
 	// AvgDocLen: average description length for normalization (0 = skip penalty).
 	AvgDocLen float64
+	// UsageWeight: maximum bonus from usage frequency (0 = no usage bonus).
+	UsageWeight float64
 }
 
 // DefaultRerankConfig returns sensible defaults based on empirical tuning.
@@ -213,6 +215,7 @@ func DefaultRerankConfig() RerankConfig {
 		NameMatchWeight:     1.5,  // Name match gives 50%+ boost
 		KeywordBoost:        0.5,  // Keyword field match gives 25%+ boost
 		LengthPenaltyFactor: 0.15, // Mild penalty for very long descriptions
+		UsageWeight:         0.3,  // Frequently used tools get up to 30% bonus
 	}
 }
 
@@ -280,6 +283,13 @@ func Rerank(query string, queryTerms []string, bm25Results []Result,
 			}
 		}
 
+		// 4. Usage frequency bonus (inspired by term recency in WOSP 2020).
+		// Frequently used tools get a diminishing-returns bonus: log(count+1).
+		if cfg.UsageWeight > 0 && meta.UsageCount > 0 {
+			importance := math.Log(float64(meta.UsageCount) + 1)
+			multiplier += cfg.UsageWeight * importance
+		}
+
 		if multiplier < 0.1 {
 			multiplier = 0.1 // Floor
 		}
@@ -302,6 +312,7 @@ type DocMeta struct {
 	Name       string   // Tool name (for exact match bonus)
 	Keywords   []string // Extra keywords (for priority boost)
 	DocLen     int      // Tokenized description length (for length penalty)
+	UsageCount int      // How many times this tool has been called (for popularity boost)
 }
 
 func sortRerankResults(results []RerankResult) {
