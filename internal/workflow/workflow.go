@@ -211,7 +211,101 @@ func ValidateWorkflow(w *Workflow) []string {
 		errs = append(errs, fmt.Sprintf("dependency cycle detected: %s", cycle))
 	}
 
+	// Template reference validation.
+	errs = append(errs, ValidateTemplateRefs(w)...)
+
 	return errs
+}
+
+// stepTemplateRefRe matches {{steps.STEP_ID.field}} expressions.
+var stepTemplateRefRe = regexp.MustCompile(`\{\{steps\.([^.}]+)\.[^}]+\}\}`)
+
+// ValidateTemplateRefs checks that {{steps.X.*}} template expressions reference known step IDs.
+// It does not validate plain input variable references (e.g. {{taskId}}) since those are
+// supplied at runtime and may not be declared in the workflow's variables map.
+func ValidateTemplateRefs(w *Workflow) []string {
+	// Collect all known step IDs: top-level and parallel sub-step IDs.
+	stepIDs := make(map[string]bool)
+	for _, s := range w.Steps {
+		if s.ID != "" {
+			stepIDs[s.ID] = true
+		}
+		for _, sub := range s.Parallel {
+			if sub.ID != "" {
+				stepIDs[sub.ID] = true
+			}
+		}
+	}
+
+	var errs []string
+	for _, s := range w.Steps {
+		errs = append(errs, checkStepTemplateRefs(s, stepIDs, "")...)
+	}
+	return errs
+}
+
+// checkStepTemplateRefs validates {{steps.X.*}} references in all string fields of a step.
+func checkStepTemplateRefs(s WorkflowStep, stepIDs map[string]bool, parentID string) []string {
+	var errs []string
+
+	loc := s.ID
+	if parentID != "" {
+		loc = parentID + "/" + s.ID
+	}
+
+	checkField := func(fieldName, value string) {
+		for _, ref := range extractStepRefs(value) {
+			if !stepIDs[ref] {
+				errs = append(errs, fmt.Sprintf("step %q field %q: template references unknown step %q", loc, fieldName, ref))
+			}
+		}
+	}
+
+	checkField("prompt", s.Prompt)
+	checkField("if", s.If)
+	checkField("notifyMsg", s.NotifyMsg)
+	checkField("humanPrompt", s.HumanPrompt)
+	checkField("humanAssignee", s.HumanAssignee)
+	checkField("externalUrl", s.ExternalURL)
+	checkField("externalRawBody", s.ExternalRawBody)
+	checkField("callbackKey", s.CallbackKey)
+	checkField("agent", s.Agent)
+	checkField("model", s.Model)
+
+	for i, arg := range s.SkillArgs {
+		checkField(fmt.Sprintf("skillArgs[%d]", i), arg)
+	}
+	for k, v := range s.ExternalHeaders {
+		checkField(fmt.Sprintf("externalHeaders[%q]", k), v)
+	}
+	for k, v := range s.ExternalBody {
+		checkField(fmt.Sprintf("externalBody[%q]", k), v)
+	}
+	for k, v := range s.ToolInput {
+		checkField(fmt.Sprintf("toolInput[%q]", k), v)
+	}
+	for k, v := range s.HumanContext {
+		checkField(fmt.Sprintf("humanContext[%q]", k), v)
+	}
+
+	for _, sub := range s.Parallel {
+		errs = append(errs, checkStepTemplateRefs(sub, stepIDs, s.ID)...)
+	}
+
+	return errs
+}
+
+// extractStepRefs returns all step IDs referenced via {{steps.STEP_ID.*}} expressions.
+func extractStepRefs(s string) []string {
+	matches := stepTemplateRefRe.FindAllStringSubmatch(s, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		refs = append(refs, m[1])
+	}
+	return refs
 }
 
 // ValidateStep checks a single step for correctness.
