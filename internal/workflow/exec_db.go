@@ -28,11 +28,11 @@ func InitWorkflowRunsTable(dbPath string) {
 	if dbPath == "" {
 		return
 	}
-	if _, err := db.Query(dbPath, workflowRunsTableSQL); err != nil {
+	if err := db.Exec(dbPath, workflowRunsTableSQL); err != nil {
 		log.Warn("init workflow_runs table failed", "error", err)
 	}
 	// Migration: add resumed_from column (no-op if column already exists).
-	if _, err := db.Query(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
+	if err := db.Exec(dbPath, "ALTER TABLE workflow_runs ADD COLUMN resumed_from TEXT DEFAULT ''"); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			log.Warn("migration: add resumed_from column failed", "error", err)
 		}
