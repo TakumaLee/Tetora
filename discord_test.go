@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"tetora/internal/db"
 	"tetora/internal/discord"
 )
 
@@ -2334,5 +2336,108 @@ func TestPresenceManagerContextCancellation(t *testing.T) {
 
 	if mock.callCount() > countAfterCancel+1 {
 		t.Errorf("typing loop did not stop after context cancel")
+	}
+}
+
+// --- archiveStaleSession ---
+
+func TestArchiveStaleSession(t *testing.T) {
+	skipIfNoSQLite(t)
+
+	ctx := context.Background()
+
+	setupDB := func(t *testing.T) (dbPath string, sessID string) {
+		t.Helper()
+		dbPath = filepath.Join(t.TempDir(), "test.db")
+		if err := initSessionDB(dbPath); err != nil {
+			t.Fatalf("initSessionDB: %v", err)
+		}
+		sessID = "sess-stale-test"
+		sql := fmt.Sprintf(
+			"INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'discord', 'active', 'T', datetime('now'), datetime('now'))",
+			sessID,
+		)
+		if _, err := db.Query(dbPath, sql); err != nil {
+			t.Fatalf("insert session: %v", err)
+		}
+		return
+	}
+
+	tests := []struct {
+		name       string
+		resultErr  string
+		sess       func(dbPath, sessID string) *Session
+		wantResult bool
+	}{
+		{
+			name:      "stale error with valid session — archived, returns true",
+			resultErr: "No saved session found",
+			sess: func(dbPath, sessID string) *Session {
+				return &Session{ID: sessID}
+			},
+			wantResult: true,
+		},
+		{
+			name:      "stale error with nil session — no archive attempt, returns true",
+			resultErr: "No saved session found",
+			sess:      func(_, _ string) *Session { return nil },
+			wantResult: true,
+		},
+		{
+			name:      "unrelated error — returns false",
+			resultErr: "provider timeout",
+			sess: func(dbPath, sessID string) *Session {
+				return &Session{ID: sessID}
+			},
+			wantResult: false,
+		},
+		{
+			name:      "empty error — returns false",
+			resultErr: "",
+			sess:      func(_, _ string) *Session { return nil },
+			wantResult: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath, sessID := setupDB(t)
+			sess := tc.sess(dbPath, sessID)
+
+			got := archiveStaleSession(ctx, dbPath, sess, tc.resultErr)
+			if got != tc.wantResult {
+				t.Errorf("archiveStaleSession() = %v, want %v", got, tc.wantResult)
+			}
+
+			// If stale + valid sess, verify status was updated to archived.
+			if tc.wantResult && sess != nil {
+				rows, err := db.Query(dbPath, fmt.Sprintf("SELECT status FROM sessions WHERE id='%s'", sess.ID))
+				if err != nil {
+					t.Fatalf("query status: %v", err)
+				}
+				if len(rows) == 0 {
+					t.Fatal("session row not found")
+				}
+				got, _ := rows[0]["status"].(string)
+				if got != "archived" {
+					t.Errorf("session status = %q, want %q", got, "archived")
+				}
+			}
+		})
+	}
+}
+
+func TestArchiveStaleSession_DBFailure(t *testing.T) {
+	skipIfNoSQLite(t)
+
+	ctx := context.Background()
+	// Point at a non-existent DB — updateSessionStatus will fail.
+	// The function must still return true (stale detected) and not panic.
+	dbPath := filepath.Join(t.TempDir(), "nonexistent", "test.db")
+	sess := &Session{ID: "ghost-session"}
+
+	got := archiveStaleSession(ctx, dbPath, sess, "No saved session found")
+	if !got {
+		t.Error("archiveStaleSession() = false, want true (stale still detected even if DB write fails)")
 	}
 }

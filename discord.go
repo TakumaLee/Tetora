@@ -24,6 +24,11 @@ import (
 	"tetora/internal/webhook"
 )
 
+// errNoSavedSession is the error string emitted when a provider cannot find the
+// session referenced by the stored session ID (e.g. after provider switch or
+// cross-machine config sync).
+const errNoSavedSession = "No saved session found"
+
 // --- Discord Bot ---
 
 // DiscordBot manages the Discord Gateway connection and message handling.
@@ -1399,6 +1404,22 @@ func (db *DiscordBot) handleRoute(msg discord.Message, prompt string) {
 	db.executeRoute(msg, prompt, *route)
 }
 
+// archiveStaleSession detects a "No saved session found" error and, when found,
+// archives the session in the DB so the next request gets a fresh start.
+// Returns true if a stale session was detected (caller should send reset message).
+func archiveStaleSession(ctx context.Context, dbPath string, sess *Session, resultErr string) bool {
+	if !strings.Contains(resultErr, errNoSavedSession) {
+		return false
+	}
+	log.WarnCtx(ctx, "Auto-cleared stale session ID", "error", resultErr)
+	if sess != nil {
+		if err := updateSessionStatus(dbPath, sess.ID, "archived"); err != nil {
+			log.WarnCtx(ctx, "Failed to archive stale session", "sessionID", sess.ID, "error", err)
+		}
+	}
+	return true
+}
+
 // executeRoute runs a routed task through the full Discord execution pipeline
 // (session, SSE events, progress messages, reply).
 func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route RouteResult) {
@@ -1762,6 +1783,12 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	// Send slot pressure warning before response if present.
 	if result.SlotWarning != "" {
 		db.sendMessage(msg.ChannelID, result.SlotWarning)
+	}
+
+	// Auto-recover from stale session errors (provider switch or machine migration).
+	if result.Status != "success" && archiveStaleSession(ctx, dbPath, sess, result.Error) {
+		db.sendMessage(msg.ChannelID, "♻️ **System Reset**: Detected environment change (Provider/Migration). Starting new session...")
+		return
 	}
 
 	// Send response embed.
