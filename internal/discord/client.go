@@ -47,25 +47,52 @@ func NewClient(token string) *Client {
 }
 
 // Post sends a POST request to the Discord API (no response body).
+// Retries up to 3 times on network errors, 429 rate-limit, or 5xx server errors.
 func (c *Client) Post(path string, payload any) {
+	const maxAttempts = 3
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest("POST", APIBase+path, strings.NewReader(string(body)))
-	if err != nil {
-		log.Error("discord api request error", "error", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bot "+c.Token)
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		log.Error("discord api send failed", "error", err)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
+	for attempt := range maxAttempts {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+		req, err := http.NewRequest("POST", APIBase+path, bytes.NewReader(body))
+		if err != nil {
+			log.Error("discord api request error", "error", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bot "+c.Token)
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			log.Warn("discord api send failed, retrying", "attempt", attempt+1, "error", err)
+			continue
+		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		log.Warn("discord api error", "status", resp.StatusCode, "body", string(b))
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			// Respect Retry-After if present (in seconds).
+			delay := time.Duration(attempt+1) * 500 * time.Millisecond
+			if ra := resp.Header.Get("Retry-After"); ra != "" {
+				var secs float64
+				if _, err := fmt.Sscanf(ra, "%f", &secs); err == nil {
+					delay = time.Duration(secs*float64(time.Second)) + 100*time.Millisecond
+				}
+			}
+			log.Warn("discord rate limited, retrying", "attempt", attempt+1, "delay", delay)
+			time.Sleep(delay)
+			continue
+		}
+		if resp.StatusCode >= 500 {
+			log.Warn("discord api server error, retrying", "attempt", attempt+1, "status", resp.StatusCode, "body", string(b))
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			log.Warn("discord api error", "status", resp.StatusCode, "body", string(b))
+			return // 4xx errors (except 429) are not retried
+		}
+		return // success
 	}
+	log.Error("discord api post failed after retries", "path", path)
 }
 
 // Request sends a Discord API request and returns the response body.

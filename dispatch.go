@@ -3388,6 +3388,14 @@ func slugify(s string) string {
 	return worktree.Slugify(s)
 }
 
+// acquireSessionLock writes a session lock into wtDir containing the current
+// process PID and returns a release function. Used by workflow executors to
+// prevent prune/Remove from deleting an active worktree. The release function
+// is idempotent and safe to call even if the directory is already gone.
+func acquireSessionLock(wtDir string) func() {
+	return worktree.AcquireSessionLock(wtDir)
+}
+
 func slugifyBranch(s string) string {
 	return worktree.SlugifyBranch(s)
 }

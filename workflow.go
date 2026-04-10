@@ -82,9 +82,10 @@ type workflowExecutor struct {
 	mu       sync.Mutex
 
 	// Git worktree isolation (populated when workflow.GitWorktree is true).
-	worktreeDir string           // active worktree path (empty = no isolation)
-	repoDir     string           // original repo dir (for merge/cleanup)
-	worktreeMgr *WorktreeManager // worktree manager reference
+	worktreeDir         string           // active worktree path (empty = no isolation)
+	repoDir             string           // original repo dir (for merge/cleanup)
+	worktreeMgr         *WorktreeManager // worktree manager reference
+	releaseWorktreeLock func()           // releases .tetora-active session lock; nil until lock acquired
 
 	// Resume state: non-nil when resuming a previous run. Carries completed step results.
 	resumeState map[string]*StepRunResult
@@ -240,6 +241,9 @@ func (e *workflowExecutor) setupWorktree() {
 	e.worktreeDir = wtDir
 	e.repoDir = repoDir
 	e.worktreeMgr = wm
+	// Acquire session lock so Prune and Remove see this worktree as active and
+	// refuse to delete it while DAG steps are running inside it.
+	e.releaseWorktreeLock = acquireSessionLock(wtDir)
 	log.Info("workflow worktree: created",
 		"workflow", w.Name, "runID", e.run.ID[:8], "path", wtDir, "branch", branch)
 }
@@ -296,6 +300,12 @@ func (e *workflowExecutor) finalizeRun(dagErr error, startTime time.Time, outerC
 
 	// Worktree finalization.
 	if e.worktreeDir != "" && e.worktreeMgr != nil {
+		// Release the session lock before any cleanup so that Remove() does not
+		// see a live PID and refuse. The DAG has already completed at this point.
+		if e.releaseWorktreeLock != nil {
+			e.releaseWorktreeLock()
+			e.releaseWorktreeLock = nil
+		}
 		if run.Status == "success" {
 			diffSummary, mergeErr := e.worktreeMgr.MergeBranchOnly(e.repoDir, e.worktreeDir)
 			if mergeErr != nil {

@@ -1209,8 +1209,9 @@ func startHTTPServer(s *Server) *http.Server {
 				}, http.StatusAccepted, nil
 			}
 
-			// Sync mode.
-			result := runSingleTask(r.Context(), cfg, task, s.sem, s.childSem, sess.Agent)
+			// Sync mode — decouple from HTTP lifecycle.
+			taskCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
+			result := runSingleTask(taskCtx, cfg, task, s.sem, s.childSem, sess.Agent)
 			taskStart := time.Now().Add(-time.Duration(result.DurationMs) * time.Millisecond)
 			recordHistory(cfg.HistoryDB, task.ID, task.Name, task.Source, sess.Agent, task, result,
 				taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
@@ -5024,7 +5025,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		audit.Log(auditDB, "dispatch", "http",
 			fmt.Sprintf("%d tasks (client=%s)", len(tasks), clientID), clientIP(r))
 
-		result := dispatch(r.Context(), cfg, tasks, cState, cSem, cChildSem)
+		// Decouple from HTTP request lifecycle so client disconnect doesn't kill in-flight tasks.
+		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
+		result := dispatch(dispatchCtx, cfg, tasks, cState, cSem, cChildSem)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
@@ -5427,9 +5430,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		actionAuditDB := s.resolveHistoryDB(cfg, actionClientID)
 		w.Header().Set("Content-Type", "application/json")
 
+		// Decouple from HTTP request lifecycle so client disconnect doesn't kill in-flight tasks.
+		actionCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
+
 		switch action {
 		case "retry":
-			result, err := retryTask(r.Context(), cfg, taskID, actionState, actionSem, actionChildSem)
+			result, err := retryTask(actionCtx, cfg, taskID, actionState, actionSem, actionChildSem)
 			if err != nil {
 				jsonError(w, err.Error(), http.StatusNotFound)
 				return
@@ -5439,7 +5445,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			json.NewEncoder(w).Encode(result)
 
 		case "reroute":
-			result, err := rerouteTask(r.Context(), cfg, taskID, actionState, actionSem, actionChildSem)
+			result, err := rerouteTask(actionCtx, cfg, taskID, actionState, actionSem, actionChildSem)
 			if err != nil {
 				status := http.StatusNotFound
 				if strings.Contains(err.Error(), "not enabled") {
@@ -5591,7 +5597,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		// Sync mode: block until complete.
 		syncClientID := getClientID(r)
 		syncState, syncSem, syncChildSem := s.resolveClientDispatch(syncClientID)
-		result := smartDispatch(r.Context(), cfg, body.Prompt, "http", syncState, syncSem, syncChildSem)
+		// Decouple from HTTP request lifecycle so client disconnect doesn't kill in-flight tasks.
+		syncCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
+		result := smartDispatch(syncCtx, cfg, body.Prompt, "http", syncState, syncSem, syncChildSem)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)
 	})

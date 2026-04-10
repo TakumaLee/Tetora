@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1819,6 +1821,19 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 				parts = append(parts, fmt.Sprintf("Output saved: `%s`", result.OutputFile))
 			}
 			output = strings.Join(parts, "\n")
+		}
+
+		// Persist full output to disk before sending, so it can be retrieved
+		// even if Discord drops or truncates the message.
+		if result.Status == "success" && strings.TrimSpace(output) != "" && db.cfg.BaseDir != "" {
+			outDir := filepath.Join(db.cfg.BaseDir, "outputs")
+			if err := os.MkdirAll(outDir, 0o755); err == nil {
+				outPath := filepath.Join(outDir,
+					fmt.Sprintf("%s_%s.txt", task.ID, time.Now().Format("20060102-150405")))
+				if err := os.WriteFile(outPath, []byte(output), 0o644); err != nil {
+					log.Warn("discord: failed to save output file", "task", task.ID, "err", err)
+				}
+			}
 		}
 
 		// Send output as plain text messages (split into 2000-char chunks).
