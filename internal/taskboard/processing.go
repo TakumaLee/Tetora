@@ -531,7 +531,6 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Post-dispatch coordination: finding + release claim + resolve blockers.
 	if coordDir != "" && coord.KnownAgents[finalAgent] {
-		summary := truncStr(result.Output, 500)
 		var artifacts []string
 		if result.OutputFile != "" {
 			artifacts = []string{result.OutputFile}
@@ -542,7 +541,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			TaskID:     t.ID,
 			Agent:      finalAgent,
 			RecordedAt: time.Now().UTC(),
-			Summary:    summary,
+			Summary:    result.Output,
 			Artifacts:  artifacts,
 		}); err != nil {
 			log.Warn("coord: failed to write finding", "task", t.ID, "err", err)
@@ -551,8 +550,8 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			log.Warn("coord: failed to release claim", "task", t.ID, "err", err)
 		}
 		resolution := "Task completed"
-		if summary != "" {
-			resolution = truncStr(summary, 100)
+		if result.Output != "" {
+			resolution = truncStr(result.Output, 100)
 		}
 		if err := coord.ResolveBlockersFor(coordDir, t.ID, finalAgent, resolution); err != nil {
 			log.Warn("coord: failed to resolve blockers", "task", t.ID, "err", err)
