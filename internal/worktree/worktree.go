@@ -62,11 +62,8 @@ func (wm *WorktreeManager) pathLock(path string) *sync.Mutex {
 // branchMetaFile is the filename written inside each worktree to record the branch name.
 const branchMetaFile = ".tetora-branch"
 
-// sessionLockFile is written inside an active worktree to signal that a
-// Claude session is currently running there. The file content is the PID of the
-// dispatcher process that owns the session. Create() and Prune() check this
-// file before removing a worktree to avoid killing a live Bash tool CWD.
-const sessionLockFile = ".tetora-active"
+// sessionLockFile aliases taskboard.SessionLockFile for use within this package.
+const sessionLockFile = taskboard.SessionLockFile
 
 // sessionWaitPollInterval and sessionWaitMaxDuration control how long Create()
 // waits for an active session to finish before proceeding with stale worktree

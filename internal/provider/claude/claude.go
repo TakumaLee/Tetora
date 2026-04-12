@@ -239,11 +239,13 @@ func (p *Provider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req prov
 	toolNameByID := make(map[string]string)
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	lineCount := 0
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
+		lineCount++
 
 		var msg streamMsg
 		if err := json.Unmarshal(line, &msg); err != nil {
@@ -344,8 +346,25 @@ func (p *Provider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req prov
 		exitCode = cmd.ProcessState.ExitCode()
 	}
 
+	// Distinguish between CLI silent success and truly no output to aid diagnosis.
+	if exitCode == 0 && ctx.Err() == nil && runErr == nil {
+		if lineCount == 0 {
+			log.Warn("truly_no_output: CLI exited 0 with empty stdout",
+				"sessionId", req.SessionID, "exitCode", exitCode)
+		} else if resultMsg == nil {
+			log.Warn("output_without_result: CLI produced output lines but no result message",
+				"sessionId", req.SessionID, "lineCount", lineCount)
+		}
+	}
+
 	pr := buildResultFromStream(resultMsg, stderr.Bytes(), exitCode)
 	pr.DurationMs = elapsed.Milliseconds()
+
+	// Warn when result message is present but carries no tokens and no output.
+	if pr.Error == "empty run: CLI returned success but no tokens were consumed" {
+		log.Warn("empty_result_event: CLI returned result message with zero tokens and empty output",
+			"sessionId", req.SessionID, "exitCode", exitCode)
+	}
 
 	if ctx.Err() == context.DeadlineExceeded {
 		pr.IsError = true

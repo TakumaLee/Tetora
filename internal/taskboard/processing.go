@@ -361,7 +361,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 				// so the lock is removed before postTaskWorktree — Remove() refuses to
 				// delete a worktree whose PID is still alive. The outer defer acts as
 				// a safety net for early returns and panics.
-				lockPath := filepath.Join(wtDir, ".tetora-active")
+				lockPath := filepath.Join(wtDir, SessionLockFile)
 				releaseLock = func() { os.Remove(lockPath) } //nolint:errcheck
 			}
 		}

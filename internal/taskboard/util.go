@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// SessionLockFile is the filename written inside an active worktree to signal
+// that a Claude session is currently running there. Both the worktree manager
+// and the task dispatcher reference this constant to avoid hardcoding the string
+// in multiple places.
+const SessionLockFile = ".tetora-active"
+
 // GenerateID generates a unique ID with the given prefix.
 func GenerateID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
