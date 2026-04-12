@@ -10110,6 +10110,10 @@ func archiveChannelSession(dbPath, chKey string) error {
 	return session.ArchiveChannelSession(dbPath, chKey)
 }
 
+func findLastArchivedChannelSession(dbPath, chKey string) (*Session, error) {
+	return session.FindLastArchivedChannelSession(dbPath, chKey)
+}
+
 // --- Row Parsers ---
 
 func sessionMessageFromRow(row map[string]any) SessionMessage {

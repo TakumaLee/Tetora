@@ -1502,6 +1502,14 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 		providerName := resolveProviderName(db.cfg, Task{Agent: route.Agent}, route.Agent)
 		if !providerHasNativeSession(providerName) && !canResume {
 			sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.ContextMessagesOrDefault())
+			// New session with no history — carry forward context from the archived predecessor.
+			if sessionCtx == "" {
+				if prev, err := findLastArchivedChannelSession(dbPath, chKey); err == nil && prev != nil {
+					sessionCtx = buildSessionContext(dbPath, prev.ID, db.cfg.Session.ContextMessagesOrDefault())
+					log.InfoCtx(ctx, "auto-continuing from archived session",
+						"prevSession", prev.ID[:8], "channel", chKey)
+				}
+			}
 			contextPrompt = wrapWithContext(sessionCtx, prompt)
 		}
 		now := time.Now().Format(time.RFC3339)
@@ -2470,6 +2478,14 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 		providerName := resolveProviderName(db.cfg, Task{Agent: role}, role)
 		if !providerHasNativeSession(providerName) {
 			sessionCtx := buildSessionContext(dbPath, sess.ID, db.cfg.Session.ContextMessagesOrDefault())
+			// New session with no history — carry forward context from the archived predecessor.
+			if sessionCtx == "" && sess.MessageCount == 0 {
+				if prev, err := findLastArchivedChannelSession(dbPath, sessionID); err == nil && prev != nil {
+					sessionCtx = buildSessionContext(dbPath, prev.ID, db.cfg.Session.ContextMessagesOrDefault())
+					log.InfoCtx(ctx, "auto-continuing from archived session",
+						"prevSession", prev.ID[:8], "channel", sessionID)
+				}
+			}
 			contextPrompt = wrapWithContext(sessionCtx, prompt)
 		}
 		now := time.Now().Format(time.RFC3339)

@@ -477,6 +477,52 @@ func TestWrapWithContext(t *testing.T) {
 	}
 }
 
+func TestFindLastArchivedChannelSession(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	InitSessionDB(dbPath)
+
+	now := time.Now().Format(time.RFC3339)
+
+	// Nothing yet — should return nil.
+	sess, err := FindLastArchivedChannelSession(dbPath, "discord:test")
+	if err != nil {
+		t.Fatalf("FindLastArchivedChannelSession: %v", err)
+	}
+	if sess != nil {
+		t.Error("expected nil for nonexistent archived session")
+	}
+
+	// Active session — should NOT be returned.
+	CreateSession(dbPath, Session{
+		ID: "active-001", Agent: "龍蝦", Source: "discord", Status: "active",
+		ChannelKey: "discord:test", CreatedAt: now, UpdatedAt: now,
+	})
+	sess, _ = FindLastArchivedChannelSession(dbPath, "discord:test")
+	if sess != nil {
+		t.Error("expected nil: active session should not be returned")
+	}
+
+	// Archive it — now it should be returned.
+	UpdateSessionStatus(dbPath, "active-001", "archived")
+	sess, err = FindLastArchivedChannelSession(dbPath, "discord:test")
+	if err != nil {
+		t.Fatalf("FindLastArchivedChannelSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected archived session, got nil")
+	}
+	if sess.ID != "active-001" {
+		t.Errorf("session ID = %q, want %q", sess.ID, "active-001")
+	}
+
+	// Different channel key — should not cross-match.
+	sess2, _ := FindLastArchivedChannelSession(dbPath, "discord:other")
+	if sess2 != nil {
+		t.Error("expected nil for different channel key")
+	}
+}
+
 func TestArchiveChannelSession(t *testing.T) {
 	skipIfNoSQLite(t)
 	dbPath := filepath.Join(t.TempDir(), "test.db")

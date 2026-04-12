@@ -753,6 +753,24 @@ func FindChannelSession(dbPath, chKey string) (*Session, error) {
 	return &s, nil
 }
 
+// FindLastArchivedChannelSession returns the most recently archived session
+// for the given channel key, or nil if none exists.
+func FindLastArchivedChannelSession(dbPath, chKey string) (*Session, error) {
+	sql := fmt.Sprintf(
+		`SELECT `+sessionSelectCols()+`
+		 FROM sessions WHERE channel_key = '%s' AND status = 'archived' ORDER BY updated_at DESC LIMIT 1`,
+		db.Escape(chKey))
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	s := sessionFromRow(rows[0])
+	return &s, nil
+}
+
 func GetOrCreateChannelSession(dbPath, source, chKey, role, title string) (*Session, error) {
 	sess, err := FindChannelSession(dbPath, chKey)
 	if err != nil {
