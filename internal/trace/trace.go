@@ -22,12 +22,14 @@ func NewUUID() string {
 }
 
 // NewID generates a short, unique trace ID with the given prefix.
-// Format: "<prefix>-<6 hex chars>" e.g. "http-a1b2c3", "tg-d4e5f6"
+// Format: "<prefix>-<8 hex chars>" e.g. "http-a1b2c3d4", "tg-d4e5f6a7"
+// Uses 4 bytes of entropy (4 billion possibilities) to keep collision
+// probability negligible even when generating thousands of IDs per second.
 func NewID(prefix string) string {
-	b := make([]byte, 3) // 3 bytes = 6 hex chars
+	b := make([]byte, 4) // 4 bytes = 8 hex chars
 	if _, err := rand.Read(b); err != nil {
 		// Fallback: should never happen in practice.
-		return prefix + "-000000"
+		return prefix + "-00000000"
 	}
 	return fmt.Sprintf("%s-%x", prefix, b)
 }

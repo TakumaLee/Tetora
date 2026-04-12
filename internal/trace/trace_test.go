@@ -11,15 +11,15 @@ import (
 
 func TestNewID_Format(t *testing.T) {
 	id := NewID("http")
-	matched, _ := regexp.MatchString(`^http-[0-9a-f]{6}$`, id)
+	matched, _ := regexp.MatchString(`^http-[0-9a-f]{8}$`, id)
 	if !matched {
-		t.Errorf("NewID('http') = %q, want format http-XXXXXX", id)
+		t.Errorf("NewID('http') = %q, want format http-XXXXXXXX", id)
 	}
 
 	id2 := NewID("tg")
-	matched2, _ := regexp.MatchString(`^tg-[0-9a-f]{6}$`, id2)
+	matched2, _ := regexp.MatchString(`^tg-[0-9a-f]{8}$`, id2)
 	if !matched2 {
-		t.Errorf("NewID('tg') = %q, want format tg-XXXXXX", id2)
+		t.Errorf("NewID('tg') = %q, want format tg-XXXXXXXX", id2)
 	}
 }
 
