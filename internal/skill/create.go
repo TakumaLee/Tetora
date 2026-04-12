@@ -8,10 +8,27 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 // --- P18.4: Self-Improving Skills ---
+
+// skillsFileCache caches the result of LoadFileSkills per skills directory.
+// Invalidated explicitly by any function that mutates the skill store.
+var (
+	skillsCacheMu sync.RWMutex
+	skillsCacheMap = make(map[string][]SkillConfig)
+)
+
+// invalidateSkillsCache removes the cached result for the given config's skills dir.
+// Must be called after any operation that adds, removes, or modifies file-based skills.
+func invalidateSkillsCache(cfg *AppConfig) {
+	dir := SkillsDir(cfg)
+	skillsCacheMu.Lock()
+	delete(skillsCacheMap, dir)
+	skillsCacheMu.Unlock()
+}
 
 // SkillMetadata is stored as metadata.json in each skill directory.
 type SkillMetadata struct {
@@ -123,6 +140,7 @@ func CreateSkill(cfg *AppConfig, meta SkillMetadata, script string) error {
 		return fmt.Errorf("write metadata: %w", err)
 	}
 
+	invalidateSkillsCache(cfg)
 	logInfo("skill created", "name", meta.Name, "approved", meta.Approved, "createdBy", meta.CreatedBy)
 	return nil
 }
@@ -139,8 +157,23 @@ func scriptFilename(command string) string {
 // Skills with metadata.json (approved=true) are loaded first. Skills that only
 // have a SKILL.md with YAML frontmatter are also loaded as doc-only skills.
 // metadata.json takes priority: if a directory has both, metadata.json wins.
+//
+// Results are cached per skills directory and invalidated by CreateSkill,
+// ApproveSkill, and DeleteFileSkill. Callers outside this package that mutate
+// the skills directory directly should call InvalidateSkillsCache.
 func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 	dir := SkillsDir(cfg)
+
+	// Fast path: return cached result if available.
+	skillsCacheMu.RLock()
+	if cached, ok := skillsCacheMap[dir]; ok {
+		result := make([]SkillConfig, len(cached))
+		copy(result, cached)
+		skillsCacheMu.RUnlock()
+		return result
+	}
+	skillsCacheMu.RUnlock()
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -242,7 +275,19 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 		}
 	}
 
+	// Populate cache.
+	skillsCacheMu.Lock()
+	skillsCacheMap[dir] = skills
+	skillsCacheMu.Unlock()
+
 	return skills
+}
+
+// InvalidateSkillsCache clears the LoadFileSkills cache for the given config's
+// skills directory. Useful for callers that modify the skills directory outside
+// of CreateSkill / ApproveSkill / DeleteFileSkill.
+func InvalidateSkillsCache(cfg *AppConfig) {
+	invalidateSkillsCache(cfg)
 }
 
 // loadSkillFromFrontmatter reads a SKILL.md file and parses its YAML frontmatter
@@ -493,6 +538,7 @@ func ApproveSkill(cfg *AppConfig, name string) error {
 		return fmt.Errorf("write metadata: %w", err)
 	}
 
+	invalidateSkillsCache(cfg)
 	logInfo("skill approved", "name", name)
 	return nil
 }
@@ -517,6 +563,7 @@ func DeleteFileSkill(cfg *AppConfig, name string) error {
 		return fmt.Errorf("delete skill: %w", err)
 	}
 
+	invalidateSkillsCache(cfg)
 	logInfo("skill deleted", "name", name)
 	return nil
 }
