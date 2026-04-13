@@ -308,7 +308,7 @@ func (b *Bot) handleThreadRoute(msg Message, prompt string, binding *threadBindi
 // runDiscordProgressUpdater subscribes to task SSE events and updates a Discord progress message.
 func (b *Bot) runDiscordProgressUpdater(
 	channelID, progressMsgID, taskID, sessionID string,
-	broker *dtypes.Broker,
+	broker SSEBroker,
 	stopCh <-chan struct{},
 	builder *ProgressBuilder,
 	components []Component,
