@@ -11083,19 +11083,38 @@ func ensureProvider(cfg *Config, presetName string) error {
 // --- initProviders creates provider instances from config ---
 // Stays in root because it depends on Config and root-level Docker/Tmux adapters.
 
+// resolveClaudeBinary returns the path to the claude binary.
+// Priority: explicit path → login shell detection → "claude" (relies on PATH).
+// Login shell detection handles brew, npm/fnm, nvm, and other version managers
+// where the binary is not in the daemon's limited PATH.
+func resolveClaudeBinary(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	// Ask the user's login shell — covers brew, fnm, nvm, pyenv-style wrappers.
+	for _, shell := range []string{"/bin/zsh", "/bin/bash"} {
+		out, err := exec.Command(shell, "-l", "-c", "which claude").Output()
+		if err == nil {
+			if p := strings.TrimSpace(string(out)); p != "" {
+				return p
+			}
+		}
+	}
+	return "claude"
+}
+
 func initProviders(cfg *Config) *provider.Registry {
 	reg := provider.NewRegistry()
 
 	for name, pc := range cfg.Providers {
 		switch pc.Type {
 		case "claude-cli":
-			path := pc.Path
-			if path == "" {
-				path = cfg.ClaudePath
-			}
-			if path == "" {
-				path = "claude"
-			}
+			path := resolveClaudeBinary(func() string {
+				if pc.Path != "" {
+					return pc.Path
+				}
+				return cfg.ClaudePath
+			}())
 			reg.Register(name, &provider.ClaudeProvider{
 				BinaryPath:    path,
 				DockerEnabled: cfg.Docker.Enabled,
@@ -11130,10 +11149,7 @@ func initProviders(cfg *Config) *provider.Registry {
 			if pc.Type == "claude-tmux" {
 				log.Warn("provider type 'claude-tmux' is deprecated in v3, use 'claude-code' instead", "name", name)
 			}
-			path := pc.Path
-			if path == "" {
-				path = "/usr/local/bin/claude"
-			}
+			path := resolveClaudeBinary(pc.Path)
 			reg.Register(name, &provider.ClaudeProvider{
 				BinaryPath:    path,
 				DockerEnabled: cfg.Docker.Enabled,
@@ -11141,13 +11157,12 @@ func initProviders(cfg *Config) *provider.Registry {
 			})
 
 		case "terminal-claude":
-			path := pc.Path
-			if path == "" {
-				path = cfg.ClaudePath
-			}
-			if path == "" {
-				path = "/usr/local/bin/claude"
-			}
+			path := resolveClaudeBinary(func() string {
+				if pc.Path != "" {
+					return pc.Path
+				}
+				return cfg.ClaudePath
+			}())
 			reg.Register(name, &provider.TerminalProvider{
 				BinaryPath:     path,
 				DefaultWorkdir: cfg.DefaultWorkdir,
