@@ -6,8 +6,16 @@ import (
 	"time"
 
 	"tetora/internal/config"
+	"tetora/internal/cron"
 	dtypes "tetora/internal/dispatch"
 )
+
+// ModelChangeResult holds the before/after state from an UpdateAgentModel call.
+type ModelChangeResult struct {
+	OldModel    string
+	OldProvider string
+	NewProvider string // empty if provider was not changed
+}
 
 // BotDeps holds injected function dependencies that the Bot needs from the main package.
 // These are functions defined in wire.go / dispatch.go that haven't been moved to
@@ -29,17 +37,32 @@ type BotDeps struct {
 
 	// ResolveProviderName resolves the effective provider name for a task.
 	ResolveProviderName func(task dtypes.Task, agentName string) string
+
+	// RunSingleTask executes a single task synchronously and returns the result.
+	RunSingleTask func(ctx context.Context, task dtypes.Task, agentName string) dtypes.TaskResult
+
+	// EnsureProvider validates that the named provider preset exists.
+	EnsureProvider func(presetName string) error
+
+	// UpdateAgentModel updates an agent's model in config.
+	UpdateAgentModel func(agentName, model, providerName string) (ModelChangeResult, error)
+
+	// SetMemory persists a key/value memory entry for an agent's workspace.
+	SetMemory func(agent, key, value string)
+
+	// Version is the application version string (e.g. "1.2.3" or "dev").
+	Version string
 }
 
 // Bot manages the Discord Gateway connection and all message handling.
-// Migrated from the main-package DiscordBot struct.
+// Migrated from the main-package Bot struct.
 //
 // Field types that were previously main-package-only types are now in this package:
 //   - *discordInteractionState  → defined in interactions.go
 //   - *threadBindingStore       → defined in threads.go
 //   - *threadParentCache        → defined in threads_cache.go
 //   - *discordApprovalGate      → defined in approval.go
-//   - *terminalBridge           → defined in terminal.go
+//   - *TerminalBridge           → defined in terminal.go
 //
 // Dependencies on main-package types are abstracted via:
 //   - StateAccessor interface   → defined in contracts.go
@@ -51,6 +74,7 @@ type Bot struct {
 	state    StateAccessor
 	sem      chan struct{}
 	childSem chan struct{}
+	cronEng  *cron.Engine
 	deps     BotDeps
 
 	botUserID string
@@ -60,16 +84,16 @@ type Bot struct {
 
 	api          *Client
 	stopCh       chan struct{}
-	interactions *discordInteractionState
-	threads      *threadBindingStore
-	threadParents *threadParentCache
-	reactions    *ReactionManager
-	approvalGate *discordApprovalGate
-	forumBoard   *ForumBoard
-	voice        *VoiceManager
-	gatewayConn  *WsConn
-	notifier     *TaskNotifier
-	terminal     *terminalBridge
+	interactions  *DiscordInteractionState
+	threads       *ThreadBindingStore
+	threadParents *ThreadParentCache
+	reactions     *ReactionManager
+	approvalGate  *DiscordApprovalGate
+	forumBoard    *ForumBoard
+	voice         *VoiceManager
+	gatewayConn   *WsConn
+	notifier      *TaskNotifier
+	terminal      *TerminalBridge
 	msgSem       chan struct{}
 
 	dedupMu   sync.Mutex
@@ -85,6 +109,7 @@ type Bot struct {
 func New(
 	cfg *config.Config,
 	state StateAccessor,
+	cronEng *cron.Engine,
 	sem, childSem chan struct{},
 	deps BotDeps,
 ) *Bot {
@@ -94,12 +119,13 @@ func New(
 		state:         state,
 		sem:           sem,
 		childSem:      childSem,
+		cronEng:       cronEng,
 		deps:          deps,
 		api:           apiClient,
 		stopCh:        make(chan struct{}),
-		interactions:  newDiscordInteractionState(),
-		threads:       newThreadBindingStore(),
-		threadParents: newThreadParentCache(),
+		interactions:  NewDiscordInteractionState(),
+		threads:       NewThreadBindingStore(),
+		threadParents: NewThreadParentCache(),
 		msgSem:        make(chan struct{}, 32),
 		chatLock:      make(map[string]string),
 	}
@@ -112,7 +138,7 @@ func New(
 		b.forumBoard = newDiscordForumBoard(b, cfg.Discord.ForumBoard)
 	}
 
-	b.voice = newVoiceManager(b)
+	b.voice = newDiscordVoiceManager(b)
 
 	if cfg.Discord.Terminal.Enabled {
 		b.terminal = newTerminalBridge(b, cfg.Discord.Terminal)
@@ -120,7 +146,7 @@ func New(
 
 	if cfg.ApprovalGates.Enabled {
 		if ch := b.notifyChannelID(); ch != "" {
-			b.approvalGate = newDiscordApprovalGate(b, ch)
+			b.approvalGate = NewDiscordApprovalGate(b, ch)
 		}
 	}
 

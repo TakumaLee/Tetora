@@ -40,7 +40,7 @@ func (n *TaskNotifier) NotifyStart(task dtypes.Task) {
 	}
 	name := task.Name
 	if name == "" {
-		name = "Task " + task.ID[:8]
+		name = "dtypes.Task " + task.ID[:8]
 	}
 	promptSnippet := truncateStr(task.Prompt, 120)
 
