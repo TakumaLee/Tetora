@@ -162,8 +162,18 @@ const (
 )
 
 // NewLoginLimiter creates a new login rate limiter.
+// It starts a background goroutine that calls Cleanup every 5 minutes.
+// The goroutine runs until the process exits.
 func NewLoginLimiter() *LoginLimiter {
-	return &LoginLimiter{attempts: make(map[string]*loginAttempt)}
+	ll := &LoginLimiter{attempts: make(map[string]*loginAttempt)}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			ll.Cleanup()
+		}
+	}()
+	return ll
 }
 
 // IsLocked returns true if the IP is currently locked out.
@@ -316,14 +326,24 @@ type ipWindow struct {
 }
 
 // NewAPIRateLimiter creates a new rate limiter allowing up to maxPerMin requests per minute per IP.
+// It starts a background goroutine that calls Cleanup every minute.
+// The goroutine runs until the process exits.
 func NewAPIRateLimiter(maxPerMin int) *APIRateLimiter {
 	if maxPerMin <= 0 {
 		maxPerMin = 60
 	}
-	return &APIRateLimiter{
+	rl := &APIRateLimiter{
 		windows: make(map[string]*ipWindow),
 		limit:   maxPerMin,
 	}
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			rl.Cleanup()
+		}
+	}()
+	return rl
 }
 
 // Allow checks if the IP is under the rate limit. Returns true if the request is allowed.
@@ -385,6 +405,8 @@ type SecurityMonitor struct {
 
 // NewSecurityMonitor creates a security monitor.
 // Returns nil if disabled or notifyFn is nil (safe to call methods on nil).
+// When non-nil, it starts a background goroutine that calls Cleanup every 5 minutes.
+// The goroutine runs until the process exits.
 func NewSecurityMonitor(enabled bool, failThreshold, failWindowMin int, notifyFn func(string)) *SecurityMonitor {
 	if !enabled || notifyFn == nil {
 		return nil
@@ -397,7 +419,7 @@ func NewSecurityMonitor(enabled bool, failThreshold, failWindowMin int, notifyFn
 	if windowMin <= 0 {
 		windowMin = 5
 	}
-	return &SecurityMonitor{
+	sm := &SecurityMonitor{
 		events:        make(map[string][]time.Time),
 		lastAlert:     make(map[string]time.Time),
 		threshold:     threshold,
@@ -405,6 +427,14 @@ func NewSecurityMonitor(enabled bool, failThreshold, failWindowMin int, notifyFn
 		alertCooldown: 15 * time.Minute,
 		notifyFn:      notifyFn,
 	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			sm.Cleanup()
+		}
+	}()
+	return sm
 }
 
 // RecordEvent records a security event for the given IP.

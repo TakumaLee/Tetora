@@ -38,7 +38,10 @@ func RegisterLocaleRoutes(mux *http.ServeMux, localesFS fs.FS) {
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			// HTTP write errors are unrecoverable after headers are sent; log if needed.
+			_ = err
+		}
 	})
 }
 
