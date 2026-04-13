@@ -289,11 +289,13 @@ type CircuitBreakerConfig struct {
 // --- Session ---
 
 type SessionConfig struct {
-	ContextMessages int              `json:"contextMessages,omitempty"`
-	CompactAfter    int              `json:"compactAfter,omitempty"`
-	CompactKeep     int              `json:"compactKeep,omitempty"`
-	CompactTokens   int              `json:"compactTokens,omitempty"`
-	Compaction      CompactionConfig `json:"compaction,omitempty"`
+	ContextMessages  int              `json:"contextMessages,omitempty"`
+	CompactAfter     int              `json:"compactAfter,omitempty"`
+	CompactKeep      int              `json:"compactKeep,omitempty"`
+	CompactTokens    int              `json:"compactTokens,omitempty"`
+	MaxContextTokens int              `json:"maxContextTokens,omitempty"`
+	IdleTimeout      string           `json:"idleTimeout,omitempty"`
+	Compaction       CompactionConfig `json:"compaction,omitempty"`
 }
 
 func (c SessionConfig) ContextMessagesOrDefault() int {
@@ -322,6 +324,22 @@ func (c SessionConfig) CompactTokensOrDefault() int {
 		return c.CompactTokens
 	}
 	return 200000
+}
+
+func (c SessionConfig) MaxContextTokensOrDefault() int {
+	if c.MaxContextTokens > 0 {
+		return c.MaxContextTokens
+	}
+	return 60000
+}
+
+func (c SessionConfig) IdleTimeoutOrDefault() time.Duration {
+	if c.IdleTimeout != "" {
+		if d, err := time.ParseDuration(c.IdleTimeout); err == nil {
+			return d
+		}
+	}
+	return 90 * time.Minute
 }
 
 type CompactionConfig struct {

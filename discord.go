@@ -1293,6 +1293,38 @@ func (db *DiscordBot) cmdEnd(msg discord.Message) {
 	db.sendMessage(msg.ChannelID, fmt.Sprintf("Unlocked from **%s**. Smart dispatch resumed.", agent))
 }
 
+// checkSessionReset inspects the existing channel session and archives it if
+// context overflow or idle timeout is detected. Returns a non-empty reason
+// string if a reset was performed (caller should nil out the session pointer).
+func (db *DiscordBot) checkSessionReset(ctx context.Context, existing *Session, chKey string) string {
+	if existing == nil {
+		return ""
+	}
+	dbPath := db.cfg.HistoryDB
+
+	maxTokens := db.cfg.Session.MaxContextTokensOrDefault()
+	if existing.ContextSize > maxTokens {
+		if err := archiveChannelSession(dbPath, chKey); err != nil {
+			log.WarnCtx(ctx, "discord session archive error (context overflow)", "error", err)
+		}
+		return fmt.Sprintf("_Session reset: context reached %d tokens (limit %d). Starting fresh — previous context carried forward._", existing.ContextSize, maxTokens)
+	}
+
+	idleTimeout := db.cfg.Session.IdleTimeoutOrDefault()
+	if existing.UpdatedAt != "" {
+		if updatedAt, err := time.Parse(time.RFC3339, existing.UpdatedAt); err == nil {
+			if idle := time.Since(updatedAt); idle > idleTimeout {
+				if err := archiveChannelSession(dbPath, chKey); err != nil {
+					log.WarnCtx(ctx, "discord session archive error (idle timeout)", "error", err)
+				}
+				return fmt.Sprintf("_Session reset: idle for %d min (limit %d min). Starting fresh._", int(idle.Minutes()), int(idleTimeout.Minutes()))
+			}
+		}
+	}
+
+	return ""
+}
+
 // autoNewSession archives the current channel session when provider changes,
 // since session/thread IDs from one provider are invalid in another.
 func (db *DiscordBot) autoNewSession(channelID, oldProvider, newProvider string) {
@@ -1463,6 +1495,12 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	existing, findErr := findChannelSession(dbPath, chKey)
 	if findErr != nil {
 		log.WarnCtx(ctx, "discord findChannelSession error", "error", findErr)
+	}
+
+	// Auto-reset: archive session if context overflow or idle timeout.
+	if resetReason := db.checkSessionReset(ctx, existing, chKey); resetReason != "" {
+		db.sendMessage(msg.ChannelID, resetReason)
+		existing = nil
 	}
 
 	// For non-deterministic routes (keyword/LLM), keep the existing session's
