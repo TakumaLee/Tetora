@@ -2429,8 +2429,7 @@ func startHTTPServer(s *Server) *http.Server {
 	mux.HandleFunc("/dashboard/icon.svg", pwa.HandleIcon)
 
 	// Locale API.
-	mux.HandleFunc("/api/locales/", handleLocaleGet)
-	mux.HandleFunc("/api/locales", handleLocalesList)
+	registerLocaleRoutes(mux)
 
 	// Root redirect to dashboard.
 	mux.HandleFunc("/", handleRootRedirect)
