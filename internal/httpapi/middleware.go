@@ -163,14 +163,19 @@ const (
 
 // NewLoginLimiter creates a new login rate limiter.
 // It starts a background goroutine that calls Cleanup every 5 minutes.
-// The goroutine runs until the process exits.
-func NewLoginLimiter() *LoginLimiter {
+// The goroutine exits when ctx is cancelled.
+func NewLoginLimiter(ctx context.Context) *LoginLimiter {
 	ll := &LoginLimiter{attempts: make(map[string]*loginAttempt)}
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			ll.Cleanup()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				ll.Cleanup()
+			}
 		}
 	}()
 	return ll
@@ -305,7 +310,9 @@ func IPAllowlistMiddleware(al *IPAllowlist, blockedFn func(path, ip string), nex
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(`{"error":"forbidden"}`))
+			if _, err := w.Write([]byte(`{"error":"forbidden"}`)); err != nil {
+				log.WarnCtx(r.Context(), "response write failed", "error", err)
+			}
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -327,8 +334,8 @@ type ipWindow struct {
 
 // NewAPIRateLimiter creates a new rate limiter allowing up to maxPerMin requests per minute per IP.
 // It starts a background goroutine that calls Cleanup every minute.
-// The goroutine runs until the process exits.
-func NewAPIRateLimiter(maxPerMin int) *APIRateLimiter {
+// The goroutine exits when ctx is cancelled.
+func NewAPIRateLimiter(ctx context.Context, maxPerMin int) *APIRateLimiter {
 	if maxPerMin <= 0 {
 		maxPerMin = 60
 	}
@@ -339,8 +346,13 @@ func NewAPIRateLimiter(maxPerMin int) *APIRateLimiter {
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			rl.Cleanup()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rl.Cleanup()
+			}
 		}
 	}()
 	return rl
@@ -406,8 +418,8 @@ type SecurityMonitor struct {
 // NewSecurityMonitor creates a security monitor.
 // Returns nil if disabled or notifyFn is nil (safe to call methods on nil).
 // When non-nil, it starts a background goroutine that calls Cleanup every 5 minutes.
-// The goroutine runs until the process exits.
-func NewSecurityMonitor(enabled bool, failThreshold, failWindowMin int, notifyFn func(string)) *SecurityMonitor {
+// The goroutine exits when ctx is cancelled.
+func NewSecurityMonitor(ctx context.Context, enabled bool, failThreshold, failWindowMin int, notifyFn func(string)) *SecurityMonitor {
 	if !enabled || notifyFn == nil {
 		return nil
 	}
@@ -430,8 +442,13 @@ func NewSecurityMonitor(enabled bool, failThreshold, failWindowMin int, notifyFn
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			sm.Cleanup()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sm.Cleanup()
+			}
 		}
 	}()
 	return sm
@@ -520,7 +537,9 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 				log.Error("http handler panic", "panic", fmt.Sprintf("%v", rv), "path", r.URL.Path, "stack", string(buf[:n]))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(`{"error":"internal server error"}`))
+				if _, err := w.Write([]byte(`{"error":"internal server error"}`)); err != nil {
+					log.WarnCtx(r.Context(), "response write failed", "error", err)
+				}
 			}
 		}()
 		next.ServeHTTP(w, r)

@@ -1,6 +1,7 @@
 package httpapi_test
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -76,14 +77,14 @@ func TestIsValidClientID_BoundaryLength(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoginLimiter_NotLockedInitially(t *testing.T) {
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	if ll.IsLocked("1.2.3.4") {
 		t.Error("IsLocked on fresh limiter = true, want false")
 	}
 }
 
 func TestLoginLimiter_LockedAfterMaxFailures(t *testing.T) {
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	ip := "10.0.0.1"
 	for i := 0; i < 5; i++ {
 		ll.RecordFailure(ip)
@@ -94,7 +95,7 @@ func TestLoginLimiter_LockedAfterMaxFailures(t *testing.T) {
 }
 
 func TestLoginLimiter_NotLockedBeforeMaxFailures(t *testing.T) {
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	ip := "10.0.0.2"
 	for i := 0; i < 4; i++ {
 		ll.RecordFailure(ip)
@@ -105,7 +106,7 @@ func TestLoginLimiter_NotLockedBeforeMaxFailures(t *testing.T) {
 }
 
 func TestLoginLimiter_RecordSuccess_ClearsLock(t *testing.T) {
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	ip := "10.0.0.3"
 	for i := 0; i < 5; i++ {
 		ll.RecordFailure(ip)
@@ -117,7 +118,7 @@ func TestLoginLimiter_RecordSuccess_ClearsLock(t *testing.T) {
 }
 
 func TestLoginLimiter_DifferentIPsAreIndependent(t *testing.T) {
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	ip1, ip2 := "10.0.0.4", "10.0.0.5"
 	for i := 0; i < 5; i++ {
 		ll.RecordFailure(ip1)
@@ -131,7 +132,7 @@ func TestLoginLimiter_Cleanup_RemovesExpiredEntries(t *testing.T) {
 	// We cannot fake the clock in the production type without internal access,
 	// so we test the public surface: Cleanup() must not panic and must be callable
 	// concurrently with RecordFailure/IsLocked.
-	ll := httpapi.NewLoginLimiter()
+	ll := httpapi.NewLoginLimiter(context.Background())
 	ip := "10.0.0.6"
 	ll.RecordFailure(ip)
 	// Cleanup should be safe to call explicitly even though the constructor
@@ -201,7 +202,7 @@ func TestIPAllowlist_InvalidIPReturnsFalse(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAPIRateLimiter_AllowsUpToLimit(t *testing.T) {
-	rl := httpapi.NewAPIRateLimiter(5)
+	rl := httpapi.NewAPIRateLimiter(context.Background(), 5)
 	ip := "10.1.1.1"
 	for i := 0; i < 5; i++ {
 		if !rl.Allow(ip) {
@@ -211,7 +212,7 @@ func TestAPIRateLimiter_AllowsUpToLimit(t *testing.T) {
 }
 
 func TestAPIRateLimiter_DeniesOverLimit(t *testing.T) {
-	rl := httpapi.NewAPIRateLimiter(3)
+	rl := httpapi.NewAPIRateLimiter(context.Background(), 3)
 	ip := "10.1.1.2"
 	for i := 0; i < 3; i++ {
 		rl.Allow(ip)
@@ -222,7 +223,7 @@ func TestAPIRateLimiter_DeniesOverLimit(t *testing.T) {
 }
 
 func TestAPIRateLimiter_DifferentIPsAreIndependent(t *testing.T) {
-	rl := httpapi.NewAPIRateLimiter(2)
+	rl := httpapi.NewAPIRateLimiter(context.Background(), 2)
 	ip1, ip2 := "10.1.1.3", "10.1.1.4"
 	rl.Allow(ip1)
 	rl.Allow(ip1)
@@ -234,7 +235,7 @@ func TestAPIRateLimiter_DifferentIPsAreIndependent(t *testing.T) {
 
 func TestAPIRateLimiter_DefaultLimitApplied(t *testing.T) {
 	// maxPerMin <= 0 should default to 60.
-	rl := httpapi.NewAPIRateLimiter(0)
+	rl := httpapi.NewAPIRateLimiter(context.Background(), 0)
 	// First call must be allowed.
 	if !rl.Allow("10.1.1.5") {
 		t.Error("Allow(first request with default limit) = false, want true")
@@ -242,7 +243,7 @@ func TestAPIRateLimiter_DefaultLimitApplied(t *testing.T) {
 }
 
 func TestAPIRateLimiter_Cleanup_NoPanic(t *testing.T) {
-	rl := httpapi.NewAPIRateLimiter(10)
+	rl := httpapi.NewAPIRateLimiter(context.Background(), 10)
 	rl.Allow("10.1.1.6")
 	rl.Cleanup() // should not panic
 }
