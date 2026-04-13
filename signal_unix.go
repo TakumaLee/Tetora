@@ -2,9 +2,9 @@
 
 package main
 
-import "syscall"
+import "tetora/internal/lifecycle"
 
-// signalSelfReload sends SIGHUP to the current process to trigger a graceful reload.
+// signalSelfReload is a thin shim that delegates to the lifecycle package.
 func signalSelfReload() {
-	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+	lifecycle.SignalSelfReload()
 }
