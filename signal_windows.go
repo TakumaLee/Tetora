@@ -2,5 +2,9 @@
 
 package main
 
-// signalSelfReload is a no-op on Windows (SIGHUP not supported).
-func signalSelfReload() {}
+import "tetora/internal/lifecycle"
+
+// signalSelfReload is a thin shim that delegates to the lifecycle package.
+func signalSelfReload() {
+	lifecycle.SignalSelfReload()
+}
