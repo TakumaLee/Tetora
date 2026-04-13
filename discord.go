@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tetora/internal/discord"
+	dtypes "tetora/internal/dispatch"
 	"tetora/internal/log"
 )
 
@@ -152,6 +153,88 @@ func (db *DiscordBot) Stop() {
 		close(db.stopCh)
 	}
 }
+
+// dispatchStateAdapter makes *dispatchState implement discord.StateAccessor.
+// This allows the discord package to be decoupled from the main-package dispatchState.
+type dispatchStateAdapter struct {
+	s *dispatchState
+}
+
+func (a *dispatchStateAdapter) TrackTask(task dtypes.Task, cancelFn context.CancelFunc) func() {
+	a.s.mu.Lock()
+	a.s.running[task.ID] = &taskState{
+		task:         task,
+		startAt:      time.Now(),
+		lastActivity: time.Now(),
+		cancelFn:     cancelFn,
+	}
+	a.s.mu.Unlock()
+	return func() {
+		a.s.mu.Lock()
+		delete(a.s.running, task.ID)
+		a.s.mu.Unlock()
+	}
+}
+
+func (a *dispatchStateAdapter) RunningCount() int {
+	a.s.mu.Lock()
+	defer a.s.mu.Unlock()
+	return len(a.s.running)
+}
+
+func (a *dispatchStateAdapter) CancelAll() {
+	a.s.mu.Lock()
+	cancelFn := a.s.cancel
+	a.s.mu.Unlock()
+	if cancelFn != nil {
+		cancelFn()
+	}
+}
+
+func (a *dispatchStateAdapter) SetDiscordActivity(taskID, agent, phase, author, channelID, prompt string, startAt time.Time) {
+	a.s.setDiscordActivity(taskID, &discordActivity{
+		TaskID:    taskID,
+		Agent:     agent,
+		Phase:     phase,
+		Author:    author,
+		ChannelID: channelID,
+		Prompt:    prompt,
+		StartAt:   startAt,
+	})
+}
+
+func (a *dispatchStateAdapter) UpdateDiscordPhase(taskID, phase string) {
+	a.s.updateDiscordPhase(taskID, phase)
+}
+
+func (a *dispatchStateAdapter) RemoveDiscordActivity(taskID string) {
+	a.s.removeDiscordActivity(taskID)
+}
+
+func (a *dispatchStateAdapter) DiscordActivity(id string) (*discord.DiscordActivity, bool) {
+	a.s.mu.Lock()
+	defer a.s.mu.Unlock()
+	da, ok := a.s.discordActivities[id]
+	if !ok {
+		return nil, false
+	}
+	return &discord.DiscordActivity{
+		TaskID:    da.TaskID,
+		Agent:     da.Agent,
+		Phase:     da.Phase,
+		Author:    da.Author,
+		ChannelID: da.ChannelID,
+		StartAt:   da.StartAt,
+		Prompt:    da.Prompt,
+	}, true
+}
+
+func (a *dispatchStateAdapter) Broker() dtypes.SSEBrokerPublisher {
+	return a.s.broker
+}
+
+// Ensure dispatchStateAdapter implements discord.StateAccessor at compile time.
+var _ discord.StateAccessor = (*dispatchStateAdapter)(nil)
 
 func (db *DiscordBot) connectAndRun(ctx context.Context) error {
 	ws, err := wsConnect(discord.GatewayURL)
