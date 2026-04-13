@@ -39,6 +39,7 @@ type StateAccessor interface {
 	DiscordActivity(id string) (*DiscordActivity, bool)
 
 	// Broker returns the SSE broker for streaming progress events.
+	// Returns *dtypes.Broker (concrete type) so callers can Subscribe, not just Publish.
 	// May be nil if SSE is not configured.
-	Broker() dtypes.SSEBrokerPublisher
+	Broker() *dtypes.Broker
 }

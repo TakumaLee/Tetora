@@ -229,7 +229,7 @@ func (a *dispatchStateAdapter) DiscordActivity(id string) (*discord.DiscordActiv
 	}, true
 }
 
-func (a *dispatchStateAdapter) Broker() dtypes.SSEBrokerPublisher {
+func (a *dispatchStateAdapter) Broker() *dtypes.Broker {
 	return a.s.broker
 }
 
