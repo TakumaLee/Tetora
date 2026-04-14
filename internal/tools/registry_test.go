@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"testing"
 )
@@ -47,7 +48,7 @@ func TestRegistrySearchBM25(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		results := r.SearchBM25(tc.query, tc.topN)
+		results := r.SearchBM25(context.Background(), tc.query, tc.topN)
 		if len(results) == 0 {
 			t.Errorf("SearchBM25(%q): no results", tc.query)
 			continue
@@ -63,7 +64,7 @@ func TestRegistrySearchBM25EmptyQuery(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&ToolDef{Name: "test", Description: "A test tool"})
 
-	results := r.SearchBM25("", 5)
+	results := r.SearchBM25(context.Background(), "", 5)
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for empty query, got %d", len(results))
 	}
@@ -71,7 +72,7 @@ func TestRegistrySearchBM25EmptyQuery(t *testing.T) {
 
 func TestRegistrySearchBM25NoTools(t *testing.T) {
 	r := NewRegistry()
-	results := r.SearchBM25("anything", 5)
+	results := r.SearchBM25(context.Background(), "anything", 5)
 	// Should not panic, returns nil or empty
 	_ = results
 }
@@ -81,14 +82,14 @@ func TestRegistryBM25IndexRebuildOnRegister(t *testing.T) {
 
 	// Register first tool, search should work
 	r.Register(&ToolDef{Name: "tool_a", Description: "Search web results"})
-	results := r.SearchBM25("web", 5)
+	results := r.SearchBM25(context.Background(), "web", 5)
 	if len(results) != 1 || results[0].Tool.Name != "tool_a" {
 		t.Errorf("expected tool_a, got %+v", results)
 	}
 
 	// Register second tool, search should include both
 	r.Register(&ToolDef{Name: "tool_b", Description: "Search memory"})
-	results = r.SearchBM25("search", 5)
+	results = r.SearchBM25(context.Background(), "search", 5)
 	if len(results) != 2 {
 		t.Errorf("expected 2 results after registering tool_b, got %d: %+v", len(results), results)
 	}
@@ -103,7 +104,7 @@ func TestRegistrySearchBM25WithKeywords(t *testing.T) {
 	})
 
 	// Searching for "email" should match via keywords even though description doesn't contain it
-	results := r.SearchBM25("send email", 5)
+	results := r.SearchBM25(context.Background(), "send email", 5)
 	if len(results) == 0 {
 		t.Errorf("expected results for 'send email' via keywords, got none")
 	}
@@ -128,14 +129,15 @@ func TestApplyDeferredPolicy(t *testing.T) {
 	r.ApplyDeferredPolicy()
 
 	// Always-loaded tools should NOT be deferred
-	for name := range AlwaysLoadedTools {
+	alwaysNames := []string{"search_tools", "execute_tool", "memory_search", "web_search", "knowledge_search"}
+	for _, name := range alwaysNames {
 		tool, ok := r.Get(name)
 		if !ok {
 			t.Errorf("expected tool %q to exist", name)
 			continue
 		}
 		if tool.DeferLoading {
-			t.Errorf("tool %q should NOT be deferred (in AlwaysLoadedTools)", name)
+			t.Errorf("tool %q should NOT be deferred (in always-loaded set)", name)
 		}
 	}
 
@@ -177,9 +179,9 @@ func TestDeferredPolicyCount(t *testing.T) {
 		return true
 	})
 
-	if alwaysCount != len(AlwaysLoadedTools) {
-		// Note: only registered tools count, so alwaysCount <= len(AlwaysLoadedTools)
-		t.Logf("alwaysCount=%d, registered AlwaysLoadedTools=%d (some may not be registered yet)", alwaysCount, len(AlwaysLoadedTools))
+	if alwaysCount != AlwaysLoadedCount() {
+		// Note: only registered tools count, so alwaysCount <= AlwaysLoadedCount()
+		t.Logf("alwaysCount=%d, registered always-loaded=%d (some may not be registered yet)", alwaysCount, AlwaysLoadedCount())
 	}
 	if deferredCount != 50 {
 		t.Errorf("expected 50 deferred tools, got %d", deferredCount)
@@ -199,7 +201,7 @@ func TestRerankingNameMatchBonus(t *testing.T) {
 	// contains "search" and the description contains "search" too.
 	// More specifically, let's query "memory" — only memory_search matches BM25,
 	// so let's query "search" to get all three and verify reranking order.
-	results := r.SearchBM25("search", 3)
+	results := r.SearchBM25(context.Background(), "search", 3)
 	if len(results) < 3 {
 		t.Fatalf("expected 3 results, got %d: %+v", len(results), results)
 	}
@@ -226,7 +228,7 @@ func TestRerankingKeywordBoost(t *testing.T) {
 	})
 
 	// Query "email" should rank msg_send first because "email" is in its Keywords.
-	results := r.SearchBM25("email", 5)
+	results := r.SearchBM25(context.Background(), "email", 5)
 	if len(results) == 0 {
 		t.Fatal("expected at least 1 result")
 	}
@@ -250,7 +252,7 @@ func TestRerankingNameVsDescription(t *testing.T) {
 	})
 
 	// Query "task" — both match in description, but task_list has "task" in its name.
-	results := r.SearchBM25("task", 5)
+	results := r.SearchBM25(context.Background(), "task", 5)
 	if len(results) < 2 {
 		t.Fatalf("expected 2 results, got %d: %+v", len(results), results)
 	}
@@ -272,7 +274,7 @@ func TestUsageFrequencyBoost(t *testing.T) {
 
 	// Both tools have identical BM25 scores for "something".
 	// But tool_a should rank higher due to usage frequency bonus.
-	results := r.SearchBM25("something", 2)
+	results := r.SearchBM25(context.Background(), "something", 2)
 	if len(results) < 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}

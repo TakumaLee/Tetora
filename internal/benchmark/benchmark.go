@@ -4,6 +4,7 @@
 package benchmark
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -93,7 +94,7 @@ func (s *Suite) Evaluate(registry *tools.Registry) []BenchmarkResult {
 	results := make([]BenchmarkResult, 0, len(s.Cases))
 
 	for _, tc := range s.Cases {
-		searchResults := registry.SearchBM25(tc.Query, 10)
+		searchResults := registry.SearchBM25(context.Background(), tc.Query, 10)
 		topNames := make([]string, 0, len(searchResults))
 		topBM25 := make([]float64, 0, len(searchResults))
 		topFinal := make([]float64, 0, len(searchResults))
@@ -254,6 +255,11 @@ func ndcgAt5(results []string, relevant []string, scores []float64) float64 {
 }
 
 // CompareRerankers runs the benchmark with two different rerankers and compares.
+//
+// NOT goroutine-safe: it temporarily mutates registry's reranker between
+// evaluations and restores the default at the end. Must not be called
+// concurrently with any operation that reads or modifies the registry's
+// reranker (i.e. call only from a dedicated benchmark goroutine or test).
 func CompareRerankers(registry *tools.Registry, suite *Suite, nameA string, rerankerA bm25.Reranker, nameB string, rerankerB bm25.Reranker) string {
 	// Run with reranker A
 	registry.SetReranker(rerankerA)

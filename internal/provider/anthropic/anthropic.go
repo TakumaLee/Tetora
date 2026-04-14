@@ -61,10 +61,9 @@ type contentBlock struct {
 }
 
 type tool struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"input_schema"`
-	DeferLoading bool            `json:"defer_loading,omitempty"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 
 type request struct {
@@ -119,11 +118,13 @@ func (p *Provider) executeInternal(ctx context.Context, req provider.Request) (*
 
 	var tools []tool
 	for _, t := range req.Tools {
+		if t.DeferLoading {
+			continue // exclude deferred tools from the Anthropic request
+		}
 		tools = append(tools, tool{
-			Name:         t.Name,
-			Description:  t.Description,
-			InputSchema:  t.InputSchema,
-			DeferLoading: t.DeferLoading,
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
 		})
 	}
 

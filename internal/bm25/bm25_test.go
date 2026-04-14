@@ -1,6 +1,7 @@
 package bm25
 
 import (
+	"context"
 	"testing"
 )
 
@@ -219,7 +220,7 @@ func TestHeuristicRerankerImplementsInterface(t *testing.T) {
 		return DocMeta{Name: docID, DocLen: 3}
 	}
 
-	results := hr.Rerank("search", []string{"search"}, bm25Results, getMeta)
+	results := hr.Rerank(context.Background(), "search", []string{"search"}, bm25Results, getMeta)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}

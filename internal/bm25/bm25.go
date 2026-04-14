@@ -5,6 +5,7 @@
 package bm25
 
 import (
+	"context"
 	"math"
 	"sort"
 	"strings"
@@ -196,7 +197,8 @@ type Reranker interface {
 	// query is the original query string, queryTerms are tokenized query terms.
 	// bm25Results are the initial BM25-ranked results.
 	// getMeta provides per-document metadata.
-	Rerank(query string, queryTerms []string, bm25Results []Result,
+	// ctx is used for cancellation (e.g. external HTTP rerankers respect it).
+	Rerank(ctx context.Context, query string, queryTerms []string, bm25Results []Result,
 		getMeta func(docID string) DocMeta) []RerankResult
 }
 
@@ -246,7 +248,7 @@ func NewHeuristicReranker(cfg RerankConfig) *HeuristicReranker {
 }
 
 // Rerank implements the Reranker interface.
-func (hr *HeuristicReranker) Rerank(query string, queryTerms []string, bm25Results []Result,
+func (hr *HeuristicReranker) Rerank(_ context.Context, query string, queryTerms []string, bm25Results []Result,
 	getDocMeta func(docID string) DocMeta) []RerankResult {
 	return rerankImpl(query, queryTerms, bm25Results, getDocMeta, hr.Cfg)
 }

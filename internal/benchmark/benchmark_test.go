@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"context"
 	"testing"
 
 	"tetora/internal/bm25"
@@ -72,7 +73,7 @@ func TestRerankerComparison(t *testing.T) {
 // identityReranker returns results unchanged (BM25 score = final score).
 type identityReranker struct{}
 
-func (ir *identityReranker) Rerank(query string, queryTerms []string, bm25Results []bm25.Result,
+func (ir *identityReranker) Rerank(_ context.Context, query string, queryTerms []string, bm25Results []bm25.Result,
 	getMeta func(docID string) bm25.DocMeta) []bm25.RerankResult {
 	out := make([]bm25.RerankResult, len(bm25Results))
 	for i, r := range bm25Results {

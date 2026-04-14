@@ -4879,7 +4879,7 @@ func toolSearchTools(ctx context.Context, cfg *Config, input json.RawMessage) (s
 	}
 
 	registry := cfg.Runtime.ToolRegistry.(*ToolRegistry)
-	results := registry.SearchBM25(args.Query, args.Limit)
+	results := registry.SearchBM25(ctx, args.Query, args.Limit)
 
 	type toolResult struct {
 		Name        string  `json:"name"`

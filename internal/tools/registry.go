@@ -64,11 +64,12 @@ func (r *Registry) SetReranker(rk bm25.Reranker) {
 	r.mu.Unlock()
 }
 
-// Register adds a tool to the registry and rebuilds the BM25 index.
+// Register adds a tool to the registry and marks the BM25 index as dirty.
+// The index is rebuilt lazily on the next SearchBM25 call.
 func (r *Registry) Register(tool *ToolDef) {
 	r.mu.Lock()
 	r.tools[tool.Name] = tool
-	r.rebuildBM25IndexLocked()
+	r.bm25Index = nil // mark dirty; rebuilt lazily in SearchBM25
 	r.mu.Unlock()
 }
 
@@ -154,13 +155,23 @@ type SearchResult struct {
 
 // SearchBM25 searches tools using two-stage reranking (BM25 recall → rerank).
 // Returns results sorted by final reranked score. If topN <= 0, returns all matching.
-func (r *Registry) SearchBM25(query string, topN int) []SearchResult {
+// ctx is forwarded to the reranker (e.g. for cancelling external HTTP calls).
+func (r *Registry) SearchBM25(ctx context.Context, query string, topN int) []SearchResult {
+	// Lazy index build: check under read lock, then upgrade to write lock if needed.
+	r.mu.RLock()
+	needsBuild := r.bm25Index == nil
+	r.mu.RUnlock()
+
+	if needsBuild {
+		r.mu.Lock()
+		if r.bm25Index == nil { // double-check after acquiring write lock
+			r.rebuildBM25IndexLocked()
+		}
+		r.mu.Unlock()
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	if r.bm25Index == nil {
-		return nil
-	}
 
 	terms := bm25.Tokenize(query)
 
@@ -190,7 +201,7 @@ func (r *Registry) SearchBM25(query string, topN int) []SearchResult {
 		}
 	}
 
-	reranked := r.reranker.Rerank(query, terms, bm25Results, getMeta)
+	reranked := r.reranker.Rerank(ctx, query, terms, bm25Results, getMeta)
 
 	out := make([]SearchResult, 0, len(reranked))
 	for _, res := range reranked {
@@ -288,26 +299,38 @@ func ForComplexity(c classify.Complexity) string {
 
 // --- Deferred Tool Loading ---
 
-// AlwaysLoadedTools are tools that must always be available in the provider
+// alwaysLoadedTools are tools that must always be available in the provider
 // request. These are the core discovery/execution tools that enable the agent
 // to find and use any other deferred tool. All other tools are marked with
 // defer_loading=true so the provider loads them on-demand via search.
-var AlwaysLoadedTools = map[string]bool{
-	"search_tools":   true, // BM25 tool discovery
-	"execute_tool":   true, // Execute any tool by name
-	"memory_search":  true, // Memory lookup (frequently used)
-	"web_search":     true, // Web lookup (frequently used)
+var alwaysLoadedTools = map[string]bool{
+	"search_tools":     true, // BM25 tool discovery
+	"execute_tool":     true, // Execute any tool by name
+	"memory_search":    true, // Memory lookup (frequently used)
+	"web_search":       true, // Web lookup (frequently used)
 	"knowledge_search": true, // Knowledge base lookup
 }
 
-// ApplyDeferredPolicy marks all tools NOT in AlwaysLoadedTools with DeferLoading=true.
+// IsAlwaysLoaded reports whether the named tool is in the always-loaded set
+// (i.e. it will never be marked deferred by ApplyDeferredPolicy).
+func IsAlwaysLoaded(name string) bool {
+	return alwaysLoadedTools[name]
+}
+
+// AlwaysLoadedCount returns the number of tools in the always-loaded set.
+// Useful for test assertions without exposing the underlying map.
+func AlwaysLoadedCount() int {
+	return len(alwaysLoadedTools)
+}
+
+// ApplyDeferredPolicy marks all tools NOT in alwaysLoadedTools with DeferLoading=true.
 // This should be called after all tools are registered, before starting the agent loop.
 func (r *Registry) ApplyDeferredPolicy() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for name, t := range r.tools {
-		if !AlwaysLoadedTools[name] {
+		if !alwaysLoadedTools[name] {
 			t.DeferLoading = true
 		}
 	}

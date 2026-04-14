@@ -56,7 +56,8 @@ func NewExternalReranker(endpoint, apiKey, model string) *ExternalReranker {
 }
 
 // Rerank implements the Reranker interface by calling the external API.
-func (er *ExternalReranker) Rerank(query string, queryTerms []string, bm25Results []Result,
+// ctx is used to cancel the HTTP request if the caller's context is done.
+func (er *ExternalReranker) Rerank(ctx context.Context, query string, queryTerms []string, bm25Results []Result,
 	getDocMeta func(docID string) DocMeta) []RerankResult {
 
 	if len(bm25Results) == 0 || getDocMeta == nil {
@@ -92,7 +93,7 @@ func (er *ExternalReranker) Rerank(query string, queryTerms []string, bm25Result
 		client = &http.Client{Timeout: er.Timeout}
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", er.Endpoint, bytes.NewReader(bodyJSON))
+	req, err := http.NewRequestWithContext(ctx, "POST", er.Endpoint, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return fallbackResults(bm25Results)
 	}

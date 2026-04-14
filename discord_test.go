@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2355,7 +2355,7 @@ func TestArchiveStaleSession(t *testing.T) {
 		sessID = "sess-stale-test"
 		sql := fmt.Sprintf(
 			"INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'discord', 'active', 'T', datetime('now'), datetime('now'))",
-			sessID,
+			escapeSQLite(sessID),
 		)
 		if _, err := db.Query(dbPath, sql); err != nil {
 			t.Fatalf("insert session: %v", err)
@@ -2411,7 +2411,7 @@ func TestArchiveStaleSession(t *testing.T) {
 
 			// If stale + valid sess, verify status was updated to archived.
 			if tc.wantResult && sess != nil {
-				rows, err := db.Query(dbPath, fmt.Sprintf("SELECT status FROM sessions WHERE id='%s'", sess.ID))
+				rows, err := db.Query(dbPath, fmt.Sprintf("SELECT status FROM sessions WHERE id='%s'", escapeSQLite(sess.ID)))
 				if err != nil {
 					t.Fatalf("query status: %v", err)
 				}
