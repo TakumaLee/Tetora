@@ -1,6 +1,6 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.2.4
+VERSION  := 2.2.4.1
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
@@ -143,13 +143,7 @@ bump: _bump_check_running_workflows dashboard
 	sed -i '' "s/^VERSION  := .*/VERSION  := $$NEXT/" Makefile; \
 	go build -ldflags "-s -w -X main.tetoraVersion=$$NEXT" -o $(INSTALL)/$(BINARY) .; \
 	codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true; \
-	$(INSTALL)/$(BINARY) stop 2>/dev/null || true; \
-	sleep 1; \
-	if lsof -ti :8991 >/dev/null 2>&1; then \
-		lsof -ti :8991 | xargs kill -9 2>/dev/null || true; \
-		sleep 1; \
-	fi; \
-	$(INSTALL)/$(BINARY) start 2>/dev/null || true; \
+	$(INSTALL)/$(BINARY) restart 2>&1 || true; \
 	echo "v$$NEXT installed and reloaded"
 
 bump-force: dashboard
@@ -164,13 +158,7 @@ bump-force: dashboard
 	sed -i '' "s/^VERSION  := .*/VERSION  := $$NEXT/" Makefile; \
 	go build -ldflags "-s -w -X main.tetoraVersion=$$NEXT" -o $(INSTALL)/$(BINARY) .; \
 	codesign -s - -f -i com.takumalee.tetora $(INSTALL)/$(BINARY) 2>/dev/null || true; \
-	$(INSTALL)/$(BINARY) stop 2>/dev/null || true; \
-	sleep 1; \
-	if lsof -ti :8991 >/dev/null 2>&1; then \
-		lsof -ti :8991 | xargs kill -9 2>/dev/null || true; \
-		sleep 1; \
-	fi; \
-	$(INSTALL)/$(BINARY) start 2>/dev/null || true; \
+	$(INSTALL)/$(BINARY) restart 2>&1 || true; \
 	echo "v$$NEXT installed and reloaded"
 
 test:

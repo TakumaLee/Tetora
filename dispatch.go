@@ -690,6 +690,10 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	if result.Status == "success" && strings.TrimSpace(result.Output) == "" {
 		result.Status = "error"
 		result.Error = "session produced no output"
+		log.WarnCtx(ctx, "dispatch: session produced no output",
+			"taskId", task.ID[:8], "provider", result.Provider,
+			"model", result.Model, "tokensOut", result.TokensOut,
+			"durationMs", result.DurationMs)
 	}
 
 	// Guard: errors must always have a non-empty message for diagnosability.
