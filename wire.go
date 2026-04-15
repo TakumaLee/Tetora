@@ -11086,14 +11086,30 @@ func ensureProvider(cfg *Config, presetName string) error {
 // Stays in root because it depends on Config and root-level Docker/Tmux adapters.
 
 // resolveClaudeBinary returns the path to the claude binary.
-// Priority: explicit path → login shell detection → "claude" (relies on PATH).
-// Login shell detection handles brew, npm/fnm, nvm, and other version managers
-// where the binary is not in the daemon's limited PATH.
+// Priority: explicit path → common locations → login shell detection → "claude" (relies on PATH).
+//
+// Common locations are checked first because login shell detection via `zsh -l` only
+// sources .zprofile, not .zshrc — so PATH additions in .zshrc (e.g. ~/.local/bin) are
+// invisible to the login shell in a launchd/systemd daemon context.
 func resolveClaudeBinary(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	// Ask the user's login shell — covers brew, fnm, nvm, pyenv-style wrappers.
+	// Check well-known install locations directly before spawning a shell.
+	// npm global installs land in ~/.local/bin; brew in /opt/homebrew/bin.
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, candidate := range []string{
+			filepath.Join(home, ".local/bin/claude"),
+			"/opt/homebrew/bin/claude",
+			"/usr/local/bin/claude",
+		} {
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+	// Ask the user's login shell — covers fnm, nvm, and other version managers
+	// that modify PATH via .zprofile / .bash_profile.
 	for _, shell := range []string{"/bin/zsh", "/bin/bash"} {
 		out, err := exec.Command(shell, "-l", "-c", "which claude").Output()
 		if err == nil {
