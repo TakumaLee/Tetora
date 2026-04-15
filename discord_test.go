@@ -2355,7 +2355,7 @@ func TestArchiveStaleSession(t *testing.T) {
 		sessID = "sess-stale-test"
 		sql := fmt.Sprintf(
 			"INSERT INTO sessions (id, agent, source, status, title, created_at, updated_at) VALUES ('%s', 'test', 'discord', 'active', 'T', datetime('now'), datetime('now'))",
-			escapeSQLite(sessID),
+			db.Escape(sessID),
 		)
 		if _, err := db.Query(dbPath, sql); err != nil {
 			t.Fatalf("insert session: %v", err)
@@ -2411,7 +2411,7 @@ func TestArchiveStaleSession(t *testing.T) {
 
 			// If stale + valid sess, verify status was updated to archived.
 			if tc.wantResult && sess != nil {
-				rows, err := db.Query(dbPath, fmt.Sprintf("SELECT status FROM sessions WHERE id='%s'", escapeSQLite(sess.ID)))
+				rows, err := db.Query(dbPath, fmt.Sprintf("SELECT status FROM sessions WHERE id='%s'", db.Escape(sess.ID)))
 				if err != nil {
 					t.Fatalf("query status: %v", err)
 				}
