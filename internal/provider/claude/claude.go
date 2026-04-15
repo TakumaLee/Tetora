@@ -121,6 +121,7 @@ func (p *Provider) executeOnce(ctx context.Context, req provider.Request) (*prov
 			}
 		}
 		cmd.Env = filteredEnv
+		cmd.Env = append(cmd.Env, "TETORA_SOURCE=agent_dispatch")
 	}
 	setProcessGroup(cmd)
 

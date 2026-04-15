@@ -47,6 +47,7 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 			}
 		}
 		cmd.Env = filteredEnv
+		cmd.Env = append(cmd.Env, "TETORA_SOURCE=agent_dispatch")
 	}
 
 	// Kill entire process group on timeout to prevent orphaned child processes.
