@@ -43,6 +43,55 @@ func TestNewUUID_Format(t *testing.T) {
 	}
 }
 
+// --- dispatch skipActive tests ---
+
+// TestDispatch_SkipActive_DoesNotMutateState verifies that a sub-agent dispatch
+// (skipActive=true) does not clear the parent's state.active flag when it completes.
+// Without the fix, the deferred state.active=false would unblock external callers
+// even though the parent task is still running.
+func TestDispatch_SkipActive_DoesNotMutateState(t *testing.T) {
+	cfg := newTestConfig()
+	state := &dispatchState{
+		running: make(map[string]*taskState),
+	}
+	state.active = true // simulate parent task in-flight
+
+	sem := make(chan struct{}, 4)
+	childSem := make(chan struct{}, 4)
+
+	// sub-agent dispatch: empty task list, skipActive=true
+	dispatch(context.Background(), cfg, []Task{}, state, sem, childSem, true)
+
+	state.mu.Lock()
+	active := state.active
+	state.mu.Unlock()
+
+	if !active {
+		t.Fatal("state.active was cleared by sub-agent dispatch: would unblock external callers mid-flight")
+	}
+}
+
+// TestDispatch_TopLevel_ManagesActive verifies that a top-level dispatch (no skipActive)
+// correctly sets and clears state.active.
+func TestDispatch_TopLevel_ManagesActive(t *testing.T) {
+	cfg := newTestConfig()
+	state := &dispatchState{
+		running: make(map[string]*taskState),
+	}
+	sem := make(chan struct{}, 4)
+	childSem := make(chan struct{}, 4)
+
+	dispatch(context.Background(), cfg, []Task{}, state, sem, childSem)
+
+	state.mu.Lock()
+	active := state.active
+	state.mu.Unlock()
+
+	if active {
+		t.Fatal("state.active should be false after top-level dispatch completes")
+	}
+}
+
 // --- fillDefaults tests ---
 
 func newTestConfig() *Config {
