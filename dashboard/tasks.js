@@ -353,7 +353,7 @@ function renderBoard() {
       if (t.costUsd > 0) badges += '<span class="kanban-badge kanban-badge-cost">$' + t.costUsd.toFixed(2) + '</span>';
       if (t.model) badges += '<span class="kanban-badge kanban-badge-model">' + esc(t.model) + '</span>';
       if (t.workflow && t.workflow !== 'none') badges += '<span class="kanban-badge kanban-badge-workflow">' + esc(t.workflow) + '</span>';
-      var shortId = t.id.replace('task-', '').slice(-8);
+      var shortId = esc(t.id.replace('task-', '').slice(-8));
       return '<div class="kanban-card" draggable="true" data-task-id="' + esc(t.id) + '" onclick="openTaskDetail(\'' + esc(t.id) + '\')" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">' +
         '<div class="kanban-card-title">' + esc(t.title) + '</div>' +
         (badges ? '<div class="kanban-card-badges">' + badges + '</div>' : '') +
@@ -432,6 +432,12 @@ function filterBoard() {
 
 async function openTaskDetail(taskId) {
   history.pushState({taskId: taskId}, '', '#task/' + taskId);
+  await _showTaskDetail(taskId);
+}
+
+// Pure display function — no history manipulation.
+// Use this from popstate and initial hash loading.
+async function _showTaskDetail(taskId) {
   document.getElementById('td-id').value = taskId;
   var idDisplay = document.getElementById('td-id-display');
   if (idDisplay) idDisplay.textContent = taskId;
@@ -1818,7 +1824,7 @@ async function hgInlineRespond(key, action, response) {
 // Opens task detail when URL contains #task/{id}, supports browser back/forward.
 window.addEventListener('popstate', function(e) {
   if (e.state && e.state.taskId) {
-    openTaskDetail(e.state.taskId);
+    _showTaskDetail(e.state.taskId); // pure display — no pushState
   } else {
     document.getElementById('task-detail-modal').classList.remove('open');
   }
@@ -1828,7 +1834,7 @@ window.addEventListener('popstate', function(e) {
   var hash = location.hash;
   if (hash && hash.startsWith('#task/')) {
     var taskId = hash.slice(6);
-    if (taskId) openTaskDetail(taskId);
+    if (taskId) _showTaskDetail(taskId); // URL already set, just show
   }
 })();
 

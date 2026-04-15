@@ -249,15 +249,18 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Inject per-task todo for retry awareness.
 	// Path: agents/{agent}/todos/{taskId}.md — isolated per task to prevent cross-task clobbering.
-	todoDir := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos")
-	todoPath := filepath.Join(todoDir, t.ID+".md")
-	if err := os.MkdirAll(todoDir, 0755); err != nil {
-		log.Warn("taskboard dispatch: failed to create todos dir", "task", t.ID, "error", err)
-	}
-	if todoContent, err := os.ReadFile(todoPath); err == nil && len(bytes.TrimSpace(todoContent)) > 0 {
-		prompt += fmt.Sprintf("\n\n## Your Previous Progress (%s)\n", todoFile)
-		prompt += string(todoContent)
-		prompt += "\n\nContinue from where you left off. Update your progress file as you complete items.\n"
+	// Guard: task IDs are server-generated (task-{unix_nano}) but validate to prevent path traversal.
+	if !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
+		todoDir := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos")
+		todoPath := filepath.Join(todoDir, t.ID+".md")
+		if err := os.MkdirAll(todoDir, 0755); err != nil {
+			log.Warn("taskboard dispatch: failed to create todos dir", "task", t.ID, "error", err)
+		}
+		if todoContent, err := os.ReadFile(todoPath); err == nil && len(bytes.TrimSpace(todoContent)) > 0 {
+			prompt += fmt.Sprintf("\n\n## Your Previous Progress (%s)\n", todoFile)
+			prompt += string(todoContent)
+			prompt += "\n\nContinue from where you left off. Update your progress file as you complete items.\n"
+		}
 	}
 
 	// On retry, all comments (including system) are already injected above.
@@ -805,7 +808,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Clean up per-task todo file on final completion.
 	// Keep the file on failed/review so retries can resume from it.
-	if newStatus == "done" {
+	if newStatus == "done" && !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
 		cleanTodoPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos", t.ID+".md")
 		if err := os.Remove(cleanTodoPath); err != nil && !os.IsNotExist(err) {
 			log.Warn("taskboard dispatch: failed to remove task todo", "task", t.ID, "error", err)
