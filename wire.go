@@ -11484,6 +11484,7 @@ func newDockerRunner(cfg DockerConfig) provider.DockerRunner {
 func (d *dockerRunnerAdapter) BuildCmd(ctx context.Context, binaryPath, workdir string, args, addDirs []string, mcpPath string) *exec.Cmd {
 	dockerArgs := sandbox.RewriteDockerArgs(args, addDirs, mcpPath)
 	envVars := sandbox.DockerEnvFilter(d.cfg)
+	envVars = append(envVars, "TETORA_SOURCE=agent_dispatch") // enable sub-agent dispatch bypass inside container
 	return sandbox.BuildDockerCmd(ctx, d.cfg, workdir, binaryPath, dockerArgs, addDirs, mcpPath, envVars)
 }
 

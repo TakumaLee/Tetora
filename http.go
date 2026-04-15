@@ -4932,6 +4932,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		// Allow sub-agent dispatches to run concurrently with parent tasks.
 		// Only block duplicate batch dispatches from external callers.
+		// Note: X-Tetora-Source is an operational signal, not a security boundary.
+		// Any authenticated client can set it; the guard only prevents accidental
+		// double-dispatch, not unauthorized access.
 		isSubAgent := r.Header.Get("X-Tetora-Source") == "agent_dispatch"
 		if !isSubAgent {
 			cState.mu.Lock()
@@ -5027,7 +5030,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		// Decouple from HTTP request lifecycle so client disconnect doesn't kill in-flight tasks.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
-		result := dispatch(dispatchCtx, cfg, tasks, cState, cSem, cChildSem)
+		result := dispatch(dispatchCtx, cfg, tasks, cState, cSem, cChildSem, isSubAgent)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(result)

@@ -423,22 +423,29 @@ func selectSem(sem, childSem chan struct{}, depth int) chan struct{} {
 	return sem
 }
 
-func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchState, sem, childSem chan struct{}) *DispatchResult {
+func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchState, sem, childSem chan struct{}, skipActive ...bool) *DispatchResult {
 	ctx, cancel := context.WithCancel(ctx)
-	state.mu.Lock()
-	state.active = true
-	state.startAt = time.Now()
-	state.cancel = cancel
-	state.finished = nil
-	state.running = make(map[string]*taskState)
-	state.mu.Unlock()
+	// skipActive: true when called from a sub-agent context; skips state.active management
+	// so nested dispatches don't corrupt the parent's active flag.
+	manageActive := len(skipActive) == 0 || !skipActive[0]
+	if manageActive {
+		state.mu.Lock()
+		state.active = true
+		state.startAt = time.Now()
+		state.cancel = cancel
+		state.finished = nil
+		state.running = make(map[string]*taskState)
+		state.mu.Unlock()
+	}
 
 	defer func() {
 		cancel()
-		state.mu.Lock()
-		state.active = false
-		state.cancel = nil
-		state.mu.Unlock()
+		if manageActive {
+			state.mu.Lock()
+			state.active = false
+			state.cancel = nil
+			state.mu.Unlock()
+		}
 	}()
 
 	var wg sync.WaitGroup

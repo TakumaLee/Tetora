@@ -105,23 +105,25 @@ func (p *Provider) executeOnce(ctx context.Context, req provider.Request) (*prov
 		if p.envFilter != nil {
 			envVars = p.envFilter()
 		}
+		envVars = append(envVars, "TETORA_SOURCE=agent_dispatch")
 		cmd = p.buildDockerCmd(ctx, req.Workdir, p.binaryPath, dockerArgs, req.AddDirs, req.MCPPath, envVars)
 	} else {
 		cmd = exec.CommandContext(ctx, p.binaryPath, args...)
 		cmd.Dir = req.Workdir
 		// Filter out Claude Code session env vars so Claude Code doesn't refuse to start
 		// when Tetora is invoked from within a Claude Code session.
+		// Also filter TETORA_SOURCE to avoid duplicate values in nested dispatches.
 		rawEnv := os.Environ()
 		filteredEnv := make([]string, 0, len(rawEnv))
 		for _, e := range rawEnv {
 			if !strings.HasPrefix(e, "CLAUDECODE=") &&
 				!strings.HasPrefix(e, "CLAUDE_CODE_ENTRYPOINT=") &&
-				!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") {
+				!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") &&
+				!strings.HasPrefix(e, "TETORA_SOURCE=") {
 				filteredEnv = append(filteredEnv, e)
 			}
 		}
-		cmd.Env = filteredEnv
-		cmd.Env = append(cmd.Env, "TETORA_SOURCE=agent_dispatch")
+		cmd.Env = append(filteredEnv, "TETORA_SOURCE=agent_dispatch")
 	}
 	setProcessGroup(cmd)
 
