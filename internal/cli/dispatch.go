@@ -181,6 +181,9 @@ func CmdDispatch(args []string) {
 	if clientID != "" {
 		api.ClientID = clientID
 	}
+	if os.Getenv("TETORA_SOURCE") == "agent_dispatch" {
+		api.SubAgent = true
+	}
 
 	// Build task payload.
 	task := map[string]any{

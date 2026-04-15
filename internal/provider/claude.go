@@ -42,11 +42,12 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 		for _, e := range rawEnv {
 			if !strings.HasPrefix(e, "CLAUDECODE=") &&
 				!strings.HasPrefix(e, "CLAUDE_CODE_ENTRYPOINT=") &&
-				!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") {
+				!strings.HasPrefix(e, "CLAUDE_CODE_TEAM_MODE=") &&
+				!strings.HasPrefix(e, "TETORA_SOURCE=") {
 				filteredEnv = append(filteredEnv, e)
 			}
 		}
-		cmd.Env = filteredEnv
+		cmd.Env = append(filteredEnv, "TETORA_SOURCE=agent_dispatch")
 	}
 
 	// Kill entire process group on timeout to prevent orphaned child processes.

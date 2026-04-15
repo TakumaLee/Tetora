@@ -44,6 +44,7 @@ type APIClient struct {
 	BaseURL  string
 	Token    string
 	ClientID string // X-Client-ID header value; empty means omit header (server uses default)
+	SubAgent bool   // if true, adds X-Tetora-Source: agent_dispatch header
 }
 
 // NewAPIClient creates an API client from config values.
@@ -68,6 +69,9 @@ func (c *APIClient) Do(method, path string, body io.Reader) (*http.Response, err
 	}
 	if c.ClientID != "" {
 		req.Header.Set("X-Client-ID", c.ClientID)
+	}
+	if c.SubAgent {
+		req.Header.Set("X-Tetora-Source", "agent_dispatch")
 	}
 	return c.Client.Do(req)
 }
