@@ -1587,7 +1587,8 @@
     <button class="modal-close" onclick="closeTaskDetail()">&times;</button>
     <button id="td-cancel-btn" onclick="cancelTaskFromDetail()" style="position:absolute;top:14px;right:120px;background:var(--warning,#d69e2e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;display:none">Cancel</button>
     <button onclick="deleteTask()" style="position:absolute;top:14px;right:48px;background:var(--danger,#e53e3e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
-    <h3 id="task-detail-title" style="margin-bottom:12px">Task Detail</h3>
+    <h3 id="task-detail-title" style="margin-bottom:6px">Task Detail</h3>
+    <div id="td-id-display" style="font-size:11px;color:var(--muted);margin-bottom:10px;font-family:monospace;user-select:all"></div>
     <input type="hidden" id="td-id" value="">
     <div class="task-detail-grid">
       <div class="task-detail-field">

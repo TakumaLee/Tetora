@@ -453,6 +453,7 @@ header {
 .kanban-column.drag-over .kanban-column-body { min-height: 60px; }
 .kanban-card-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; line-height: 1.3; }
 .kanban-card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.kanban-card-id { font-size: 10px; color: var(--muted); font-family: monospace; margin-top: 5px; opacity: 0.6; }
 .kanban-badge {
   padding: 1px 7px; border-radius: 0; font-size: 10px; font-weight: 600;
 }

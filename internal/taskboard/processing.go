@@ -237,21 +237,30 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	// Execution rules injection.
 	prompt += "\n\n## Execution Rules\n"
 	prompt += "- You are running autonomously. Do NOT use plan mode or ask for confirmation.\n"
-	prompt += "- FIRST: Write your execution plan as a checklist to your todo.md file.\n"
+	todoFile := fmt.Sprintf("todos/%s.md", t.ID)
+	prompt += fmt.Sprintf("- FIRST: Write your execution plan as a checklist to your %s file (create the todos/ directory if needed).\n", todoFile)
 	prompt += "- THEN: Execute each item, checking them off as you go.\n"
 	prompt += "- Log major milestones by calling taskboard_comment.\n"
-	prompt += "- Your todo.md persists across retries — if items exist, continue from where you left off.\n"
-	prompt += "- Before starting: identify what is OUT OF SCOPE and note it in your todo.md. Prevent scope creep.\n"
+	prompt += fmt.Sprintf("- Your %s persists across retries — if items exist, continue from where you left off.\n", todoFile)
+	prompt += fmt.Sprintf("- Before starting: identify what is OUT OF SCOPE and note it in your %s. Prevent scope creep.\n", todoFile)
 	prompt += "- Use precise language in all outputs. Forbidden: 'should work', 'probably', 'might need', 'I think', 'seems to'. State facts or unknowns explicitly.\n"
 	prompt += "- Before marking task complete: verify that a reviewer can understand your changes without asking clarifying questions. If not, add missing context.\n"
 	prompt += fmt.Sprintf("\n## ⚠️ Git Commit Message — Hard Requirement\n\nYour commit message MUST be **exactly** the following string (copy verbatim, no changes):\n\n```\n[%s] %s\n```\n\nDo NOT paraphrase. Do NOT translate. Do NOT convert between Traditional/Simplified Chinese or any other script. The characters above are the only acceptable commit message. Any deviation will be rejected in review.\n", t.ID, t.Title)
 
-	// Inject agent's existing todo.md for retry awareness.
-	todoPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todo.md")
-	if todoContent, err := os.ReadFile(todoPath); err == nil && len(bytes.TrimSpace(todoContent)) > 0 {
-		prompt += "\n\n## Your Previous Progress (todo.md)\n"
-		prompt += string(todoContent)
-		prompt += "\n\nContinue from where you left off. Update your todo.md as you complete items.\n"
+	// Inject per-task todo for retry awareness.
+	// Path: agents/{agent}/todos/{taskId}.md — isolated per task to prevent cross-task clobbering.
+	// Guard: task IDs are server-generated (task-{unix_nano}) but validate to prevent path traversal.
+	if !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
+		todoDir := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos")
+		todoPath := filepath.Join(todoDir, t.ID+".md")
+		if err := os.MkdirAll(todoDir, 0755); err != nil {
+			log.Warn("taskboard dispatch: failed to create todos dir", "task", t.ID, "error", err)
+		}
+		if todoContent, err := os.ReadFile(todoPath); err == nil && len(bytes.TrimSpace(todoContent)) > 0 {
+			prompt += fmt.Sprintf("\n\n## Your Previous Progress (%s)\n", todoFile)
+			prompt += string(todoContent)
+			prompt += "\n\nContinue from where you left off. Update your progress file as you complete items.\n"
+		}
 	}
 
 	// On retry, all comments (including system) are already injected above.
@@ -796,6 +805,15 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Post-task problem scan.
 	d.postTaskProblemScan(t, result.Output, newStatus)
+
+	// Clean up per-task todo file on final completion.
+	// Keep the file on failed/review so retries can resume from it.
+	if newStatus == "done" && !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
+		cleanTodoPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos", t.ID+".md")
+		if err := os.Remove(cleanTodoPath); err != nil && !os.IsNotExist(err) {
+			log.Warn("taskboard dispatch: failed to remove task todo", "task", t.ID, "error", err)
+		}
+	}
 
 	if newStatus == "done" || newStatus == "review" {
 		d.checkParentRollup(t.ID)

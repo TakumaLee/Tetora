@@ -468,6 +468,7 @@ header {
 .kanban-column.drag-over .kanban-column-body { min-height: 60px; }
 .kanban-card-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 6px; line-height: 1.3; }
 .kanban-card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.kanban-card-id { font-size: 10px; color: var(--muted); font-family: monospace; margin-top: 5px; opacity: 0.6; }
 .kanban-badge {
   padding: 1px 7px; border-radius: 0; font-size: 10px; font-weight: 600;
 }
@@ -4471,7 +4472,8 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     <button class="modal-close" onclick="closeTaskDetail()">&times;</button>
     <button id="td-cancel-btn" onclick="cancelTaskFromDetail()" style="position:absolute;top:14px;right:120px;background:var(--warning,#d69e2e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;display:none">Cancel</button>
     <button onclick="deleteTask()" style="position:absolute;top:14px;right:48px;background:var(--danger,#e53e3e);color:#fff;border:none;border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
-    <h3 id="task-detail-title" style="margin-bottom:12px">Task Detail</h3>
+    <h3 id="task-detail-title" style="margin-bottom:6px">Task Detail</h3>
+    <div id="td-id-display" style="font-size:11px;color:var(--muted);margin-bottom:10px;font-family:monospace;user-select:all"></div>
     <input type="hidden" id="td-id" value="">
     <div class="task-detail-grid">
       <div class="task-detail-field">
@@ -8573,9 +8575,11 @@ function renderBoard() {
       if (t.costUsd > 0) badges += '<span class="kanban-badge kanban-badge-cost">$' + t.costUsd.toFixed(2) + '</span>';
       if (t.model) badges += '<span class="kanban-badge kanban-badge-model">' + esc(t.model) + '</span>';
       if (t.workflow && t.workflow !== 'none') badges += '<span class="kanban-badge kanban-badge-workflow">' + esc(t.workflow) + '</span>';
+      var shortId = t.id.replace('task-', '').slice(-8);
       return '<div class="kanban-card" draggable="true" data-task-id="' + esc(t.id) + '" onclick="openTaskDetail(\'' + esc(t.id) + '\')" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">' +
         '<div class="kanban-card-title">' + esc(t.title) + '</div>' +
         (badges ? '<div class="kanban-card-badges">' + badges + '</div>' : '') +
+        '<div class="kanban-card-id" title="' + esc(t.id) + '">#' + shortId + '</div>' +
       '</div>';
     }).join('');
     return '<div class="kanban-column" data-status="' + status + '" ondragover="onColumnDragOver(event)" ondragleave="onColumnDragLeave(event)" ondrop="onColumnDrop(event)">' +
@@ -8649,7 +8653,10 @@ function filterBoard() {
 // --- Task Detail Modal ---
 
 async function openTaskDetail(taskId) {
+  history.pushState({taskId: taskId}, '', '#task/' + taskId);
   document.getElementById('td-id').value = taskId;
+  var idDisplay = document.getElementById('td-id-display');
+  if (idDisplay) idDisplay.textContent = taskId;
   try {
     var task = await fetchJSON('/api/tasks/' + taskId);
     document.getElementById('task-detail-title').textContent = task.title || 'Task Detail';
@@ -8749,6 +8756,9 @@ async function openTaskDetail(taskId) {
 function closeTaskDetail() {
   if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
   document.getElementById('task-detail-modal').classList.remove('open');
+  if (location.hash.startsWith('#task/')) {
+    history.pushState(null, '', location.pathname + location.search);
+  }
 }
 
 async function deleteTask() {
@@ -10025,6 +10035,24 @@ async function hgInlineRespond(key, action, response) {
 // ============================================================
 // End Human Gates
 // ============================================================
+
+// --- Task URL hash routing ---
+// Opens task detail when URL contains #task/{id}, supports browser back/forward.
+window.addEventListener('popstate', function(e) {
+  if (e.state && e.state.taskId) {
+    openTaskDetail(e.state.taskId);
+  } else {
+    document.getElementById('task-detail-modal').classList.remove('open');
+  }
+});
+
+(function initTaskHash() {
+  var hash = location.hash;
+  if (hash && hash.startsWith('#task/')) {
+    var taskId = hash.slice(6);
+    if (taskId) openTaskDetail(taskId);
+  }
+})();
 
 // --- Project dropdown in dispatch/job modals ---
 

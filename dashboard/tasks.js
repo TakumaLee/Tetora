@@ -353,9 +353,11 @@ function renderBoard() {
       if (t.costUsd > 0) badges += '<span class="kanban-badge kanban-badge-cost">$' + t.costUsd.toFixed(2) + '</span>';
       if (t.model) badges += '<span class="kanban-badge kanban-badge-model">' + esc(t.model) + '</span>';
       if (t.workflow && t.workflow !== 'none') badges += '<span class="kanban-badge kanban-badge-workflow">' + esc(t.workflow) + '</span>';
+      var shortId = esc(t.id.replace('task-', '').slice(-8));
       return '<div class="kanban-card" draggable="true" data-task-id="' + esc(t.id) + '" onclick="openTaskDetail(\'' + esc(t.id) + '\')" ondragstart="onCardDragStart(event)" ondragend="onCardDragEnd(event)">' +
         '<div class="kanban-card-title">' + esc(t.title) + '</div>' +
         (badges ? '<div class="kanban-card-badges">' + badges + '</div>' : '') +
+        '<div class="kanban-card-id" title="' + esc(t.id) + '">#' + shortId + '</div>' +
       '</div>';
     }).join('');
     return '<div class="kanban-column" data-status="' + status + '" ondragover="onColumnDragOver(event)" ondragleave="onColumnDragLeave(event)" ondrop="onColumnDrop(event)">' +
@@ -429,7 +431,16 @@ function filterBoard() {
 // --- Task Detail Modal ---
 
 async function openTaskDetail(taskId) {
+  history.pushState({taskId: taskId}, '', '#task/' + taskId);
+  await _showTaskDetail(taskId);
+}
+
+// Pure display function — no history manipulation.
+// Use this from popstate and initial hash loading.
+async function _showTaskDetail(taskId) {
   document.getElementById('td-id').value = taskId;
+  var idDisplay = document.getElementById('td-id-display');
+  if (idDisplay) idDisplay.textContent = taskId;
   try {
     var task = await fetchJSON('/api/tasks/' + taskId);
     document.getElementById('task-detail-title').textContent = task.title || 'Task Detail';
@@ -529,6 +540,9 @@ async function openTaskDetail(taskId) {
 function closeTaskDetail() {
   if (taskWfSSE) { taskWfSSE.close(); taskWfSSE = null; }
   document.getElementById('task-detail-modal').classList.remove('open');
+  if (location.hash.startsWith('#task/')) {
+    history.pushState(null, '', location.pathname + location.search);
+  }
 }
 
 async function deleteTask() {
@@ -1805,4 +1819,22 @@ async function hgInlineRespond(key, action, response) {
 // ============================================================
 // End Human Gates
 // ============================================================
+
+// --- Task URL hash routing ---
+// Opens task detail when URL contains #task/{id}, supports browser back/forward.
+window.addEventListener('popstate', function(e) {
+  if (e.state && e.state.taskId) {
+    _showTaskDetail(e.state.taskId); // pure display — no pushState
+  } else {
+    document.getElementById('task-detail-modal').classList.remove('open');
+  }
+});
+
+(function initTaskHash() {
+  var hash = location.hash;
+  if (hash && hash.startsWith('#task/')) {
+    var taskId = hash.slice(6);
+    if (taskId) _showTaskDetail(taskId); // URL already set, just show
+  }
+})();
 
