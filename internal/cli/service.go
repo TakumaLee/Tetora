@@ -52,10 +52,11 @@ func launchdInstall() {
 	plistPath := filepath.Join(plistDir, PlistLabel+".plist")
 
 	// Build PATH that includes common tool locations so spawned processes
-	// (e.g. claude CLI) are reachable from the launchd environment.
+	// (e.g. claude CLI, tetora CLI) are reachable from the launchd environment.
+	// ~/.tetora/bin is included so agents can call `tetora dispatch/task` from within sessions.
 	// ~/.local/bin is included because npm global installs land there and
 	// .zshrc (which adds it) is NOT sourced by login shells in launchd.
-	daemonPath := home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	daemonPath := home + "/.tetora/bin:" + home + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 	plist := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
