@@ -9093,7 +9093,7 @@ func TestPluginSearchTools(t *testing.T) {
 		t.Fatalf("search_tools: %v", err)
 	}
 
-	var tools []map[string]string
+	var tools []map[string]any
 	if err := json.Unmarshal([]byte(result), &tools); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -9109,7 +9109,7 @@ func TestPluginSearchTools(t *testing.T) {
 		t.Fatalf("search_tools: %v", err)
 	}
 
-	var tools2 []map[string]string
+	var tools2 []map[string]any
 	json.Unmarshal([]byte(result2), &tools2)
 
 	if len(tools2) != 1 {
