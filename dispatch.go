@@ -3105,6 +3105,7 @@ func cmdTask(args []string) {
 		var title, description, priority, assignee, taskType string
 		var dependsOn []string
 		var workdirs []string
+		var allowDangerous bool
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "--title=") {
 				title = strings.TrimPrefix(arg, "--title=")
@@ -3126,6 +3127,8 @@ func cmdTask(args []string) {
 				if dir != "" {
 					workdirs = append(workdirs, dir)
 				}
+			} else if arg == "--allow-dangerous" {
+				allowDangerous = true
 			}
 		}
 
@@ -3135,13 +3138,14 @@ func cmdTask(args []string) {
 		}
 
 		task, err := tb.CreateTask(TaskBoard{
-			Title:       title,
-			Description: description,
-			Priority:    priority,
-			Assignee:    assignee,
-			Type:        taskType,
-			DependsOn:   dependsOn,
-			Workdirs:    workdirs,
+			Title:          title,
+			Description:    description,
+			Priority:       priority,
+			Assignee:       assignee,
+			Type:           taskType,
+			DependsOn:      dependsOn,
+			Workdirs:       workdirs,
+			AllowDangerous: allowDangerous,
 		})
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)

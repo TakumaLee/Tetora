@@ -85,8 +85,9 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		CostUSD:       getFloat64(row, "cost_usd"),
 		DurationMs:    int64(getFloat64(row, "duration_ms")),
 		SessionID:     fmt.Sprintf("%v", row["session_id"]),
-		WorkflowRunID: workflowRunID,
-		Workdirs:      workdirs,
+		WorkflowRunID:  workflowRunID,
+		Workdirs:       workdirs,
+		AllowDangerous: getFloat64(row, "allow_dangerous") != 0,
 	}
 }
 

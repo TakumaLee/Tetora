@@ -258,10 +258,11 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	taskID := t.ID
 	task := dispatch.Task{
-		Name:   t.Title,
-		Prompt: prompt,
-		Agent:  t.Assignee,
-		Source: "taskboard",
+		Name:           t.Title,
+		Prompt:         prompt,
+		Agent:          t.Assignee,
+		Source:         "taskboard",
+		AllowDangerous: t.AllowDangerous,
 		OnStart: func() {
 			// Status already set to 'doing' by scan() CAS claim.
 			// Touch updated_at to refresh stuck-detection timestamp.

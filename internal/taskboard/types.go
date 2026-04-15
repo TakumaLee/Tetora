@@ -24,7 +24,8 @@ type TaskBoard struct {
 	DurationMs    int64    `json:"durationMs"`    // execution duration in ms
 	SessionID     string   `json:"sessionId"`     // claude session ID
 	WorkflowRunID string   `json:"workflowRunId"` // workflow run ID
-	Workdirs      []string `json:"workdirs"`      // explicit directories this task operates in (for coord region)
+	Workdirs       []string `json:"workdirs"`       // explicit directories this task operates in (for coord region)
+	AllowDangerous bool     `json:"allowDangerous"` // bypass dangerous-ops check when dispatching
 }
 
 // TaskComment is a comment on a task.
