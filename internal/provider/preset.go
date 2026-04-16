@@ -82,6 +82,15 @@ var Presets = []Preset{
 		Dynamic:     true,
 	},
 	{
+		Name:        "qwen",
+		DisplayName: "Alibaba Cloud (Qwen)",
+		Type:        "openai-compatible",
+		BaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+		RequiresKey: true,
+		Models:      []string{"qwen3.6-plus", "qwen3.5-plus", "qwen-max", "qwen-plus"},
+		Dynamic:     false,
+	},
+	{
 		Name:        "codex",
 		DisplayName: "OpenAI Codex CLI",
 		Type:        "codex-cli",
@@ -121,6 +130,8 @@ var modelPrefixToPreset = []struct {
 	// Groq
 	{"llama-", "groq"},
 	{"mixtral-", "groq"},
+	// Alibaba Cloud (Qwen)
+	{"qwen-", "qwen"},
 }
 
 // InferProviderFromModel returns the preset name that likely serves the given

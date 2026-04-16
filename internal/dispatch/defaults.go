@@ -78,7 +78,8 @@ func ApplyAgentDefaults(cfg *config.Config, t *Task) {
 	if !ok {
 		return
 	}
-	if rc.Model != "" && t.Model == cfg.DefaultModel {
+	// Agent model overrides: only apply if agent has explicit model (not "auto") AND task still uses global default.
+	if rc.Model != "" && rc.Model != "auto" && t.Model == cfg.DefaultModel {
 		t.Model = rc.Model
 	}
 	if rc.PermissionMode != "" && t.PermissionMode == cfg.DefaultPermissionMode {

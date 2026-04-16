@@ -11760,6 +11760,19 @@ func initProviders(cfg *Config) *provider.Registry {
 				path = "codex"
 			}
 			reg.Register(name, &provider.CodexProvider{BinaryPath: path})
+
+		case "qwen-cli":
+			path := pc.Path
+			if path == "" {
+				path = "qwen"
+			}
+			reg.Register(name, &provider.TerminalProvider{
+				BinaryPath:     path,
+				DefaultWorkdir: cfg.DefaultWorkdir,
+				Profile:        newProfileAdapter(tmux.NewClaudeProfile()),
+				Tmux:           tmuxOpsAdapter{},
+				Workers:        newWorkerTrackerAdapter(tmux.NewSupervisor()),
+			})
 		}
 	}
 
@@ -11847,6 +11860,14 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 // The eventCh is bridged into the provider.Request.OnEvent callback.
 func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
 	model := task.Model
+	// Resolve "auto" model to the provider's default model.
+	if model == "" || model == "auto" {
+		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
+			model = pc.Model
+		} else if cfg.DefaultModel != "" && cfg.DefaultModel != "auto" {
+			model = cfg.DefaultModel
+		}
+	}
 	if model == "" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
 			model = pc.Model
