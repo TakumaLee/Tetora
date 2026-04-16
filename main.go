@@ -178,6 +178,9 @@ func main() {
 		case "access":
 			cli.CmdAccess(os.Args[2:])
 			return
+		case "provider":
+			cli.CmdProvider(os.Args[2:])
+			return
 		case "release":
 			cli.CmdRelease(os.Args[2:])
 			return
