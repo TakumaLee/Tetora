@@ -166,6 +166,18 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			task.Workdir = ws.Dir
 		}
 		task.AddDirs = append(task.AddDirs, cfg.BaseDir)
+
+		// Inject workspace rules into system prompt for non-CLI providers.
+		if providerType != "claude-code" && providerType != "codex-cli" {
+			workspaceRule := buildWorkspaceRule(cfg, agentName)
+			if workspaceRule != "" {
+				if task.SystemPrompt != "" {
+					task.SystemPrompt += "\n\n" + workspaceRule
+				} else {
+					task.SystemPrompt = workspaceRule
+				}
+			}
+		}
 	}
 
 	// --- 3. Agent config overrides (always) ---
@@ -474,4 +486,24 @@ func mergeDedup(base, extra []string) []string {
 		}
 	}
 	return result
+}
+
+// buildWorkspaceRule generates a workspace rule for the given agent.
+// Rule: "Save outputs to ~/.tetora/workspace/agents/{name}/outputs/"
+func buildWorkspaceRule(cfg *config.Config, agentName string) string {
+	if cfg.AgentOutputBase == "" {
+		return ""
+	}
+
+	outputDir := filepath.Join(cfg.AgentOutputBase, agentName, "outputs")
+
+	return fmt.Sprintf(`## Working Directory Rules
+1. **Code Edits**: Modify files in-place within the project structure.
+2. **New Artifacts**: Save all generated documents (reports, docs, plans, analysis) to:
+   **%s**
+3. **Cross-Project Review**: When reviewing external projects:
+   - READ from external directories is allowed.
+   - WRITE all notes, reviews, and reports to your output directory above.
+   - NEVER create loose files in external project directories.
+4. **NEVER** create temporary files in the project root directory.`, outputDir)
 }

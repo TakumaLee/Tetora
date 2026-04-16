@@ -19,6 +19,12 @@ logs/
 .env
 .env.*
 
+# Config files with credentials (API keys, tokens, etc.)
+config.json
+config.local.json
+config.local.*.json
+*.secret.json
+
 # Test artifacts
 *.test
 *_cover.out
@@ -41,6 +47,9 @@ uploads/
 knowledge/
 backups/
 /com.tetora.daemon.plist
+
+# Agent workspace (universal - DO NOT commit)
+~/.tetora/workspace/
 
 # IDE
 .idea/
