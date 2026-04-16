@@ -11816,17 +11816,37 @@ func initProviders(cfg *Config) *provider.Registry {
 // Stays in root because it depends on Config, Task, and SSEEvent.
 
 func resolveProviderName(cfg *Config, task Task, agentName string) string {
+	// Priority 1: Task-level override (highest priority)
 	if task.Provider != "" {
 		return task.Provider
 	}
-	if agentName != "" {
-		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
-			return rc.Provider
+
+	// Priority 2: Active provider override (CLI/API session-level override)
+	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
+		activeState := cfg.ActiveProviderStore.Get()
+		if activeState.ProviderName != "" {
+			return activeState.ProviderName
 		}
 	}
+
+	// Priority 3: Agent-level provider
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
+			// If agent uses "auto", fall through to global default
+			if rc.Provider == "auto" {
+				// Continue to default resolution
+			} else {
+				return rc.Provider
+			}
+		}
+	}
+
+	// Priority 4: Global default provider
 	if cfg.DefaultProvider != "" {
 		return cfg.DefaultProvider
 	}
+
+	// Fallback: legacy default
 	return "claude"
 }
 
@@ -11835,6 +11855,18 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 	seen := map[string]bool{primary: true}
 	candidates := []string{primary}
 
+	// If active provider override is set, only use global fallback providers
+	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
+		for _, fb := range cfg.FallbackProviders {
+			if !seen[fb] {
+				seen[fb] = true
+				candidates = append(candidates, fb)
+			}
+		}
+		return candidates
+	}
+
+	// Normal flow: use agent-level and global fallback providers
 	if agentName != "" {
 		if rc, ok := cfg.Agents[agentName]; ok {
 			for _, fb := range rc.FallbackProviders {
@@ -11860,6 +11892,15 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 // The eventCh is bridged into the provider.Request.OnEvent callback.
 func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
 	model := task.Model
+
+	// If active provider has an explicit model override (not "auto"), use it.
+	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
+		activeState := cfg.ActiveProviderStore.Get()
+		if activeState.Model != "" && activeState.Model != "auto" {
+			model = activeState.Model
+		}
+	}
+
 	// Resolve "auto" model to the provider's default model.
 	if model == "" || model == "auto" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {

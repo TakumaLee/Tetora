@@ -217,6 +217,10 @@ type Config struct {
 	// are in root (package main). Root code sets these during startup and
 	// accesses them via typed helper functions.
 	Runtime RuntimeState `json:"-"`
+
+	// Active provider override store — enables dynamic provider switching
+	// without modifying individual agent configurations.
+	ActiveProviderStore *ActiveProviderStore `json:"-"`
 }
 
 // RuntimeState holds runtime service references that are set after config loading.

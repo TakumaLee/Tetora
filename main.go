@@ -185,6 +185,9 @@ func main() {
 		case "lessons":
 			cli.CmdLessons(os.Args[2:])
 			return
+		case "provider":
+			cli.CmdProvider(os.Args[2:])
+			return
 		case "release":
 			cli.CmdRelease(os.Args[2:])
 			return
