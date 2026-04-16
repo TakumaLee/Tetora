@@ -249,6 +249,54 @@ make test
 
 ---
 
+## 工作階段壓縮（Session Compaction）
+
+Tetora 會在工作階段上下文過大時自動壓縮。這直接影響 **API 費用**——上下文越大，每次請求的 cache write 成本越高。
+
+### 運作方式
+
+每個代理的工作階段都會累積對話歷史。隨著歷史增長，每次 API 呼叫的 prompt cache write 費用也會增加。當工作階段超過設定的閾值，壓縮會自動觸發。
+
+目前支援兩種策略：
+
+| 策略 | 行為 | 適合情境 |
+|---|---|---|
+| `inline`（預設）| 在 Tetora DB 中刪除舊訊息；Claude CLI 的 session 檔案不變 | 優先保留對話連貫性 |
+| `fresh-session` | 摘要完整歷史 → 存入 memory → archive 工作階段；下一則訊息從乾淨的 JSONL 重新開始 | 長期控制 cache write 成本 |
+
+**為什麼 `fresh-session` 對費用影響重大：**
+
+使用 `inline` 時，即使壓縮後，Claude CLI 的 `.jsonl` 檔案仍持續增長，cache write 成本會與 context 大小成正比累積。使用 `fresh-session` 時，CLI session 歸零重置——每次壓縮週期都將 cache write 的費用上限重設為零。
+
+### 設定範例
+
+```json
+{
+  "session": {
+    "compactAfter": 30,
+    "compactTokens": 50000,
+    "compaction": {
+      "strategy": "fresh-session"
+    }
+  }
+}
+```
+
+| 欄位 | 預設值 | 說明 |
+|---|---|---|
+| `compactAfter` | `30` | 訊息數超過此值時觸發壓縮 |
+| `compactTokens` | `200000` | 輸入 token 數超過此值時觸發壓縮 |
+| `compaction.strategy` | `"inline"` | `"inline"` 或 `"fresh-session"` |
+| `compaction.model` | coordinator 模型 | 用於生成摘要的模型 |
+
+壓縮在背景非同步執行，失敗時會自動指數退避重試。`fresh-session` 生成的摘要會自動注入下一個工作階段的 system prompt，代理仍可保留關鍵上下文。
+
+### 取捨
+
+`fresh-session` 消除 cache write 累積，代價是失去 Claude CLI 原生的 `--resume` 連續性。對於長期個人助理使用情境（context 大、頻繁閒置），建議設定 `fresh-session` 搭配 `compactTokens: 50000`。
+
+---
+
 ## 工作流程
 
 Tetora 內建工作流程引擎，可協調多步驟、多代理的任務。以 JSON 定義你的流程管線，讓代理自動協作完成。
