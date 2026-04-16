@@ -1378,8 +1378,12 @@ func (db *DiscordBot) cmdCompactSession(msg discord.Message) {
 		return
 	}
 	db.sendMessage(msg.ChannelID, "Compacting session...")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	if globalPresence != nil {
+		globalPresence.StartTyping(ctx, "compact_"+msg.ChannelID)
+		defer globalPresence.StopTyping("compact_" + msg.ChannelID)
+	}
 	var compactErr error
 	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
 		compactErr = compactSessionFresh(ctx, db.cfg, dbPath, sess.ID, chKey, sess.Agent, db.sem, db.childSem)

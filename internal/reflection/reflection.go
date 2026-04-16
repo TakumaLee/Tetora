@@ -256,7 +256,7 @@ func Store(dbPath string, ref *Result) error {
 		`INSERT INTO reflections (task_id, role, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec)
 		 VALUES ('%s','%s','%s',%d,'%s','%s',%f,'%s',%d,%d)`,
 		db.Escape(ref.TaskID),
-		db.Escape(ref.Agent), // role: synced with agent for backward schema compatibility
+		db.Escape(ref.Agent), // role == agent intentionally: role is a legacy column kept for schema backward-compat; future divergence (e.g. sub-roles within an agent) can split them
 		db.Escape(ref.Agent),
 		ref.Score,
 		db.Escape(ref.Feedback),
