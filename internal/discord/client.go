@@ -176,7 +176,26 @@ func (c *Client) SendEmbedReply(channelID, replyToID string, embed Embed) {
 	if replyToID != "" {
 		payload["message_reference"] = MessageRef{MessageID: replyToID, FailIfNotExists: false}
 	}
-	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), payload)
+	path := fmt.Sprintf("/channels/%s/messages", channelID)
+	if replyToID == "" {
+		c.Post(path, payload)
+		return
+	}
+	// Use RequestRaw so we can detect REPLIES_CANNOT_REPLY_TO_SYSTEM_MESSAGE (50035)
+	// and fall back to sending without a reply reference.
+	statusCode, body := c.RequestRaw("POST", path, payload)
+	if statusCode >= 200 && statusCode < 300 {
+		return
+	}
+	if statusCode == http.StatusBadRequest && strings.Contains(string(body), "50035") {
+		// Discord system message (e.g. thread-creation message) — retry without reply ref.
+		log.Debug("discord embed reply: falling back to plain send (system message)", "channel", channelID)
+		delete(payload, "message_reference")
+		c.Post(path, payload)
+		return
+	}
+	// For other errors, log and give up (consistent with Post behaviour).
+	log.Warn("discord api error", "status", statusCode, "body", string(body))
 }
 
 // SendTyping sends a typing indicator to a channel.
