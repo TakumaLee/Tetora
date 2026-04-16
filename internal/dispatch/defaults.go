@@ -40,8 +40,12 @@ func FillDefaults(cfg *config.Config, t *Task) {
 		t.PermissionMode = cfg.DefaultPermissionMode
 	}
 	if t.Workdir == "" {
-		// Priority: agent's output dir > workspace dir > default workdir
-		if t.Agent != "" && cfg.AgentOutputBase != "" {
+		// Priority: agent output dir (opt-in only) > workspace dir > default workdir.
+		// AgentOutputBase only applies when the agent's config sets outputBase:true, so
+		// code-editing agents aren't accidentally redirected away from the project root.
+		agentWantsOutputBase := t.Agent != "" && cfg.AgentOutputBase != "" &&
+			cfg.Agents[t.Agent].OutputBase
+		if agentWantsOutputBase {
 			t.Workdir = filepath.Join(cfg.AgentOutputBase, t.Agent, "outputs")
 		} else if cfg.WorkspaceDir != "" {
 			t.Workdir = cfg.WorkspaceDir

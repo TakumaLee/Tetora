@@ -51,6 +51,9 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	if providerType == "" && pName == "codex" {
 		providerType = "codex-cli"
 	}
+	if providerType == "" && pName == "qwen" {
+		providerType = "qwen-cli"
+	}
 
 	// --- 1. Soul/Agent prompt (always loaded) ---
 	if agentName != "" {
@@ -80,7 +83,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		task.AddDirs = append(task.AddDirs, cfg.BaseDir)
 
 		// Inject workspace rules into system prompt for non-CLI providers.
-		if providerType != "claude-code" && providerType != "codex-cli" {
+		if !isTerminalProvider(providerType) {
 			workspaceRule := buildWorkspaceRule(cfg, agentName)
 			if workspaceRule != "" {
 				if task.SystemPrompt != "" {
@@ -119,7 +122,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// --- Lessons injection (always, provider-aware) ---
 	if agentName != "" {
 		lessonsPath := filepath.Join(cfg.BaseDir, "agents", agentName, "lessons.md")
-		if providerType == "claude-code" || providerType == "codex-cli" {
+		if isTerminalProvider(providerType) {
 			if _, err := os.Stat(lessonsPath); err == nil {
 				task.Prompt = fmt.Sprintf("⚠️ 任務開始前請先讀取 agents/%s/lessons.md，確認過去的經驗教訓。\n\n%s", agentName, task.Prompt)
 			}
@@ -314,6 +317,17 @@ func mergeDedup(base, extra []string) []string {
 		}
 	}
 	return result
+}
+
+// isTerminalProvider reports whether the provider is a shell-based CLI that manages
+// file context natively (e.g. reads CLAUDE.md, workspace). These providers must not
+// receive workspace rules injected via system prompt to avoid duplication.
+func isTerminalProvider(t string) bool {
+	switch t {
+	case "claude-code", "codex-cli", "qwen-cli":
+		return true
+	}
+	return false
 }
 
 // buildWorkspaceRule generates a workspace rule for the given agent.

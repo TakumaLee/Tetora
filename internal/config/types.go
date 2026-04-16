@@ -23,6 +23,7 @@ type AgentConfig struct {
 	TrustLevel        string          `json:"trustLevel,omitempty"`
 	ToolPolicy        AgentToolPolicy `json:"tools,omitempty"`
 	ToolProfile       string          `json:"toolProfile,omitempty"`
+	OutputBase        bool            `json:"outputBase,omitempty"` // redirect workdir to agentOutputBase/{agent}/outputs
 	Workspace         WorkspaceConfig `json:"workspace,omitempty"`
 	Portrait              string          `json:"portrait,omitempty"`
 	VoicePreset           string          `json:"voicePreset,omitempty"`           // e.g. "alice", "carter", "maya"

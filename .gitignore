@@ -47,8 +47,7 @@ uploads/
 knowledge/
 backups/
 
-# Agent workspace (universal - DO NOT commit)
-~/.tetora/workspace/
+# Agent workspace lives at ~/.tetora/workspace/ (outside repo — never tracked by git)
 
 # IDE
 .idea/
