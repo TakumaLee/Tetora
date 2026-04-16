@@ -1,6 +1,6 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.2.4.11
+VERSION  := 2.2.4.13
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)

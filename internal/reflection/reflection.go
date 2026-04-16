@@ -46,6 +46,7 @@ func InitDB(dbPath string) error {
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id TEXT NOT NULL,
   agent TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT '',
   score INTEGER NOT NULL DEFAULT 3,
   feedback TEXT DEFAULT '',
   improvement TEXT DEFAULT '',
@@ -62,6 +63,17 @@ func InitDB(dbPath string) error {
 	}
 	if err := db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_reflections_agent ON reflections(agent);`); err != nil {
 		return fmt.Errorf("init reflections index: %w", err)
+	}
+	// Migration: add role column for DBs created with legacy schema (role NOT NULL, no DEFAULT).
+	// New DBs (created by InitDB above) don't have role, so ADD COLUMN ensures it exists everywhere.
+	if err := db.Exec(dbPath, `ALTER TABLE reflections ADD COLUMN role TEXT NOT NULL DEFAULT '';`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("init reflections migration (role): %w", err)
+		}
+	}
+	// Backfill: sync role from agent for any rows where role is empty.
+	if err := db.Exec(dbPath, `UPDATE reflections SET role = agent WHERE role = '' AND agent != '';`); err != nil {
+		return fmt.Errorf("init reflections backfill role: %w", err)
 	}
 	// Migration: add time savings columns.
 	for _, m := range []string{
@@ -241,9 +253,10 @@ func ExtractJSON(s string) string {
 // Store persists a reflection result to the database.
 func Store(dbPath string, ref *Result) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO reflections (task_id, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec)
-		 VALUES ('%s','%s',%d,'%s','%s',%f,'%s',%d,%d)`,
+		`INSERT INTO reflections (task_id, role, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec)
+		 VALUES ('%s','%s','%s',%d,'%s','%s',%f,'%s',%d,%d)`,
 		db.Escape(ref.TaskID),
+		db.Escape(ref.Agent), // role == agent intentionally: role is a legacy column kept for schema backward-compat; future divergence (e.g. sub-roles within an agent) can split them
 		db.Escape(ref.Agent),
 		ref.Score,
 		db.Escape(ref.Feedback),

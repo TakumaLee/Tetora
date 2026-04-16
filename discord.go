@@ -31,6 +31,12 @@ import (
 // cross-machine config sync).
 const errNoSavedSession = "No saved session found"
 
+// errCouldNotProcessImage is returned by the Anthropic API when a vision request
+// fails (e.g. image from a CDN that requires auth, unsupported format, or a URL
+// that resolves to non-image content). The session file is likely in a broken
+// state after this error, so we archive it and start fresh.
+const errCouldNotProcessImage = "Could not process image"
+
 // --- Discord Bot ---
 
 // DiscordBot manages the Discord Gateway connection and message handling.
@@ -415,6 +421,12 @@ func (db *DiscordBot) handleMessage(msg discord.Message) {
 		argsStr := strings.TrimPrefix(text, "/vc")
 		args := strings.Fields(strings.TrimSpace(argsStr))
 		db.handleVoiceCommand(msg, args)
+		return
+	}
+
+	// /compact: compact the current session directly without dispatching to an agent.
+	if text == "/compact" {
+		db.cmdCompactSession(msg)
 		return
 	}
 
@@ -1353,6 +1365,38 @@ func (db *DiscordBot) cmdNewSession(msg discord.Message) {
 	db.sendMessage(msg.ChannelID, "New session started.")
 }
 
+func (db *DiscordBot) cmdCompactSession(msg discord.Message) {
+	dbPath := db.cfg.HistoryDB
+	if dbPath == "" {
+		db.sendMessage(msg.ChannelID, "History DB not configured.")
+		return
+	}
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	sess, err := findChannelSession(dbPath, chKey)
+	if err != nil || sess == nil {
+		db.sendMessage(msg.ChannelID, "No active session to compact.")
+		return
+	}
+	db.sendMessage(msg.ChannelID, "Compacting session...")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	if globalPresence != nil {
+		globalPresence.StartTyping(ctx, "compact_"+msg.ChannelID)
+		defer globalPresence.StopTyping("compact_" + msg.ChannelID)
+	}
+	var compactErr error
+	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
+		compactErr = compactSessionFresh(ctx, db.cfg, dbPath, sess.ID, chKey, sess.Agent, db.sem, db.childSem)
+	} else {
+		compactErr = compactSession(ctx, db.cfg, dbPath, sess.ID, false, db.sem, db.childSem)
+	}
+	if compactErr != nil {
+		db.sendMessage(msg.ChannelID, fmt.Sprintf("Compact failed: %v", compactErr))
+		return
+	}
+	db.sendMessage(msg.ChannelID, "Session compacted.")
+}
+
 func (db *DiscordBot) cmdHelp(msg discord.Message) {
 	db.sendEmbed(msg.ChannelID, discord.Embed{
 		Title:       "Tetora Help",
@@ -1601,6 +1645,19 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt = soulPrompt
 		}
 	}
+	// Fresh-session compaction: inject the previous session's summary into the system prompt.
+	// Use delete-after-inject so the summary is only injected once regardless of message count.
+	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
+		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
+		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
+			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
+			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
+			if err2 := deleteMemory(db.cfg, agent, memKey); err2 != nil {
+				log.WarnCtx(ctx, "failed to clear compact summary after injection, overwriting with tombstone", "memKey", memKey, "error", err2)
+				_ = setMemory(db.cfg, agent, memKey, "")
+			}
+		}
+	}
 	// Discord tasks run unattended — default to bypassPermissions if not set by agent.
 	if task.PermissionMode == "" {
 		task.PermissionMode = "bypassPermissions"
@@ -1810,7 +1867,7 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			})
 		}
 
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, chKey, agent, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem, func(s string) { db.sendMessage(msg.ChannelID, s) })
 	}
 
 	if result.Status == "success" {
@@ -1836,6 +1893,20 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	// Auto-recover from stale session errors (provider switch or machine migration).
 	if result.Status != "success" && archiveStaleSession(ctx, dbPath, sess, result.Error) {
 		db.sendMessage(msg.ChannelID, "♻️ **System Reset**: Detected environment change (Provider/Migration). Starting new session...")
+		return
+	}
+
+	// Auto-recover from broken sessions caused by image processing failures.
+	// The Claude CLI session history is likely in a corrupted state (orphaned tool use),
+	// so archive the session to force a fresh start on the next message.
+	if result.Status != "success" && strings.Contains(result.Error, errCouldNotProcessImage) {
+		log.WarnCtx(ctx, "Auto-cleared session after image processing failure", "error", result.Error)
+		if sess != nil {
+			if err := updateSessionStatus(dbPath, sess.ID, "archived"); err != nil {
+				log.WarnCtx(ctx, "Failed to archive broken session", "sessionID", sess.ID, "error", err)
+			}
+		}
+		db.sendMessage(msg.ChannelID, "⚠️ **Image Error**: Could not process an image in your message (e.g. from a social media link). Session has been reset — please try again.")
 		return
 	}
 
@@ -1882,10 +1953,10 @@ func (db *DiscordBot) sendRouteResponse(channelID string, route *RouteResult, re
 			}
 		}
 
-		// Send output as plain text messages (split into 2000-char chunks).
-		// For very long outputs, truncate the middle to preserve the conclusion.
+		// Send output as plain text messages (split into 1900-char chunks).
+		// Hard cap at 16000 chars (~8 messages) to prevent Discord flooding.
 		const maxChunk = 1900 // leave room for markdown formatting
-		const maxTotal = 5700 // 3 messages max — Discord rate-limits beyond this
+		const maxTotal = 16000
 		if len(output) > maxTotal {
 			// Keep beginning (context) + end (conclusion), separated by "...".
 			headSize := maxTotal * 2 / 5
@@ -2584,7 +2655,7 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sessionID, role, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem, func(s string) { db.sendMessage(msg.ChannelID, s) })
 	}
 
 	if result.Status == "success" {

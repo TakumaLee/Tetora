@@ -9651,7 +9651,10 @@ func (r *messagingRuntime) UpdateAgentModel(agent, model string) error {
 }
 
 func (r *messagingRuntime) MaybeCompactSession(sessionID string, msgCount int, tokenCount float64) {
-	maybeCompactSession(r.cfg, r.cfg.HistoryDB, sessionID, msgCount, int(tokenCount), r.sem, r.childSem)
+	// chKey and agentName are not available in the generic messaging runtime path;
+	// pass empty strings — fresh-session compaction will still archive the session,
+	// but the memory key will be less channel-specific.
+	maybeCompactSession(r.cfg, r.cfg.HistoryDB, sessionID, "", "", msgCount, int(tokenCount), r.sem, r.childSem, nil)
 }
 
 func (r *messagingRuntime) UpdateSessionTitle(sessionID, title string) {
@@ -9851,7 +9854,7 @@ func (r *telegramRuntime) RecordAndCompact(sessID string, msgCount int, tokensIn
 		updateSessionStats(dbPath, sessID, result.CostUSD, int(result.TokensIn), int(result.TokensOut), 1) //nolint:errcheck
 	}
 
-	maybeCompactSession(r.cfg, dbPath, sessID, msgCount+2, int(tokensIn), r.sem, r.childSem)
+	maybeCompactSession(r.cfg, dbPath, sessID, "", "", msgCount+2, int(tokensIn), r.sem, r.childSem, nil)
 }
 
 // --- UUID ---
@@ -10227,13 +10230,105 @@ Conversation (%d messages):
 
 	newCount := keep + 1
 	updateSQL := fmt.Sprintf(
-		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
+		`UPDATE sessions SET message_count = %d, total_tokens_in = 0, updated_at = '%s' WHERE id = '%s'`,
 		newCount, db.Escape(now), db.Escape(sessionID))
 	if err := db.Exec(dbPath, updateSQL); err != nil {
 		log.Warn("session count update failed", "session", sessionID, "error", err)
 	}
 
-	log.Info("session compacted", "session", sessionID[:8], "before", len(msgs), "after", newCount, "kept", keep)
+	log.Info("session compacted", "session", sessionID[:min(8, len(sessionID))], "before", len(msgs), "after", newCount, "kept", keep)
+	return nil
+}
+
+// compactSessionFresh is the "fresh-session" compaction strategy.
+// Unlike compactSession (which truncates messages in-place), this:
+//  1. Summarises the full conversation and saves to workspace/memory/
+//  2. Archives the Claude CLI session (next request creates a clean JSONL — no cache write accumulation)
+//  3. executeRoute auto-injects the summary into the new session via system prompt
+func compactSessionFresh(ctx context.Context, cfg *Config, dbPath, sessionID, chKey, agentName string, sem, childSem chan struct{}) error {
+	if dbPath == "" {
+		return nil
+	}
+
+	sess, err := querySessionByID(dbPath, sessionID)
+	if err != nil || sess == nil {
+		return err
+	}
+
+	msgs, err := querySessionMessages(dbPath, sessionID)
+	if err != nil {
+		return err
+	}
+	if len(msgs) < 5 {
+		return nil // too short to summarise
+	}
+
+	// Build summarisation input — cap per-message to avoid exceeding context.
+	var lines []string
+	for _, m := range msgs {
+		content := m.Content
+		if len(content) > 800 {
+			content = content[:800] + "…"
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", m.Role, content))
+	}
+
+	summaryPrompt := fmt.Sprintf(
+		`You are summarising a conversation to preserve context across session boundaries.
+The conversation occurred between a user and an AI assistant (agent: %s).
+Write a compact summary (300–500 words) covering:
+1. Main tasks requested and their outcomes
+2. Decisions made or conclusions reached
+3. Key entities: file paths, URLs, IDs, code identifiers — copy VERBATIM, do not paraphrase
+4. Unfinished work or open questions
+5. User's apparent preferences or constraints observed during this session
+
+Output ONLY the summary. No headers, no markdown lists unless the original content used them.
+
+Conversation (%d messages, %d input-tokens):
+%s`,
+		agentName, len(msgs), sess.TotalTokensIn,
+		strings.Join(lines, "\n"))
+
+	coordinator := cfg.SmartDispatch.Coordinator
+	task := Task{
+		Prompt:  summaryPrompt,
+		Timeout: "90s",
+		Budget:  0.3,
+		Source:  "compact_fresh",
+	}
+	fillDefaults(cfg, &task)
+	if rc, ok := cfg.Agents[coordinator]; ok && rc.Model != "" {
+		task.Model = rc.Model
+	}
+
+	result := runSingleTask(ctx, cfg, task, sem, childSem, coordinator)
+	if result.Status != "success" {
+		return fmt.Errorf("compaction summary failed: %s", result.Error)
+	}
+
+	summaryText := strings.TrimSpace(result.Output)
+
+	// Persist summary to workspace memory, keyed by agent + channel so the new
+	// session can find it on the next executeRoute call.
+	keyPart := chKey
+	if keyPart == "" {
+		keyPart = sessionID
+	}
+	memKey := "session_compact_" + sanitizeKey(agentName+"_"+keyPart)
+	if err := setMemory(cfg, agentName, memKey, summaryText); err != nil {
+		return fmt.Errorf("compactSessionFresh: memory write failed, aborting archive: %w", err)
+	}
+
+	// Archive the session. On the next message, getOrCreateChannelSession creates
+	// a new session with a blank Claude CLI JSONL, eliminating cache write accumulation.
+	if err := updateSessionStatus(dbPath, sessionID, "archived"); err != nil {
+		return fmt.Errorf("archive session: %w", err)
+	}
+
+	log.Info("session compacted (fresh-session)",
+		"session", sessionID[:min(8, len(sessionID))], "agent", agentName,
+		"msgs", len(msgs), "tokens", sess.TotalTokensIn, "memKey", memKey)
 	return nil
 }
 
@@ -10300,7 +10395,8 @@ func compactionRecordSuccess(sessionID string) {
 }
 
 // maybeCompactSession triggers compaction if the session exceeds thresholds.
-func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount, tokensIn int, sem, childSem chan struct{}) {
+// chKey and agentName are required when cfg.Session.Compaction.Strategy == "fresh-session".
+func maybeCompactSession(cfg *Config, dbPath, sessionID, chKey, agentName string, msgCount, tokensIn int, sem, childSem chan struct{}, notifyFn func(string)) {
 	msgThreshold := cfg.Session.CompactAfterOrDefault()
 	tokenThreshold := cfg.Session.CompactTokensOrDefault()
 	tokenTriggered := tokensIn > tokenThreshold
@@ -10311,6 +10407,34 @@ func maybeCompactSession(cfg *Config, dbPath, sessionID string, msgCount, tokens
 		log.Debug("session compaction skipped (backoff)", "session", sessionID)
 		return
 	}
+
+	// Notify mode: alert the user instead of auto-compacting.
+	if cfg.Session.Compaction.Mode == "notify" {
+		msg := fmt.Sprintf("⚠️ **Context approaching limit** (~%dk tokens). Use `/compact` to manually compact the session.", tokensIn/1000)
+		log.Info("session compaction notify", "session", sessionID, "tokensIn", tokensIn)
+		if notifyFn != nil {
+			notifyFn(msg)
+		}
+		compactionRecordSuccess(sessionID)
+		return
+	}
+
+	strategy := cfg.Session.Compaction.Strategy
+	if strategy == "fresh-session" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			if err := compactSessionFresh(ctx, cfg, dbPath, sessionID, chKey, agentName, sem, childSem); err != nil {
+				log.Warn("session compaction (fresh) failed", "session", sessionID, "error", err)
+				compactionRecordFailure(sessionID)
+			} else {
+				compactionRecordSuccess(sessionID)
+			}
+		}()
+		return
+	}
+
+	// Default: inline compaction (truncate session_messages in place).
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

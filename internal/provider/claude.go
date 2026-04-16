@@ -135,6 +135,7 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 
 	var resultMsg *claudeStreamMsg
 	toolNameByID := make(map[string]string)
+	var nonJSONLines []string // non-JSON output from CLI (e.g. "api 400" error text)
 	scanner := bufio.NewScanner(stdoutPipe)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 	lineCount := 0
@@ -147,6 +148,10 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 
 		var msg claudeStreamMsg
 		if err := json.Unmarshal(line, &msg); err != nil {
+			lineStr := strings.TrimSpace(string(line))
+			if lineStr != "" && len(nonJSONLines) < 10 {
+				nonJSONLines = append(nonJSONLines, lineStr)
+			}
 			if req.OnEvent != nil {
 				req.OnEvent(Event{
 					Type:      EventOutputChunk,
@@ -285,6 +290,16 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 		pr.Error = runErr.Error()
 	}
 
+	// If the error message is generic/unhelpful, try to surface non-JSON CLI output
+	// (e.g. "api 400", "Error: rate limit exceeded") that was emitted before the result.
+	if pr.IsError && pr.Error == "error_during_execution" && len(nonJSONLines) > 0 {
+		cliText := strings.Join(nonJSONLines, " | ")
+		if len(cliText) > 300 {
+			cliText = cliText[:300]
+		}
+		pr.Error = cliText
+	}
+
 	return pr, nil
 }
 
@@ -306,6 +321,11 @@ func buildResultFromStream(resultMsg *claudeStreamMsg, stderr []byte, exitCode i
 	pr.ProviderMs = resultMsg.DurationMs
 	if resultMsg.IsError {
 		pr.Error = resultMsg.Subtype
+		// CLI sometimes emits subtype="success" with is_error=true on quick init failures.
+		// Normalise to avoid surfacing "success" as the error message.
+		if pr.Error == "" || pr.Error == "success" {
+			pr.Error = "error_during_execution"
+		}
 	}
 	if !pr.IsError && pr.TokensIn == 0 && pr.TokensOut == 0 && pr.CostUSD == 0 && strings.TrimSpace(pr.Output) == "" {
 		pr.IsError = true
@@ -503,6 +523,11 @@ func buildResultFromParsed(co claudeOutput) *Result {
 	if co.IsError {
 		r.IsError = true
 		r.Error = co.Subtype
+		// CLI sometimes emits subtype="success" with is_error=true on quick init failures.
+		// Normalise to avoid surfacing "success" as the error message.
+		if r.Error == "" || r.Error == "success" {
+			r.Error = "error_during_execution"
+		}
 	} else if r.TokensIn == 0 && r.TokensOut == 0 && co.CostUSD == 0 && strings.TrimSpace(co.Result) == "" {
 		r.IsError = true
 		r.Error = "empty run: CLI returned success but no tokens were consumed"
