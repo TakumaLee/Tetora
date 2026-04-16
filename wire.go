@@ -9654,7 +9654,7 @@ func (r *messagingRuntime) MaybeCompactSession(sessionID string, msgCount int, t
 	// chKey and agentName are not available in the generic messaging runtime path;
 	// pass empty strings — fresh-session compaction will still archive the session,
 	// but the memory key will be less channel-specific.
-	maybeCompactSession(r.cfg, r.cfg.HistoryDB, sessionID, "", "", msgCount, int(tokenCount), r.sem, r.childSem)
+	maybeCompactSession(r.cfg, r.cfg.HistoryDB, sessionID, "", "", msgCount, int(tokenCount), r.sem, r.childSem, nil)
 }
 
 func (r *messagingRuntime) UpdateSessionTitle(sessionID, title string) {
@@ -9854,7 +9854,7 @@ func (r *telegramRuntime) RecordAndCompact(sessID string, msgCount int, tokensIn
 		updateSessionStats(dbPath, sessID, result.CostUSD, int(result.TokensIn), int(result.TokensOut), 1) //nolint:errcheck
 	}
 
-	maybeCompactSession(r.cfg, dbPath, sessID, "", "", msgCount+2, int(tokensIn), r.sem, r.childSem)
+	maybeCompactSession(r.cfg, dbPath, sessID, "", "", msgCount+2, int(tokensIn), r.sem, r.childSem, nil)
 }
 
 // --- UUID ---
@@ -10393,7 +10393,7 @@ func compactionRecordSuccess(sessionID string) {
 
 // maybeCompactSession triggers compaction if the session exceeds thresholds.
 // chKey and agentName are required when cfg.Session.Compaction.Strategy == "fresh-session".
-func maybeCompactSession(cfg *Config, dbPath, sessionID, chKey, agentName string, msgCount, tokensIn int, sem, childSem chan struct{}) {
+func maybeCompactSession(cfg *Config, dbPath, sessionID, chKey, agentName string, msgCount, tokensIn int, sem, childSem chan struct{}, notifyFn func(string)) {
 	msgThreshold := cfg.Session.CompactAfterOrDefault()
 	tokenThreshold := cfg.Session.CompactTokensOrDefault()
 	tokenTriggered := tokensIn > tokenThreshold
@@ -10402,6 +10402,16 @@ func maybeCompactSession(cfg *Config, dbPath, sessionID, chKey, agentName string
 	}
 	if compactionShouldSkip(sessionID) {
 		log.Debug("session compaction skipped (backoff)", "session", sessionID)
+		return
+	}
+
+	// Notify mode: alert the user instead of auto-compacting.
+	if cfg.Session.Compaction.Mode == "notify" {
+		msg := fmt.Sprintf("⚠️ **Context approaching limit** (~%dk tokens). Use `/compact` to manually compact the session.", tokensIn/1000)
+		log.Info("session compaction notify", "session", sessionID, "tokensIn", tokensIn)
+		if notifyFn != nil {
+			notifyFn(msg)
+		}
 		return
 	}
 

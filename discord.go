@@ -1825,7 +1825,7 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			})
 		}
 
-		maybeCompactSession(db.cfg, dbPath, sess.ID, chKey, agent, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, chKey, agent, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem, func(s string) { db.sendMessage(msg.ChannelID, s) })
 	}
 
 	if result.Status == "success" {
@@ -2613,7 +2613,7 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sessionID, role, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sessionID, role, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem, func(s string) { db.sendMessage(msg.ChannelID, s) })
 	}
 
 	if result.Status == "success" {
