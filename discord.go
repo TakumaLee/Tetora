@@ -1649,7 +1649,8 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
 			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
 			if err2 := deleteMemory(db.cfg, agent, memKey); err2 != nil {
-				log.WarnCtx(ctx, "failed to clear compact summary after injection", "memKey", memKey, "error", err2)
+				log.WarnCtx(ctx, "failed to clear compact summary after injection, overwriting with tombstone", "memKey", memKey, "error", err2)
+				_ = setMemory(db.cfg, agent, memKey, "")
 			}
 		}
 	}

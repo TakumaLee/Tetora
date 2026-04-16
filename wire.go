@@ -10230,7 +10230,7 @@ Conversation (%d messages):
 
 	newCount := keep + 1
 	updateSQL := fmt.Sprintf(
-		`UPDATE sessions SET message_count = %d, total_tokens_in = 0, total_tokens_out = 0, updated_at = '%s' WHERE id = '%s'`,
+		`UPDATE sessions SET message_count = %d, total_tokens_in = 0, updated_at = '%s' WHERE id = '%s'`,
 		newCount, db.Escape(now), db.Escape(sessionID))
 	if err := db.Exec(dbPath, updateSQL); err != nil {
 		log.Warn("session count update failed", "session", sessionID, "error", err)
