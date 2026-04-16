@@ -2,6 +2,31 @@
 
 ---
 
+## [v2.2.5] - 2026-04-17
+
+### Added
+- **Fresh-session compaction**: New `fresh-session` strategy — summarises session via LLM, writes summary to workspace memory, archives the old session, and injects the summary into the next session's system prompt. Eliminates JSONL cache bloat while preserving full context continuity
+- **Notify-only compaction mode**: `compaction.mode = "notify"` alerts user via Discord when context threshold is approached instead of auto-compacting; backoff prevents notification spam
+- **`/compact` Discord command**: Manual compaction trigger respecting configured strategy (`fresh-session` or inline); typing indicator and 3-min timeout
+- **BM25 tool search**: Replace substring search with BM25-ranked two-stage tool reranking; pluggable reranker interface, deferred tool loading, usage frequency tracking
+- **Per-task todo file**: Agents can maintain per-task todo lists at `agents/{agent}/todos/{taskId}.md`; task ID shown on dashboard cards with URL hash routing
+- **Per-context tool profile**: Agents can declare a tool profile override in their config, applied per-context without affecting other agents
+- **Session auto-resume**: Discord sessions auto-continue context from archived sessions on channel reconnect
+- **`allowDangerous` taskboard flag**: Bypass dangerous-ops check for trusted automation flows
+
+### Fixed
+- **Discord output cap**: Raise max output from 5700 → 16000 chars with chunked delivery
+- **CLI error surfacing**: Non-JSON CLI output now captured (10 lines × 300 chars) and surfaced as structured error instead of silent failure
+- **Image error auto-recovery**: Detect image-related CLI crash → archive broken session → notify user with friendly message; no more wedged channels
+- **Agent session dispatch bypass**: Agent sub-sessions auto-bypass the concurrent dispatch guard to prevent deadlock
+- **Claude binary auto-detect**: Detect `claude` binary via login shell before falling back to PATH, fixing installs that use `fnm`/`nvm` managed Node
+- **Service restart**: Use `tetora restart` in bump flow; fix KeepAlive respawn loop with proper `bootout` before kill
+- **Session token counter reset**: Inline compaction now resets `total_tokens_in` to 0 so the compaction threshold re-arms correctly after compact
+- **Memory abort on failure**: `compactSessionFresh` aborts archive if summary memory write fails, preventing silent context loss
+- **Summary one-shot injection**: Replace `MessageCount <= 3` guard with delete-after-inject, eliminating async race in summary injection
+
+---
+
 ## [v2.2.4] - 2026-04-12
 
 ### Added
