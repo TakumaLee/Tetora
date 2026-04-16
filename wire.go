@@ -10230,7 +10230,7 @@ Conversation (%d messages):
 
 	newCount := keep + 1
 	updateSQL := fmt.Sprintf(
-		`UPDATE sessions SET message_count = %d, updated_at = '%s' WHERE id = '%s'`,
+		`UPDATE sessions SET message_count = %d, total_tokens_in = 0, total_tokens_out = 0, updated_at = '%s' WHERE id = '%s'`,
 		newCount, db.Escape(now), db.Escape(sessionID))
 	if err := db.Exec(dbPath, updateSQL); err != nil {
 		log.Warn("session count update failed", "session", sessionID, "error", err)
@@ -10317,8 +10317,7 @@ Conversation (%d messages, %d input-tokens):
 	}
 	memKey := "session_compact_" + sanitizeKey(agentName+"_"+keyPart)
 	if err := setMemory(cfg, agentName, memKey, summaryText); err != nil {
-		// Non-fatal: proceed with archiving even if memory write fails.
-		log.Warn("compactSessionFresh: memory write failed", "session", sessionID[:min(8, len(sessionID))], "error", err)
+		return fmt.Errorf("compactSessionFresh: memory write failed, aborting archive: %w", err)
 	}
 
 	// Archive the session. On the next message, getOrCreateChannelSession creates
@@ -10416,6 +10415,7 @@ func maybeCompactSession(cfg *Config, dbPath, sessionID, chKey, agentName string
 		if notifyFn != nil {
 			notifyFn(msg)
 		}
+		compactionRecordSuccess(sessionID)
 		return
 	}
 
