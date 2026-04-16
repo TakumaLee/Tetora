@@ -31,6 +31,12 @@ import (
 // cross-machine config sync).
 const errNoSavedSession = "No saved session found"
 
+// errCouldNotProcessImage is returned by the Anthropic API when a vision request
+// fails (e.g. image from a CDN that requires auth, unsupported format, or a URL
+// that resolves to non-image content). The session file is likely in a broken
+// state after this error, so we archive it and start fresh.
+const errCouldNotProcessImage = "Could not process image"
+
 // --- Discord Bot ---
 
 // DiscordBot manages the Discord Gateway connection and message handling.
@@ -1601,6 +1607,15 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt = soulPrompt
 		}
 	}
+	// Fresh-session compaction: inject the previous session's summary into the system prompt
+	// so the agent retains context without the large JSONL history causing cache write bloat.
+	if sess != nil && sess.MessageCount <= 1 && db.cfg.Session.Compaction.Strategy == "fresh-session" {
+		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
+		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
+			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
+			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
+		}
+	}
 	// Discord tasks run unattended — default to bypassPermissions if not set by agent.
 	if task.PermissionMode == "" {
 		task.PermissionMode = "bypassPermissions"
@@ -1810,7 +1825,7 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			})
 		}
 
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, chKey, agent, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {
@@ -1836,6 +1851,20 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	// Auto-recover from stale session errors (provider switch or machine migration).
 	if result.Status != "success" && archiveStaleSession(ctx, dbPath, sess, result.Error) {
 		db.sendMessage(msg.ChannelID, "♻️ **System Reset**: Detected environment change (Provider/Migration). Starting new session...")
+		return
+	}
+
+	// Auto-recover from broken sessions caused by image processing failures.
+	// The Claude CLI session history is likely in a corrupted state (orphaned tool use),
+	// so archive the session to force a fresh start on the next message.
+	if result.Status != "success" && strings.Contains(result.Error, errCouldNotProcessImage) {
+		log.WarnCtx(ctx, "Auto-cleared session after image processing failure", "error", result.Error)
+		if sess != nil {
+			if err := updateSessionStatus(dbPath, sess.ID, "archived"); err != nil {
+				log.WarnCtx(ctx, "Failed to archive broken session", "sessionID", sess.ID, "error", err)
+			}
+		}
+		db.sendMessage(msg.ChannelID, "⚠️ **Image Error**: Could not process an image in your message (e.g. from a social media link). Session has been reset — please try again.")
 		return
 	}
 
@@ -2584,7 +2613,7 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 			Model: result.Model, TaskID: task.ID, CreatedAt: now,
 		})
 		updateSessionStats(dbPath, sess.ID, result.CostUSD, result.TokensIn, result.TokensOut, 1)
-		maybeCompactSession(db.cfg, dbPath, sess.ID, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
+		maybeCompactSession(db.cfg, dbPath, sess.ID, sessionID, role, sess.MessageCount+2, sess.TotalTokensIn+result.TokensIn, db.sem, db.childSem)
 	}
 
 	if result.Status == "success" {

@@ -351,6 +351,11 @@ type CompactionConfig struct {
 	Model       string  `json:"model,omitempty"`
 	MaxCost     float64 `json:"maxCost,omitempty"`
 	Provider    string  `json:"provider,omitempty"`
+	// Strategy controls how compaction works:
+	//   "inline"        (default) — truncate session_messages in place, keep same Claude CLI session
+	//   "fresh-session" — summarize → save to memory → archive session → next msg starts clean JSONL
+	// "fresh-session" eliminates cache write cost accumulation at the expense of losing native --resume context.
+	Strategy string `json:"strategy,omitempty"`
 }
 
 // --- Logging ---
