@@ -1,0 +1,7 @@
+{
+  "model": {
+    "provider": "qwen",
+    "model": "qwen3.6-plus"
+  },
+  "language": "Chinese"
+}
