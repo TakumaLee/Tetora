@@ -239,6 +239,12 @@ func ApplyProfileToConfig(profile *ProviderProfile, cfg *config.ProviderConfig) 
 	if profile.FirstTokenTimeout != "" && cfg.FirstTokenTimeout == "" {
 		cfg.FirstTokenTimeout = profile.FirstTokenTimeout
 	}
+	if profile.Temperature > 0 && cfg.Temperature == 0 {
+		cfg.Temperature = profile.Temperature
+	}
+	if profile.TopP > 0 && cfg.TopP == 0 {
+		cfg.TopP = profile.TopP
+	}
 }
 
 // GetOptimizedSettings returns a map of all optimized settings for display.
