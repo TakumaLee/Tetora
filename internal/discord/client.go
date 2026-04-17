@@ -48,29 +48,39 @@ func NewClient(token string) *Client {
 
 // Post sends a POST request to the Discord API (no response body).
 // Retries up to 3 times on network errors, 429 rate-limit, or 5xx server errors.
+// Errors are only logged — callers that need to distinguish success vs failure
+// should use postWithError.
 func (c *Client) Post(path string, payload any) {
+	if err := c.postWithError(path, payload); err != nil {
+		log.Error("discord api post failed", "path", path, "error", err)
+	}
+}
+
+// postWithError is Post's inner implementation; returns the final error so
+// callers can distinguish success from retried-then-given-up failures.
+func (c *Client) postWithError(path string, payload any) error {
 	const maxAttempts = 3
 	body, _ := json.Marshal(payload)
+	var lastErr error
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 		}
 		req, err := http.NewRequest("POST", APIBase+path, bytes.NewReader(body))
 		if err != nil {
-			log.Error("discord api request error", "error", err)
-			return
+			return fmt.Errorf("build request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bot "+c.Token)
 		resp, err := c.HTTPClient.Do(req)
 		if err != nil {
+			lastErr = err
 			log.Warn("discord api send failed, retrying", "attempt", attempt+1, "error", err)
 			continue
 		}
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusTooManyRequests {
-			// Respect Retry-After if present (in seconds).
 			delay := time.Duration(attempt+1) * 500 * time.Millisecond
 			if ra := resp.Header.Get("Retry-After"); ra != "" {
 				var secs float64
@@ -80,19 +90,24 @@ func (c *Client) Post(path string, payload any) {
 			}
 			log.Warn("discord rate limited, retrying", "attempt", attempt+1, "delay", delay)
 			time.Sleep(delay)
+			lastErr = fmt.Errorf("rate limited: %s", string(b))
 			continue
 		}
 		if resp.StatusCode >= 500 {
 			log.Warn("discord api server error, retrying", "attempt", attempt+1, "status", resp.StatusCode, "body", string(b))
+			lastErr = fmt.Errorf("server %d: %s", resp.StatusCode, string(b))
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			log.Warn("discord api error", "status", resp.StatusCode, "body", string(b))
-			return // 4xx errors (except 429) are not retried
+			// 4xx errors (except 429) are not retried.
+			return fmt.Errorf("client %d: %s", resp.StatusCode, string(b))
 		}
-		return // success
+		return nil // success
 	}
-	log.Error("discord api post failed after retries", "path", path)
+	if lastErr == nil {
+		lastErr = fmt.Errorf("exhausted %d attempts", maxAttempts)
+	}
+	return lastErr
 }
 
 // Request sends a Discord API request and returns the response body.
@@ -163,6 +178,33 @@ func (c *Client) SendMessage(channelID, content string) {
 		content = content[:1997] + "..."
 	}
 	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), map[string]string{"content": content})
+}
+
+// SendLongMessage sends content that may exceed Discord's 2000-byte limit by
+// splitting at natural boundaries (paragraph > line > word) and posting each
+// chunk as a separate message prefixed with `(i/N) `. Runes are never broken
+// mid-sequence. For content under the limit, a single unadorned message is
+// posted. Returns the first chunk send error (if any) so callers can gate
+// downstream side-effects (e.g. dedup marking) on successful delivery.
+func (c *Client) SendLongMessage(channelID, content string) error {
+	if content == "" {
+		return nil
+	}
+	chunks := splitForDiscord(content, 1990)
+	path := fmt.Sprintf("/channels/%s/messages", channelID)
+	for i, chunk := range chunks {
+		msg := chunk
+		if len(chunks) > 1 {
+			msg = fmt.Sprintf("(%d/%d) %s", i+1, len(chunks), chunk)
+		}
+		if err := c.postWithError(path, map[string]string{"content": msg}); err != nil {
+			return fmt.Errorf("chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+		if i < len(chunks)-1 {
+			time.Sleep(400 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 // SendEmbed sends an embed message to a channel.

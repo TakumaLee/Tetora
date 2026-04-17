@@ -778,6 +778,7 @@ type DiscordBotConfig struct {
 	NotifyChannelID   string                         `json:"notifyChannelID,omitempty"`
 	ShowProgress      *bool                          `json:"showProgress,omitempty"`
 	Routes            map[string]DiscordRouteConfig  `json:"routes,omitempty"`
+	Recap             DiscordRecapConfig             `json:"recap,omitempty"`
 	// HumanAssigneeMap maps human gate assignee names (e.g. "takuma") to Discord
 	// channel IDs. When a human gate fires, the notification is routed to the
 	// mapped channel. Falls back to the default notify channel if no mapping found.
@@ -786,6 +787,18 @@ type DiscordBotConfig struct {
 	// "https://tetora.example.com"). Used to build the dashboard link in human
 	// gate Discord notifications. If empty, falls back to http://localhost<listenAddr>.
 	DashboardBaseURL  string                         `json:"dashboardBaseURL,omitempty"`
+}
+
+// DiscordRecapConfig forwards Claude Code "away_summary" transcripts to Discord
+// threads. One thread per Claude session, auto-created under a parent channel
+// chosen by cwd mapping.
+type DiscordRecapConfig struct {
+	Enabled              bool              `json:"enabled,omitempty"`
+	DefaultParentChannel string            `json:"defaultParentChannel,omitempty"`
+	ProjectChannels      map[string]string `json:"projectChannels,omitempty"`
+	TranscriptRoot       string            `json:"transcriptRoot,omitempty"`
+	PollIntervalMs       int               `json:"pollIntervalMs,omitempty"`
+	ThreadAutoArchiveMin int               `json:"threadAutoArchiveMin,omitempty"`
 }
 
 type DiscordRouteConfig struct {
