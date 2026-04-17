@@ -15,6 +15,9 @@ import (
 // DefaultFallbackModel is the model used when no model is configured anywhere.
 const DefaultFallbackModel = "claude-sonnet-4-6"
 
+// AgentOutputSubdir is the subdirectory under AgentOutputBase/{agent}/ where output-only agents write artifacts.
+const AgentOutputSubdir = "outputs"
+
 // FillDefaults populates empty Task fields with sensible defaults from config.
 func FillDefaults(cfg *config.Config, t *Task) {
 	if t.ID == "" {
@@ -43,7 +46,11 @@ func FillDefaults(cfg *config.Config, t *Task) {
 		// Priority: agent's output dir (output-only agents only) > workspace dir > default workdir
 		if t.Agent != "" && cfg.AgentOutputBase != "" {
 			if rc, ok := cfg.Agents[t.Agent]; ok && rc.OutputOnly {
-				t.Workdir = filepath.Join(cfg.AgentOutputBase, t.Agent, "outputs")
+				agentName := filepath.Clean(t.Agent)
+				if strings.Contains(agentName, "..") {
+					agentName = "unknown"
+				}
+				t.Workdir = filepath.Join(cfg.AgentOutputBase, agentName, AgentOutputSubdir)
 			} else if cfg.WorkspaceDir != "" {
 				t.Workdir = cfg.WorkspaceDir
 			} else {

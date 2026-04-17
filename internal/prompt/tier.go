@@ -527,7 +527,7 @@ func buildWorkspaceRule(cfg *config.Config, agentName string) string {
 		return ""
 	}
 
-	outputDir := filepath.Join(cfg.AgentOutputBase, agentName, "outputs")
+	outputDir := filepath.Join(cfg.AgentOutputBase, agentName, dispatch.AgentOutputSubdir)
 
 	return fmt.Sprintf(`## Working Directory Rules
 1. **Code Edits**: Modify files in-place within the project structure.
