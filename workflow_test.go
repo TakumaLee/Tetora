@@ -511,6 +511,12 @@ func TestResetZombieWorkflowRuns(t *testing.T) {
 		if got.Status != "error" {
 			t.Errorf("status = %q, want error (resumed → error)", got.Status)
 		}
+		if !strings.Contains(got.Error, "zombie") {
+			t.Errorf("error = %q, want contain 'zombie'", got.Error)
+		}
+		if got.FinishedAt == "" {
+			t.Errorf("finished_at = empty, want non-empty")
+		}
 	})
 
 	t.Run("fresh_running_untouched", func(t *testing.T) {
