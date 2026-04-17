@@ -841,6 +841,22 @@ func main() {
 				"paused", cfg.Budgets.Paused)
 		}
 
+		// Start zombie workflow janitor — resets stale running/resumed rows on a 30-min tick.
+		go func() {
+			ticker := time.NewTicker(30 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if count := resetZombieWorkflowRuns(cfg.HistoryDB, 4*time.Hour); count > 0 {
+						notifyFn(fmt.Sprintf("zombie janitor: terminated %d stale workflow(s)", count))
+					}
+				}
+			}
+		}()
+
 		// Start offline queue drainer.
 		if cfg.OfflineQueue.Enabled {
 			drainer := &queueDrainer{

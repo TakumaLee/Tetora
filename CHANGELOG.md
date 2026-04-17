@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Added
+- **Skill auto-extraction**: Dispatch server automatically extracts reusable skills after task success as a background goroutine (Haiku model, $0.02 budget, 15s timeout). Triggers when: `tool_use count ≥ 5`, `error_recovery`, or `user_correction` — and no similar skill exists. Extracted skills start `Approved=false`; activate with `tetora skill approve <name>`
+- **Skill extraction prompt injection**: `skillExtractionSection` injected into every agent prompt via `tier.go` — appended to user prompt for `claude-code`/`codex-cli` providers, added to system prompt for standard/complex tiers
+- **Parameterized query API**: `db.QueryArgs` / `db.ExecArgs` for injection-safe SQLite queries via `bindArgs`; applied to zombie janitor and task history queries
+
+### Fixed
+- **Zombie janitor error message**: `?` placeholder in string literal was misinterpreted by `bindArgs` as a parameter, causing the UPDATE to fail silently and `resetZombieWorkflowRuns` to return 0. Fixed by pre-formatting the error message before binding
+
 ---
 
 ## [v2.2.5] - 2026-04-17

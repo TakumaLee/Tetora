@@ -29,6 +29,7 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/provider"
 	"tetora/internal/sandbox"
+	"tetora/internal/skill"
 	"tetora/internal/taskboard"
 	"tetora/internal/telemetry"
 	"tetora/internal/trace"
@@ -3438,6 +3439,9 @@ func isGitRepo(dir string) bool {
 // estimateTimeoutSem is a dedicated semaphore for timeout estimation LLM calls.
 var estimateTimeoutSem = make(chan struct{}, 3)
 
+// skillExtractSem limits concurrent skill extraction LLM calls (background, non-critical).
+var skillExtractSem = make(chan struct{}, 2)
+
 // estimateTimeoutLLM uses a lightweight LLM call to estimate appropriate timeout
 // for a taskboard task. Returns a duration string (e.g. "45m", "2h") or empty
 // string on failure (caller should fall back to keyword-based estimation).
@@ -3857,6 +3861,9 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 				}
 				extractAutoLesson(cfg.WorkspaceDir, ref)
 			}()
+		}
+		if shouldExtractSkill(cfg, rootTask, rootResult) {
+			go extractAutoSkill(context.Background(), cfg, rootTask, rootResult)
 		}
 	}
 
@@ -4690,4 +4697,107 @@ func parseCompletionStatus(output string) (CompletionStatus, string, string) {
 	}
 
 	return status, concerns, blockedReason
+}
+
+// appConfigToSkillCfg projects the dispatch Config onto the subset
+// of fields the skill package needs (WorkspaceDir, HistoryDB).
+func appConfigToSkillCfg(cfg *Config) *skill.AppConfig {
+	return &skill.AppConfig{WorkspaceDir: cfg.WorkspaceDir, HistoryDB: cfg.HistoryDB}
+}
+
+// shouldExtractSkill decides whether post-task auto skill extraction
+// should run for the completed task. Returns false when the task did
+// not succeed or WorkspaceDir is unset; otherwise delegates to
+// skill.ShouldExtractSkill, which checks trigger thresholds:
+//   - ToolCallCount >= 5 (complex enough to be worth capturing)
+//   - ErrorRecovery == true (non-obvious recovery path)
+//   - UserCorrection == true (agent was wrong; the correction is worth persisting)
+//
+// De-duplicates against existing skills via HistoryDB.
+func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
+	if result.Status != "success" || cfg.WorkspaceDir == "" {
+		return false
+	}
+	signals := skill.TaskSignals{
+		ToolCallCount: strings.Count(result.Output, "tool_use"),
+		TaskPrompt:    task.Prompt,
+		AgentRole:     task.Agent,
+	}
+	return skill.ShouldExtractSkill(appConfigToSkillCfg(cfg), signals)
+}
+
+// extractAutoSkill runs a bounded Haiku LLM call (budget 0.02, 15s timeout)
+// that summarises the completed task into a LearnedSkillSpec and writes
+// it under <WorkspaceDir>/skills/learned/<name>/ via skill.CreateLearnedSkill.
+// Extracted skills start with Approved=false and are not injected into future
+// tasks until explicitly approved. To approve a pending skill run:
+//
+//	tetora skill approve <name>
+//
+// Intended to be launched as a background goroutine: all failure paths log
+// at DEBUG level and return without propagating errors to the caller.
+// Concurrency is bounded by skillExtractSem (cap 2).
+func extractAutoSkill(ctx context.Context, cfg *Config, task Task, result TaskResult) {
+	prompt := fmt.Sprintf(`You analyzed a completed agent task. Extract a reusable skill from it.
+
+Task prompt:
+%s
+
+Task output (truncated):
+%s
+
+Reply with ONLY a JSON object with these fields:
+{
+  "name": "slug-style-name",
+  "description": "one-line description under 80 chars",
+  "triggers": ["keyword1", "keyword2", "keyword3"],
+  "doc": "brief workflow summary in 2-3 sentences"
+}`, truncateStr(task.Prompt, 500), truncateStr(result.Output, 1000))
+
+	llmTask := Task{
+		ID:             newUUID(),
+		Name:           "skill-extract",
+		Prompt:         prompt,
+		Timeout:        "15s",
+		PermissionMode: "plan",
+		Source:         "skill-extract",
+	}
+	fillDefaults(cfg, &llmTask)
+	llmTask.Model = "haiku"
+	llmTask.Budget = 0.02
+
+	llmResult := runSingleTask(ctx, cfg, llmTask, skillExtractSem, nil, "")
+	if llmResult.Status != "success" || llmResult.Output == "" {
+		log.Debug("skill extraction LLM failed", "status", llmResult.Status)
+		return
+	}
+
+	raw := extractJSON(llmResult.Output)
+	var parsed struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Triggers    []string `json:"triggers"`
+		Doc         string   `json:"doc"`
+	}
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		log.Debug("skill extraction parse failed", "error", err)
+		return
+	}
+	if !skill.IsValidSkillName(parsed.Name) {
+		log.Debug("skill extraction invalid name", "name", parsed.Name)
+		return
+	}
+
+	spec := skill.LearnedSkillSpec{
+		Name:        parsed.Name,
+		Description: parsed.Description,
+		Triggers:    parsed.Triggers,
+		Doc:         parsed.Doc,
+		CreatedBy:   task.Agent,
+	}
+	if err := skill.CreateLearnedSkill(appConfigToSkillCfg(cfg), spec); err != nil {
+		log.Debug("skill creation failed", "name", parsed.Name, "error", err)
+		return
+	}
+	log.Debug("learned skill extracted", "name", parsed.Name, "role", task.Agent)
 }
