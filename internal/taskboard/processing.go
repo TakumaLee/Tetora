@@ -245,6 +245,33 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	prompt += fmt.Sprintf("- Before starting: identify what is OUT OF SCOPE and note it in your %s. Prevent scope creep.\n", todoFile)
 	prompt += "- Use precise language in all outputs. Forbidden: 'should work', 'probably', 'might need', 'I think', 'seems to'. State facts or unknowns explicitly.\n"
 	prompt += "- Before marking task complete: verify that a reviewer can understand your changes without asking clarifying questions. If not, add missing context.\n"
+
+	// Inject scope_boundary enforcement rules when the task has an explicit boundary.
+	switch t.ScopeBoundary {
+	case "diagnostic_only":
+		prompt += "\n## ⚠️ Scope Boundary: diagnostic_only\n"
+		prompt += "This is a READ-ONLY investigation task.\n"
+		prompt += "- ALLOWED: Read, Grep, Glob, Bash (read-only commands), DB queries\n"
+		prompt += "- FORBIDDEN: Edit, Write, git commit, any production file modification\n"
+		prompt += "- If you discover an improvement: record it in a task comment and open a new ticket. Do NOT implement it here.\n"
+	case "implement_allowed":
+		prompt += "\n## ⚠️ Scope Boundary: implement_allowed\n"
+		prompt += "Code changes are permitted but ONLY within the files listed in the task spec's critical_files.\n"
+		prompt += "- FORBIDDEN: large-scale refactoring outside critical_files scope\n"
+		prompt += "- Review the OUT OF SCOPE section in your todos file before each commit.\n"
+	case "test_only":
+		prompt += "\n## ⚠️ Scope Boundary: test_only\n"
+		prompt += "You may write test files only.\n"
+		prompt += "- ALLOWED: *.test.*, *.spec.*, files under tests/ or __tests__/ directories\n"
+		prompt += "- FORBIDDEN: modifying production code (any non-test file)\n"
+	case "review_only":
+		prompt += "\n## ⚠️ Scope Boundary: review_only\n"
+		prompt += "This is a read-only code review task.\n"
+		prompt += "- ALLOWED: reading any file, producing a review report via task comment\n"
+		prompt += "- FORBIDDEN: any write operations\n"
+		prompt += "- Output: post your findings as a task comment with actionable items.\n"
+	}
+
 	prompt += fmt.Sprintf("\n## ⚠️ Git Commit Message — Hard Requirement\n\nYour commit message MUST be **exactly** the following string (copy verbatim, no changes):\n\n```\n[%s] %s\n```\n\nDo NOT paraphrase. Do NOT translate. Do NOT convert between Traditional/Simplified Chinese or any other script. The characters above are the only acceptable commit message. Any deviation will be rejected in review.\n", t.ID, t.Title)
 
 	// Inject per-task todo for retry awareness.
