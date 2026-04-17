@@ -34,6 +34,7 @@ dashboard: $(DASH_PARTS)
 
 build: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+	@codesign -s - -f -i com.takumalee.tetora $(BINARY) 2>/dev/null || true
 
 dev: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(INSTALL)/$(BINARY) .
