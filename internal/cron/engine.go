@@ -1101,7 +1101,7 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 	j.lastRun = time.Now()
 	j.lastCost = result.CostUSD
 
-	if result.Status == "success" {
+	if result.Status == "success" || result.Status == "skipped_concurrent_limit" {
 		j.errors = 0
 		j.lastErr = ""
 	} else {

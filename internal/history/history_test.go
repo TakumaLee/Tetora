@@ -58,12 +58,13 @@ func TestQueryRecentFails_ReturnsFailStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryRecentFails: %v", err)
 	}
-	if len(runs) != 3 {
-		t.Errorf("got %d runs, want 3", len(runs))
+	// skipped_concurrent_limit and success are both excluded; only error + timeout remain.
+	if len(runs) != 2 {
+		t.Errorf("got %d runs, want 2", len(runs))
 	}
 	for _, r := range runs {
-		if r.Status == "success" {
-			t.Errorf("unexpected success run in results: %+v", r)
+		if r.Status == "success" || r.Status == "skipped_concurrent_limit" {
+			t.Errorf("unexpected status %q in results: %+v", r.Status, r)
 		}
 	}
 }
