@@ -135,8 +135,20 @@ func Escape(s string) string {
 	return s
 }
 
-// bindArgs replaces ? placeholders in query with safely-quoted argument values.
-// This provides a parameterized-query interface over the sqlite3 CLI backend.
+// bindArgs replaces ? placeholders in query with safely-quoted argument values,
+// providing a parameterized-query interface over the sqlite3 CLI backend.
+//
+// Because this package drives SQLite via the sqlite3 CLI subprocess rather than
+// a native Go database/sql driver, there is no db.Prepare() or driver-level
+// binding available. bindArgs fills that gap: callers write standard ? placeholders
+// and pass Go values as separate arguments; bindArgs escapes each value via Escape
+// and interpolates it as a single-quoted SQL literal before the SQL string is
+// handed to the subprocess.
+//
+// Each ? is consumed left-to-right; extra args beyond the placeholder count are
+// silently ignored. Only string-like interpolation is performed — callers must
+// not rely on type-specific SQL casts. Use ExecArgs / QueryArgs instead of
+// calling bindArgs directly.
 func bindArgs(query string, args []any) string {
 	if len(args) == 0 {
 		return query
@@ -158,11 +170,33 @@ func bindArgs(query string, args []any) string {
 }
 
 // ExecArgs runs a write SQL statement with ? parameterized arguments.
+// It is the parameterized equivalent of Exec: instead of building the SQL string
+// manually (which risks injection if values come from external input), callers
+// pass raw Go values and let bindArgs handle quoting.
+//
+// Example:
+//
+//	err := db.ExecArgs(dbPath,
+//	    "UPDATE workflows SET status=?, finished_at=? WHERE id=?",
+//	    "error", time.Now().UTC().Format(time.RFC3339), workflowID)
+//
+// Writes are serialized via writeMu, so ExecArgs is safe for concurrent use.
 func ExecArgs(dbPath, query string, args ...any) error {
 	return Exec(dbPath, bindArgs(query, args))
 }
 
 // QueryArgs runs a SQL query with ? parameterized arguments.
+// It is the parameterized equivalent of Query: instead of building the SQL string
+// manually (which risks injection if values come from external input), callers
+// pass raw Go values and let bindArgs handle quoting.
+//
+// Example:
+//
+//	rows, err := db.QueryArgs(dbPath,
+//	    "SELECT id, status FROM workflow_runs WHERE workflow_id=? AND status=?",
+//	    workflowID, "running")
+//
+// Returns nil (not an error) when the query produces zero rows.
 func QueryArgs(dbPath, query string, args ...any) ([]map[string]any, error) {
 	return Query(dbPath, bindArgs(query, args))
 }
