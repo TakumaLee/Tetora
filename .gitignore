@@ -48,8 +48,10 @@ knowledge/
 backups/
 /com.tetora.daemon.plist
 
-# Agent workspace (universal - DO NOT commit)
-~/.tetora/workspace/
+# Agent workspace (absolute path outside repo - git will never track it)
+# NOTE: ~/.tetora/workspace/ is an absolute path, no .gitignore entry needed.
+# Git does not expand ~ in patterns, and absolute paths outside the repo
+# are naturally ignored. This comment documents the workspace location.
 
 # IDE
 .idea/

@@ -167,8 +167,11 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		}
 		task.AddDirs = append(task.AddDirs, cfg.BaseDir)
 
-		// Inject workspace rules into system prompt for non-CLI providers.
-		if providerType != "claude-code" && providerType != "codex-cli" {
+		// Inject workspace rules into system prompt for API providers that need
+		// explicit path guidance. Terminal/CLI providers (claude-code, codex-cli,
+		// qwen-cli, terminal-*) manage their own file context and do not need
+		// workspace rules injected into the prompt.
+		if needsWorkspaceRuleInjection(providerType) {
 			workspaceRule := buildWorkspaceRule(cfg, agentName)
 			if workspaceRule != "" {
 				if task.SystemPrompt != "" {
@@ -486,6 +489,35 @@ func mergeDedup(base, extra []string) []string {
 		}
 	}
 	return result
+}
+
+// needsWorkspaceRuleInjection returns true if the provider type requires workspace
+// rules to be injected into the system prompt.
+//
+// API providers (anthropic, openai-compatible, google, groq) need explicit path
+// guidance because they don't manage their own file context.
+//
+// Terminal/CLI providers (claude-code, codex-cli, qwen-cli, terminal-*) run as
+// subprocesses and manage their own file context — they don't need rules injected.
+func needsWorkspaceRuleInjection(providerType string) bool {
+	// Terminal/CLI providers that manage their own file context.
+	terminalProviders := map[string]bool{
+		"claude-code": true,
+		"codex-cli":   true,
+		"qwen-cli":    true,
+	}
+
+	if terminalProviders[providerType] {
+		return false
+	}
+
+	// Any provider starting with "terminal-" is a CLI subprocess provider.
+	if strings.HasPrefix(providerType, "terminal-") {
+		return false
+	}
+
+	// All other providers are API providers that need workspace rules.
+	return true
 }
 
 // buildWorkspaceRule generates a workspace rule for the given agent.

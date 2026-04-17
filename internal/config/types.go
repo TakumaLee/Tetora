@@ -30,6 +30,7 @@ type AgentConfig struct {
 	CloudModel            string          `json:"cloudModel,omitempty"`            // preserved cloud model when switching to local
 	LocalModel            string          `json:"localModel,omitempty"`            // preferred local model for this agent
 	PinMode               string          `json:"pinMode,omitempty"`               // "cloud" | "local" | "" (follows global)
+	OutputOnly            bool            `json:"outputOnly,omitempty"`            // if true, use AgentOutputBase as workdir (for doc/report agents)
 }
 
 type ProviderConfig struct {
