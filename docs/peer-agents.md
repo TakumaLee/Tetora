@@ -31,16 +31,18 @@ those — they are per-machine customization.
 
 ## Device: Westeros (Game of Thrones cast)
 
-| Agent | Role |
-|-------|------|
-| arya | 艾麗婭·史塔克 — 刺客 / code surgeon |
-| bran | 布蘭 — 資料分析、log 調查、系統健康監控 |
-| daenerys | 丹妮莉絲 |
-| jon | 瓊恩·雪諾 |
-| sansa | 珊莎·史塔克 |
-| stannis | 史坦尼斯 |
-| tyrion | 提利昂·蘭尼斯特 — workflow dispatcher |
-| varys | 瓦里斯 — 需求分析師 |
+主公：Ray Stark（毛毛）
+
+| Agent | Role | Focus |
+|-------|------|-------|
+| arya | 艾麗婭·史塔克 — 無臉人刺客 | 安全工程、滲透測試、CI/CD 守衛、依賴漏洞掃描 |
+| bran | 布蘭·史塔克 — 三眼烏鴉 | AI 策略、資料分析、異常模式偵測、模型效能評估 |
+| tyrion | 提利昂·蘭尼斯特 | 開發工程師：分解複雜問題、寫可維護程式碼、找最聰明的解法 |
+| jon | 瓊恩·雪諾 — 守夜人總司令 | DevOps / Tech Lead：24/7 系統穩定、CI/CD、incident response |
+| stannis | 史坦尼斯·拜拉席恩 | 測試 / Code Review：不妥協的 PR 審查、覆蓋率、邊界測試 |
+| sansa | 珊莎·史塔克 — 王者之橋 | 產品經理：平衡商業／使用者／技術、路線圖、優先級 |
+| varys | 瓦里斯 — 蜘蛛 | 需求分析師：挖掘真實需求、消除歧義、建立技術可行性橋樑 |
+| daenerys | 丹妮莉絲·坦格利安 — 龍之母 | 設計師：視覺系統、UX、美學與工程約束的平衡 |
 
 ---
 
