@@ -4699,10 +4699,18 @@ func parseCompletionStatus(output string) (CompletionStatus, string, string) {
 	return status, concerns, blockedReason
 }
 
+// appConfigToSkillCfg projects the dispatch Config onto the subset
+// of fields the skill package needs (WorkspaceDir, HistoryDB).
 func appConfigToSkillCfg(cfg *Config) *skill.AppConfig {
 	return &skill.AppConfig{WorkspaceDir: cfg.WorkspaceDir, HistoryDB: cfg.HistoryDB}
 }
 
+// shouldExtractSkill decides whether post-task auto skill extraction
+// should run for the completed task. Returns false when the task did
+// not succeed or WorkspaceDir is unset; otherwise delegates to
+// skill.ShouldExtractSkill, which checks trigger thresholds
+// (tool-call count, error recovery, user correction) and de-duplicates
+// against existing skills via HistoryDB.
 func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
 	if result.Status != "success" || cfg.WorkspaceDir == "" {
 		return false
@@ -4715,6 +4723,12 @@ func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
 	return skill.ShouldExtractSkill(appConfigToSkillCfg(cfg), signals)
 }
 
+// extractAutoSkill runs a bounded Haiku LLM call (budget 0.02, 15s timeout)
+// that summarises the completed task into a LearnedSkillSpec and writes
+// it under <WorkspaceDir>/skills/learned/<name>/ via skill.CreateLearnedSkill.
+// Intended to be launched as a background goroutine: all failure paths log
+// at DEBUG level and return without propagating errors to the caller.
+// Concurrency is bounded by skillExtractSem.
 func extractAutoSkill(ctx context.Context, cfg *Config, task Task, result TaskResult) {
 	prompt := fmt.Sprintf(`You analyzed a completed agent task. Extract a reusable skill from it.
 
