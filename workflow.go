@@ -1798,6 +1798,48 @@ func recordWorkflowRun(dbPath string, run *WorkflowRun) {
 	}
 }
 
+// resetZombieWorkflowRuns marks stale running/resumed workflow_runs as error.
+func resetZombieWorkflowRuns(dbPath string, maxAge time.Duration) int {
+	if dbPath == "" {
+		return 0
+	}
+	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339)
+
+	rows, err := db.QueryArgs(dbPath,
+		`SELECT id FROM workflow_runs WHERE status IN ('running','resumed') AND started_at < ?`,
+		cutoff)
+	if err != nil {
+		log.Warn("resetZombieWorkflowRuns: select failed", "error", err)
+		return 0
+	}
+	if len(rows) == 0 {
+		return 0
+	}
+
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+	if err := db.ExecArgs(dbPath,
+		`UPDATE workflow_runs SET status = 'error',`+
+			` error = 'zombie: stale for ?, auto-terminated by janitor',`+
+			` finished_at = ?`+
+			` WHERE status IN ('running','resumed') AND started_at < ?`,
+		maxAge.String(), nowISO, cutoff); err != nil {
+		log.Warn("resetZombieWorkflowRuns: update failed", "error", err)
+		return 0
+	}
+
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		id := fmt.Sprintf("%v", row["id"])
+		if len(id) >= 8 {
+			id = id[:8]
+		}
+		ids = append(ids, id)
+	}
+	log.Info("zombie janitor: terminated stale workflow_runs",
+		"count", len(rows), "maxAge", maxAge.String(), "ids", ids)
+	return len(rows)
+}
+
 // queryWorkflowRuns returns recent workflow runs.
 func queryWorkflowRuns(dbPath string, limit int, workflowName string) ([]WorkflowRun, error) {
 	if limit <= 0 {

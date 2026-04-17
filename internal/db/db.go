@@ -135,6 +135,38 @@ func Escape(s string) string {
 	return s
 }
 
+// bindArgs replaces ? placeholders in query with safely-quoted argument values.
+// This provides a parameterized-query interface over the sqlite3 CLI backend.
+func bindArgs(query string, args []any) string {
+	if len(args) == 0 {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + len(args)*32)
+	argIdx := 0
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' && argIdx < len(args) {
+			b.WriteByte('\'')
+			b.WriteString(Escape(fmt.Sprintf("%v", args[argIdx])))
+			b.WriteByte('\'')
+			argIdx++
+		} else {
+			b.WriteByte(query[i])
+		}
+	}
+	return b.String()
+}
+
+// ExecArgs runs a write SQL statement with ? parameterized arguments.
+func ExecArgs(dbPath, query string, args ...any) error {
+	return Exec(dbPath, bindArgs(query, args))
+}
+
+// QueryArgs runs a SQL query with ? parameterized arguments.
+func QueryArgs(dbPath, query string, args ...any) ([]map[string]any, error) {
+	return Query(dbPath, bindArgs(query, args))
+}
+
 // --- JSON row helpers ---
 // These parse values returned from sqlite3 -json output.
 
