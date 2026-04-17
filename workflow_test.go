@@ -459,6 +459,111 @@ func TestWorkflowRunEmptyDBPath(t *testing.T) {
 	}
 }
 
+func TestResetZombieWorkflowRuns(t *testing.T) {
+	seedRun := func(dbPath, id, status string, age time.Duration) {
+		t.Helper()
+		recordWorkflowRun(dbPath, &WorkflowRun{
+			ID:           id,
+			WorkflowName: "wf",
+			Status:       status,
+			StartedAt:    time.Now().Add(-age).UTC().Format(time.RFC3339),
+			StepResults:  map[string]*StepRunResult{},
+		})
+	}
+
+	t.Run("zombie_running_4h_old", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "test.db")
+		seedRun(dbPath, "zombie-run", "running", 5*time.Hour)
+
+		n := resetZombieWorkflowRuns(dbPath, 4*time.Hour)
+		if n != 1 {
+			t.Fatalf("return = %d, want 1", n)
+		}
+
+		got, err := queryWorkflowRunByID(dbPath, "zombie-run")
+		if err != nil {
+			t.Fatalf("queryWorkflowRunByID: %v", err)
+		}
+		if got.Status != "error" {
+			t.Errorf("status = %q, want error", got.Status)
+		}
+		if !strings.Contains(got.Error, "zombie") {
+			t.Errorf("error = %q, want contain 'zombie'", got.Error)
+		}
+		if got.FinishedAt == "" {
+			t.Errorf("finished_at = empty, want non-empty")
+		}
+	})
+
+	t.Run("zombie_resumed_4h_old", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "test.db")
+		seedRun(dbPath, "zombie-resumed", "resumed", 5*time.Hour)
+
+		n := resetZombieWorkflowRuns(dbPath, 4*time.Hour)
+		if n != 1 {
+			t.Fatalf("return = %d, want 1 (resumed should be terminated)", n)
+		}
+
+		got, err := queryWorkflowRunByID(dbPath, "zombie-resumed")
+		if err != nil {
+			t.Fatalf("queryWorkflowRunByID: %v", err)
+		}
+		if got.Status != "error" {
+			t.Errorf("status = %q, want error (resumed → error)", got.Status)
+		}
+	})
+
+	t.Run("fresh_running_untouched", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "test.db")
+		seedRun(dbPath, "fresh-run", "running", 1*time.Hour)
+
+		n := resetZombieWorkflowRuns(dbPath, 4*time.Hour)
+		if n != 0 {
+			t.Fatalf("return = %d, want 0", n)
+		}
+
+		got, err := queryWorkflowRunByID(dbPath, "fresh-run")
+		if err != nil {
+			t.Fatalf("queryWorkflowRunByID: %v", err)
+		}
+		if got.Status != "running" {
+			t.Errorf("status = %q, want running (unchanged)", got.Status)
+		}
+		if got.FinishedAt != "" {
+			t.Errorf("finished_at = %q, want empty", got.FinishedAt)
+		}
+	})
+
+	t.Run("success_status_untouched", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "test.db")
+		seedRun(dbPath, "done-run", "success", 5*time.Hour)
+
+		n := resetZombieWorkflowRuns(dbPath, 4*time.Hour)
+		if n != 0 {
+			t.Fatalf("return = %d, want 0 (success is terminal)", n)
+		}
+
+		got, err := queryWorkflowRunByID(dbPath, "done-run")
+		if err != nil {
+			t.Fatalf("queryWorkflowRunByID: %v", err)
+		}
+		if got.Status != "success" {
+			t.Errorf("status = %q, want success (unchanged)", got.Status)
+		}
+	})
+
+	t.Run("empty_dbPath_guard", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("panicked: %v", r)
+			}
+		}()
+		if n := resetZombieWorkflowRuns("", 4*time.Hour); n != 0 {
+			t.Errorf("return = %d, want 0", n)
+		}
+	})
+}
+
 func TestWorkflowDirCreation(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{BaseDir: dir}
