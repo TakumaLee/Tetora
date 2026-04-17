@@ -211,15 +211,6 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		prompt = t.Title + "\n\n" + t.Description
 	}
 
-	// Agent-specific hard prefix: inject pre-flight header for safety-critical agents.
-	// File existence gates the injection — missing file means no injection (no error).
-	if t.Assignee != "" && d.cfg.AgentsDir != "" {
-		headerPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "preflight-header.md")
-		if header, err := os.ReadFile(headerPath); err == nil && len(bytes.TrimSpace(header)) > 0 {
-			prompt = string(header) + "\n\n---\n\n" + prompt
-		}
-	}
-
 	// Inject task comments so the agent can read the full discussion thread.
 	allComments, _ := d.engine.GetThread(t.ID)
 	var commentParts []string
