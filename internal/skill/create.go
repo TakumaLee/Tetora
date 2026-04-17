@@ -704,3 +704,82 @@ func CreateSkillToolHandler(ctx context.Context, cfg *AppConfig, input json.RawM
 	return string(b), nil
 }
 
+// LearnedSkillSpec is the input for creating an auto-extracted learned skill.
+type LearnedSkillSpec struct {
+	Name        string   // skill name (alphanumeric+hyphens, max 64 chars)
+	Description string   // one-line description
+	Triggers    []string // keywords that trigger injection
+	Doc         string   // SKILL.md body content (below frontmatter)
+	CreatedBy   string   // agent role that extracted the skill
+}
+
+// CreateLearnedSkill writes a SKILL.md + metadata.json to skills/learned/{name}/.
+// The skill is created with approved=false (pending human review).
+// Format matches workspace/skills/learned/char-pose-gen/ as the canonical example.
+func CreateLearnedSkill(cfg *AppConfig, spec LearnedSkillSpec) error {
+	if !IsValidSkillName(spec.Name) {
+		return fmt.Errorf("invalid skill name %q: must be alphanumeric+hyphens, max 64 chars", spec.Name)
+	}
+
+	learnedDir := filepath.Join(SkillsDir(cfg), "learned", spec.Name)
+	if _, err := os.Stat(learnedDir); err == nil {
+		return fmt.Errorf("learned skill %q already exists", spec.Name)
+	}
+
+	if err := os.MkdirAll(learnedDir, 0o755); err != nil {
+		return fmt.Errorf("create learned skill dir: %w", err)
+	}
+
+	// Build SKILL.md with frontmatter matching char-pose-gen format.
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("name: " + spec.Name + "\n")
+	if spec.Description != "" {
+		sb.WriteString("description: " + spec.Description + "\n")
+	}
+	if len(spec.Triggers) > 0 {
+		sb.WriteString("triggers: [" + strings.Join(spec.Triggers, ", ") + "]\n")
+	}
+	if spec.CreatedBy != "" {
+		sb.WriteString("maintainer: " + spec.CreatedBy + "\n")
+	}
+	sb.WriteString("---\n")
+	if spec.Doc != "" {
+		sb.WriteString("\n")
+		sb.WriteString(strings.TrimSpace(spec.Doc))
+		sb.WriteString("\n")
+	}
+
+	skillMDPath := filepath.Join(learnedDir, "SKILL.md")
+	if err := os.WriteFile(skillMDPath, []byte(sb.String()), 0o644); err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("write SKILL.md: %w", err)
+	}
+
+	// Build metadata.json (approved=false — requires human review before use).
+	meta := SkillMetadata{
+		Name:        spec.Name,
+		Description: spec.Description,
+		CreatedBy:   spec.CreatedBy,
+		Approved:    false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(spec.Triggers) > 0 {
+		meta.Matcher = &SkillMatcher{Keywords: spec.Triggers}
+	}
+
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(learnedDir, "metadata.json"), metaData, 0o644); err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("write metadata.json: %w", err)
+	}
+
+	invalidateSkillsCache(cfg)
+	logInfo("learned skill extracted", "name", spec.Name, "createdBy", spec.CreatedBy)
+	return nil
+}
+

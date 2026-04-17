@@ -202,11 +202,18 @@ func AutoInjectLearnedSkills(cfg *AppConfig, task TaskContext) []SkillConfig {
 		return nil
 	}
 
-	// First, collect skills that match via normal injection rules.
+	// First, collect skills that match via injection rules.
+	// Learned skills use ShouldInjectLearnedSkill (adds recency-based window).
 	var matched []SkillConfig
 	matchedNames := make(map[string]bool)
 	for _, s := range fileSkills {
-		if ShouldInjectSkill(s, task) {
+		var inject bool
+		if s.Learned {
+			inject = ShouldInjectLearnedSkill(s, task)
+		} else {
+			inject = ShouldInjectSkill(s, task)
+		}
+		if inject {
 			matched = append(matched, s)
 			matchedNames[s.Name] = true
 		}
