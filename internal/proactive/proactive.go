@@ -424,7 +424,7 @@ func (e *Engine) getFailedTasksToday() (float64, error) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status != 'success'", db.Escape(today))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status IN ('error', 'timeout', 'escalated')", db.Escape(today))
 
 	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
