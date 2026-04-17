@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>翔耀商業計畫 — Claude 獨立分析報告</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+    font-size: 13px;
+    line-height: 1.9;
+    color: #1c1c2e;
+    background: #fff;
+    padding: 48px 54px;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ── */
+  .cover {
+    border-bottom: 3px solid #1a3a6b;
+    padding-bottom: 22px;
+    margin-bottom: 32px;
+  }
+  .cover .label {
+    display: inline-block;
+    background: #1a3a6b;
+    color: #fff;
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 3px 12px;
+    border-radius: 20px;
+    margin-bottom: 10px;
+  }
+  .cover h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1a3a6b;
+    margin-bottom: 6px;
+  }
+  .cover .meta {
+    font-size: 11.5px;
+    color: #888;
+  }
+
+  /* ── Sections ── */
+  h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a3a6b;
+    margin: 32px 0 12px;
+    padding-left: 12px;
+    border-left: 4px solid #1a3a6b;
+  }
+  h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #333;
+    margin: 18px 0 8px;
+  }
+  p { margin-bottom: 10px; }
+  ul { padding-left: 22px; margin-bottom: 12px; }
+  ul li { margin-bottom: 5px; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 12px;
+  }
+  th {
+    background: #1a3a6b;
+    color: #fff;
+    padding: 9px 13px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td {
+    padding: 9px 13px;
+    border-bottom: 1px solid #e4e9f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f7f9fc; }
+
+  /* ── Callout boxes ── */
+  .box {
+    border-radius: 6px;
+    padding: 13px 16px;
+    margin: 14px 0;
+    font-size: 12.5px;
+  }
+  .box-blue   { background: #eef3fc; border-left: 4px solid #1a3a6b; }
+  .box-red    { background: #fdf0f0; border-left: 4px solid #c0392b; }
+  .box-green  { background: #edfbf3; border-left: 4px solid #1e8449; }
+  .box-yellow { background: #fffbea; border-left: 4px solid #d68910; }
+  .box strong { display: block; margin-bottom: 4px; }
+
+  /* ── Revenue model ── */
+  .stage-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 14px 0 20px;
+  }
+  .stage-card {
+    border: 1px solid #dce3f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .stage-card .stage-num {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #1a3a6b;
+    background: #eef3fc;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-bottom: 6px;
+  }
+  .stage-card .stage-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1c1c2e;
+    margin-bottom: 6px;
+  }
+  .stage-card .revenue {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a3a6b;
+  }
+  .stage-card .note {
+    font-size: 11px;
+    color: #777;
+    margin-top: 4px;
+  }
+  .stage-card .risk {
+    font-size: 11px;
+    color: #c0392b;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed #f0c4c4;
+  }
+
+  /* ── Cash flow table ── */
+  .cf-red    { color: #c0392b; font-weight: 700; }
+  .cf-yellow { color: #d68910; font-weight: 700; }
+  .cf-green  { color: #1e8449; font-weight: 700; }
+  .cf-blue   { color: #1a5276; font-weight: 700; }
+
+  /* ── Scorecard ── */
+  .scorecard {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 14px 0 20px;
+  }
+  .score-card {
+    border: 1px solid #dce3f0;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .score-card .s-label { font-size: 10.5px; color: #777; margin-bottom: 6px; }
+  .score-card .s-grade { font-size: 22px; font-weight: 700; color: #1a3a6b; }
+  .score-card .s-note  { font-size: 10px; color: #aaa; margin-top: 4px; }
+
+  /* ── Priority actions ── */
+  .action-list { margin: 14px 0; }
+  .action-item {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+    align-items: flex-start;
+  }
+  .action-num {
+    min-width: 26px;
+    height: 26px;
+    background: #1a3a6b;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
+  }
+  .action-body .action-title { font-weight: 700; margin-bottom: 2px; }
+  .action-body .action-desc  { font-size: 12px; color: #555; }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid #dce3f0;
+    font-size: 11px;
+    color: #bbb;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .highlight { background: #fffde7; padding: 1px 4px; border-radius: 3px; }
+  .tag-ok   { color: #1e8449; font-weight: 700; }
+  .tag-warn { color: #d68910; font-weight: 700; }
+  .tag-bad  { color: #c0392b; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="label">獨立分析 · 機密</div>
+  <h1>翔耀商業計畫 — 獨立戰略分析</h1>
+  <div class="meta">分析日期：2026-04-10 &nbsp;|&nbsp; 分析師：Claude (Anthropic) &nbsp;|&nbsp; 版本：v1.0</div>
+</div>
+
+<!-- ── Section 1 ── -->
+<h2>一、四階段商業模式逐層解剖</h2>
+
+<div class="stage-grid">
+  <div class="stage-card">
+    <div class="stage-num">STAGE 1</div>
+    <div class="stage-title">Agent 輔導（產品建立期）</div>
+    <div class="revenue">15萬/case × 20 case = 300萬</div>
+    <div class="note">夥伴共同建立 SOP 與產品模組</div>
+    <div class="risk">⚠ 夥伴分潤後淨利恐低於 50%；IP 歸屬需在合作開始前確定</div>
+  </div>
+  <div class="stage-card">
+    <div class="stage-num">STAGE 2</div>
+    <div class="stage-title">iRAG 產品化</div>
+    <div class="revenue">軟體 30萬/案（20+10）<br>整合型 40萬/件</div>
+    <div class="note">首個可量產交付的標準產品</div>
+    <div class="risk">⚠ 整合型若硬體成本 ≥ 15 萬，毛利率驟降至 &lt; 40%</div>
+  </div>
+  <div class="stage-card">
+    <div class="stage-num">STAGE 3</div>
+    <div class="stage-title">iFlow 產品化</div>
+    <div class="revenue">軟體 30萬/案（20+10）<br>整合型 40萬/件</div>
+    <div class="note">第二產品形成矩陣</div>
+    <div class="risk">⚠ 與 iRAG 定價相同，交叉銷售潛力大，但需差異化定位</div>
+  </div>
+  <div class="stage-card">
+    <div class="stage-num">STAGE 4</div>
+    <div class="stage-title">訂閱制（ARR）</div>
+    <div class="revenue">20萬/年（≥ 2 模組）</div>
+    <div class="note">從一次性收入轉為經常性收入</div>
+    <div class="risk">⚠ 「至少兩模組」門檻可能阻礙單模組客戶轉換；定價偏低</div>
+  </div>
+</div>
+
+<div class="box box-blue">
+  <strong>路線圖邏輯評分：B+</strong>
+  階段遞進合理，但每個階段的<span class="highlight">觸發條件（Gate Criteria）</span>完全缺失。建議在 Stage 1 開始前就定義：「達到什麼指標才啟動 Stage 2」——例如：iRAG 模組被複用超過 5 次且客戶驗收率 ≥ 80%。
+</div>
+
+<!-- ── Section 2 ── -->
+<h2>二、三個被低估的結構性風險</h2>
+
+<h3>風險 1：夥伴 IP 陷阱</h3>
+<p>Stage 1 的核心價值是「與夥伴共同建立 SOP 與產品模組」。但這份模組的著作權歸誰？若合作協議未明確約定 <strong>IP 全數歸翔耀所有</strong>，Stage 2 的產品化將面臨法律障礙——夥伴理論上可以主張共同著作人地位，甚至自行販售。</p>
+
+<div class="box box-red">
+  <strong>高風險：在第一個 case 開始前必須解決</strong>
+  與每位夥伴簽署《IP 歸屬協議》：夥伴以勞務換取案件分潤，翔耀取得所有輸出物（SOP、模組、prompt、流程文件）的完整 IP 所有權。
+</div>
+
+<h3>風險 2：中衛是通路，不是資產</h3>
+<p>目前商業模式高度依賴中衛提供案源。中衛是輔導機構，本身隨政策、預算、換屆而波動。<strong>若中衛某季無法輸出案量，翔耀的整個收入模型將靜止</strong>。230 家這個數字從何而來？是中衛口頭承諾還是書面合約？</p>
+
+<table>
+  <thead><tr><th>依賴程度</th><th>情境</th><th>年收入影響</th></tr></thead>
+  <tbody>
+    <tr><td>100% 中衛</td><td>中衛案量如期</td><td>符合預期</td></tr>
+    <tr><td>100% 中衛</td><td>中衛案量減半</td><td>-40 ~ -50%</td></tr>
+    <tr><td>100% 中衛</td><td>中衛暫停合作</td><td>歸零，需 3-6 個月才能啟動替代通路</td></tr>
+  </tbody>
+</table>
+
+<div class="box box-yellow">
+  <strong>建議：從 Day 1 就平行推進直銷</strong>
+  直銷不是「中衛失敗的備案」，而是<span class="highlight">翔耀必須掌控的核心能力</span>。若直銷佔年收入 30%+，對中衛的談判籌碼也隨之提升。
+</div>
+
+<h3>風險 3：整合型銷售的毛利黑洞</h3>
+<p>硬體 + 軟體整合型定價 40 萬/件，看起來比純軟體的 30 萬多 10 萬。但：</p>
+<ul>
+  <li>硬體（伺服器、GPU、邊緣設備）成本可能落在 15-25 萬</li>
+  <li>整合調試的人力成本另計</li>
+  <li>實際毛利可能比純軟體更低</li>
+</ul>
+<p><strong>建議：整合型要麼定價拉高到 55-60 萬，要麼只做軟體授權，硬體讓合作夥伴代銷。</strong></p>
+
+<!-- ── Section 3 ── -->
+<h2>三、Stage 1 財務真相：300萬的實際落袋</h2>
+
+<p>表面上 Stage 1 = 20 case × 15 萬 = 300 萬。但這是毛收入，不是利潤。</p>
+
+<table>
+  <thead><tr><th>成本項目</th><th>假設</th><th>估算金額</th></tr></thead>
+  <tbody>
+    <tr><td>夥伴分潤</td><td>夥伴參與輔導，通常拿 30-50%</td><td>90 ~ 150 萬</td></tr>
+    <tr><td>翔耀人員成本</td><td>2-3 人 × 6 個月，月薪 5-8 萬</td><td>60 ~ 144 萬</td></tr>
+    <tr><td>工具 / 雲端 / 行銷</td><td>低估算</td><td>20 ~ 40 萬</td></tr>
+    <tr><td><strong>估算淨結果</strong></td><td></td><td class="cf-red"><strong>-30 萬 ~ +130 萬</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="box box-red">
+  <strong>Stage 1 不會賺到 300 萬</strong>
+  最樂觀估計也只有 130 萬落袋，悲觀情境下可能虧損。翔耀應以「Stage 1 是建立 IP、不是賺錢的階段」來規劃現金流——意味著至少需要 150-200 萬啟動資金。
+</div>
+
+<!-- ── Section 4 ── -->
+<h2>四、訂閱定價的結構問題</h2>
+
+<p>Stage 4 訂閱制 20 萬/年是一個需要仔細推敲的數字。</p>
+
+<table>
+  <thead><tr><th>情境</th><th>客戶付費邏輯</th><th>對翔耀的意義</th></tr></thead>
+  <tbody>
+    <tr><td>從一次性購買（30萬）轉訂閱（20萬/年）</td><td>客戶年付等於 18 個月回本，Year 2 起純省錢</td><td>Year 1 少收 10 萬，Year 2 起純增收</td></tr>
+    <tr><td>新客直接訂閱</td><td>不需一次付 30 萬，門檻降低</td><td>有助於擴大客群，但需 1.5 年回本</td></tr>
+    <tr><td>只需一個模組的客戶</td><td>「至少兩模組」強迫多付</td><td>可能導致客戶拒絕訂閱，留在一次性購買</td></tr>
+  </tbody>
+</table>
+
+<div class="box box-yellow">
+  <strong>建議調整訂閱結構</strong>
+  改為 <strong>單模組 12萬/年、雙模組 20萬/年</strong>，移除強制門檻，讓客戶自然升級。同時對於 Stage 2-3 的老客戶提供「升級訂閱折扣」，加速轉換率。
+</div>
+
+<!-- ── Section 5 ── -->
+<h2>五、現金流重建：基於翔耀自身條件</h2>
+
+<p>排除中衛逐案核銷的假設，以翔耀可控制的變數重建現金流：</p>
+
+<table>
+  <thead><tr><th>季度</th><th>主要收入來源</th><th>現金流入（保守）</th><th>現金流出</th><th>淨現金流</th></tr></thead>
+  <tbody>
+    <tr><td>Q1</td><td>Stage 1 輔導前 5 case（夥伴分潤後）</td><td class="cf-red">30 ~ 50 萬</td><td>150 ~ 180 萬（薪資+工具+行銷）</td><td class="cf-red">-100 ~ -150 萬</td></tr>
+    <tr><td>Q2</td><td>Stage 1 後 15 case + 直銷 iRAG 試點 5 案</td><td class="cf-yellow">120 ~ 180 萬</td><td>150 ~ 180 萬</td><td class="cf-yellow">-30 ~ +30 萬</td></tr>
+    <tr><td>Q3</td><td>iRAG 正式銷售 + 中衛案量開始入帳</td><td class="cf-green">300 ~ 500 萬</td><td>200 ~ 250 萬</td><td class="cf-green">+100 ~ +250 萬</td></tr>
+    <tr><td>Q4</td><td>iRAG + iFlow 試點 + 年底訂閱先行方案</td><td class="cf-blue">500 ~ 800 萬</td><td>250 ~ 300 萬</td><td class="cf-blue">+250 ~ +500 萬</td></tr>
+  </tbody>
+</table>
+
+<div class="box box-red">
+  <strong>核心結論：翔耀需要 200 萬啟動資金才能撐過 Q1-Q2</strong>
+  這個數字比 Qwen 估的 600-800 萬低，因為我排除了中衛協議中不可控的規模假設，只計算翔耀自身可執行的部分。若中衛案量如期，Q3 數字會更好看；若延遲，翔耀不至於斷炊。
+</div>
+
+<!-- ── Section 6 ── -->
+<h2>六、競爭護城河：現在沒有，必須主動建立</h2>
+
+<p>目前商業計畫對競爭威脅完全沉默。AI 輔導市場的進入門檻不高，若翔耀只是「人 + Claude/GPT 做輔導」，任何競爭者都能複製。護城河需要主動建立：</p>
+
+<table>
+  <thead><tr><th>護城河類型</th><th>如何建立</th><th>預期建立時間</th></tr></thead>
+  <tbody>
+    <tr><td>資料護城河</td><td>Stage 1 的 20 個 case 產生大量台灣中小企業 AI 導入數據，持續累積形成競爭者難以複製的訓練集</td><td>Stage 1 結束後</td></tr>
+    <tr><td>SOP 護城河</td><td>每個 case 的 SOP 文件化，形成可銷售的「AI 導入方法論」，申請著作權或以商業機密保護</td><td>Stage 1 第 10 case 後</td></tr>
+    <tr><td>客戶鎖定</td><td>iRAG/iFlow 若與客戶既有系統深度整合，轉換成本自然形成鎖定效應</td><td>Stage 2 開始</td></tr>
+    <tr><td>通路護城河</td><td>中衛是一條通路，同步建立製造業、服務業公會合作，分散渠道</td><td>現在開始</td></tr>
+  </tbody>
+</table>
+
+<!-- ── Section 7 ── -->
+<h2>七、三項主公應立即決策的事</h2>
+
+<div class="action-list">
+  <div class="action-item">
+    <div class="action-num">1</div>
+    <div class="action-body">
+      <div class="action-title">與每位 Stage 1 夥伴簽署 IP 歸屬協議</div>
+      <div class="action-desc">第一個 case 開始前完成。核心條款：翔耀取得所有輸出物的完整 IP，夥伴獲得分潤比例（建議 30-35%）作為交換。這是 Stage 2 能否商品化的法律基礎。</div>
+    </div>
+  </div>
+  <div class="action-item">
+    <div class="action-num">2</div>
+    <div class="action-body">
+      <div class="action-title">定義 Stage 2 觸發條件，白紙黑字</div>
+      <div class="action-desc">建議觸發條件：iRAG 模組在 ≥ 5 個 case 中被複用、客戶驗收率 ≥ 80%、翔耀具備 1 位以上可獨立交付的技術成員。達標才宣告進入 Stage 2。</div>
+    </div>
+  </div>
+  <div class="action-item">
+    <div class="action-num">3</div>
+    <div class="action-body">
+      <div class="action-title">備妥 200 萬啟動資金，來源今天就要確認</div>
+      <div class="action-desc">不論是自有資金、股東借款、政府 AI 補助（數位部、SBIR），還是策略合作夥伴投資——在 Stage 1 開始前就要到位，不能等到 Q2 才開始找錢。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Section 8 ── -->
+<h2>八、整體評估</h2>
+
+<div class="scorecard">
+  <div class="score-card">
+    <div class="s-label">商業模式邏輯</div>
+    <div class="s-grade">B+</div>
+    <div class="s-note">路線清晰但缺 Gate</div>
+  </div>
+  <div class="score-card">
+    <div class="s-label">財務可行性</div>
+    <div class="s-grade">B</div>
+    <div class="s-note">需 200萬啟動資金</div>
+  </div>
+  <div class="score-card">
+    <div class="s-label">通路風險</div>
+    <div class="s-grade">C+</div>
+    <div class="s-note">中衛單點依賴高</div>
+  </div>
+  <div class="score-card">
+    <div class="s-label">長期潛力</div>
+    <div class="s-grade">A</div>
+    <div class="s-note">若訂閱制達成極高</div>
+  </div>
+</div>
+
+<div class="box box-green">
+  <strong>我的判斷：值得推進，但有三個前提</strong>
+  ① IP 歸屬協議簽完再開始輔導案 &nbsp;② 啟動資金確認到位 &nbsp;③ 直銷從 Day 1 就平行推進，不是中衛失敗的備案。這三件事若能在 Stage 1 開始前到位，這個模式有很強的 Year 2-3 複利效應。
+</div>
+
+<div class="footer">
+  <span>翔耀商業計畫獨立分析 — 機密</span>
+  <span>Claude (Anthropic) &nbsp;|&nbsp; 2026-04-10</span>
+</div>
+
+</body>
+</html>

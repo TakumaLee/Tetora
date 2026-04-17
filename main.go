@@ -178,6 +178,9 @@ func main() {
 		case "access":
 			cli.CmdAccess(os.Args[2:])
 			return
+		case "provider":
+			cli.CmdProvider(os.Args[2:])
+			return
 		case "release":
 			cli.CmdRelease(os.Args[2:])
 			return
@@ -1922,7 +1925,60 @@ func loadConfig(path string) *Config {
 		log.Error("config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Apply environment variable overrides for provider.
+	// This allows automatic provider switching without modifying config files.
+	applyEnvProviderOverride(cfg)
+
 	return cfg
+}
+
+// applyEnvProviderOverride checks TETORA_PROVIDER and TETORA_MODEL environment
+// variables and applies them as active provider overrides if set.
+// This enables automatic preset loading without CLI commands.
+func applyEnvProviderOverride(cfg *Config) {
+	providerName := os.Getenv("TETORA_PROVIDER")
+	if providerName == "" {
+		return
+	}
+
+	model := os.Getenv("TETORA_MODEL")
+	if model == "" {
+		model = "auto"
+	}
+
+	// Initialize active provider store if not present.
+	if cfg.ActiveProviderStore == nil {
+		storePath := filepath.Join(cfg.RuntimeDir, "active-provider.json")
+		if cfg.RuntimeDir == "" {
+			storePath = filepath.Join(filepath.Dir(configPathOrDefault()), "active-provider.json")
+		}
+		cfg.ActiveProviderStore = config.NewActiveProviderStore(storePath)
+	}
+
+	if err := cfg.ActiveProviderStore.Set(providerName, model, "env"); err != nil {
+		log.Warn("failed to set active provider from environment",
+			"provider", providerName,
+			"model", model,
+			"error", err)
+		return
+	}
+
+	log.Info("applied provider override from environment",
+		"provider", providerName,
+		"model", model)
+}
+
+// configPathOrDefault returns the config file path or a sensible default.
+func configPathOrDefault() string {
+	if p := os.Getenv("TETORA_CONFIG"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "config.json"
+	}
+	return filepath.Join(home, ".tetora", "config.json")
 }
 
 // tryLoadConfig loads and validates the config file, returning an error instead
