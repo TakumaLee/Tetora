@@ -40,7 +40,20 @@ func FillDefaults(cfg *config.Config, t *Task) {
 		t.PermissionMode = cfg.DefaultPermissionMode
 	}
 	if t.Workdir == "" {
-		t.Workdir = cfg.DefaultWorkdir
+		// Priority: agent's output dir (output-only agents only) > workspace dir > default workdir
+		if t.Agent != "" && cfg.AgentOutputBase != "" {
+			if rc, ok := cfg.Agents[t.Agent]; ok && rc.OutputOnly {
+				t.Workdir = filepath.Join(cfg.AgentOutputBase, t.Agent, "outputs")
+			} else if cfg.WorkspaceDir != "" {
+				t.Workdir = cfg.WorkspaceDir
+			} else {
+				t.Workdir = cfg.DefaultWorkdir
+			}
+		} else if cfg.WorkspaceDir != "" {
+			t.Workdir = cfg.WorkspaceDir
+		} else {
+			t.Workdir = cfg.DefaultWorkdir
+		}
 	}
 	// Expand ~ in workdir.
 	if strings.HasPrefix(t.Workdir, "~/") {
