@@ -1251,6 +1251,20 @@ func dispatchDevQALoop(ctx context.Context, cfg *Config, task Task, state *dispa
 		}
 
 		// Step 2: QA review.
+		// Kougyoku gate: skip review when workdir is not in a kougyoku-gated project.
+		effectiveReviewer := cfg.SmartDispatch.ReviewAgent
+		if effectiveReviewer == "" {
+			effectiveReviewer = cfg.SmartDispatch.Coordinator
+		}
+		if effectiveReviewer == "kougyoku" && !config.IsKougyokuProject(task.Workdir, cfg.SmartDispatch.KougyokuProjectsOrDefault()) {
+			log.InfoCtx(ctx, "dispatchDevQA: kougyoku gate skipped (workdir not in project list)",
+				"workdir", task.Workdir, "agent", task.Agent)
+			approved := true
+			result.QAApproved = &approved
+			result.QAComment = "kougyoku review skipped (workdir not in kougyoku gate)"
+			result.Attempts = attempt + 1
+			return result
+		}
 		reviewOK, reviewComment := reviewOutput(ctx, cfg, originalPrompt, result.Output, task.Agent, sem, childSem)
 		if reviewOK {
 			approved := true
@@ -2271,9 +2285,19 @@ func smartDispatch(ctx context.Context, cfg *Config, prompt string, source strin
 		}
 	} else if shouldReview(cfg, route, result.CostUSD) && result.Status == "success" {
 		// Single-pass review (original behavior).
-		reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Agent, sem, childSem)
-		sdr.ReviewOK = &reviewOK
-		sdr.Review = reviewComment
+		// Kougyoku gate: smartDispatch has no workdir → skip when reviewer is kougyoku.
+		smartReviewer := cfg.SmartDispatch.ReviewAgent
+		if smartReviewer == "" {
+			smartReviewer = cfg.SmartDispatch.Coordinator
+		}
+		if smartReviewer != "kougyoku" || config.IsKougyokuProject(task.Workdir, cfg.SmartDispatch.KougyokuProjectsOrDefault()) {
+			reviewOK, reviewComment := reviewOutput(ctx, cfg, prompt, result.Output, route.Agent, sem, childSem)
+			sdr.ReviewOK = &reviewOK
+			sdr.Review = reviewComment
+		} else {
+			log.InfoCtx(ctx, "smartDispatch: kougyoku gate skipped (workdir not in project list)",
+				"workdir", task.Workdir)
+		}
 	}
 
 	// Step 6: Audit log.
@@ -2319,6 +2343,16 @@ func routeDevQALoop(ctx context.Context, cfg *Config, task Task, originalPrompt,
 		}
 
 		// Step 2: QA review.
+		// Kougyoku gate: skip review when workdir is not in a kougyoku-gated project.
+		effectiveRouteReviewer := cfg.SmartDispatch.ReviewAgent
+		if effectiveRouteReviewer == "" {
+			effectiveRouteReviewer = cfg.SmartDispatch.Coordinator
+		}
+		if effectiveRouteReviewer == "kougyoku" && !config.IsKougyokuProject(task.Workdir, cfg.SmartDispatch.KougyokuProjectsOrDefault()) {
+			log.InfoCtx(ctx, "routeDevQA: kougyoku gate skipped (workdir not in project list)",
+				"workdir", task.Workdir, "agent", agentName)
+			return devQALoopResult{Result: result, QAApproved: true, Attempts: attempt + 1, TotalCost: accumulated}
+		}
 		reviewOK, reviewComment := reviewOutput(ctx, cfg, originalPrompt, result.Output, agentName, sem, childSem)
 		if reviewOK {
 			log.InfoCtx(ctx, "routeDevQA: review passed", "agent", agentName, "attempt", attempt+1)

@@ -285,6 +285,173 @@ func TestDevQALoop_ExhaustsMaxRetries(t *testing.T) {
 }
 
 // =============================================================================
+// Kougyoku gate tests
+// =============================================================================
+
+func TestDevQALoop_KougyokuGate_ProjectInList(t *testing.T) {
+	// Project "tetora" is in the default kougyoku gate list.
+	// Executor should be called twice: dev execution + QA review.
+	ex := &mockExecutor{
+		results: []dispatch.TaskResult{
+			{Status: "success", Output: "dev output"},
+			{Status: "success", Output: reviewJSON("approve", "looks good")},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		MaxRetries: 1,
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:  true,
+			ReviewAgent: "kougyoku",
+		},
+	}
+	cfg := &config.Config{} // KougyokuProjects unset → defaults used
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "tetora test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		Project:  "tetora",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	dispTask := dispatch.Task{Name: "board:" + task.ID, Prompt: "do it", Agent: task.Assignee}
+	result := d.devQALoop(context.Background(), task, dispTask, false, "")
+
+	if !result.QAApproved {
+		t.Errorf("expected QAApproved=true (review called and approved), got false")
+	}
+	if calls := int(ex.calls.Load()); calls != 2 {
+		t.Errorf("expected 2 executor calls (dev+review), got %d", calls)
+	}
+}
+
+func TestDevQALoop_KougyokuGate_ProjectNotInList(t *testing.T) {
+	// Project "lookr" is NOT in the default kougyoku gate list.
+	// Executor should be called only once (dev execution); review is skipped.
+	ex := &mockExecutor{
+		results: []dispatch.TaskResult{
+			{Status: "success", Output: "dev output"},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		MaxRetries: 1,
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:  true,
+			ReviewAgent: "kougyoku",
+		},
+	}
+	cfg := &config.Config{} // KougyokuProjects unset → defaults used
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "lookr test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		Project:  "lookr",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	dispTask := dispatch.Task{Name: "board:" + task.ID, Prompt: "do it", Agent: task.Assignee}
+	result := d.devQALoop(context.Background(), task, dispTask, false, "")
+
+	if !result.QAApproved {
+		t.Errorf("expected QAApproved=true (review skipped, not failed), got false")
+	}
+	if calls := int(ex.calls.Load()); calls != 1 {
+		t.Errorf("expected 1 executor call (dev only, review skipped), got %d", calls)
+	}
+}
+
+func TestDevQALoop_KougyokuGate_DefaultProjectsUsedWhenConfigEmpty(t *testing.T) {
+	// No KougyokuProjects in config → defaults ["tetora","goldenfish","sentori"] apply.
+	// "goldenfish" should be in the gate list and trigger review.
+	ex := &mockExecutor{
+		results: []dispatch.TaskResult{
+			{Status: "success", Output: "dev output"},
+			{Status: "success", Output: reviewJSON("approve", "ok")},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		MaxRetries: 1,
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:  true,
+			ReviewAgent: "kougyoku",
+		},
+	}
+	cfg := &config.Config{SmartDispatch: config.SmartDispatchConfig{KougyokuProjects: nil}}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "goldenfish test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		Project:  "goldenfish",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	dispTask := dispatch.Task{Name: "board:" + task.ID, Prompt: "do it", Agent: task.Assignee}
+	result := d.devQALoop(context.Background(), task, dispTask, false, "")
+
+	if !result.QAApproved {
+		t.Errorf("expected QAApproved=true, got false")
+	}
+	if calls := int(ex.calls.Load()); calls != 2 {
+		t.Errorf("expected 2 calls (dev+review), got %d", calls)
+	}
+}
+
+func TestDevQALoop_KougyokuGate_WorkdirFallback(t *testing.T) {
+	// No Project set; workdir path contains "tetora" → gate passes.
+	ex := &mockExecutor{
+		results: []dispatch.TaskResult{
+			{Status: "success", Output: "dev output"},
+			{Status: "success", Output: reviewJSON("approve", "ok")},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		MaxRetries: 1,
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			ReviewLoop:  true,
+			ReviewAgent: "kougyoku",
+		},
+	}
+	cfg := &config.Config{}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "workdir fallback test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		Project:  "", // no project name
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	dispTask := dispatch.Task{
+		Name:    "board:" + task.ID,
+		Prompt:  "do it",
+		Agent:   task.Assignee,
+		Workdir: "/Users/dev/projects/tetora",
+	}
+	result := d.devQALoop(context.Background(), task, dispTask, false, "")
+
+	if !result.QAApproved {
+		t.Errorf("expected QAApproved=true, got false")
+	}
+	if calls := int(ex.calls.Load()); calls != 2 {
+		t.Errorf("expected 2 calls (dev+review), got %d", calls)
+	}
+}
+
+// =============================================================================
 // postTaskProblemScan tests
 // =============================================================================
 

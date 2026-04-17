@@ -110,19 +110,20 @@ type MCPServerConfig struct {
 // --- SmartDispatch ---
 
 type SmartDispatchConfig struct {
-	Enabled         bool             `json:"enabled"`
-	Coordinator     string           `json:"coordinator,omitempty"`
-	DefaultAgent    string           `json:"defaultAgent,omitempty"`
-	ClassifyBudget  float64          `json:"classifyBudget,omitempty"`
-	ClassifyTimeout string           `json:"classifyTimeout,omitempty"`
-	Review          bool             `json:"review,omitempty"`
-	ReviewLoop      bool             `json:"reviewLoop,omitempty"`
-	MaxRetries      int              `json:"maxRetries,omitempty"`
-	ReviewAgent     string           `json:"reviewAgent,omitempty"`
-	ReviewBudget    float64          `json:"reviewBudget,omitempty"`
-	Rules           []RoutingRule    `json:"rules,omitempty"`
-	Bindings        []RoutingBinding `json:"bindings,omitempty"`
-	Fallback        string           `json:"fallback,omitempty"`
+	Enabled          bool             `json:"enabled"`
+	Coordinator      string           `json:"coordinator,omitempty"`
+	DefaultAgent     string           `json:"defaultAgent,omitempty"`
+	ClassifyBudget   float64          `json:"classifyBudget,omitempty"`
+	ClassifyTimeout  string           `json:"classifyTimeout,omitempty"`
+	Review           bool             `json:"review,omitempty"`
+	ReviewLoop       bool             `json:"reviewLoop,omitempty"`
+	MaxRetries       int              `json:"maxRetries,omitempty"`
+	ReviewAgent      string           `json:"reviewAgent,omitempty"`
+	ReviewBudget     float64          `json:"reviewBudget,omitempty"`
+	KougyokuProjects []string         `json:"kougyokuProjects,omitempty"`
+	Rules            []RoutingRule    `json:"rules,omitempty"`
+	Bindings         []RoutingBinding `json:"bindings,omitempty"`
+	Fallback         string           `json:"fallback,omitempty"`
 }
 
 func (c SmartDispatchConfig) MaxRetriesOrDefault() int {
@@ -130,6 +131,29 @@ func (c SmartDispatchConfig) MaxRetriesOrDefault() int {
 		return c.MaxRetries
 	}
 	return 3
+}
+
+// KougyokuProjectsOrDefault returns the configured kougyoku-gated projects, or the default set.
+func (c SmartDispatchConfig) KougyokuProjectsOrDefault() []string {
+	if len(c.KougyokuProjects) > 0 {
+		return c.KougyokuProjects
+	}
+	return []string{"tetora", "goldenfish", "sentori"}
+}
+
+// IsKougyokuProject reports whether workdir belongs to a kougyoku-gated project.
+// Returns false for empty workdir.
+func IsKougyokuProject(workdir string, projects []string) bool {
+	if workdir == "" {
+		return false
+	}
+	lower := strings.ToLower(workdir)
+	for _, p := range projects {
+		if strings.Contains(lower, strings.ToLower(p)) {
+			return true
+		}
+	}
+	return false
 }
 
 // UnmarshalJSON implements backward compat: accepts both "defaultRole" and "defaultAgent".

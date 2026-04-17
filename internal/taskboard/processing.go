@@ -649,6 +649,25 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		if reviewer == "" {
 			reviewer = "ruri"
 		}
+
+		// Kougyoku gate: skip review when project is not in the kougyoku-gated list.
+		// Use project name when available; "default" means no dedicated project → fall back to workdir.
+		if reviewer == "kougyoku" {
+			kougyokuProjects := d.cfg.SmartDispatch.KougyokuProjectsOrDefault()
+			workdirForGate := projectWorkdir
+			if t.Project != "" && t.Project != "default" {
+				workdirForGate = t.Project
+			}
+			if !config.IsKougyokuProject(workdirForGate, kougyokuProjects) {
+				log.Info("taskboard dispatch: kougyoku gate skipped (project not in list)",
+					"id", t.ID, "project", t.Project, "workdir", projectWorkdir)
+				d.engine.AddComment(t.ID, "system",
+					"[auto-review] Kougyoku review skipped (project not in kougyoku gate)")
+				// Proceed as approved — not a QA failure.
+				goto postReviewGate
+			}
+		}
+
 		log.Info("taskboard dispatch: auto-review starting", "id", t.ID, "reviewer", reviewer)
 		d.engine.AddComment(t.ID, "system", fmt.Sprintf("[auto-review] %s reviewing output...", reviewer))
 
@@ -742,6 +761,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			t.Assignee = d.resolveEscalateAssignee()
 		}
 	}
+postReviewGate:
 
 	// Atomic status + cost update.
 	nowISO := time.Now().UTC().Format(time.RFC3339)
@@ -1014,6 +1034,20 @@ func (d *Dispatcher) devQALoop(ctx context.Context, t TaskBoard, task dispatch.T
 			return devQALoopResult{Result: result, Attempts: attempt + 1, TotalCost: accumulated}
 		}
 
+		// Kougyoku gate: skip review when project is not in the kougyoku-gated list.
+		// Use project name when available; "default" means no dedicated project → fall back to workdir.
+		kougyokuProjects := d.cfg.SmartDispatch.KougyokuProjectsOrDefault()
+		workdirForGate := task.Workdir
+		if t.Project != "" && t.Project != "default" {
+			workdirForGate = t.Project
+		}
+		if reviewer == "kougyoku" && !config.IsKougyokuProject(workdirForGate, kougyokuProjects) {
+			log.Info("devQA: kougyoku gate skipped (project not in list)",
+				"task", t.ID, "project", t.Project, "workdir", task.Workdir)
+			d.engine.AddComment(t.ID, "system",
+				"[QA] Kougyoku review skipped (project not in kougyoku gate)")
+			return devQALoopResult{Result: result, QAApproved: true, Attempts: attempt + 1, TotalCost: accumulated}
+		}
 		reviewOK, reviewComment, reviewCost := d.reviewTaskOutput(ctx, originalPrompt, result.Output, t.Assignee, reviewer)
 		accumulated += reviewCost
 
