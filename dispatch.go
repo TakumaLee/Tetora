@@ -4708,9 +4708,12 @@ func appConfigToSkillCfg(cfg *Config) *skill.AppConfig {
 // shouldExtractSkill decides whether post-task auto skill extraction
 // should run for the completed task. Returns false when the task did
 // not succeed or WorkspaceDir is unset; otherwise delegates to
-// skill.ShouldExtractSkill, which checks trigger thresholds
-// (tool-call count, error recovery, user correction) and de-duplicates
-// against existing skills via HistoryDB.
+// skill.ShouldExtractSkill, which checks trigger thresholds:
+//   - ToolCallCount >= 5 (complex enough to be worth capturing)
+//   - ErrorRecovery == true (non-obvious recovery path)
+//   - UserCorrection == true (agent was wrong; the correction is worth persisting)
+//
+// De-duplicates against existing skills via HistoryDB.
 func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
 	if result.Status != "success" || cfg.WorkspaceDir == "" {
 		return false
@@ -4726,9 +4729,14 @@ func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
 // extractAutoSkill runs a bounded Haiku LLM call (budget 0.02, 15s timeout)
 // that summarises the completed task into a LearnedSkillSpec and writes
 // it under <WorkspaceDir>/skills/learned/<name>/ via skill.CreateLearnedSkill.
+// Extracted skills start with Approved=false and are not injected into future
+// tasks until explicitly approved. To approve a pending skill run:
+//
+//	tetora skill approve <name>
+//
 // Intended to be launched as a background goroutine: all failure paths log
 // at DEBUG level and return without propagating errors to the caller.
-// Concurrency is bounded by skillExtractSem.
+// Concurrency is bounded by skillExtractSem (cap 2).
 func extractAutoSkill(ctx context.Context, cfg *Config, task Task, result TaskResult) {
 	prompt := fmt.Sprintf(`You analyzed a completed agent task. Extract a reusable skill from it.
 
