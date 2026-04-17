@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -231,8 +232,18 @@ func (e *Engine) checkThresholdRules(ctx context.Context) {
 			continue
 		}
 
-		if e.CompareThreshold(value, rule.Trigger.Op, rule.Trigger.Value) {
-			log.Info("proactive threshold triggered", "rule", rule.Name, "metric", rule.Trigger.Metric, "value", value, "threshold", rule.Trigger.Value)
+		threshold := rule.Trigger.Value
+		if rule.Trigger.DynamicFormula != "" {
+			if dyn, err := e.getDynamicThreshold(rule.Trigger.DynamicFormula); err != nil {
+				log.Debug("proactive dynamic threshold error", "rule", rule.Name, "formula", rule.Trigger.DynamicFormula, "error", err)
+				continue
+			} else {
+				threshold = dyn
+			}
+		}
+
+		if e.CompareThreshold(value, rule.Trigger.Op, threshold) {
+			log.Info("proactive threshold triggered", "rule", rule.Name, "metric", rule.Trigger.Metric, "value", value, "threshold", threshold)
 			if err := e.executeAction(ctx, rule); err != nil {
 				log.Error("proactive action failed", "rule", rule.Name, "error", err)
 			}
@@ -363,6 +374,67 @@ func (e *Engine) getDailyCost() (float64, error) {
 		}
 	}
 	return 0, nil
+}
+
+// get30DayDailyCosts returns the total cost per day for the past 30 days.
+func (e *Engine) get30DayDailyCosts() ([]float64, error) {
+	if e.cfg.HistoryDB == "" {
+		return nil, fmt.Errorf("historyDB not configured")
+	}
+	sql := `SELECT DATE(started_at) as day, COALESCE(SUM(cost_usd), 0) FROM job_runs
+	        WHERE datetime(started_at) >= datetime('now', '-30 days')
+	        GROUP BY day ORDER BY day`
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
+	if err != nil {
+		return nil, err
+	}
+	costs := make([]float64, 0, len(rows))
+	for _, row := range rows {
+		vals := make([]any, 0, len(row))
+		for _, v := range row {
+			vals = append(vals, v)
+		}
+		if len(vals) < 2 {
+			continue
+		}
+		switch v := vals[1].(type) {
+		case float64:
+			costs = append(costs, v)
+		case int64:
+			costs = append(costs, float64(v))
+		}
+	}
+	return costs, nil
+}
+
+// computeMedian returns the median of a sorted copy of vals. Returns 0 for empty input.
+func computeMedian(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	cp := make([]float64, len(vals))
+	copy(cp, vals)
+	sort.Float64s(cp)
+	n := len(cp)
+	if n%2 == 0 {
+		return (cp[n/2-1] + cp[n/2]) / 2
+	}
+	return cp[n/2]
+}
+
+// getDynamicThreshold computes the threshold from a formula string.
+// Supported formula: "median_30d_x1.5" → 30-day daily cost median × 1.5.
+func (e *Engine) getDynamicThreshold(formula string) (float64, error) {
+	switch formula {
+	case "median_30d_x1.5":
+		costs, err := e.get30DayDailyCosts()
+		if err != nil {
+			return 0, err
+		}
+		return computeMedian(costs) * 1.5, nil
+	default:
+		return 0, fmt.Errorf("unknown dynamic_formula: %s", formula)
+	}
 }
 
 // getQueueDepth returns the number of items in the offline queue.
@@ -803,8 +875,14 @@ func (e *Engine) ResolveTemplate(tmpl string, rule config.ProactiveRule) string 
 	if rule.Trigger.Type == "threshold" {
 		if value, err := e.getMetricValue(rule.Trigger.Metric); err == nil {
 			vars["Value"] = fmt.Sprintf("%.2f", value)
-			vars["Threshold"] = fmt.Sprintf("%.2f", rule.Trigger.Value)
 			vars["Metric"] = rule.Trigger.Metric
+			threshold := rule.Trigger.Value
+			if rule.Trigger.DynamicFormula != "" {
+				if dyn, err := e.getDynamicThreshold(rule.Trigger.DynamicFormula); err == nil {
+					threshold = dyn
+				}
+			}
+			vars["Threshold"] = fmt.Sprintf("%.2f", threshold)
 		}
 	}
 
