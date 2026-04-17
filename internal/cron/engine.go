@@ -841,6 +841,10 @@ func (ce *Engine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 
 func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 	defer func() {
+		if r := recover(); r != nil {
+			log.ErrorCtx(ctx, "cron runJob panic recovered",
+				"jobId", j.ID, "name", j.Name, "recover", fmt.Sprintf("%v", r))
+		}
 		ce.mu.Lock()
 		j.runCount--
 		j.running = j.runCount > 0
@@ -1562,7 +1566,7 @@ func (ce *Engine) saveToFileLocked() error {
 func (ce *Engine) StartupReplay(ctx context.Context) {
 	hours := ce.cfg.CronReplayHours
 	if hours <= 0 {
-		hours = 2
+		hours = 4
 	}
 	if ce.cfg.HistoryDB == "" {
 		return
