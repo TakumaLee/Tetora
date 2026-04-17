@@ -26,7 +26,7 @@
 tetora provider set qwen
 
 # 使用指定模型
-tetora provider set qwen qwen3.6-plus
+tetora provider set qwen qwen-plus
 
 # 自動選擇模型
 tetora provider set qwen auto
@@ -97,7 +97,7 @@ tetora provider list
 
 | 提供商 | 預設模型 | MaxTokens | Temperature | Context Window |
 |--------|----------|-----------|-------------|----------------|
-| Qwen | qwen3.6-plus | 8192 | 0.7 | 131K |
+| Qwen | qwen-plus | 8192 | 0.7 | 131K |
 | Gemini | gemini-2.5-pro | 65536 | 0.6 | 1M |
 | Claude | claude-sonnet-4 | 8192 | 0.7 | 200K |
 | Groq | llama-3.3-70b | 8192 | 0.7 | 131K |

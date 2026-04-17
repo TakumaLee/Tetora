@@ -41,7 +41,7 @@ Task Provider → Active Provider → Agent Provider → Global Default → Fall
 
 | Provider | Default Model | MaxTokens | Temperature |
 |----------|---------------|-----------|-------------|
-| qwen | qwen3.6-plus | 8192 | 0.7 |
+| qwen | qwen-plus | 8192 | 0.7 |
 | google | gemini-2.5-pro | 65536 | 0.6 |
 | claude | claude-sonnet-4 | 8192 | 0.7 |
 | groq | llama-3.3-70b | 8192 | 0.7 |

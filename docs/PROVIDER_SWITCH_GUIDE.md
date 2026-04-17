@@ -26,7 +26,7 @@ Implemented **session-level dynamic provider switching**, enabling users to:
 tetora provider set qwen
 
 # Use specific model
-tetora provider set qwen qwen3.6-plus
+tetora provider set qwen qwen-plus
 
 # Auto-select model
 tetora provider set qwen auto
@@ -97,7 +97,7 @@ Each provider has pre-configured optimal parameters:
 
 | Provider | Default Model | MaxTokens | Temperature | Context Window |
 |----------|---------------|-----------|-------------|----------------|
-| Qwen | qwen3.6-plus | 8192 | 0.7 | 131K |
+| Qwen | qwen-plus | 8192 | 0.7 | 131K |
 | Gemini | gemini-2.5-pro | 65536 | 0.6 | 1M |
 | Claude | claude-sonnet-4 | 8192 | 0.7 | 200K |
 | Groq | llama-3.3-70b | 8192 | 0.7 | 131K |

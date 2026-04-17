@@ -14,7 +14,7 @@ func TestActiveProviderStore_SaveAndLoad(t *testing.T) {
 	store := NewActiveProviderStore(storePath)
 
 	// Test saving.
-	err := store.Set("qwen", "qwen3.6-plus", "test")
+	err := store.Set("qwen", "qwen-plus", "test")
 	if err != nil {
 		t.Fatalf("failed to save: %v", err)
 	}
@@ -29,8 +29,8 @@ func TestActiveProviderStore_SaveAndLoad(t *testing.T) {
 	if state.ProviderName != "qwen" {
 		t.Errorf("expected provider 'qwen', got '%s'", state.ProviderName)
 	}
-	if state.Model != "qwen3.6-plus" {
-		t.Errorf("expected model 'qwen3.6-plus', got '%s'", state.Model)
+	if state.Model != "qwen-plus" {
+		t.Errorf("expected model 'qwen-plus', got '%s'", state.Model)
 	}
 	if state.SetBy != "test" {
 		t.Errorf("expected setBy 'test', got '%s'", state.SetBy)
