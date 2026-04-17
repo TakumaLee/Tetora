@@ -60,3 +60,6 @@ tasks/todo.md
 
 # Qwen Code (local config)
 .qwen/
+
+# Local workflow docs (not for upstream)
+GIT_WORKFLOW.md
