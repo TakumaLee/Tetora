@@ -496,7 +496,8 @@ func (e *Engine) getFailedTasksToday() (float64, error) {
 	}
 
 	today := time.Now().Format("2006-01-02")
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status IN ('error', 'timeout', 'escalated')", db.Escape(today))
+	// Blacklist approach: exclude success and skip-variants so new failure status types are caught automatically.
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status NOT IN ('success', 'skipped_concurrent_limit')", db.Escape(today))
 
 	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
