@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,9 +20,10 @@ type ActiveProviderState struct {
 }
 
 // ActiveProviderStore manages the active provider override state.
-// Uses file-level locking (flock) to protect against concurrent access
-// across multiple tetora processes (e.g., daemon + CLI).
+// Uses file-level locking (flock) for cross-process safety and a sync.RWMutex
+// for in-process goroutine safety (e.g., daemon goroutines + HTTP handlers).
 type ActiveProviderStore struct {
+	mu       sync.RWMutex
 	state    *ActiveProviderState
 	filePath string
 }
@@ -40,7 +42,9 @@ func (s *ActiveProviderStore) Load() error {
 	f, err := os.Open(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			s.mu.Lock()
 			s.state = &ActiveProviderState{}
+			s.mu.Unlock()
 			return nil
 		}
 		return err
@@ -58,7 +62,9 @@ func (s *ActiveProviderStore) Load() error {
 		return err
 	}
 
+	s.mu.Lock()
 	s.state = &state
+	s.mu.Unlock()
 	return nil
 }
 
@@ -93,17 +99,19 @@ func (s *ActiveProviderStore) Save(state *ActiveProviderState) error {
 		return err
 	}
 
+	s.mu.Lock()
 	s.state = state
+	s.mu.Unlock()
 	return nil
 }
 
 // Get returns the current active provider state (thread-safe).
 func (s *ActiveProviderStore) Get() *ActiveProviderState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if s.state == nil {
 		return &ActiveProviderState{}
 	}
-
-	// Return a copy to prevent external modification.
 	cpy := *s.state
 	return &cpy
 }

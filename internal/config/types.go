@@ -33,13 +33,15 @@ type AgentConfig struct {
 }
 
 type ProviderConfig struct {
-	Type              string `json:"type"`
-	Path              string `json:"path,omitempty"`
-	BaseURL           string `json:"baseUrl,omitempty"`
-	APIKey            string `json:"apiKey,omitempty"`
-	Model             string `json:"model,omitempty"`
-	MaxTokens         int    `json:"maxTokens,omitempty"`
-	FirstTokenTimeout string `json:"firstTokenTimeout,omitempty"`
+	Type              string  `json:"type"`
+	Path              string  `json:"path,omitempty"`
+	BaseURL           string  `json:"baseUrl,omitempty"`
+	APIKey            string  `json:"apiKey,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	MaxTokens         int     `json:"maxTokens,omitempty"`
+	FirstTokenTimeout string  `json:"firstTokenTimeout,omitempty"`
+	Temperature       float64 `json:"temperature,omitempty"`
+	TopP              float64 `json:"topP,omitempty"`
 }
 
 type CostAlertConfig struct {

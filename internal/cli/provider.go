@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tetora/internal/config"
+	"tetora/internal/provider"
 )
 
 // CmdProvider is the entry point for the "tetora provider" subcommand.
@@ -238,15 +239,8 @@ func getActiveProviderPath(cfg *config.Config) string {
 
 // isKnownPreset checks if the provider name is a known preset.
 func isKnownPreset(name string) bool {
-	knownPresets := []string{
-		"qwen", "qwen-cli",
-		"claude", "claude-code", "claude-cli", "anthropic",
-		"google", "gemini",
-		"openai", "codex", "codex-cli",
-		"groq", "ollama", "lm-studio",
-	}
-	for _, preset := range knownPresets {
-		if strings.EqualFold(name, preset) {
+	for _, p := range provider.Presets {
+		if strings.EqualFold(name, p.Name) {
 			return true
 		}
 	}
@@ -268,6 +262,7 @@ func loadConfig() (*config.Config, error) {
 	}
 
 	cfg.BaseDir = filepath.Dir(configPath)
+	config.ResolveSecrets(&cfg)
 	return &cfg, nil
 }
 
