@@ -270,6 +270,12 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 			sb.WriteString("- **")
 			sb.WriteString(skill.Name)
 			sb.WriteString("**")
+			toolName := ToolNameFor(skill)
+			if toolName != skill.Name {
+				sb.WriteString(" (tool: `")
+				sb.WriteString(toolName)
+				sb.WriteString("`)")
+			}
 			if skill.Description != "" {
 				sb.WriteString(": ")
 				sb.WriteString(skill.Description)
@@ -284,7 +290,7 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 			}
 		}
 
-		sb.WriteString("\nTo invoke a skill, use the `execute_skill` tool.\n")
+		sb.WriteString("\nEach skill above is exposed as a first-class tool under its sanitized name (hyphens and spaces become underscores). Call it directly like any other tool.\n")
 
 		// --- Tier 2: Skill documentation (Standard/Complex only) ---
 		if complexity != classify.Simple {
