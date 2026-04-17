@@ -131,6 +131,16 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		}
 	}
 
+	// --- Preflight Header injection (agent-specific, hard injection) ---
+	// Reads agents/{agentName}/preflight-header.md and prepends content to task.Prompt.
+	// Hard-injected before provider split so it applies to both claude-code and API providers.
+	if agentName != "" {
+		preflightPath := filepath.Join(cfg.BaseDir, "agents", agentName, "preflight-header.md")
+		if content, err := os.ReadFile(preflightPath); err == nil && len(content) > 0 {
+			task.Prompt = string(content) + "\n\n" + task.Prompt
+		}
+	}
+
 	// If provider is claude-code or codex-cli, append skill extraction hint to user prompt and return.
 	// These providers read project files (CLAUDE.md, workspace) natively; system prompt is not used.
 	if providerType == "claude-code" || providerType == "codex-cli" {
