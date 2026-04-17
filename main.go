@@ -2141,6 +2141,11 @@ func tryLoadConfig(path string) (*Config, error) {
 		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, cfg.RuntimeDir)
 	}
 
+	// Initialize ActiveProviderStore so dynamic provider switching works in the daemon.
+	cfg.ActiveProviderStore = config.NewActiveProviderStore(
+		filepath.Join(cfg.RuntimeDir, "active-provider.json"))
+	_ = cfg.ActiveProviderStore.Load() // tolerate missing file on first boot
+
 	// Vault dir default.
 	if cfg.VaultDir == "" {
 		cfg.VaultDir = filepath.Join(cfg.BaseDir, "vault")

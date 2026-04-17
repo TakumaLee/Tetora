@@ -19,7 +19,7 @@ func TestResolveProviderName_ActiveProviderOverride(t *testing.T) {
 		BaseDir:         tmpDir,
 		DefaultProvider: "claude",
 		Providers: map[string]config.ProviderConfig{
-			"qwen":   {Type: "openai-compatible", Model: "qwen3.6-plus"},
+			"qwen":   {Type: "openai-compatible", Model: "qwen-plus"},
 			"google": {Type: "openai-compatible", Model: "gemini-2.5-pro"},
 			"claude": {Type: "anthropic", Model: "claude-sonnet-4"},
 		},
@@ -61,7 +61,7 @@ func TestResolveProviderName_AutoMode(t *testing.T) {
 		BaseDir:         tmpDir,
 		DefaultProvider: "qwen",
 		Providers: map[string]config.ProviderConfig{
-			"qwen":   {Type: "openai-compatible", Model: "qwen3.6-plus"},
+			"qwen":   {Type: "openai-compatible", Model: "qwen-plus"},
 			"google": {Type: "openai-compatible", Model: "gemini-2.5-pro"},
 		},
 		Agents: map[string]config.AgentConfig{
@@ -85,7 +85,7 @@ func TestBuildProviderRequest_ModelResolution(t *testing.T) {
 		BaseDir:      tmpDir,
 		DefaultModel: "auto",
 		Providers: map[string]config.ProviderConfig{
-			"qwen":   {Type: "openai-compatible", Model: "qwen3.6-plus"},
+			"qwen":   {Type: "openai-compatible", Model: "qwen-plus"},
 			"google": {Type: "openai-compatible", Model: "gemini-2.5-pro"},
 		},
 	}
@@ -103,8 +103,8 @@ func TestBuildProviderRequest_ModelResolution(t *testing.T) {
 	// Test 2: Active provider with "auto" model - should use provider default.
 	store.Set("qwen", "auto", "test")
 	req = buildProviderRequest(cfg, Task{Model: "auto"}, "", "qwen", nil)
-	if req.Model != "qwen3.6-plus" {
-		t.Errorf("Test 2: expected model 'qwen3.6-plus', got '%s'", req.Model)
+	if req.Model != "qwen-plus" {
+		t.Errorf("Test 2: expected model 'qwen-plus', got '%s'", req.Model)
 	}
 
 	// Test 3: Task model override takes precedence.
@@ -159,7 +159,7 @@ func TestBuildProviderCandidates_FallbacksWithActiveProvider(t *testing.T) {
 // TestProviderProfiles_Availability tests that provider profiles are accessible.
 func TestProviderProfiles_Availability(t *testing.T) {
 	profiles := map[string]string{
-		"qwen":        "qwen3.6-plus",
+		"qwen":        "qwen-plus",
 		"google":      "gemini-2.5-pro",
 		"claude-code": "claude-sonnet-4-20250514",
 		"groq":        "llama-3.3-70b-versatile",
@@ -209,8 +209,8 @@ func TestProviderProfiles_ApplyToConfig(t *testing.T) {
 	if cfg2.Type != "openai-compatible" {
 		t.Errorf("expected Type 'openai-compatible', got '%s'", cfg2.Type)
 	}
-	if cfg2.Model != "qwen3.6-plus" {
-		t.Errorf("expected Model 'qwen3.6-plus', got '%s'", cfg2.Model)
+	if cfg2.Model != "qwen-plus" {
+		t.Errorf("expected Model 'qwen-plus', got '%s'", cfg2.Model)
 	}
 	if cfg2.MaxTokens <= 0 {
 		t.Errorf("expected positive MaxTokens, got %d", cfg2.MaxTokens)

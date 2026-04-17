@@ -87,7 +87,7 @@ var Presets = []Preset{
 		Type:        "openai-compatible",
 		BaseURL:     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
 		RequiresKey: true,
-		Models:      []string{"qwen3.6-plus", "qwen3.5-plus", "qwen-max", "qwen-plus"},
+		Models:      []string{"qwen-max", "qwen-plus", "qwen-turbo", "qwen-long"},
 		Dynamic:     false,
 	},
 	{
