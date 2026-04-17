@@ -84,6 +84,3 @@ temp_move_project/
 # Client onboarding configs (generated per client)
 config.client*.json
 configs/
-
-# Per-machine agent persona customization (must stay local)
-agents/*/SOUL.local.md
