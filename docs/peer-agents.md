@@ -31,7 +31,7 @@ those — they are per-machine customization.
 
 ## Device: Westeros (Game of Thrones cast)
 
-主公：Ray Stark（毛毛）
+My Lord: Ray Stark（毛毛）
 
 | Agent | Role | Focus |
 |-------|------|-------|
