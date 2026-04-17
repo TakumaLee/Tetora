@@ -837,6 +837,7 @@ func QueryDailyMetrics(dbPath string, days int) ([]DailyMetrics, error) {
 			)), 0) as avg_dur_ms
 		 FROM job_runs
 		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')
+		   AND status != 'skipped_concurrent_limit'
 		 GROUP BY day ORDER BY day`, days)
 
 	rows, err := db.Query(dbPath, sql)
@@ -880,12 +881,13 @@ func QueryProviderMetrics(dbPath string, days int) ([]ProviderMetrics, error) {
 			COALESCE(AVG(CAST(
 				(julianday(finished_at) - julianday(started_at)) * 86400000 AS INTEGER
 			)), 0) as avg_dur_ms,
-			COALESCE(SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END), 0) as errors,
+			COALESCE(SUM(CASE WHEN status NOT IN ('success', 'skipped_concurrent_limit') THEN 1 ELSE 0 END), 0) as errors,
 			COALESCE(SUM(tokens_in), 0) as tokens_in,
 			COALESCE(SUM(tokens_out), 0) as tokens_out
 		 FROM job_runs
 		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')
 		   AND model != ''
+		   AND status != 'skipped_concurrent_limit'
 		 GROUP BY model, provider ORDER BY total DESC`, days)
 
 	rows, err := db.Query(dbPath, sql)
