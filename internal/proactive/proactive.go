@@ -576,18 +576,55 @@ func (e *Engine) buildAutonomousPrompt(rule config.ProactiveRule) string {
 		}
 	}
 
-	// Recent reflections (self-assessments from past tasks).
+	// Recent reflections (self-assessments from past tasks), grouped by issue category.
 	if e.cfg.HistoryDB != "" {
-		refRows, err := db.Query(e.cfg.HistoryDB, "SELECT agent, score, feedback, improvement, created_at FROM reflections ORDER BY created_at DESC LIMIT 5")
+		refRows, err := db.Query(e.cfg.HistoryDB, "SELECT agent, score, feedback, improvement, created_at, truncation_detected, output_quality, execution_issue FROM reflections ORDER BY created_at DESC LIMIT 10")
 		if err == nil && len(refRows) > 0 {
-			b.WriteString("\nRecent reflections:\n")
+			type refEntry struct {
+				agent     string
+				score     int64
+				feedback  string
+				improvement string
+				createdAt string
+			}
+			var envIssues, execIssues, normal []refEntry
 			for _, row := range refRows {
-				agent, _ := row["agent"].(string)
-				score, _ := row["score"].(int64)
-				feedback, _ := row["feedback"].(string)
-				improvement, _ := row["improvement"].(string)
-				createdAt, _ := row["created_at"].(string)
-				b.WriteString(fmt.Sprintf("  - [%s] score:%d at %s\n    feedback: %s\n    improvement: %s\n", agent, score, createdAt, feedback, improvement))
+				e := refEntry{
+					agent:       fmt.Sprintf("%v", row["agent"]),
+					score:       func() int64 { v, _ := row["score"].(int64); return v }(),
+					feedback:    fmt.Sprintf("%v", row["feedback"]),
+					improvement: fmt.Sprintf("%v", row["improvement"]),
+					createdAt:   fmt.Sprintf("%v", row["created_at"]),
+				}
+				truncDetected := fmt.Sprintf("%v", row["truncation_detected"]) == "1"
+				execIssue := fmt.Sprintf("%v", row["execution_issue"]) == "1"
+				switch {
+				case truncDetected:
+					envIssues = append(envIssues, e)
+				case execIssue:
+					execIssues = append(execIssues, e)
+				default:
+					normal = append(normal, e)
+				}
+			}
+			b.WriteString("\nRecent reflections:\n")
+			if len(envIssues) > 0 {
+				b.WriteString("  [環境問題 / Environment issues — truncation, not agent fault]\n")
+				for _, r := range envIssues {
+					b.WriteString(fmt.Sprintf("    - [%s] score:%d/5 at %s | %s\n", r.agent, r.score, r.createdAt, r.improvement))
+				}
+			}
+			if len(execIssues) > 0 {
+				b.WriteString("  [執行問題 / Execution issues — scope/language violations, agent fault]\n")
+				for _, r := range execIssues {
+					b.WriteString(fmt.Sprintf("    - [%s] score:%d/5 at %s | %s\n", r.agent, r.score, r.createdAt, r.improvement))
+				}
+			}
+			if len(normal) > 0 {
+				b.WriteString("  [正常評分 / Normal assessments]\n")
+				for _, r := range normal {
+					b.WriteString(fmt.Sprintf("    - [%s] score:%d/5 at %s | %s\n", r.agent, r.score, r.createdAt, r.improvement))
+				}
 			}
 		}
 	}
