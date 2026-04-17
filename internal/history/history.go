@@ -546,6 +546,7 @@ func QueryDailyStats(dbPath string, days int) ([]DayStat, error) {
 		        COALESCE(SUM(cost_usd), 0) as cost
 		 FROM job_runs
 		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')
+		   AND status != 'skipped_concurrent_limit'
 		 GROUP BY day ORDER BY day`, days)
 
 	rows, err := db.Query(dbPath, sql)
@@ -571,14 +572,15 @@ func QueryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	if dbPath == "" {
 		return
 	}
-	// Summary counts.
+	// Summary counts — skipped_concurrent_limit excluded from all metrics so total = success + fail.
 	summarySQL := fmt.Sprintf(
 		`SELECT COUNT(*) as total,
 		        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-		        SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as fail,
+		        SUM(CASE WHEN status NOT IN ('success', 'skipped_concurrent_limit') THEN 1 ELSE 0 END) as fail,
 		        COALESCE(SUM(cost_usd), 0) as cost
 		 FROM job_runs
-		 WHERE started_at >= '%s' AND started_at < '%s'`,
+		 WHERE started_at >= '%s' AND started_at < '%s'
+		   AND status != 'skipped_concurrent_limit'`,
 		db.Escape(from), db.Escape(to))
 
 	rows, qErr := db.Query(dbPath, summarySQL)
@@ -598,7 +600,7 @@ func QueryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 		failSQL := fmt.Sprintf(
 			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 			 FROM job_runs
-			 WHERE started_at >= '%s' AND started_at < '%s' AND status != 'success'
+			 WHERE started_at >= '%s' AND started_at < '%s' AND status NOT IN ('success', 'skipped_concurrent_limit')
 			 ORDER BY id DESC LIMIT 10`,
 			db.Escape(from), db.Escape(to))
 		failRows, fErr := db.Query(dbPath, failSQL)
@@ -632,7 +634,7 @@ func QueryRecentFails(dbPath string, q FailQuery) ([]JobRun, error) {
 	}
 
 	var conditions []string
-	conditions = append(conditions, "status != 'success'")
+	conditions = append(conditions, "status NOT IN ('success', 'skipped_concurrent_limit')")
 	conditions = append(conditions, fmt.Sprintf("datetime(started_at) >= datetime('now','-%d days')", days))
 	if q.JobID != "" {
 		conditions = append(conditions, fmt.Sprintf("job_id = '%s'", db.Escape(q.JobID)))
@@ -674,6 +676,7 @@ func QueryConsecutiveFails(dbPath string, threshold int) ([]ConsecutiveFailResul
 
 	sql := `SELECT job_id, name, status FROM job_runs
 	         WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-30 days')
+	           AND status != 'skipped_concurrent_limit'
 	         ORDER BY job_id, datetime(started_at) DESC, id DESC`
 
 	rows, err := db.Query(dbPath, sql)
@@ -780,7 +783,8 @@ func QueryMetrics(dbPath string, days int) (*MetricsResult, error) {
 			COALESCE(AVG(cost_usd), 0) as avg_cost,
 			COALESCE(SUM(cost_usd), 0) as total_cost
 		 FROM job_runs
-		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')`, days)
+		 WHERE date(started_at, 'localtime') >= date('now', 'localtime', '-%d days')
+		   AND status != 'skipped_concurrent_limit'`, days)
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
