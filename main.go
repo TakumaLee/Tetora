@@ -721,6 +721,7 @@ func main() {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
 			cron.Start(ctx)
+			cron.StartupReplay(ctx)
 		}
 
 		// Startup disk check.
