@@ -165,6 +165,29 @@ func (c *Client) SendMessage(channelID, content string) {
 	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), map[string]string{"content": content})
 }
 
+// SendLongMessage sends content that may exceed Discord's 2000-byte limit by
+// splitting at natural boundaries (paragraph > line > word) and posting each
+// chunk as a separate message prefixed with `(i/N) `. Runes are never broken
+// mid-sequence. For content under the limit, a single unadorned message is
+// posted.
+func (c *Client) SendLongMessage(channelID, content string) {
+	// Budget 1990 bytes to leave room for the `(99/99) ` prefix.
+	chunks := splitForDiscord(content, 1990)
+	path := fmt.Sprintf("/channels/%s/messages", channelID)
+	for i, chunk := range chunks {
+		msg := chunk
+		if len(chunks) > 1 {
+			msg = fmt.Sprintf("(%d/%d) %s", i+1, len(chunks), chunk)
+		}
+		c.Post(path, map[string]string{"content": msg})
+		if i < len(chunks)-1 {
+			// Preemptive pacing — Post() already retries on 429, but spacing
+			// cooperatively keeps us off the rate-limit radar.
+			time.Sleep(400 * time.Millisecond)
+		}
+	}
+}
+
 // SendEmbed sends an embed message to a channel.
 func (c *Client) SendEmbed(channelID string, embed Embed) {
 	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{"embeds": []Embed{embed}})

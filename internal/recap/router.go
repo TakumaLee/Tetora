@@ -16,7 +16,7 @@ import (
 // router.go can be unit-tested with a fake.
 type DiscordAPI interface {
 	Request(method, path string, payload any) ([]byte, error)
-	SendMessage(channelID, content string)
+	SendLongMessage(channelID, content string)
 }
 
 // Router decides which Discord thread a recap belongs to and delivers it.
@@ -50,7 +50,7 @@ func (r *Router) Deliver(rec Record) error {
 		return nil
 	}
 
-	r.API.SendMessage(routing.ThreadID, rec.Content)
+	r.API.SendLongMessage(routing.ThreadID, rec.Content)
 
 	now := r.nowISO()
 	if err := MarkSent(r.DBPath, rec.UUID, rec.SessionID, routing.ThreadID, now); err != nil {

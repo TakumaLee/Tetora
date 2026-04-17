@@ -39,7 +39,7 @@ func (f *fakeAPI) Request(method, path string, payload any) ([]byte, error) {
 	return []byte(`{"id":"` + f.nextThreadID + `"}`), nil
 }
 
-func (f *fakeAPI) SendMessage(channelID, content string) {
+func (f *fakeAPI) SendLongMessage(channelID, content string) {
 	f.sends = append(f.sends, fakeSend{channelID, content})
 }
 

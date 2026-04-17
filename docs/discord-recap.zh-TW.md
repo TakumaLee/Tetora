@@ -146,8 +146,20 @@ sqlite3 ~/.tetora/dbs/history.db "DELETE FROM recap_session_routing WHERE sessio
 
 ---
 
+## 長訊息處理
+
+Discord 單則訊息上限 2000 字元。長 recap 會被 `SendLongMessage` 自動分段：
+
+- 切點優先順序：段落 (`\n\n`) → 行 (`\n`) → 單字空格 → rune 邊界（絕不切在多位元組字元中間）
+- 每段前綴 `(i/N) `，方便在 Discord 上識別分段順序
+- 段與段之間間隔 400ms，避免被 rate limit
+- 實際切割預算 1990 bytes（保留 `(99/99) ` prefix 空間）
+
+實作在 `internal/discord/split.go`，測試涵蓋 CJK、純長 token、混合段落等情境。
+
+---
+
 ## 限制（待改善）
 
-- **Discord 訊息 2000 字硬切**：長 recap 會被截斷，改善中
 - **沒有 Discord 端 `!bind` 指令**：目前只能透過 SQLite 改綁
 - **沒有 SessionStart(resume) hook poke**：最多 2 秒延遲
