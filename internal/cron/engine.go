@@ -840,11 +840,18 @@ func (ce *Engine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 }
 
 func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
+	// Outer panic fence: declared first → runs LAST (defers are LIFO). Catches
+	// panics from both the job body and the cleanup defer below, so a crash
+	// inside ce.mu.Lock() / NextRunAfter can't escape the goroutine.
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorCtx(ctx, "cron runJob panic recovered",
 				"jobId", j.ID, "name", j.Name, "recover", fmt.Sprintf("%v", r))
 		}
+	}()
+	// Cleanup: declared second → runs FIRST on unwind. If it panics, the outer
+	// fence catches it instead of crashing the daemon.
+	defer func() {
 		ce.mu.Lock()
 		j.runCount--
 		j.running = j.runCount > 0
