@@ -103,6 +103,72 @@ func TestNormalizeTaskID_BareNumericID(t *testing.T) {
 	})
 }
 
+// TestScopeBoundary_RoundTrip verifies that scope_boundary is persisted on create
+// and retrievable via GetTask, UpdateTask, and ListTasks.
+func TestScopeBoundary_RoundTrip(t *testing.T) {
+	engine := newTestEngine(t)
+
+	t.Run("CreateTask persists scope_boundary", func(t *testing.T) {
+		task, err := engine.CreateTask(TaskBoard{
+			Title:         "diagnose something",
+			Status:        "todo",
+			ScopeBoundary: "diagnostic_only",
+		})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		if task.ScopeBoundary != "diagnostic_only" {
+			t.Errorf("expected ScopeBoundary 'diagnostic_only' in returned task, got %q", task.ScopeBoundary)
+		}
+
+		got, err := engine.GetTask(task.ID)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		if got.ScopeBoundary != "diagnostic_only" {
+			t.Errorf("expected ScopeBoundary 'diagnostic_only' from DB, got %q", got.ScopeBoundary)
+		}
+	})
+
+	t.Run("UpdateTask updates scope_boundary", func(t *testing.T) {
+		task, err := engine.CreateTask(TaskBoard{
+			Title:         "implement fix",
+			Status:        "todo",
+			ScopeBoundary: "diagnostic_only",
+		})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+
+		updated, err := engine.UpdateTask(task.ID, map[string]any{"scopeBoundary": "implement_allowed"})
+		if err != nil {
+			t.Fatalf("UpdateTask: %v", err)
+		}
+		if updated.ScopeBoundary != "implement_allowed" {
+			t.Errorf("expected ScopeBoundary 'implement_allowed' after update, got %q", updated.ScopeBoundary)
+		}
+	})
+
+	t.Run("Empty scope_boundary is preserved as empty", func(t *testing.T) {
+		task, err := engine.CreateTask(TaskBoard{
+			Title:  "regular task",
+			Status: "todo",
+		})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+
+		got, err := engine.GetTask(task.ID)
+		if err != nil {
+			t.Fatalf("GetTask: %v", err)
+		}
+		// Empty string or "<nil>" from DB should not be exposed as "diagnostic_only" etc.
+		if got.ScopeBoundary == "diagnostic_only" || got.ScopeBoundary == "implement_allowed" {
+			t.Errorf("expected empty ScopeBoundary, got %q", got.ScopeBoundary)
+		}
+	})
+}
+
 // TestNormalizeTaskID_PrefixedID verifies that methods still work with
 // already-prefixed IDs (idempotency check).
 func TestNormalizeTaskID_PrefixedID(t *testing.T) {

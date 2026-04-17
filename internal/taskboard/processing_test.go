@@ -1543,3 +1543,158 @@ func TestDispatchTask_RealError_AutoRetried(t *testing.T) {
 		t.Errorf("expected retry_count 1 (auto-retry increments), got %d", got.RetryCount)
 	}
 }
+
+// =============================================================================
+// scope_boundary prompt injection tests
+// =============================================================================
+
+// TestDispatchTask_ScopeBoundary_DiagnosticOnly verifies that a task with
+// ScopeBoundary="diagnostic_only" injects the read-only guardrail into the prompt.
+func TestDispatchTask_ScopeBoundary_DiagnosticOnly(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "diagnose expiry convergence",
+		Status:        "todo",
+		Assignee:      "hisui",
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if !strings.Contains(ex.capturedPrompt, "Scope Boundary: diagnostic_only") {
+		t.Errorf("expected diagnostic_only header in prompt, got:\n%s", ex.capturedPrompt)
+	}
+	if !strings.Contains(ex.capturedPrompt, "FORBIDDEN: Edit, Write, git commit") {
+		t.Errorf("expected FORBIDDEN write clause in prompt for diagnostic_only")
+	}
+	// Confirm the prompt does NOT include implement_allowed/test_only/review_only headers.
+	if strings.Contains(ex.capturedPrompt, "Scope Boundary: implement_allowed") {
+		t.Errorf("unexpected implement_allowed header in diagnostic_only prompt")
+	}
+}
+
+// TestDispatchTask_ScopeBoundary_ImplementAllowed verifies that a task with
+// ScopeBoundary="implement_allowed" injects the implement guardrail.
+func TestDispatchTask_ScopeBoundary_ImplementAllowed(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "fix resolver 403",
+		Status:        "todo",
+		Assignee:      "kokuyou",
+		ScopeBoundary: "implement_allowed",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if !strings.Contains(ex.capturedPrompt, "Scope Boundary: implement_allowed") {
+		t.Errorf("expected implement_allowed header in prompt")
+	}
+	if !strings.Contains(ex.capturedPrompt, "critical_files") {
+		t.Errorf("expected critical_files mention in implement_allowed prompt")
+	}
+}
+
+// TestDispatchTask_ScopeBoundary_TestOnly verifies that a task with
+// ScopeBoundary="test_only" injects the test-file-only guardrail.
+func TestDispatchTask_ScopeBoundary_TestOnly(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "add tests for threshold=0.95",
+		Status:        "todo",
+		Assignee:      "kokuyou",
+		ScopeBoundary: "test_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if !strings.Contains(ex.capturedPrompt, "Scope Boundary: test_only") {
+		t.Errorf("expected test_only header in prompt")
+	}
+	if !strings.Contains(ex.capturedPrompt, "FORBIDDEN: modifying production code") {
+		t.Errorf("expected FORBIDDEN production code clause in test_only prompt")
+	}
+}
+
+// TestDispatchTask_ScopeBoundary_ReviewOnly verifies that a task with
+// ScopeBoundary="review_only" injects the no-write guardrail.
+func TestDispatchTask_ScopeBoundary_ReviewOnly(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "review PR #99",
+		Status:        "todo",
+		Assignee:      "ruri",
+		ScopeBoundary: "review_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if !strings.Contains(ex.capturedPrompt, "Scope Boundary: review_only") {
+		t.Errorf("expected review_only header in prompt")
+	}
+	if !strings.Contains(ex.capturedPrompt, "FORBIDDEN: any write operations") {
+		t.Errorf("expected FORBIDDEN write clause in review_only prompt")
+	}
+}
+
+// TestDispatchTask_ScopeBoundary_Empty verifies that a task without a
+// ScopeBoundary does NOT inject any scope boundary section into the prompt.
+func TestDispatchTask_ScopeBoundary_Empty(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "regular task without scope boundary",
+		Status:   "todo",
+		Assignee: "kokuyou",
+		// ScopeBoundary intentionally omitted
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if strings.Contains(ex.capturedPrompt, "Scope Boundary:") {
+		t.Errorf("expected no scope boundary section in prompt for empty ScopeBoundary, got:\n%s", ex.capturedPrompt)
+	}
+}

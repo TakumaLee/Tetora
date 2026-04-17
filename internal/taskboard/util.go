@@ -63,6 +63,11 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		json.Unmarshal([]byte(workdirsJSON), &workdirs)
 	}
 
+	scopeBoundary := fmt.Sprintf("%v", row["scope_boundary"])
+	if scopeBoundary == "<nil>" {
+		scopeBoundary = ""
+	}
+
 	return TaskBoard{
 		ID:            fmt.Sprintf("%v", row["id"]),
 		Project:       fmt.Sprintf("%v", row["project"]),
@@ -88,6 +93,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		WorkflowRunID:  workflowRunID,
 		Workdirs:       workdirs,
 		AllowDangerous: getFloat64(row, "allow_dangerous") != 0,
+		ScopeBoundary:  scopeBoundary,
 	}
 }
 
@@ -133,6 +139,8 @@ func toSnakeCase(s string) string {
 		return "workflow_run_id"
 	case "executionCount":
 		return "execution_count"
+	case "scopeBoundary":
+		return "scope_boundary"
 	default:
 		return s
 	}
