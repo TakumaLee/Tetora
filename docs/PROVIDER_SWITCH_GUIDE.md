@@ -19,7 +19,26 @@ Implemented **session-level dynamic provider switching**, enabling users to:
 
 ## Quick Start
 
-### 1. Switch to Qwen
+### 1. Auto-Load via Environment Variables (Recommended)
+
+Set these in your shell profile (`~/.bashrc`, `~/.zshrc`) or Docker environment:
+
+```bash
+# Automatically switch provider on startup
+export TETORA_PROVIDER=qwen
+export TETORA_MODEL=auto          # Optional: specific model or "auto"
+
+# Other examples
+export TETORA_PROVIDER=google
+export TETORA_MODEL=gemini-2.5-pro
+
+export TETORA_PROVIDER=claude
+export TETORA_MODEL=claude-sonnet-4-20250514
+```
+
+**Priority**: CLI command > Environment variable > Config file
+
+### 2. Manual Switch via CLI Commands
 
 ```bash
 # Use Qwen default model

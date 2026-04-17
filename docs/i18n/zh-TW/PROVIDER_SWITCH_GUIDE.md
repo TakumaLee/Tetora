@@ -19,7 +19,26 @@
 
 ## 快速開始
 
-### 1. 切換到 Qwen
+### 1. 使用環境變數自動載入（推薦）
+
+在您的 shell 配置檔（`~/.bashrc`、`~/.zshrc`）或 Docker 環境中設置：
+
+```bash
+# 啟動時自動切換提供商
+export TETORA_PROVIDER=qwen
+export TETORA_MODEL=auto          # 可選：指定模型或 "auto"
+
+# 其他範例
+export TETORA_PROVIDER=google
+export TETORA_MODEL=gemini-2.5-pro
+
+export TETORA_PROVIDER=claude
+export TETORA_MODEL=claude-sonnet-4-20250514
+```
+
+**優先級**: CLI 命令 > 環境變數 > 配置檔案
+
+### 2. 使用 CLI 命令手動切換
 
 ```bash
 # 使用 Qwen 預設模型
