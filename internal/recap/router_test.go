@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"tetora/internal/config"
 	"tetora/internal/db"
@@ -234,8 +235,27 @@ func TestRouter_ThreadName_RespectsLimit(t *testing.T) {
 		CWD:       "/x/" + long,
 		GitBranch: long,
 	})
-	if len(name) > 100 {
-		t.Errorf("thread name exceeds Discord 100-char limit: len=%d", len(name))
+	if utf8.RuneCountInString(name) > 100 {
+		t.Errorf("thread name exceeds Discord 100-rune limit: runes=%d",
+			utf8.RuneCountInString(name))
+	}
+}
+
+func TestRouter_ThreadName_CJKStaysRuneSafe(t *testing.T) {
+	// A CJK-heavy name that, before the rune-safe fix, would get byte-sliced
+	// through a 3-byte UTF-8 sequence and produce invalid UTF-8.
+	r := &Router{Now: fixedClock(time.Date(2026, 4, 17, 14, 30, 0, 0, time.UTC))}
+	longCJK := strings.Repeat("議", 150) // 450 bytes, 150 runes
+	name := r.threadName(Record{
+		SessionID: "cjksessiondb49ea04",
+		CWD:       "/repo/" + longCJK,
+		GitBranch: "feat/測試",
+	})
+	if !utf8.ValidString(name) {
+		t.Errorf("thread name produced invalid UTF-8 after truncation")
+	}
+	if utf8.RuneCountInString(name) > 100 {
+		t.Errorf("CJK thread name exceeds 100 runes: %d", utf8.RuneCountInString(name))
 	}
 }
 

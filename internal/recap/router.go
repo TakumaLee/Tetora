@@ -165,8 +165,10 @@ func (r *Router) threadName(rec Record) string {
 	short := shortID(rec.SessionID)
 	stamp := r.nowTime().Format("01-02 15:04")
 	name := fmt.Sprintf("[%s] %s · %s", head, short, stamp)
-	if len(name) > 100 {
-		name = name[:100]
+	// Discord's thread-name limit is 100 characters (runes), not bytes.
+	// Truncate on rune boundary so CJK characters never split mid-sequence.
+	if runes := []rune(name); len(runes) > 100 {
+		name = string(runes[:100])
 	}
 	return name
 }

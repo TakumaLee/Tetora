@@ -30,8 +30,7 @@ func InitSchema(dbPath string) error {
 	if dbPath == "" {
 		return nil
 	}
-	_, err := db.Query(dbPath, schemaSQL)
-	return err
+	return db.Exec(dbPath, schemaSQL)
 }
 
 // IsSent reports whether a recap with this uuid has already been delivered.
