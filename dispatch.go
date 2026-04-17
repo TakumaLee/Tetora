@@ -3439,6 +3439,9 @@ func isGitRepo(dir string) bool {
 // estimateTimeoutSem is a dedicated semaphore for timeout estimation LLM calls.
 var estimateTimeoutSem = make(chan struct{}, 3)
 
+// skillExtractSem limits concurrent skill extraction LLM calls (background, non-critical).
+var skillExtractSem = make(chan struct{}, 2)
+
 // estimateTimeoutLLM uses a lightweight LLM call to estimate appropriate timeout
 // for a taskboard task. Returns a duration string (e.g. "45m", "2h") or empty
 // string on failure (caller should fall back to keyword-based estimation).
@@ -4733,8 +4736,6 @@ Reply with ONLY a JSON object with these fields:
 		ID:             newUUID(),
 		Name:           "skill-extract",
 		Prompt:         prompt,
-		Model:          "haiku",
-		Budget:         0.02,
 		Timeout:        "15s",
 		PermissionMode: "plan",
 		Source:         "skill-extract",
@@ -4743,7 +4744,7 @@ Reply with ONLY a JSON object with these fields:
 	llmTask.Model = "haiku"
 	llmTask.Budget = 0.02
 
-	llmResult := runSingleTask(ctx, cfg, llmTask, estimateTimeoutSem, nil, "")
+	llmResult := runSingleTask(ctx, cfg, llmTask, skillExtractSem, nil, "")
 	if llmResult.Status != "success" || llmResult.Output == "" {
 		log.Debug("skill extraction LLM failed", "status", llmResult.Status)
 		return
