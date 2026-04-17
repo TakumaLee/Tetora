@@ -320,8 +320,12 @@ func (d *Dispatcher) resetOrphanedWorkflowRuns() {
 		return
 	}
 	// Count before update to get accurate number.
-	rows, _ := db.Query(d.cfg.HistoryDB,
+	rows, err := db.Query(d.cfg.HistoryDB,
 		`SELECT COUNT(*) as cnt FROM workflow_runs WHERE status = 'running'`)
+	if err != nil {
+		log.Error("resetOrphanedWorkflowRuns: count query failed", "error", err)
+		return
+	}
 	cnt := "0"
 	if len(rows) > 0 {
 		cnt = fmt.Sprintf("%v", rows[0]["cnt"])
@@ -684,8 +688,12 @@ func (d *Dispatcher) scan() {
 		// Verify the CAS succeeded by re-reading status.
 		// Note: db.Exec shells out to sqlite3 CLI so RowsAffected is unavailable;
 		// re-SELECT is the best available verification in this architecture.
-		verifyRows, _ := db.Query(d.engine.dbPath, fmt.Sprintf(
+		verifyRows, verifyErr := db.Query(d.engine.dbPath, fmt.Sprintf(
 			`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
+		if verifyErr != nil {
+			log.Error("taskboard dispatch: verify-claim query failed", "id", t.ID, "error", verifyErr)
+			continue
+		}
 		if len(verifyRows) == 0 || fmt.Sprintf("%v", verifyRows[0]["status"]) != "doing" {
 			log.Info("taskboard dispatch: task already claimed by another scan", "id", t.ID)
 			continue
