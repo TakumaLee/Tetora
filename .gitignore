@@ -87,3 +87,6 @@ configs/
 
 # Per-machine agent persona customization (must stay local)
 agents/*/SOUL.local.md
+
+# Cross-machine peer-agents registry (local-only, not for upstream)
+docs/peer-agents.md
