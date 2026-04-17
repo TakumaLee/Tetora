@@ -1817,12 +1817,13 @@ func resetZombieWorkflowRuns(dbPath string, maxAge time.Duration) int {
 	}
 
 	nowISO := time.Now().UTC().Format(time.RFC3339)
+	errMsg := fmt.Sprintf("zombie: stale for %s, auto-terminated by janitor", maxAge.String())
 	if err := db.ExecArgs(dbPath,
 		`UPDATE workflow_runs SET status = 'error',`+
-			` error = 'zombie: stale for ?, auto-terminated by janitor',`+
+			` error = ?,`+
 			` finished_at = ?`+
 			` WHERE status IN ('running','resumed') AND started_at < ?`,
-		maxAge.String(), nowISO, cutoff); err != nil {
+		errMsg, nowISO, cutoff); err != nil {
 		log.Warn("resetZombieWorkflowRuns: update failed", "error", err)
 		return 0
 	}
