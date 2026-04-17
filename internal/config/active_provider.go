@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sync"
+	"syscall"
 	"time"
 )
 
@@ -19,9 +19,9 @@ type ActiveProviderState struct {
 }
 
 // ActiveProviderStore manages the active provider override state.
-// Thread-safe file-based storage.
+// Uses file-level locking (flock) to protect against concurrent access
+// across multiple tetora processes (e.g., daemon + CLI).
 type ActiveProviderStore struct {
-	mu       sync.RWMutex
 	state    *ActiveProviderState
 	filePath string
 }
@@ -35,11 +35,9 @@ func NewActiveProviderStore(filePath string) *ActiveProviderStore {
 }
 
 // Load reads the active provider state from disk.
+// Uses shared lock for concurrent read safety.
 func (s *ActiveProviderStore) Load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := os.ReadFile(s.filePath)
+	f, err := os.Open(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			s.state = &ActiveProviderState{}
@@ -47,9 +45,16 @@ func (s *ActiveProviderStore) Load() error {
 		}
 		return err
 	}
+	defer f.Close()
+
+	// Acquire shared read lock.
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 
 	var state ActiveProviderState
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := json.NewDecoder(f).Decode(&state); err != nil {
 		return err
 	}
 
@@ -58,22 +63,33 @@ func (s *ActiveProviderStore) Load() error {
 }
 
 // Save persists the active provider state to disk.
+// Uses exclusive lock to prevent concurrent writes.
 func (s *ActiveProviderStore) Save(state *ActiveProviderState) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Ensure directory exists.
 	dir := filepath.Dir(s.filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
+	// Open with exclusive lock.
+	f, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Acquire exclusive write lock.
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
+	if _, err := f.Write(data); err != nil {
 		return err
 	}
 
@@ -83,9 +99,6 @@ func (s *ActiveProviderStore) Save(state *ActiveProviderState) error {
 
 // Get returns the current active provider state (thread-safe).
 func (s *ActiveProviderStore) Get() *ActiveProviderState {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	if s.state == nil {
 		return &ActiveProviderState{}
 	}

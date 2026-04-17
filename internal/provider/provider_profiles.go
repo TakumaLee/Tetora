@@ -4,6 +4,13 @@ import "tetora/internal/config"
 
 // ProviderProfile contains optimized default parameters for each provider.
 // This allows users to switch providers without manually tuning parameters.
+//
+// NOTE: DefaultModel values are hardcoded and may become stale as providers
+// release new versions. These profiles should be treated as reference defaults
+// and may need periodic manual updates. Users can override these values in
+// their config.json to use newer models without waiting for code updates.
+// The primary value-add of this system is the auto model resolution, which
+// falls back to these profiles only when no explicit model is configured.
 type ProviderProfile struct {
 	Name              string
 	Type              string
