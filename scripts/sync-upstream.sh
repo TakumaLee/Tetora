@@ -4,6 +4,8 @@
 
 set -e
 
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 echo "🔄 Starting upstream synchronization..."
 
 # 1. Switch to main branch
@@ -23,3 +25,9 @@ echo "📤 Pushing to origin/main..."
 git push origin main
 
 echo "✅ Main branch is now synced with upstream!"
+
+# 5. Return to original branch
+if [ "$CURRENT_BRANCH" != "main" ]; then
+  echo "↩️  Returning to $CURRENT_BRANCH..."
+  git checkout "$CURRENT_BRANCH"
+fi
