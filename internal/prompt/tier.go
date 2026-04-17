@@ -12,6 +12,15 @@ import (
 	"tetora/internal/knowledge"
 )
 
+// skillExtractionSection is injected into every dispatched agent prompt.
+// It mirrors workspace CLAUDE.md "Post-Task Skill Extraction" (authoritative source).
+// Conditions mirror ShouldExtractSkill in internal/skill/skill.go.
+const skillExtractionSection = "\n\n## Post-Task Skill Extraction\n" +
+	"完成任務後，符合以下任一條件時，提取 skill 到 `skills/learned/{name}/`：\n" +
+	"- 5+ tool calls、error recovery、無既有 skill 的新 workflow、user 糾正過\n" +
+	"- 格式：SKILL.md + metadata.json，寫到 `skills/learned/{name}/`\n" +
+	"- 一次性操作或已有類似 skill → 不提取"
+
 // Deps holds root-level function callbacks required by BuildTieredPrompt.
 // All fields are required; BuildTieredPrompt panics if any are nil.
 type Deps struct {
@@ -122,9 +131,10 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		}
 	}
 
-	// If provider is claude-code or codex-cli, only the soul prompt is needed; skip everything else.
-	// These providers read project files (CLAUDE.md, workspace) natively.
+	// If provider is claude-code or codex-cli, append skill extraction hint to user prompt and return.
+	// These providers read project files (CLAUDE.md, workspace) natively; system prompt is not used.
 	if providerType == "claude-code" || providerType == "codex-cli" {
+		task.Prompt += skillExtractionSection
 		return
 	}
 
@@ -185,14 +195,10 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	}
 
 	// --- 8.6. Skill extraction instruction (Standard/Complex only) ---
-	// Encourage agents to identify reusable procedures and extract them as skills.
+	// Mirrors workspace CLAUDE.md "Post-Task Skill Extraction" (authoritative source).
+	// Conditions align with ShouldExtractSkill in internal/skill/skill.go.
 	if complexity != classify.Simple {
-		task.SystemPrompt += "\n\n## Skill Extraction\n" +
-			"After completing this task, if you identified a reusable procedure or workflow " +
-			"that could benefit future tasks, extract it as a skill using the create_skill tool. " +
-			"Write the skill definition to `~/.tetora/workspace/skills/learned/{skill-name}/SKILL.md` " +
-			"with YAML frontmatter (name, description, matcher keywords). " +
-			"Learned skills are reviewed before promotion to the active skill catalog."
+		task.SystemPrompt += skillExtractionSection
 	}
 
 	// --- 8.7. Skill-derived AllowedTools ---
