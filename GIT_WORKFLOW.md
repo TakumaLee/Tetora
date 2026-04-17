@@ -310,6 +310,7 @@ tetora health
 
 - `GIT_WORKFLOW.md` - 本文件（本地參考）
 - `LOCAL_CONFIG_GUIDE.md` - 本地化配置指南
+- `MULTI_DEVICE_STRATEGY.md` - 多機協同架構指南（同一帳號跨電腦同步）
 - `config.local.example.json` - 配置範本
 
 ---
