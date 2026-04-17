@@ -210,3 +210,40 @@ func TestHeartbeatCooldownSetToInterval(t *testing.T) {
 		t.Errorf("expected heartbeat cooldown duration %v (from Interval), got %v", want, entry.duration)
 	}
 }
+
+func TestComputeMedian(t *testing.T) {
+	cases := []struct {
+		name string
+		vals []float64
+		want float64
+	}{
+		{"empty", []float64{}, 0},
+		{"single", []float64{3.0}, 3.0},
+		{"odd", []float64{1, 5, 3}, 3.0},
+		{"even", []float64{1, 2, 3, 4}, 2.5},
+		{"unsorted input", []float64{9, 1, 5}, 5.0},
+	}
+	for _, tc := range cases {
+		got := computeMedian(tc.vals)
+		if got != tc.want {
+			t.Errorf("computeMedian(%v) = %v, want %v", tc.vals, got, tc.want)
+		}
+	}
+}
+
+func TestGetDynamicThreshold_UnknownFormula(t *testing.T) {
+	e := newEngineWithRules(nil, Deps{})
+	_, err := e.getDynamicThreshold("unknown_formula")
+	if err == nil {
+		t.Error("expected error for unknown formula, got nil")
+	}
+}
+
+func TestGetDynamicThreshold_NoHistoryDB(t *testing.T) {
+	// Engine with no historyDB: median_30d_x1.5 should return error, not panic.
+	e := newEngineWithRules(nil, Deps{})
+	_, err := e.getDynamicThreshold("median_30d_x1.5")
+	if err == nil {
+		t.Error("expected error when historyDB not configured, got nil")
+	}
+}

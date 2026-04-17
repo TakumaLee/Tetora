@@ -491,14 +491,16 @@ func (r ProactiveRule) IsEnabled() bool {
 }
 
 type ProactiveTrigger struct {
-	Type     string  `json:"type"`
-	Cron     string  `json:"cron,omitempty"`
-	TZ       string  `json:"tz,omitempty"`
-	Event    string  `json:"event,omitempty"`
-	Metric   string  `json:"metric,omitempty"`
-	Op       string  `json:"op,omitempty"`
-	Value    float64 `json:"value,omitempty"`
-	Interval string  `json:"interval,omitempty"`
+	Type          string  `json:"type"`
+	Cron          string  `json:"cron,omitempty"`
+	TZ            string  `json:"tz,omitempty"`
+	Event         string  `json:"event,omitempty"`
+	Metric        string  `json:"metric,omitempty"`
+	Op            string  `json:"op,omitempty"`
+	Value         float64 `json:"value,omitempty"`
+	Interval      string  `json:"interval,omitempty"`
+	// DynamicFormula overrides Value when set. Supported: "median_30d_x1.5"
+	DynamicFormula string `json:"dynamic_formula,omitempty"`
 }
 
 type ProactiveAction struct {
