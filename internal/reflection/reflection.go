@@ -26,6 +26,13 @@ type Result struct {
 	CreatedAt                 string  `json:"createdAt"`
 	EstimatedManualDurationSec int    `json:"estimatedManualDurationSec"`
 	AIDurationSec             int     `json:"aiDurationSec"`
+	// Scoring dimensions added to distinguish environment failures from execution failures.
+	// TruncationDetected: output appears cut off mid-sentence/mid-thought.
+	// OutputQuality: "good" if content is correct aside from truncation, "poor" otherwise.
+	// ExecutionIssue: true when agent violated scope, language rules, or took wrong action.
+	TruncationDetected bool   `json:"truncationDetected"`
+	OutputQuality      string `json:"outputQuality"`
+	ExecutionIssue     bool   `json:"executionIssue"`
 }
 
 // Deps holds root-package callbacks needed by performReflection.
@@ -86,6 +93,18 @@ func InitDB(dbPath string) error {
 			}
 		}
 	}
+	// Migration: add scoring dimension columns for truncation/quality/execution tracking.
+	for _, m := range []string{
+		"ALTER TABLE reflections ADD COLUMN truncation_detected BOOLEAN DEFAULT 0;",
+		"ALTER TABLE reflections ADD COLUMN output_quality TEXT DEFAULT '';",
+		"ALTER TABLE reflections ADD COLUMN execution_issue BOOLEAN DEFAULT 0;",
+	} {
+		if err := db.Exec(dbPath, m); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("init reflections migration (scoring dims): %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -127,7 +146,12 @@ func Perform(ctx context.Context, cfg *config.Config, task dispatch.Task, result
 
 	reflPrompt := fmt.Sprintf(
 		`Evaluate this task output quality. Score 1-5 (1=poor, 5=excellent).
-Respond ONLY with JSON: {"score":N,"feedback":"brief assessment","improvement":"specific suggestion"}
+Also assess these three dimensions:
+- truncation_detected: true if the output appears cut off mid-sentence or mid-thought (environmental issue, not agent fault)
+- output_quality: "good" if the content is correct/complete aside from any truncation, "poor" otherwise
+- execution_issue: true if the agent violated scope rules, language requirements, or took an incorrect action (agent fault)
+
+Respond ONLY with JSON: {"score":N,"feedback":"brief assessment","improvement":"specific suggestion","truncation_detected":false,"output_quality":"good","execution_issue":false}
 
 Task: %s
 Agent: %s
@@ -173,6 +197,14 @@ Output: %s`,
 		return nil, fmt.Errorf("parse reflection: %w", err)
 	}
 
+	// Score override: truncation is an environment issue, not an agent execution failure.
+	// When output is truncated but content quality is good, clamp score to minimum 3/5
+	// (equivalent to "warning" rather than "failure") to avoid polluting quality metrics.
+	// Only a true execution_issue (scope violation, language rule, wrong action) warrants 1-2/5.
+	if ref.TruncationDetected && ref.OutputQuality == "good" && ref.Score < 3 {
+		ref.Score = 3
+	}
+
 	ref.TaskID = task.ID
 	ref.Agent = task.Agent
 	ref.CostUSD = reflResult.CostUSD
@@ -191,9 +223,12 @@ func ParseOutput(output string) (*Result, error) {
 	}
 
 	var parsed struct {
-		Score       int    `json:"score"`
-		Feedback    string `json:"feedback"`
-		Improvement string `json:"improvement"`
+		Score              int    `json:"score"`
+		Feedback           string `json:"feedback"`
+		Improvement        string `json:"improvement"`
+		TruncationDetected bool   `json:"truncation_detected"`
+		OutputQuality      string `json:"output_quality"`
+		ExecutionIssue     bool   `json:"execution_issue"`
 	}
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 		return nil, fmt.Errorf("invalid JSON in reflection: %w", err)
@@ -205,9 +240,12 @@ func ParseOutput(output string) (*Result, error) {
 	}
 
 	return &Result{
-		Score:       parsed.Score,
-		Feedback:    parsed.Feedback,
-		Improvement: parsed.Improvement,
+		Score:              parsed.Score,
+		Feedback:           parsed.Feedback,
+		Improvement:        parsed.Improvement,
+		TruncationDetected: parsed.TruncationDetected,
+		OutputQuality:      parsed.OutputQuality,
+		ExecutionIssue:     parsed.ExecutionIssue,
 	}, nil
 }
 
@@ -252,9 +290,17 @@ func ExtractJSON(s string) string {
 
 // Store persists a reflection result to the database.
 func Store(dbPath string, ref *Result) error {
+	truncDetected := 0
+	if ref.TruncationDetected {
+		truncDetected = 1
+	}
+	execIssue := 0
+	if ref.ExecutionIssue {
+		execIssue = 1
+	}
 	sql := fmt.Sprintf(
-		`INSERT INTO reflections (task_id, role, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec)
-		 VALUES ('%s','%s','%s',%d,'%s','%s',%f,'%s',%d,%d)`,
+		`INSERT INTO reflections (task_id, role, agent, score, feedback, improvement, cost_usd, created_at, estimated_manual_duration_sec, ai_duration_sec, truncation_detected, output_quality, execution_issue)
+		 VALUES ('%s','%s','%s',%d,'%s','%s',%f,'%s',%d,%d,%d,'%s',%d)`,
 		db.Escape(ref.TaskID),
 		db.Escape(ref.Agent), // role == agent intentionally: role is a legacy column kept for schema backward-compat; future divergence (e.g. sub-roles within an agent) can split them
 		db.Escape(ref.Agent),
@@ -265,6 +311,9 @@ func Store(dbPath string, ref *Result) error {
 		db.Escape(ref.CreatedAt),
 		ref.EstimatedManualDurationSec,
 		ref.AIDurationSec,
+		truncDetected,
+		db.Escape(ref.OutputQuality),
+		execIssue,
 	)
 	cmd := exec.Command("sqlite3", dbPath, sql)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -286,7 +335,8 @@ func Query(dbPath, agent string, limit int) ([]Result, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
+		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at,
+		        truncation_detected, output_quality, execution_issue
 		 FROM reflections %s ORDER BY created_at DESC LIMIT %d`,
 		where, limit)
 
@@ -298,13 +348,16 @@ func Query(dbPath, agent string, limit int) ([]Result, error) {
 	var results []Result
 	for _, row := range rows {
 		results = append(results, Result{
-			TaskID:      jsonStr(row["task_id"]),
-			Agent:       jsonStr(row["agent"]),
-			Score:       jsonInt(row["score"]),
-			Feedback:    jsonStr(row["feedback"]),
-			Improvement: jsonStr(row["improvement"]),
-			CostUSD:     jsonFloat(row["cost_usd"]),
-			CreatedAt:   jsonStr(row["created_at"]),
+			TaskID:             jsonStr(row["task_id"]),
+			Agent:              jsonStr(row["agent"]),
+			Score:              jsonInt(row["score"]),
+			Feedback:           jsonStr(row["feedback"]),
+			Improvement:        jsonStr(row["improvement"]),
+			CostUSD:            jsonFloat(row["cost_usd"]),
+			CreatedAt:          jsonStr(row["created_at"]),
+			TruncationDetected: jsonInt(row["truncation_detected"]) != 0,
+			OutputQuality:      jsonStr(row["output_quality"]),
+			ExecutionIssue:     jsonInt(row["execution_issue"]) != 0,
 		})
 	}
 	return results, nil
