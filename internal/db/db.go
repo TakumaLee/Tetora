@@ -125,12 +125,21 @@ func Pragma(dbPath string) error {
 	return nil
 }
 
-// Escape sanitizes a string for safe SQLite interpolation.
-// Handles single quotes, null bytes, and control characters.
+// Escape sanitizes a string for safe interpolation inside a single-quoted
+// SQLite string literal. It removes NULL bytes (which truncate SQL strings)
+// and doubles single quotes ('' is the SQL-standard escape).
+//
+// Backslash (\) is intentionally NOT escaped: SQLite uses SQL-standard string
+// literals, not C-style. Inside '...', a backslash is a literal character and
+// is not an escape introducer, so the injection vectors that exist in MySQL
+// ("\\'") or PostgreSQL E-strings do not apply here.
+//
+// Multi-byte UTF-8 is safe by construction: UTF-8 continuation bytes use the
+// high-bit pattern 10xxxxxx (0x80-0xBF) and can never contain 0x27 (') or
+// 0x00. So a valid UTF-8 sequence cannot smuggle an unescaped quote through
+// this function.
 func Escape(s string) string {
-	// Remove null bytes — these can truncate SQL strings.
 	s = strings.ReplaceAll(s, "\x00", "")
-	// Escape single quotes for SQL.
 	s = strings.ReplaceAll(s, "'", "''")
 	return s
 }

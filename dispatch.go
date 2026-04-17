@@ -3863,7 +3863,14 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 			}()
 		}
 		if shouldExtractSkill(cfg, rootTask, rootResult) {
-			go extractAutoSkill(context.Background(), cfg, rootTask, rootResult)
+			// Derive from parent ctx so process shutdown cancels in-flight LLM calls.
+			// Hard 30s ceiling independent of LLM's internal 15s timeout, to bound
+			// the goroutine lifetime even if the Haiku call hangs past its budget.
+			skillCtx, skillCancel := context.WithTimeout(ctx, 30*time.Second)
+			go func() {
+				defer skillCancel()
+				extractAutoSkill(skillCtx, cfg, rootTask, rootResult)
+			}()
 		}
 	}
 
@@ -4705,6 +4712,21 @@ func appConfigToSkillCfg(cfg *Config) *skill.AppConfig {
 	return &skill.AppConfig{WorkspaceDir: cfg.WorkspaceDir, HistoryDB: cfg.HistoryDB}
 }
 
+// toolUseJSONRe matches the JSON shape `"type":"tool_use"` that Claude API
+// emits for each tool invocation. Tolerates whitespace variants from JSON
+// pretty-printers. Narrower than a bare substring match on "tool_use", which
+// would false-positive on prose output that happens to contain the phrase.
+var toolUseJSONRe = regexp.MustCompile(`"type"\s*:\s*"tool_use"`)
+
+// countToolCalls estimates how many tool invocations occurred during a task by
+// counting JSON tool_use markers in the captured output. Used as a heuristic
+// to decide whether a task is complex enough to be worth extracting as a skill.
+// Providers that don't emit the Claude API JSON format will report 0 — that's
+// acceptable: skill extraction has other triggers (ErrorRecovery, UserCorrection).
+func countToolCalls(output string) int {
+	return len(toolUseJSONRe.FindAllStringIndex(output, -1))
+}
+
 // shouldExtractSkill decides whether post-task auto skill extraction
 // should run for the completed task. Returns false when the task did
 // not succeed or WorkspaceDir is unset; otherwise delegates to
@@ -4714,12 +4736,17 @@ func appConfigToSkillCfg(cfg *Config) *skill.AppConfig {
 //   - UserCorrection == true (agent was wrong; the correction is worth persisting)
 //
 // De-duplicates against existing skills via HistoryDB.
+//
+// Note: ShouldExtractSkill's dedup uses literal-prompt similarity via
+// SuggestSkillsForPrompt, not semantic similarity. Identical workflows with
+// reworded prompts will not dedup — treat "learned" skills as suggestions,
+// not as an already-deduped catalog.
 func shouldExtractSkill(cfg *Config, task Task, result TaskResult) bool {
 	if result.Status != "success" || cfg.WorkspaceDir == "" {
 		return false
 	}
 	signals := skill.TaskSignals{
-		ToolCallCount: strings.Count(result.Output, "tool_use"),
+		ToolCallCount: countToolCalls(result.Output),
 		TaskPrompt:    task.Prompt,
 		AgentRole:     task.Agent,
 	}

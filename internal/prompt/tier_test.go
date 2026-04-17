@@ -90,15 +90,22 @@ func TestSkillExtractionInUserPrompt_ClaudeCode(t *testing.T) {
 	}
 }
 
-// TestSkillExtractionInUserPrompt_CodexCLI verifies codex-cli provider behaves like claude-code.
+// TestSkillExtractionInUserPrompt_CodexCLI verifies codex-cli provider behaves like claude-code:
+// the skill-extraction hint appends to task.Prompt (not SystemPrompt), and the original prompt
+// is preserved as a prefix. Provider name "codex" is mapped to providerType "codex-cli" in tier.go.
 func TestSkillExtractionInUserPrompt_CodexCLI(t *testing.T) {
 	cfg := minimalCfg()
-	task := &dispatch.Task{Prompt: "generate code"}
+	original := "generate code"
+	task := &dispatch.Task{Prompt: original}
 	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("codex"))
 
-	// codex-cli is matched by providerName == "codex" in tier.go
-	// The codex provider type resolves to "codex-cli" via the cfg lookup; without a cfg entry
-	// it won't match the early return, but the assertion still validates the logic path.
-	// This test primarily guards against regression if codex matching changes.
-	_ = task
+	if !strings.Contains(task.Prompt, "## Post-Task Skill Extraction") {
+		t.Error("codex-cli dispatch: task.Prompt missing Post-Task Skill Extraction section")
+	}
+	if !strings.HasPrefix(task.Prompt, original) {
+		t.Error("codex-cli dispatch: original prompt must be preserved at start")
+	}
+	if strings.Contains(task.SystemPrompt, "Post-Task Skill Extraction") {
+		t.Error("codex-cli dispatch: skill extraction must not appear in SystemPrompt")
+	}
 }
