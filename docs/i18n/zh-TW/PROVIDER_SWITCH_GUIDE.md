@@ -228,24 +228,6 @@ tetora provider set qwen auto
 
 ---
 
-## API 整合
-
-除了 CLI，還可以通過 API 設置 Active Provider：
-
-```bash
-# 通過 HTTP API
-curl -X POST http://localhost:8080/api/provider/active \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"providerName": "qwen", "model": "auto"}'
-
-# 查詢當前狀態
-curl http://localhost:8080/api/provider/active \
-  -H "Authorization: Bearer <token>"
-```
-
----
-
 ## 檔案位置
 
 Active Provider 狀態儲存在：
