@@ -636,13 +636,13 @@ func (d *Dispatcher) scan() {
 	dispatched := 0
 
 	for _, t := range tasks {
-		// Guard: a todo task with completed_at already set was previously completed and
-		// incorrectly reset (e.g., by resetOrphanedDoing). Restore to done instead of
-		// re-dispatching to prevent redundant execution of already-merged work.
+		// resetOrphanedDoing can incorrectly reset completed tasks; skip dispatch and restore.
 		if t.CompletedAt != "" && t.CompletedAt != "<nil>" {
 			log.Warn("taskboard dispatch: todo task has completed_at set, restoring to done to prevent redundant dispatch",
 				"id", t.ID, "title", t.Title, "completedAt", t.CompletedAt)
-			if _, err := d.engine.MoveTask(t.ID, "done"); err == nil {
+			if _, err := d.engine.MoveTask(t.ID, "done"); err != nil {
+				log.Error("scan: failed to restore completed task to done", "id", t.ID, "error", err)
+			} else {
 				d.engine.AddComment(t.ID, "system",
 					"[auto-fix] Task had completed_at set but was in todo state. Restored to done to prevent redundant dispatch.")
 			}
@@ -1217,8 +1217,9 @@ func (d *Dispatcher) scanReviews() {
 }
 
 // approveReviewTask marks a review task as done and merges its worktree if preserved.
-// Uses CAS (SELECT → UPDATE WHERE status='review' → verify) to prevent duplicate
-// worktree merges and downstream promotions if called more than once for the same task.
+// Same-task concurrent calls are prevented upstream by reviewInFlight.LoadOrStore, so
+// the UPDATE WHERE status='review' + verify pattern here guards restart-safety only
+// (daemon restarts can replay scanReviews against an already-done task).
 func (d *Dispatcher) approveReviewTask(t TaskBoard, reviewer string, costUSD float64) {
 	// Pre-check: skip if not in review state (prevents duplicate side effects on restart).
 	preRows, err := db.Query(d.engine.dbPath, fmt.Sprintf(
@@ -1234,8 +1235,8 @@ func (d *Dispatcher) approveReviewTask(t TaskBoard, reviewer string, costUSD flo
 	}
 
 	nowISO := time.Now().UTC().Format(time.RFC3339)
-	// CAS: only transition from review→done to prevent double cost accumulation and
-	// duplicate worktree merges when called concurrently or across daemon restarts.
+	// Only transition from review→done; concurrent calls for the same task cannot
+	// reach here (reviewInFlight.LoadOrStore), so this is a restart-safety guard.
 	sql := fmt.Sprintf(
 		`UPDATE tasks SET status = 'done', completed_at = '%s', updated_at = '%s', cost_usd = cost_usd + %.6f WHERE id = '%s' AND status = 'review'`,
 		db.Escape(nowISO), db.Escape(nowISO), costUSD, db.Escape(t.ID),
@@ -1245,7 +1246,8 @@ func (d *Dispatcher) approveReviewTask(t TaskBoard, reviewer string, costUSD flo
 		return
 	}
 
-	// Verify CAS succeeded (sqlite3 CLI does not expose RowsAffected).
+	// Verify the UPDATE applied (sqlite3 CLI does not expose RowsAffected).
+	// A status other than 'done' here means a concurrent restart raced us, skip side effects.
 	verifyRows, verifyErr := db.Query(d.engine.dbPath, fmt.Sprintf(
 		`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
 	if verifyErr != nil || len(verifyRows) == 0 {

@@ -226,11 +226,39 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 	baseBranch := DetectDefaultBranch(repoDir)
 
 	// Create worktree: git worktree add -b {branch} {path} {base}
-	out, err := exec.Command("git", "-C", repoDir,
-		"worktree", "add", "-b", branch, wtDir, baseBranch).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("worktree: git worktree add failed: %s: %w",
+	// Retry up to 3 times with exponential backoff to handle transient git failures.
+	const maxCreateAttempts = 3
+	backoffs := []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, time.Second}
+	var lastCreateErr error
+	for attempt := 1; attempt <= maxCreateAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(backoffs[attempt-2])
+		}
+		out, err := exec.Command("git", "-C", repoDir,
+			"worktree", "add", "-b", branch, wtDir, baseBranch).CombinedOutput()
+		if err == nil {
+			lastCreateErr = nil
+			break
+		}
+		lastCreateErr = fmt.Errorf("worktree: git worktree add failed: %s: %w",
 			strings.TrimSpace(string(out)), err)
+
+		// Capture diagnostics on failure.
+		gitVerOut, _ := exec.Command("git", "version").Output()
+		repoStatusOut, _ := exec.Command("git", "-C", repoDir, "status", "--short").Output()
+		log.Warn("worktree: git worktree add failed, capturing diagnostics",
+			"attempt", attempt,
+			"maxAttempts", maxCreateAttempts,
+			"error", strings.TrimSpace(string(out)),
+			"gitVersion", strings.TrimSpace(string(gitVerOut)),
+			"repoStatus", strings.TrimSpace(string(repoStatusOut)),
+			"repoDir", repoDir,
+			"wtDir", wtDir,
+			"branch", branch,
+		)
+	}
+	if lastCreateErr != nil {
+		return "", lastCreateErr
 	}
 
 	// Write branch metadata so Remove/Merge can find the branch name.
