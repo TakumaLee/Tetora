@@ -718,7 +718,7 @@ func (ce *Engine) tick(ctx context.Context) {
 									Source:     "cron",
 									StartedAt:  ts,
 									FinishedAt: ts,
-									Status:     "skipped_concurrent_limit",
+									Status:     history.StatusSkippedConcurrentLimit,
 									Error:      fmt.Sprintf("already %d instance(s) running (max %d)", running, maxR),
 								})
 							}()
@@ -1108,7 +1108,7 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 	j.lastRun = time.Now()
 	j.lastCost = result.CostUSD
 
-	if result.Status == "success" || result.Status == "skipped_concurrent_limit" {
+	if result.Status == "success" || result.Status == history.StatusSkippedConcurrentLimit {
 		j.errors = 0
 		j.lastErr = ""
 	} else {

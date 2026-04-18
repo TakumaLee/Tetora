@@ -16,6 +16,7 @@ import (
 	"tetora/internal/cron"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
+	"tetora/internal/history"
 	"tetora/internal/log"
 	"tetora/internal/messaging/telegram"
 )
@@ -235,7 +236,8 @@ func (e *Engine) checkThresholdRules(ctx context.Context) {
 		threshold := rule.Trigger.Value
 		if rule.Trigger.DynamicFormula != "" {
 			if dyn, err := e.getDynamicThreshold(rule.Trigger.DynamicFormula); err != nil {
-				log.Debug("proactive dynamic threshold error", "rule", rule.Name, "formula", rule.Trigger.DynamicFormula, "error", err)
+				// Warn so operators see silently-skipped rules without debug logging.
+				log.Warn("proactive dynamic threshold error — rule skipped", "rule", rule.Name, "formula", rule.Trigger.DynamicFormula, "error", err)
 				continue
 			} else {
 				threshold = dyn
@@ -493,7 +495,7 @@ func (e *Engine) getFailedTasksToday() (float64, error) {
 
 	today := time.Now().Format("2006-01-02")
 	// Blacklist approach: exclude success and skip-variants so new failure status types are caught automatically.
-	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status NOT IN ('success', 'skipped_concurrent_limit')", db.Escape(today))
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status NOT IN ('success', '%s')", db.Escape(today), history.StatusSkippedConcurrentLimit)
 
 	rows, err := db.Query(e.cfg.HistoryDB, sql)
 	if err != nil {
