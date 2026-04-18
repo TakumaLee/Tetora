@@ -29,11 +29,16 @@ func (p *ClaudeProvider) Name() string { return "claude" }
 func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, error) {
 	args := BuildClaudeArgs(req, req.OnEvent != nil)
 
+	// cmdCtx wraps ctx with a child cancel so the RSS guard can kill the subprocess
+	// independently of the parent timeout/cancel.
+	cmdCtx, cmdCancel := context.WithCancel(ctx)
+	defer cmdCancel()
+
 	var cmd *exec.Cmd
 	if p.shouldUseDocker(req) {
-		cmd = p.Docker.BuildCmd(ctx, p.BinaryPath, req.Workdir, args, req.AddDirs, req.MCPPath)
+		cmd = p.Docker.BuildCmd(cmdCtx, p.BinaryPath, req.Workdir, args, req.AddDirs, req.MCPPath)
 	} else {
-		cmd = exec.CommandContext(ctx, p.BinaryPath, args...)
+		cmd = exec.CommandContext(cmdCtx, p.BinaryPath, args...)
 		cmd.Dir = req.Workdir
 		// Filter out Claude Code session env vars so Claude Code doesn't refuse to start
 		// when Tetora is invoked from within a Claude Code session.
@@ -61,16 +66,33 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 
 	// Streaming mode.
 	if req.OnEvent != nil {
-		return p.executeStreaming(ctx, cmd, req)
+		return p.executeStreaming(ctx, cmdCancel, cmd, req)
 	}
 
-	// Non-streaming mode.
+	// Non-streaming mode. Use Start()+Wait() instead of Run() so we can attach
+	// the RSS guard before blocking.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start: %w", err)
+	}
+
+	stopGuard := StartRSSGuard(
+		cmd.Process.Pid,
+		req.MaxRSSMB,
+		5*time.Second,
+		cmdCancel,
+		func(rssMB int) {
+			log.Error("dispatch: RSS guard triggered, killing subprocess",
+				"sessionId", req.SessionID, "limitMB", req.MaxRSSMB, "rssMB", rssMB)
+		},
+	)
+	defer stopGuard()
+
 	start := time.Now()
-	runErr := cmd.Run()
+	runErr := cmd.Wait()
 	elapsed := time.Since(start)
 
 	exitCode := 0
@@ -120,7 +142,8 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 }
 
 // executeStreaming runs the command and parses stream-json output in real time.
-func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, req Request) (*Result, error) {
+// cmdCancel is the child-context cancel used to bind the RSS guard.
+func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmdCancel context.CancelFunc, cmd *exec.Cmd, req Request) (*Result, error) {
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
@@ -132,6 +155,18 @@ func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmd *exec.Cmd, re
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start: %w", err)
 	}
+
+	stopGuard := StartRSSGuard(
+		cmd.Process.Pid,
+		req.MaxRSSMB,
+		5*time.Second,
+		cmdCancel,
+		func(rssMB int) {
+			log.Error("dispatch: RSS guard triggered, killing subprocess",
+				"sessionId", req.SessionID, "limitMB", req.MaxRSSMB, "rssMB", rssMB)
+		},
+	)
+	defer stopGuard()
 
 	var resultMsg *claudeStreamMsg
 	toolNameByID := make(map[string]string)

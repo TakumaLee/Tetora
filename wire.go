@@ -11473,6 +11473,7 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 		AllowedTools:   task.AllowedTools,
 		OnEvent:        onEvent,
 		AgentName:      agentName,
+		MaxRSSMB:       cfg.TaskBoard.AutoDispatch.MaxRSSMBOrDefault(),
 	}
 
 	if task.MCP != "" {

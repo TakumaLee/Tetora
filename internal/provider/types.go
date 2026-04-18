@@ -52,6 +52,9 @@ type Request struct {
 	// AgentName is the Tetora agent name (e.g. "ruri") for worker display.
 	AgentName string
 
+	// MaxRSSMB is the RSS hard-limit for the subprocess (MB). 0 = disabled.
+	MaxRSSMB int
+
 	// Docker sandbox override (nil=use config default).
 	Docker *bool
 

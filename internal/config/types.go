@@ -1126,6 +1126,9 @@ type TaskBoardDispatchConfig struct {
 	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
 	TriageBudget          float64               `json:"triageBudget,omitempty"`
 	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
+	// MaxRSSMB is the RSS hard-limit for subprocess (MB). Exceeding it cancels the context → SIGKILL.
+	// 0 = disabled. Default 2048 (2 GB).
+	MaxRSSMB int `json:"maxRssMb,omitempty"`
 }
 
 func (c TaskBoardDispatchConfig) MaxTasksPerAgentOrDefault() int {
@@ -1140,6 +1143,13 @@ func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
 		return c.TriageBudget
 	}
 	return 0.05
+}
+
+func (c TaskBoardDispatchConfig) MaxRSSMBOrDefault() int {
+	if c.MaxRSSMB > 0 {
+		return c.MaxRSSMB
+	}
+	return 2048
 }
 
 type WorkflowRoutingConfig struct {
