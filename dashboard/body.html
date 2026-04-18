@@ -45,6 +45,9 @@
     <button class="nav-item active" id="tab-dashboard" onclick="switchTab('dashboard')">
       <span class="nav-icon">&#x1F4CA;</span> Dashboard<span class="hg-nav-badge" id="hg-nav-badge" style="display:none">0</span>
     </button>
+    <button class="nav-item" id="tab-war-room" onclick="switchTab('war-room')">
+      <span class="nav-icon">&#x1F5FA;</span> 戰情室
+    </button>
     <button class="nav-item" id="tab-chat" onclick="switchTab('chat')">
       <span class="nav-icon">&#x1F4AC;</span> Chat
     </button>
@@ -1381,6 +1384,706 @@
 
     </div>
   </div><!-- /settings-content -->
+  <!-- ===== War Room ===== -->
+  <div id="war-room-content" style="display:none;padding:24px;box-sizing:border-box;min-height:100%">
+    <style>
+      /* ── War Room: extra theme tokens (mapped to existing vars) ── */
+      #war-room-content {
+        --wr-tile-bg: rgba(255,255,255,0.03);
+        --wr-tile-border: rgba(255,255,255,0.05);
+        --wr-red-bg: rgba(239,68,68,0.10);
+        --wr-red-text: var(--red);
+        --wr-red-border: var(--red);
+        --wr-yellow-bg: rgba(251,191,36,0.08);
+        --wr-expand-bg: rgba(255,255,255,0.03);
+        --wr-expand-border: rgba(255,255,255,0.06);
+        --wr-intel-bg: rgba(255,255,255,0.03);
+        --wr-intel-border: rgba(255,255,255,0.06);
+        --wr-intel-input-bg: rgba(255,255,255,0.04);
+        --wr-intel-input-border: rgba(255,255,255,0.08);
+        --wr-card-hover-border: rgba(255,255,255,0.16);
+        --wr-card-hover-shadow: 0 4px 24px rgba(0,0,0,0.4);
+        --wr-btn-sec-bg: rgba(255,255,255,0.06);
+        --wr-btn-sec-hover: rgba(255,255,255,0.10);
+        --wr-scrollbar: rgba(255,255,255,0.10);
+      }
+      body.mode-light #war-room-content {
+        --wr-tile-bg: rgba(0,0,0,0.025);
+        --wr-tile-border: rgba(0,0,0,0.06);
+        --wr-red-bg: rgba(239,68,68,0.08);
+        --wr-red-text: #c0392b;
+        --wr-red-border: #e53e3e;
+        --wr-yellow-bg: rgba(245,158,11,0.08);
+        --wr-expand-bg: rgba(0,0,0,0.025);
+        --wr-expand-border: rgba(0,0,0,0.07);
+        --wr-intel-bg: rgba(0,0,0,0.025);
+        --wr-intel-border: rgba(0,0,0,0.06);
+        --wr-intel-input-bg: rgba(0,0,0,0.03);
+        --wr-intel-input-border: rgba(0,0,0,0.1);
+        --wr-card-hover-border: #c5c5c7;
+        --wr-card-hover-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        --wr-btn-sec-bg: rgba(0,0,0,0.04);
+        --wr-btn-sec-hover: rgba(0,0,0,0.08);
+        --wr-scrollbar: rgba(0,0,0,0.15);
+      }
+
+      /* ── Header ── */
+      .wr-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .wr-title {
+        font-size: 22px;
+        font-weight: 700;
+        font-family: var(--font-heading);
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .wr-meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .wr-refresh-btn {
+        padding: 7px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+        font-family: var(--font-heading);
+        transition: background 0.15s;
+      }
+      .wr-refresh-btn:hover { background: rgba(128,128,255,0.1); }
+
+      /* ── Grid ── */
+      .wr-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 12px;
+      }
+
+      /* ── Base card ── */
+      .wr-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        cursor: pointer;
+        transition: border-color 0.15s, box-shadow 0.15s;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        position: relative;
+      }
+      .wr-card:hover {
+        border-color: var(--wr-card-hover-border);
+        box-shadow: var(--wr-card-hover-shadow);
+      }
+      .wr-card.is-stale { opacity: 0.55; }
+
+      /* ── Card header row ── */
+      .wr-card-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .wr-status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .wr-status-dot.pulse-red { animation: wr-pulse-red 2s infinite; }
+      @keyframes wr-pulse-red { 0%,100%{opacity:1} 50%{opacity:0.35} }
+      .wr-card-title {
+        font-size: 13px;
+        font-weight: 600;
+        font-family: var(--font-heading);
+        flex: 1;
+        color: var(--text);
+      }
+      .wr-type-badge {
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 5px;
+      }
+      .wr-collab-badge {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-radius: 4px;
+        padding: 2px 7px;
+      }
+      .wr-collab-badge.cat-company     { background: rgba(96,165,250,0.12); color: #60a5fa; }
+      .wr-collab-badge.cat-freelance   { background: rgba(52,211,153,0.12); color: #34d399; }
+      .wr-collab-badge.cat-collaboration { background: rgba(167,139,250,0.12); color: #a78bfa; }
+
+      /* ── Metrics row (card) ── */
+      .wr-metrics-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .wr-metric {
+        background: var(--wr-tile-bg);
+        border: 1px solid var(--wr-tile-border);
+        border-radius: 6px;
+        padding: 5px 6px;
+        text-align: center;
+      }
+      .wr-metric-value {
+        font-size: 12px;
+        font-weight: 700;
+        font-family: var(--font-mono);
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .wr-metric-value.warn   { color: var(--red); }
+      .wr-metric-value.ok     { color: var(--green); }
+      .wr-metric-value.neutral{ color: var(--muted); }
+      .wr-metric-value.caution{ color: var(--yellow); }
+      .wr-metric-label {
+        font-size: 9px;
+        color: var(--muted);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ── Summary strip ── */
+      .wr-summary-strip {
+        font-size: 11px;
+        color: var(--wr-red-text);
+        line-height: 1.45;
+        margin-bottom: 10px;
+        padding: 5px 8px;
+        background: var(--wr-red-bg);
+        border-left: 2px solid var(--wr-red-border);
+        border-radius: 0 4px 4px 0;
+        font-weight: 500;
+      }
+      .wr-summary-strip.yellow {
+        color: var(--yellow);
+        background: var(--wr-yellow-bg);
+        border-left-color: var(--yellow);
+      }
+      /* plain summary (green / no status strip) */
+      .wr-summary-plain {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        margin-bottom: 8px;
+      }
+
+      /* ── Blockers ── */
+      .wr-blockers {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-bottom: 8px;
+      }
+      .wr-blocker-item {
+        font-size: 11px;
+        color: var(--text);
+        display: flex;
+        gap: 5px;
+        line-height: 1.4;
+      }
+      .wr-blocker-item::before { content: '·'; color: var(--muted); flex-shrink: 0; }
+
+      /* ── Intel hint ── */
+      .wr-intel-hint {
+        font-size: 10px;
+        color: var(--accent);
+        margin-top: 2px;
+      }
+
+      /* ── Action bar (card) ── */
+      .wr-action-bar {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 10px;
+      }
+      .wr-btn {
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: var(--font-heading);
+        font-size: 11px;
+        font-weight: 500;
+        padding: 5px 10px;
+        transition: opacity 0.12s, background 0.12s;
+        white-space: nowrap;
+      }
+      .wr-btn:hover { opacity: 0.85; }
+      .wr-btn-primary {
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        padding: 5px 11px;
+        font-weight: 600;
+      }
+      .wr-btn-sec {
+        background: var(--wr-btn-sec-bg);
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .wr-btn-sec:hover { color: var(--text); background: var(--wr-btn-sec-hover); }
+
+      /* ── Card footer ── */
+      .wr-card-footer {
+        margin-top: 10px;
+        font-size: 10px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .wr-edit-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 13px;
+        padding: 2px 5px;
+        border-radius: 5px;
+        color: var(--muted);
+        transition: background 0.15s;
+      }
+      .wr-edit-btn:hover { background: rgba(128,128,255,0.12); color: var(--accent); }
+
+      /* ── Inline edit form (kept for non-auto fronts) ── */
+      .wr-edit-form {
+        border-top: 1px solid var(--border);
+        padding: 12px 0 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        background: transparent;
+      }
+      .wr-edit-form select,
+      .wr-edit-form input[type="text"] {
+        width: 100%;
+        padding: 6px 10px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-size: 12px;
+        font-family: var(--font-body, inherit);
+        box-sizing: border-box;
+      }
+      .wr-edit-form label { font-size: 11px; color: var(--muted); margin-bottom: 2px; display: block; }
+      .wr-save-btn {
+        align-self: flex-end;
+        padding: 5px 14px;
+        border-radius: 7px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: var(--font-heading);
+        transition: opacity 0.15s;
+      }
+      .wr-save-btn:hover { opacity: 0.85; }
+
+      /* ── Stale / override badges ── */
+      .wr-stale-badge {
+        font-size: 10px;
+        color: #9ca3af;
+        background: rgba(156,163,175,0.15);
+        border: 1px solid rgba(156,163,175,0.3);
+        border-radius: 20px;
+        padding: 2px 7px;
+        white-space: nowrap;
+      }
+      .wr-override-badge {
+        font-size: 10px;
+        color: #60a5fa;
+        background: rgba(96,165,250,0.12);
+        border: 1px solid rgba(96,165,250,0.3);
+        border-radius: 20px;
+        padding: 2px 7px;
+        white-space: nowrap;
+      }
+      .wr-dep-warning {
+        border-top: 1px solid rgba(245,158,11,0.35);
+        background: rgba(245,158,11,0.08);
+        color: #f59e0b;
+        font-size: 11px;
+        padding: 5px 0 0;
+        margin-top: 6px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .wr-empty {
+        grid-column: 1 / -1;
+        text-align: center;
+        color: var(--muted);
+        padding: 60px 20px;
+        font-size: 14px;
+      }
+      .wr-error {
+        grid-column: 1 / -1;
+        text-align: center;
+        color: var(--red);
+        padding: 40px 20px;
+        font-size: 14px;
+      }
+
+      /* ── War Room Modal ── */
+      .wr-modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.72);
+        backdrop-filter: blur(4px);
+        z-index: 300;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .wr-modal-overlay.open { display: flex; }
+      .wr-modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        width: 100%;
+        max-width: 880px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+      }
+      .wr-modal-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .wr-modal-title {
+        font-size: 15px;
+        font-weight: 700;
+        font-family: var(--font-heading);
+        flex: 1;
+        color: var(--text);
+      }
+      .wr-modal-close {
+        background: none;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+        padding: 4px;
+        border-radius: 4px;
+        transition: color 0.12s;
+      }
+      .wr-modal-close:hover { color: var(--text); }
+
+      /* Modal action row */
+      .wr-modal-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 20px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+
+      /* Modal body: main + sidebar */
+      .wr-modal-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .wr-modal-main {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 20px;
+      }
+      .wr-modal-main::-webkit-scrollbar { width: 4px; }
+      .wr-modal-main::-webkit-scrollbar-track { background: transparent; }
+      .wr-modal-main::-webkit-scrollbar-thumb { background: var(--wr-scrollbar); border-radius: 2px; }
+
+      /* Modal metrics (large) */
+      .wr-modal-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      .wr-modal-metric {
+        background: var(--wr-tile-bg);
+        border: 1px solid var(--wr-tile-border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        text-align: center;
+      }
+      .wr-modal-metric-value {
+        font-size: 18px;
+        font-weight: 800;
+        font-family: var(--font-mono);
+        color: var(--text);
+      }
+      .wr-modal-metric-value.warn    { color: var(--red); }
+      .wr-modal-metric-value.ok      { color: var(--green); }
+      .wr-modal-metric-value.neutral { color: var(--muted); }
+      .wr-modal-metric-value.caution { color: var(--yellow); }
+      .wr-modal-metric-label {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 3px;
+      }
+
+      /* Modal summary strip */
+      .wr-modal-strip {
+        font-size: 12px;
+        line-height: 1.45;
+        margin-bottom: 14px;
+        padding: 7px 10px;
+        border-radius: 0 4px 4px 0;
+        font-weight: 500;
+      }
+      .wr-modal-strip.red    { color: var(--wr-red-text); background: var(--wr-red-bg); border-left: 2px solid var(--wr-red-border); }
+      .wr-modal-strip.yellow { color: var(--yellow); background: var(--wr-yellow-bg); border-left: 2px solid var(--yellow); }
+
+      /* Modal sections */
+      .wr-section { margin-bottom: 14px; }
+      .wr-section-title {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        font-family: var(--font-heading);
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .wr-flag {
+        font-size: 9px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: none;
+      }
+      .wr-flag-red    { background: rgba(239,68,68,0.15); color: var(--red); }
+      .wr-flag-yellow { background: rgba(251,191,36,0.12); color: var(--yellow); }
+      .wr-bullet-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .wr-bullet-list li {
+        font-size: 12px;
+        color: var(--text);
+        line-height: 1.45;
+        display: flex;
+        gap: 6px;
+      }
+      .wr-bullet-list li::before { content: '·'; color: var(--muted); flex-shrink: 0; }
+
+      /* Collapsible md viewer */
+      .wr-expand-section {
+        margin-top: 12px;
+        border: 1px solid var(--wr-expand-border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .wr-expand-toggle {
+        width: 100%;
+        background: var(--wr-expand-bg);
+        border: none;
+        color: var(--muted);
+        font-family: var(--font-heading);
+        font-size: 11px;
+        padding: 8px 12px;
+        cursor: pointer;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 0.12s;
+      }
+      .wr-expand-toggle:hover { color: var(--text); }
+      .wr-expand-content {
+        display: none;
+        padding: 12px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--muted);
+        white-space: pre-wrap;
+        line-height: 1.55;
+        max-height: 320px;
+        overflow-y: auto;
+        border-top: 1px solid var(--wr-expand-border);
+      }
+      .wr-expand-content.open { display: block; }
+
+      /* ── Intel sidebar ── */
+      .wr-modal-sidebar {
+        width: 300px;
+        border-left: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      .wr-sidebar-top {
+        padding: 14px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      .wr-sidebar-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        font-family: var(--font-heading);
+        margin-bottom: 8px;
+      }
+      .wr-intel-textarea {
+        width: 100%;
+        background: var(--wr-intel-input-bg);
+        border: 1px solid var(--wr-intel-input-border);
+        border-radius: 6px;
+        color: var(--text);
+        font-family: var(--font-body, inherit);
+        font-size: 11px;
+        padding: 8px;
+        resize: vertical;
+        min-height: 108px;
+        transition: border-color 0.12s;
+        box-sizing: border-box;
+      }
+      .wr-intel-textarea:focus { outline: none; border-color: var(--accent); }
+      .wr-intel-textarea::placeholder { color: var(--muted); }
+      .wr-intel-submit {
+        margin-top: 6px;
+        width: 100%;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        font-family: var(--font-heading);
+        padding: 6px;
+        cursor: pointer;
+        transition: opacity 0.12s;
+      }
+      .wr-intel-submit:hover { opacity: 0.85; }
+      .wr-intel-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .wr-intel-list::-webkit-scrollbar { width: 4px; }
+      .wr-intel-list::-webkit-scrollbar-track { background: transparent; }
+      .wr-intel-list::-webkit-scrollbar-thumb { background: var(--wr-scrollbar); border-radius: 2px; }
+      .wr-intel-entry {
+        background: var(--wr-intel-bg);
+        border: 1px solid var(--wr-intel-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+      }
+      .wr-intel-date {
+        font-size: 9px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        margin-bottom: 3px;
+      }
+      .wr-intel-text {
+        font-size: 11px;
+        color: var(--text);
+        line-height: 1.4;
+      }
+      .wr-intel-placeholder {
+        font-size: 11px;
+        color: var(--muted);
+        text-align: center;
+        padding: 20px 0;
+      }
+    </style>
+
+    <div class="wr-header">
+      <div>
+        <div class="wr-title">&#x1F5FA; 戰情室</div>
+        <div class="wr-meta" id="wr-last-updated">讀取中...</div>
+      </div>
+      <button class="wr-refresh-btn" onclick="loadWarRoom()">&#x21BB; 手動刷新</button>
+    </div>
+
+    <div class="wr-grid" id="wr-grid">
+      <div class="wr-empty">讀取中...</div>
+    </div>
+  </div><!-- /war-room-content -->
+
+  <!-- War Room Detail Modal -->
+  <div class="wr-modal-overlay" id="wr-modal" role="dialog" aria-modal="true" onclick="if(event.target===this)closeWrModal()">
+    <div class="wr-modal" id="wr-modal-panel">
+      <div class="wr-modal-header">
+        <div class="wr-status-dot" id="wr-modal-dot"></div>
+        <div class="wr-modal-title" id="wr-modal-title">—</div>
+        <div class="wr-type-badge" id="wr-modal-type-badge"></div>
+        <button class="wr-modal-close" onclick="closeWrModal()" aria-label="關閉">&#x2715;</button>
+      </div>
+      <div class="wr-modal-actions" id="wr-modal-actions">
+        <button class="wr-btn wr-btn-primary" id="wr-modal-add-intel-btn">&#x1F4E5; Add Intel</button>
+        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F504; Refresh</button>
+        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F4AC; Ask Claude</button>
+        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x2699;&#xFE0F; Dispatch</button>
+      </div>
+      <div class="wr-modal-body">
+        <div class="wr-modal-main" id="wr-modal-main">
+          <div style="color:var(--muted);font-size:13px">讀取中...</div>
+        </div>
+        <div class="wr-modal-sidebar">
+          <div class="wr-sidebar-top">
+            <div class="wr-sidebar-label">&#x1F4E5; Intel 累積</div>
+            <textarea class="wr-intel-textarea" id="wr-intel-input" rows="6" placeholder="貼上文章、備註、觀察…"></textarea>
+            <button class="wr-intel-submit" id="wr-intel-submit-btn">提交 Intel</button>
+          </div>
+          <div class="wr-intel-list" id="wr-intel-list">
+            <div class="wr-intel-placeholder">尚無 Intel 記錄</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Provider Add Modal -->
   <div class="modal-overlay" id="provider-modal" style="display:none" onclick="if(event.target===this)closeProviderModal()">

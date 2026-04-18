@@ -265,6 +265,9 @@ func (db *DiscordBot) handleEvent(payload discord.GatewayPayload) {
 			db.sessionID = ready.SessionID
 			log.Info("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
 
+			// Register /wr slash command on connect.
+			go db.registerWrSlashCommand(db.botUserID)
+
 			// P14.5: Auto-join voice channels if configured
 			if db.cfg.Discord.Voice.Enabled && len(db.cfg.Discord.Voice.AutoJoin) > 0 {
 				go db.voice.AutoJoinChannels()
@@ -3574,15 +3577,10 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 		return
 
 	case discord.InteractionTypeApplicationCmd:
-		// Application commands — respond with a basic message for now.
 		log.InfoCtx(ctx, "discord application command received")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(discord.InteractionResponse{
-			Type: discord.InteractionResponseMessage,
-			Data: &discord.InteractionResponseData{
-				Content: "Command received. Use the Tetora dashboard for full functionality.",
-			},
-		})
+		resp := db.handleWrSlashCommand(&interaction)
+		json.NewEncoder(w).Encode(resp)
 		return
 
 	default:
@@ -3905,6 +3903,10 @@ func (db *DiscordBot) handleGatewayInteraction(interaction *discord.Interaction)
 
 	case discord.InteractionTypeModalSubmit:
 		resp := db.handleGatewayModal(ctx, interaction)
+		db.respondToInteraction(interaction, resp)
+
+	case discord.InteractionTypeApplicationCmd:
+		resp := db.handleWrSlashCommand(interaction)
 		db.respondToInteraction(interaction, resp)
 	}
 }

@@ -345,6 +345,14 @@ func (c *Client) SendEmbedWithComponents(channelID string, embed Embed, componen
 	})
 }
 
+// RegisterGlobalCommand registers (or upserts) a single global application command.
+func (c *Client) RegisterGlobalCommand(appID string, cmd ApplicationCommand) error {
+	_, err := c.Request("POST",
+		fmt.Sprintf("/applications/%s/commands", appID),
+		cmd)
+	return err
+}
+
 // --- Utility Functions ---
 
 // IsMentioned checks if the given bot user ID is in the mentions list.

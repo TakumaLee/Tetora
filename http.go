@@ -2218,6 +2218,9 @@ func startHTTPServer(s *Server) *http.Server {
 	httpapi.RegisterFamilyRoutes(mux, s.app.Family, func() string { return s.Cfg().HistoryDB })
 	httpapi.RegisterContactsRoutes(mux, s.app.Contacts, func() string { return s.Cfg().HistoryDB })
 	httpapi.RegisterHabitsRoutes(mux, s.app.Habits)
+	httpapi.RegisterWarRoomRoutes(mux, httpapi.WarRoomDeps{
+		WorkspaceDir: func() string { return s.Cfg().WorkspaceDir },
+	})
 	httpapi.RegisterProjectRoutes(mux, httpapi.ProjectsDeps{
 		ListProjects: func(status string) (any, error) {
 			projects, err := listProjects(cfg.HistoryDB, status)
