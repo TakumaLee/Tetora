@@ -840,6 +840,17 @@ func (ce *Engine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 }
 
 func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
+	// Outer panic fence: declared first → runs LAST (defers are LIFO). Catches
+	// panics from both the job body and the cleanup defer below, so a crash
+	// inside ce.mu.Lock() / NextRunAfter can't escape the goroutine.
+	defer func() {
+		if r := recover(); r != nil {
+			log.ErrorCtx(ctx, "cron runJob panic recovered",
+				"jobId", j.ID, "name", j.Name, "recover", fmt.Sprintf("%v", r))
+		}
+	}()
+	// Cleanup: declared second → runs FIRST on unwind. If it panics, the outer
+	// fence catches it instead of crashing the daemon.
 	defer func() {
 		ce.mu.Lock()
 		j.runCount--
@@ -1097,7 +1108,7 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 	j.lastRun = time.Now()
 	j.lastCost = result.CostUSD
 
-	if result.Status == "success" {
+	if result.Status == "success" || result.Status == "skipped_concurrent_limit" {
 		j.errors = 0
 		j.lastErr = ""
 	} else {
@@ -1562,7 +1573,7 @@ func (ce *Engine) saveToFileLocked() error {
 func (ce *Engine) StartupReplay(ctx context.Context) {
 	hours := ce.cfg.CronReplayHours
 	if hours <= 0 {
-		hours = 2
+		hours = 4
 	}
 	if ce.cfg.HistoryDB == "" {
 		return

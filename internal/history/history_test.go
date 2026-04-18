@@ -58,12 +58,13 @@ func TestQueryRecentFails_ReturnsFailStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryRecentFails: %v", err)
 	}
-	if len(runs) != 3 {
-		t.Errorf("got %d runs, want 3", len(runs))
+	// skipped_concurrent_limit and success are both excluded; only error + timeout remain.
+	if len(runs) != 2 {
+		t.Errorf("got %d runs, want 2", len(runs))
 	}
 	for _, r := range runs {
-		if r.Status == "success" {
-			t.Errorf("unexpected success run in results: %+v", r)
+		if r.Status == "success" || r.Status == "skipped_concurrent_limit" {
+			t.Errorf("unexpected status %q in results: %+v", r.Status, r)
 		}
 	}
 }
@@ -210,6 +211,53 @@ func TestQueryConsecutiveFails_StreakBrokenBySuccess(t *testing.T) {
 	}
 }
 
+func TestQueryConsecutiveFails_SkippedNotCounted(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := mustInitDB(t)
+
+	// 3 consecutive skipped_concurrent_limit — must NOT trigger consecutive-fail alert.
+	// This was the root cause of the original bug.
+	for i := 0; i < 3; i++ {
+		insertRun(t, dbPath, baseRun("job-skipped", "Skipped", "skipped_concurrent_limit", i+1))
+	}
+
+	results, err := QueryConsecutiveFails(dbPath, 3)
+	if err != nil {
+		t.Fatalf("QueryConsecutiveFails: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0: skipped_concurrent_limit must not count as failure", len(results))
+	}
+}
+
+func TestQueryConsecutiveFails_RealErrorsStillDetected(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := mustInitDB(t)
+
+	// Contrast: 3 consecutive real errors MUST trigger.
+	for i := 0; i < 3; i++ {
+		insertRun(t, dbPath, baseRun("job-real-err", "RealErr", "error", i+1))
+	}
+	// Same job with skipped_concurrent_limit in parallel — skipped must not affect streak.
+	for i := 0; i < 3; i++ {
+		insertRun(t, dbPath, baseRun("job-real-err", "RealErr", "skipped_concurrent_limit", i+4))
+	}
+
+	results, err := QueryConsecutiveFails(dbPath, 3)
+	if err != nil {
+		t.Fatalf("QueryConsecutiveFails: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("got %d results, want 1: 3 real errors must be detected", len(results))
+	}
+	if results[0].JobID != "job-real-err" {
+		t.Errorf("got job_id=%q, want job-real-err", results[0].JobID)
+	}
+	if results[0].Streak < 3 {
+		t.Errorf("streak=%d, want >= 3", results[0].Streak)
+	}
+}
+
 // --- QueryJobTrace ---
 
 func TestQueryJobTrace_ReturnsRunsForJob(t *testing.T) {
@@ -298,5 +346,71 @@ func TestQueryJobTrace_EmptyForUnknownJob(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Errorf("got %d runs, want 0", len(runs))
+	}
+}
+
+// --- QueryDailyMetrics ---
+
+func TestQueryDailyMetrics_SkippedNotCounted(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := mustInitDB(t)
+
+	insertRun(t, dbPath, baseRun("job-a", "Job A", "success", 60))
+	insertRun(t, dbPath, baseRun("job-b", "Job B", "error", 90))
+	insertRun(t, dbPath, baseRun("job-c", "Job C", "skipped_concurrent_limit", 120))
+
+	days, err := QueryDailyMetrics(dbPath, 7)
+	if err != nil {
+		t.Fatalf("QueryDailyMetrics: %v", err)
+	}
+	if len(days) == 0 {
+		t.Fatal("expected at least one day bucket")
+	}
+	today := days[len(days)-1]
+	// skipped_concurrent_limit excluded: total = success + error = 2
+	if today.Tasks != 2 {
+		t.Errorf("Tasks = %d, want 2 (skipped must not be counted)", today.Tasks)
+	}
+	if today.Success != 1 {
+		t.Errorf("Success = %d, want 1", today.Success)
+	}
+	if today.Errors != 1 {
+		t.Errorf("Errors = %d, want 1", today.Errors)
+	}
+}
+
+// --- QueryProviderMetrics ---
+
+func TestQueryProviderMetrics_SkippedNotCounted(t *testing.T) {
+	skipIfNoSQLite(t)
+	dbPath := mustInitDB(t)
+
+	successRun := baseRun("job-a", "Job A", "success", 60)
+	successRun.Model = "claude-sonnet"
+	insertRun(t, dbPath, successRun)
+
+	errorRun := baseRun("job-b", "Job B", "error", 90)
+	errorRun.Model = "claude-sonnet"
+	insertRun(t, dbPath, errorRun)
+
+	skippedRun := baseRun("job-c", "Job C", "skipped_concurrent_limit", 120)
+	skippedRun.Model = "claude-sonnet"
+	insertRun(t, dbPath, skippedRun)
+
+	metrics, err := QueryProviderMetrics(dbPath, 7)
+	if err != nil {
+		t.Fatalf("QueryProviderMetrics: %v", err)
+	}
+	if len(metrics) == 0 {
+		t.Fatal("expected at least one provider bucket")
+	}
+	m := metrics[0]
+	// skipped_concurrent_limit excluded: total = 2, errors = 1
+	if m.Tasks != 2 {
+		t.Errorf("Tasks = %d, want 2 (skipped must not be counted)", m.Tasks)
+	}
+	// error rate = 1/2 = 0.5
+	if m.ErrorRate != 0.5 {
+		t.Errorf("ErrorRate = %f, want 0.5", m.ErrorRate)
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1372,6 +1374,51 @@ type capturingExecutor struct {
 func (c *capturingExecutor) RunTask(_ context.Context, task dispatch.Task, _ string) dispatch.TaskResult {
 	c.capturedPrompt = task.Prompt
 	return c.result
+}
+
+// TestDispatchTask_PreflightNotInjectedByProcessing verifies that processing.go
+// no longer injects preflight-header.md into the prompt (dedupe fix).
+// The authoritative injection lives in internal/prompt/tier.go (BuildTieredPrompt),
+// which is called inside the real executor — not the mock. So the prompt captured
+// by capturingExecutor must NOT contain the preflight content; if it does, the
+// duplicate injection from processing.go was not removed.
+func TestDispatchTask_PreflightNotInjectedByProcessing(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentName := "kokuyou"
+	if err := os.MkdirAll(filepath.Join(agentsDir, agentName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preflightContent := "⛔ PREFLIGHT-DEDUPE-SENTINEL"
+	if err := os.WriteFile(
+		filepath.Join(agentsDir, agentName, "preflight-header.md"),
+		[]byte(preflightContent), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	cfg := &config.Config{AgentsDir: agentsDir}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "preflight dedup test",
+		Status:   "todo",
+		Assignee: agentName,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	count := strings.Count(ex.capturedPrompt, preflightContent)
+	if count != 0 {
+		t.Errorf("processing.go must not inject preflight; found %d occurrence(s) in captured prompt", count)
+	}
 }
 
 // TestDispatchTask_PromptContainsTaskIDTitle asserts that the prompt built by
