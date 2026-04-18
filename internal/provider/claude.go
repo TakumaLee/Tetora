@@ -66,7 +66,7 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 
 	// Streaming mode.
 	if req.OnEvent != nil {
-		return p.executeStreaming(ctx, cmdCtx, cmdCancel, cmd, req)
+		return p.executeStreaming(ctx, cmdCancel, cmd, req)
 	}
 
 	// Non-streaming mode. Use Start()+Wait() instead of Run() so we can attach
@@ -142,8 +142,8 @@ func (p *ClaudeProvider) Execute(ctx context.Context, req Request) (*Result, err
 }
 
 // executeStreaming runs the command and parses stream-json output in real time.
-// cmdCtx and cmdCancel are the child context/cancel used to bind the RSS guard.
-func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmdCtx context.Context, cmdCancel context.CancelFunc, cmd *exec.Cmd, req Request) (*Result, error) {
+// cmdCancel is the child-context cancel used to bind the RSS guard.
+func (p *ClaudeProvider) executeStreaming(ctx context.Context, cmdCancel context.CancelFunc, cmd *exec.Cmd, req Request) (*Result, error) {
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)

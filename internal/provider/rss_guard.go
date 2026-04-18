@@ -9,14 +9,17 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"tetora/internal/log"
 )
 
 // StartRSSGuard polls the RSS of the given pid every interval.
 // When RSS exceeds maxMB, it calls onBreach(rssMB) then cancel().
 // Returns a stop func that is safe to call multiple times.
 // pid=0 or maxMB<=0 → returns a no-op (guard is disabled).
+//
+// Note: stop() only closes the done channel — it does NOT synchronously
+// wait for the goroutine to exit. The goroutine may linger for up to
+// `interval + ps(3s timeout)` before actually returning. Callers that
+// need a hard sync boundary must wire their own wait mechanism.
 func StartRSSGuard(pid int, maxMB int, interval time.Duration, cancel context.CancelFunc, onBreach func(rssMB int)) (stop func()) {
 	noop := func() {}
 	if pid == 0 || maxMB <= 0 {
@@ -48,8 +51,8 @@ func StartRSSGuard(pid int, maxMB int, interval time.Duration, cancel context.Ca
 				}
 				if rssKB > maxKB {
 					rssMB := (rssKB + 1023) / 1024 // ceil for observability
-					log.Warn("rss_guard: process exceeded memory limit, cancelling",
-						"pid", pid, "limitMB", maxMB, "rssMB", rssMB)
+					// Logging is the caller's responsibility (via onBreach) — callers
+					// have richer context (sessionId, task id) than this generic module.
 					if onBreach != nil {
 						onBreach(rssMB)
 					}
