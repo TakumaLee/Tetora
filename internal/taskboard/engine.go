@@ -88,6 +88,8 @@ func (tb *Engine) InitSchema() error {
 		"ALTER TABLE tasks ADD COLUMN workdirs TEXT DEFAULT '[]';",
 		"ALTER TABLE tasks ADD COLUMN execution_count INTEGER DEFAULT 0;",
 		"ALTER TABLE tasks ADD COLUMN allow_dangerous INTEGER DEFAULT 0;",
+		"ALTER TABLE tasks ADD COLUMN retry_policy TEXT DEFAULT '';",
+		"ALTER TABLE tasks ADD COLUMN next_retry_at TEXT DEFAULT '';",
 	}
 	commentMigrations := []string{
 		"ALTER TABLE task_comments ADD COLUMN type TEXT DEFAULT 'log';",
@@ -164,7 +166,7 @@ func (tb *Engine) ListTasksPaginated(status, assignee, project string, page, lim
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous, retry_policy, next_retry_at
 		FROM tasks %s
 		ORDER BY
 			CASE priority
@@ -248,8 +250,8 @@ func (tb *Engine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		allowDangerousInt = 1
 	}
 	sql := fmt.Sprintf(`
-		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id, workdirs, allow_dangerous)
-		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s', '%s', %d)
+		INSERT INTO tasks (id, project, title, description, status, assignee, priority, model, depends_on, type, workflow, discord_thread_id, created_at, updated_at, retry_count, parent_id, workdirs, allow_dangerous, retry_policy)
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', 0, '%s', '%s', %d, '%s')
 	`,
 		db.Escape(task.ID),
 		db.Escape(task.Project),
@@ -268,6 +270,7 @@ func (tb *Engine) CreateTask(task TaskBoard) (TaskBoard, error) {
 		db.Escape(task.ParentID),
 		db.Escape(string(workdirsJSON)),
 		allowDangerousInt,
+		db.Escape(task.RetryPolicy),
 	)
 
 	if err := db.Exec(tb.dbPath, sql); err != nil {
@@ -304,6 +307,8 @@ func (tb *Engine) UpdateTask(id string, updates map[string]any) (TaskBoard, erro
 				}
 			}
 			setClauses = append(setClauses, fmt.Sprintf("allow_dangerous = %d", v))
+		case "retryPolicy":
+			setClauses = append(setClauses, fmt.Sprintf("retry_policy = '%s'", db.Escape(fmt.Sprintf("%v", val))))
 		}
 	}
 
@@ -345,7 +350,7 @@ func (tb *Engine) GetTask(id string) (TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous, retry_policy, next_retry_at
 		FROM tasks WHERE id = '%s'
 	`, db.Escape(id))
 
@@ -371,7 +376,7 @@ func (tb *Engine) SuggestTasks(id string) []TaskBoard {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous, retry_policy, next_retry_at
 		FROM tasks WHERE id LIKE '%s%%'
 		ORDER BY created_at DESC
 		LIMIT 3
@@ -546,13 +551,43 @@ func (tb *Engine) GetThread(taskID string) ([]TaskComment, error) {
 	return comments, nil
 }
 
-// AutoRetryFailed moves failed tasks back to "todo" if retry count < maxRetries.
-func (tb *Engine) AutoRetryFailed() error {
-	maxRetries := tb.config.MaxRetriesOrDefault()
-	sql := fmt.Sprintf(`
-		SELECT id, retry_count FROM tasks WHERE status = 'failed' AND retry_count < %d
-	`, maxRetries)
+// SetRetryBackoff sets the next_retry_at field for a failed task using exponential backoff.
+// The first failure (retryCount=0) is retried immediately; subsequent failures use
+// backoff = 5min × 2^(retryCount-1) capped at 5min × 16 = 80min.
+func (tb *Engine) SetRetryBackoff(taskID string, retryCount int) {
+	// First failure is retried immediately — no backoff delay applied.
+	if retryCount <= 0 {
+		return
+	}
+	shift := uint(retryCount - 1)
+	if shift > 4 {
+		shift = 4 // cap at 5min × 16 = 80min
+	}
+	backoff := 5 * time.Minute * time.Duration(1<<shift)
+	nextRetry := time.Now().UTC().Add(backoff).Format(time.RFC3339)
+	sql := fmt.Sprintf(
+		`UPDATE tasks SET next_retry_at = '%s' WHERE id = '%s' AND status = 'failed'`,
+		db.Escape(nextRetry), db.Escape(taskID),
+	)
+	if err := db.Exec(tb.dbPath, sql); err != nil {
+		log.Warn("SetRetryBackoff: update failed", "id", taskID, "error", err)
+		return
+	}
+	log.Info("auto retry: backoff scheduled", "id", taskID, "retryCount", retryCount, "nextRetryAt", nextRetry)
+}
 
+// AutoRetryFailed moves failed tasks back to "todo" if retry count < effective max retries
+// and the next_retry_at window has elapsed.
+// Per-task retry_policy overrides the global maxRetries setting.
+func (tb *Engine) AutoRetryFailed() error {
+	globalMax := tb.config.MaxRetriesOrDefault()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Fetch failed tasks whose backoff window has elapsed (or was never set).
+	sql := fmt.Sprintf(`
+		SELECT id, retry_count, retry_policy, next_retry_at FROM tasks WHERE status = 'failed'
+		  AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= '%s')
+	`, db.Escape(now))
 	rows, err := db.Query(tb.dbPath, sql)
 	if err != nil {
 		return err
@@ -561,6 +596,30 @@ func (tb *Engine) AutoRetryFailed() error {
 	for _, row := range rows {
 		id := fmt.Sprintf("%v", row["id"])
 		currentRetry := int(getFloat64(row, "retry_count"))
+
+		retryPolicyStr := fmt.Sprintf("%v", row["retry_policy"])
+		if retryPolicyStr == "<nil>" {
+			retryPolicyStr = ""
+		}
+		policy := ParseRetryPolicy(retryPolicyStr)
+
+		// Determine effective max retries.
+		effectiveMax := globalMax
+		if policy != nil && policy.Max > 0 {
+			effectiveMax = policy.Max
+		}
+
+		if currentRetry >= effectiveMax {
+			continue
+		}
+
+		// If policy requires human confirmation, skip auto-retry and notify.
+		if policy != nil && policy.RequireHumanConfirm {
+			tb.AddComment(id, "system",
+				fmt.Sprintf("[retry-policy] Human confirmation required to retry (attempt %d/%d). Run: tetora task move %s --status=todo", currentRetry+1, effectiveMax, id))
+			log.Info("auto retry: skipping — human confirmation required", "id", id)
+			continue
+		}
 
 		comments, _ := tb.GetThread(id)
 		cancelled := false
@@ -577,7 +636,7 @@ func (tb *Engine) AutoRetryFailed() error {
 
 		newRetry := currentRetry + 1
 		updateSQL := fmt.Sprintf(`
-			UPDATE tasks SET status = 'todo', retry_count = %d, updated_at = '%s'
+			UPDATE tasks SET status = 'todo', retry_count = %d, next_retry_at = '', updated_at = '%s'
 			WHERE id = '%s' AND retry_count = %d
 		`, newRetry, time.Now().UTC().Format(time.RFC3339), db.Escape(id), currentRetry)
 
@@ -601,7 +660,7 @@ func (tb *Engine) ListChildren(parentID string) ([]TaskBoard, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous, retry_policy, next_retry_at
 		FROM tasks WHERE parent_id = '%s'
 		ORDER BY created_at ASC
 	`, db.Escape(parentID))
@@ -649,7 +708,7 @@ func (tb *Engine) GetBoardView(f BoardFilter) (*BoardView, error) {
 	sql := fmt.Sprintf(`
 		SELECT id, project, title, description, status, assignee, priority,
 		       depends_on, type, workflow, discord_thread_id, created_at, updated_at, completed_at, retry_count,
-		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous
+		       cost_usd, duration_ms, session_id, model, parent_id, workflow_run_id, workdirs, execution_count, allow_dangerous, retry_policy, next_retry_at
 		FROM tasks %s
 		ORDER BY
 			CASE priority

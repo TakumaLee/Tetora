@@ -1,5 +1,25 @@
 package taskboard
 
+import "encoding/json"
+
+// RetryPolicyDef defines per-task retry behavior, overriding global defaults.
+type RetryPolicyDef struct {
+	Max                 int  `json:"max"`                   // max retries; 0 = use global default
+	RequireHumanConfirm bool `json:"require_human_confirm"` // skip auto-retry, require manual trigger
+}
+
+// ParseRetryPolicy parses a JSON retry policy string. Returns nil if empty or invalid.
+func ParseRetryPolicy(s string) *RetryPolicyDef {
+	if s == "" {
+		return nil
+	}
+	var rp RetryPolicyDef
+	if err := json.Unmarshal([]byte(s), &rp); err != nil {
+		return nil
+	}
+	return &rp
+}
+
 // TaskBoard represents a single task on the board.
 type TaskBoard struct {
 	ID            string   `json:"id"`
@@ -26,6 +46,8 @@ type TaskBoard struct {
 	WorkflowRunID string   `json:"workflowRunId"` // workflow run ID
 	Workdirs       []string `json:"workdirs"`       // explicit directories this task operates in (for coord region)
 	AllowDangerous bool     `json:"allowDangerous"` // bypass dangerous-ops check when dispatching
+	RetryPolicy    string   `json:"retryPolicy"`    // JSON-encoded RetryPolicyDef; empty = use global
+	NextRetryAt    string   `json:"nextRetryAt,omitempty"`    // earliest time this task may be retried
 }
 
 // TaskComment is a comment on a task.
