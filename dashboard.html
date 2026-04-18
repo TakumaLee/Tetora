@@ -4615,9 +4615,11 @@ body:not([class*="theme-"])::after, body.theme-default::after {
     // Manual override badge
     var overrideBadge = '';
     var mo = front.manual_override;
-    if (mo && mo.active && mo.expires_at) {
-      if (new Date(mo.expires_at) > new Date()) {
-        overrideBadge = '<span class="wr-override-badge">&#x1F512; 覆蓋中 到 ' + wrFormatTime(mo.expires_at) + '</span>';
+    if (mo && mo.active) {
+      var moExpired = mo.expires_at && new Date(mo.expires_at) <= new Date();
+      if (!moExpired) {
+        var moExpStr = mo.expires_at ? wrFormatTime(mo.expires_at) : '無限期';
+        overrideBadge = '<span class="wr-override-badge">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + '</span>';
       }
     }
 
