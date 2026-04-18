@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   test:
@@ -227,30 +228,33 @@ jobs:
           fi
           echo "All assets verified successfully."
 
-      - name: Update site version and install.sh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
+      - name: Checkout main for site updates
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
 
-          # Update DownloadGrid.astro
+      - name: Apply site version updates
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
           sed -i "s/const version = 'v[^']*'/const version = 'v${VERSION}'/" site/src/components/DownloadGrid.astro
-
-          # Update install.sh
           sed -i "s/local VERSION=\"\${TETORA_VERSION:-[^\"]*}\"/local VERSION=\"\${TETORA_VERSION:-${VERSION}}\"/" install.sh
-
-          # Update i18n download button versions
           sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+\"/v${VERSION}\"/g" site/src/i18n/ui.ts
 
-          if git diff --quiet; then
-            echo "No version changes needed."
-          else
-            git add site/src/components/DownloadGrid.astro install.sh site/src/i18n/ui.ts
-            git commit -m "chore: auto-update site version to v${VERSION}"
-            git push origin main
-            echo "Site version updated to v${VERSION}"
-          fi
+      - name: Open PR for site version bump
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: main
+          branch: chore/site-version-v${{ steps.version.outputs.VERSION }}
+          delete-branch: true
+          commit-message: "chore: auto-update site version to v${{ steps.version.outputs.VERSION }}"
+          title: "chore: auto-update site version to v${{ steps.version.outputs.VERSION }}"
+          body: |
+            Auto-generated after release v${{ steps.version.outputs.VERSION }}.
+
+            Updates version strings in:
+            - `site/src/components/DownloadGrid.astro`
+            - `install.sh`
+            - `site/src/i18n/ui.ts`
+          labels: automated,release
