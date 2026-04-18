@@ -622,15 +622,16 @@ func (tb *Engine) AutoRetryFailed() error {
 		}
 
 		comments, _ := tb.GetThread(id)
-		cancelled := false
+		skip := false
 		for _, c := range comments {
-			if strings.Contains(c.Content, "[auto-flag] Task was cancelled") {
-				cancelled = true
+			if strings.Contains(c.Content, "[auto-flag] Task was cancelled") ||
+				strings.Contains(c.Content, "[auto-flag] Task is stalled") {
+				skip = true
 				break
 			}
 		}
-		if cancelled {
-			log.Info("auto retry: skipping cancelled task", "id", id)
+		if skip {
+			log.Info("auto retry: skipping cancelled/stalled task", "id", id)
 			continue
 		}
 

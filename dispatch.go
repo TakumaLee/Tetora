@@ -3962,6 +3962,10 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 
 		Discord:                discordSender(state),
 		DiscordNotifyChannelID: cfg.Discord.NotifyChannelID,
+
+		// Feature B: expose semaphore free slots so failed-task retry can be
+		// deferred when all dispatch slots are occupied.
+		AvailableSlots: func() int { return cap(sem) - len(sem) },
 	}
 
 	return taskboard.NewDispatcher(engine, cfg, deps)
