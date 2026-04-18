@@ -170,6 +170,8 @@ Tetora 在 Discord 中回應 `!` 前綴指令：
 | `!chat <agent>` | 鎖定頻道至指定代理 |
 | `!end` | 解鎖頻道，恢復智慧派工 |
 | `!new` | 開始新工作階段 |
+| `!compact` | 摘要並延續當前工作階段 |
+| `!context` / `!ctx` | 顯示工作階段 token 使用量（進度條與百分比） |
 | `!ask <prompt>` | 單次提問 |
 | `!cancel` | 取消所有執行中任務 |
 | `!approve [tool\|reset]` | 管理自動核准工具 |

@@ -172,6 +172,8 @@ Tetora responds to `!` prefix commands in Discord:
 | `!chat <agent>` | Lock channel to a specific agent |
 | `!end` | Unlock channel, resume smart dispatch |
 | `!new` | Start new session |
+| `!compact` | Summarize & carry forward current session |
+| `!context` / `!ctx` | Show session token usage (bar + %) |
 | `!ask <prompt>` | One-off question |
 | `!cancel` | Cancel all running tasks |
 | `!approve [tool\|reset]` | Manage auto-approved tools |

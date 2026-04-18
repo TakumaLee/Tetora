@@ -513,6 +513,10 @@ func (db *DiscordBot) handleCommand(msg discord.Message, cmdText string) {
 		db.cmdMode(msg)
 	case "new":
 		db.cmdNewSession(msg)
+	case "compact":
+		db.cmdCompactSession(msg)
+	case "context", "ctx":
+		db.cmdContext(msg)
 	case "cancel":
 		db.cmdCancel(msg)
 	case "chat":
@@ -1397,6 +1401,63 @@ func (db *DiscordBot) cmdCompactSession(msg discord.Message) {
 	db.sendMessage(msg.ChannelID, "Session compacted.")
 }
 
+func (db *DiscordBot) cmdContext(msg discord.Message) {
+	dbPath := db.cfg.HistoryDB
+	if dbPath == "" {
+		db.sendMessage(msg.ChannelID, "History DB not configured.")
+		return
+	}
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	sess, err := findChannelSession(dbPath, chKey)
+	if err != nil || sess == nil {
+		db.sendMessage(msg.ChannelID, "No active session in this channel.")
+		return
+	}
+	maxTokens := db.cfg.Session.MaxContextTokensOrDefault()
+	pct := 0
+	if maxTokens > 0 {
+		pct = sess.ContextSize * 100 / maxTokens
+	}
+	bar := contextBar(pct)
+	color := 0x57F287 // green
+	if pct >= 90 {
+		color = 0xED4245 // red
+	} else if pct >= 70 {
+		color = 0xFEE75C // yellow
+	}
+	// Clamp displayed percentage so the numeric value never contradicts the bar
+	// (contextBar already clamps internally).
+	displayPct := pct
+	if displayPct > 100 {
+		displayPct = 100
+	}
+	agent := sess.Agent
+	if agent == "" {
+		agent = "(unset)"
+	}
+	db.sendEmbed(msg.ChannelID, discord.Embed{
+		Title: "Session Context",
+		Color: color,
+		Fields: []discord.EmbedField{
+			{Name: "Usage", Value: fmt.Sprintf("`%s` %d%%", bar, displayPct), Inline: false},
+			{Name: "Tokens", Value: fmt.Sprintf("%d / %d", sess.ContextSize, maxTokens), Inline: true},
+			{Name: "Messages", Value: fmt.Sprintf("%d", sess.MessageCount), Inline: true},
+			{Name: "Agent", Value: agent, Inline: true},
+		},
+	})
+}
+
+func contextBar(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := pct / 5 // 20-char bar
+	return strings.Repeat("█", filled) + strings.Repeat("░", 20-filled)
+}
+
 func (db *DiscordBot) cmdHelp(msg discord.Message) {
 	db.sendEmbed(msg.ChannelID, discord.Embed{
 		Title:       "Tetora Help",
@@ -1412,6 +1473,8 @@ func (db *DiscordBot) cmdHelp(msg discord.Message) {
 			{Name: "!cloud [agent]", Value: "Switch back to cloud models"},
 			{Name: "!mode", Value: "Show inference mode summary"},
 			{Name: "!new", Value: "Start a new session (clear context)"},
+			{Name: "!compact", Value: "Summarize & carry forward current session"},
+			{Name: "!context / !ctx", Value: "Show session context usage (tokens, %)"},
 			{Name: "!cancel", Value: "Cancel all running tasks"},
 			{Name: "!chat <agent>", Value: "Lock this channel to an agent (skip dispatch)"},
 			{Name: "!end", Value: "Unlock channel, resume smart dispatch"},
