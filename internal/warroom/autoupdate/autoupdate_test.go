@@ -122,21 +122,20 @@ func TestUpdatePolymarket_NoFiles(t *testing.T) {
 func TestUpdateTaiwanStockAuto_NoDB(t *testing.T) {
 	baseDir := t.TempDir()
 	cfg := &config.Config{BaseDir: baseDir}
-	// No DB file at the hardcoded path — expect nil updates.
-	// We can't redirect the path without refactor, so this just confirms
-	// the function doesn't crash when DB is missing at the real user path.
-	// Skip if DB exists (real user machine).
-	home, _ := os.UserHomeDir()
-	realDB := filepath.Join(home, "Workspace/Projects/01-Personal/stock-trading/data/trading.db")
-	if fi, err := os.Stat(realDB); err == nil && fi.Size() > 0 {
-		t.Skip("real trading.db exists on this machine; cannot assert no-DB path")
-	}
-	updates, err := updateTaiwanStockAuto(context.Background(), cfg, json.RawMessage(`{"id":"taiwan-stock-auto"}`))
+	missingDB := filepath.Join(baseDir, "nonexistent-trading.db")
+	updates, err := updateTaiwanStockAutoAt(context.Background(), cfg, json.RawMessage(`{"id":"taiwan-stock-auto"}`), missingDB)
 	if err != nil {
-		t.Fatalf("updateTaiwanStockAuto: %v", err)
+		t.Fatalf("updateTaiwanStockAutoAt: %v", err)
 	}
 	if updates != nil {
 		t.Errorf("expected nil updates when DB missing, got %v", updates)
+	}
+}
+
+func TestResolveTradingDBPath_EnvOverride(t *testing.T) {
+	t.Setenv("STOCK_TRADING_DB_PATH", "/tmp/custom-trading.db")
+	if got := resolveTradingDBPath(); got != "/tmp/custom-trading.db" {
+		t.Errorf("env override not respected: got %q", got)
 	}
 }
 

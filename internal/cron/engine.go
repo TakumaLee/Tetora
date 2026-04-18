@@ -1287,8 +1287,11 @@ func (ce *Engine) RunJobByID(_ context.Context, id string) error {
 
 	// Special-ID dispatch bypasses the generic prompt-based runJob.
 	if id == "war_room_autoupdate" {
-		jobCtx, _ := context.WithCancel(ce.ctx)
-		go ce.runWarRoomAutoUpdateAsync(jobCtx, target)
+		jobCtx, jobCancel := context.WithCancel(ce.ctx)
+		go func() {
+			defer jobCancel()
+			ce.runWarRoomAutoUpdateAsync(jobCtx, target)
+		}()
 		return nil
 	}
 

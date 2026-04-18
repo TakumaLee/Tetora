@@ -26,7 +26,7 @@ dashboard: $(DASH_PARTS)
 		echo '<script>'; \
 		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
 		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/pwa.js dashboard/war-room.js; \
+		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js; \
 		echo '</script>'; \
 		cat dashboard/foot.html; \
 	} > dashboard.html

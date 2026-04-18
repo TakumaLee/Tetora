@@ -15,13 +15,32 @@ import (
 	"tetora/internal/warroom"
 )
 
-func updateTaiwanStockAuto(ctx context.Context, cfg *config.Config, front json.RawMessage) (map[string]any, error) {
+// resolveTradingDBPath resolves the stock-trading SQLite DB path.
+// Priority:
+//  1. STOCK_TRADING_DB_PATH env
+//  2. $HOME/Workspace/Projects/01-Personal/stock-trading/data/trading.db
+func resolveTradingDBPath() string {
+	if p := os.Getenv("STOCK_TRADING_DB_PATH"); p != "" {
+		return p
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("get home dir: %w", err)
+		return ""
 	}
+	return filepath.Join(home, "Workspace", "Projects", "01-Personal", "stock-trading", "data", "trading.db")
+}
 
-	dbPath := filepath.Join(home, "Workspace/Projects/01-Personal/stock-trading/data/trading.db")
+func updateTaiwanStockAuto(ctx context.Context, cfg *config.Config, front json.RawMessage) (map[string]any, error) {
+	return updateTaiwanStockAutoAt(ctx, cfg, front, resolveTradingDBPath())
+}
+
+// updateTaiwanStockAutoAt is the testable inner implementation that accepts an
+// explicit DB path. An empty dbPath is treated the same as "file missing".
+func updateTaiwanStockAutoAt(ctx context.Context, cfg *config.Config, front json.RawMessage, dbPath string) (map[string]any, error) {
+	if dbPath == "" {
+		log.Warn("taiwan-stock autoupdate: trading db path unresolved")
+		return nil, nil
+	}
 
 	// Stat DB file.
 	fi, err := os.Stat(dbPath)
