@@ -212,6 +212,16 @@ func (c *Client) SendEmbed(channelID string, embed Embed) {
 	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), map[string]any{"embeds": []Embed{embed}})
 }
 
+// SendEmbedWithContent sends an embed with a leading content string (e.g. for @mentions).
+// Empty content is equivalent to SendEmbed.
+func (c *Client) SendEmbedWithContent(channelID, content string, embed Embed) {
+	payload := map[string]any{"embeds": []Embed{embed}}
+	if content != "" {
+		payload["content"] = content
+	}
+	c.Post(fmt.Sprintf("/channels/%s/messages", channelID), payload)
+}
+
 // SendEmbedReply sends an embed as a reply to a specific message.
 func (c *Client) SendEmbedReply(channelID, replyToID string, embed Embed) {
 	payload := map[string]any{"embeds": []Embed{embed}}

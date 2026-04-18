@@ -76,6 +76,36 @@ type DiscordBot struct {
 	chatLockMu sync.RWMutex
 }
 
+// buildNotifyOptions converts config-shape notify rules into the domain type
+// used by the discord package, so the config schema and internal types can
+// evolve independently.
+func buildNotifyOptions(src tetoraConfig.DiscordNotifyConfig) discord.NotifyOptions {
+	opts := discord.NotifyOptions{
+		TaskStart:        src.TaskStart,
+		TaskCompleteOk:   src.TaskCompleteOk,
+		TaskCompleteFail: src.TaskCompleteFail,
+		FailureChannelID: src.FailureChannelID,
+		MentionUserID:    src.MentionUserID,
+		MentionOnFail:    src.MentionOnFail,
+	}
+	if len(src.Overrides) > 0 {
+		opts.Overrides = make([]discord.NotifyOverride, 0, len(src.Overrides))
+		for _, o := range src.Overrides {
+			opts.Overrides = append(opts.Overrides, discord.NotifyOverride{
+				Match: discord.NotifyMatch{
+					Agent:        o.Match.Agent,
+					NameContains: o.Match.NameContains,
+					JobID:        o.Match.JobID,
+				},
+				TaskStart:        o.TaskStart,
+				TaskCompleteOk:   o.TaskCompleteOk,
+				TaskCompleteFail: o.TaskCompleteFail,
+			})
+		}
+	}
+	return opts
+}
+
 func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
 	apiClient := discord.NewClient(cfg.Discord.BotToken)
 	db := &DiscordBot{
@@ -127,7 +157,7 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 
 	// Task notification (thread-per-task).
 	if ch := cfg.Discord.NotifyChannelID; ch != "" {
-		db.notifier = discord.NewTaskNotifier(db.api, ch)
+		db.notifier = discord.NewTaskNotifier(db.api, ch, buildNotifyOptions(cfg.Discord.Notify))
 		log.Info("discord task notifier enabled", "channel", ch)
 	}
 

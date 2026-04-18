@@ -781,6 +781,7 @@ type DiscordBotConfig struct {
 	ShowProgress      *bool                          `json:"showProgress,omitempty"`
 	Routes            map[string]DiscordRouteConfig  `json:"routes,omitempty"`
 	Recap             DiscordRecapConfig             `json:"recap,omitempty"`
+	Notify            DiscordNotifyConfig            `json:"notify,omitempty"`
 	// HumanAssigneeMap maps human gate assignee names (e.g. "takuma") to Discord
 	// channel IDs. When a human gate fires, the notification is routed to the
 	// mapped channel. Falls back to the default notify channel if no mapping found.
@@ -789,6 +790,46 @@ type DiscordBotConfig struct {
 	// "https://tetora.example.com"). Used to build the dashboard link in human
 	// gate Discord notifications. If empty, falls back to http://localhost<listenAddr>.
 	DashboardBaseURL  string                         `json:"dashboardBaseURL,omitempty"`
+}
+
+// DiscordNotifyConfig controls per-event task notification behavior.
+// All fields default to legacy behavior (equivalent to "thread") when empty,
+// preserving backwards compatibility.
+type DiscordNotifyConfig struct {
+	// Level for task start messages. Valid: "off" | "channel" | "thread".
+	// Empty defaults to "thread" (legacy behavior).
+	TaskStart string `json:"taskStart,omitempty"`
+	// Level for successful task completion messages.
+	TaskCompleteOk string `json:"taskCompleteOk,omitempty"`
+	// Level for failed task completion messages.
+	TaskCompleteFail string `json:"taskCompleteFail,omitempty"`
+	// FailureChannelID, when set, redirects fail messages to a dedicated channel
+	// instead of the main NotifyChannelID. Success/start still use the main channel.
+	FailureChannelID string `json:"failureChannelId,omitempty"`
+	// MentionUserID, when set and MentionOnFail is true, prepends <@userId> to
+	// failure messages so Discord pushes a notification.
+	MentionUserID string `json:"mentionUserId,omitempty"`
+	// MentionOnFail triggers @mention on task failure. Requires MentionUserID.
+	MentionOnFail bool `json:"mentionOnFail,omitempty"`
+	// Overrides apply per-task rules; first match wins (top-down).
+	Overrides []DiscordNotifyOverride `json:"overrides,omitempty"`
+}
+
+// DiscordNotifyOverride applies a custom level to tasks matching Match.
+// Empty level fields inherit from the top-level DiscordNotifyConfig.
+type DiscordNotifyOverride struct {
+	Match            DiscordNotifyMatch `json:"match"`
+	TaskStart        string             `json:"taskStart,omitempty"`
+	TaskCompleteOk   string             `json:"taskCompleteOk,omitempty"`
+	TaskCompleteFail string             `json:"taskCompleteFail,omitempty"`
+}
+
+// DiscordNotifyMatch matches a task by any combination of fields (AND).
+// Empty fields act as wildcards. NameContains is a substring check.
+type DiscordNotifyMatch struct {
+	Agent        string `json:"agent,omitempty"`
+	NameContains string `json:"nameContains,omitempty"`
+	JobID        string `json:"jobId,omitempty"`
 }
 
 // DiscordRecapConfig forwards Claude Code "away_summary" transcripts to Discord
