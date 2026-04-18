@@ -1622,7 +1622,41 @@
         align-items: center;
         gap: 5px;
         margin-top: 10px;
+        flex-wrap: wrap;
       }
+      .wr-stat-capsule {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--wr-btn-sec-bg);
+      }
+      .wr-stat-btn {
+        border: none;
+        background: transparent;
+        padding: 3px 7px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1;
+        transition: background 0.1s;
+      }
+      .wr-stat-btn:hover { background: var(--wr-btn-sec-hover); }
+      .wr-stat-btn.is-active { background: var(--accent); }
+      .wr-depends-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin: 2px 4px 2px 0;
+        background: var(--wr-btn-sec-bg);
+      }
+      .wr-depends-chip.red { color: var(--red); border-color: rgba(239,68,68,0.4); }
+      .wr-depends-chip.yellow { color: var(--yellow); border-color: rgba(245,158,11,0.4); }
       .wr-btn {
         border: none;
         border-radius: 6px;
@@ -2042,8 +2076,14 @@
       <div>
         <div class="wr-title">&#x1F5FA; 戰情室</div>
         <div class="wr-meta" id="wr-last-updated">讀取中...</div>
+        <div class="wr-meta" id="wr-autoupdate-meta" style="font-size:11px;margin-top:2px"></div>
       </div>
-      <button class="wr-refresh-btn" onclick="loadWarRoom()">&#x21BB; 手動刷新</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="wr-refresh-btn" onclick="loadWarRoom()">&#x21BB; 手動刷新</button>
+        <button class="wr-refresh-btn" id="wr-autoupdate-btn" onclick="triggerAutoUpdate()" title="ad-hoc 觸發 cron">&#x26A1; 立即跑 autoupdate</button>
+        <button class="wr-refresh-btn" onclick="openCreateFrontModal()">&#x2795; 新增戰線</button>
+        <button class="wr-refresh-btn" onclick="exportWarRoomMarkdown()" title="複製所有 fronts 的 markdown 摘要">&#x1F4CB; 匯出</button>
+      </div>
     </div>
 
     <div class="wr-grid" id="wr-grid">
@@ -2062,9 +2102,10 @@
       </div>
       <div class="wr-modal-actions" id="wr-modal-actions">
         <button class="wr-btn wr-btn-primary" id="wr-modal-add-intel-btn">&#x1F4E5; Add Intel</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F504; Refresh</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F4AC; Ask Claude</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x2699;&#xFE0F; Dispatch</button>
+        <button class="wr-btn wr-btn-sec" onclick="triggerAutoUpdate()">&#x1F504; 觸發 Autoupdate</button>
+        <button class="wr-btn wr-btn-sec" onclick="copyFrontSummary()" title="複製此 front 的狀態摘要">&#x1F4CB; 複製摘要</button>
+        <button class="wr-btn wr-btn-sec" style="margin-left:auto" onclick="archiveCurrentFront()" title="封存（可還原）">&#x1F4E6; 封存</button>
+        <button class="wr-btn wr-btn-sec" onclick="deleteCurrentFront()" style="color:var(--red);border-color:rgba(239,68,68,0.4)" title="硬刪除">&#x1F5D1; 刪除</button>
       </div>
       <div class="wr-modal-body">
         <div class="wr-modal-main" id="wr-modal-main">
@@ -2075,9 +2116,71 @@
             <div class="wr-sidebar-label">&#x1F4E5; Intel 累積</div>
             <textarea class="wr-intel-textarea" id="wr-intel-input" rows="6" placeholder="貼上文章、備註、觀察…"></textarea>
             <button class="wr-intel-submit" id="wr-intel-submit-btn">提交 Intel</button>
+            <input type="search" id="wr-intel-search" placeholder="&#x1F50D; 搜尋 intel..." oninput="filterIntelList()"
+              style="margin-top:8px;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box">
           </div>
           <div class="wr-intel-list" id="wr-intel-list">
             <div class="wr-intel-placeholder">尚無 Intel 記錄</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- War Room Create-Front Modal -->
+  <div class="wr-modal-overlay" id="wr-create-modal" role="dialog" aria-modal="true" onclick="if(event.target===this)closeCreateFrontModal()">
+    <div class="wr-modal" id="wr-create-panel" style="max-width:520px">
+      <div class="wr-modal-header">
+        <div class="wr-modal-title">&#x2795; 新增戰線</div>
+        <button class="wr-modal-close" onclick="closeCreateFrontModal()" aria-label="關閉">&#x2715;</button>
+      </div>
+      <div class="wr-modal-body" style="grid-template-columns:1fr;padding:16px 20px 20px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="font-size:11px;color:var(--muted)">ID（小寫字母數字連字號）</label>
+            <input type="text" id="wr-cf-id" placeholder="e.g. polymarket-arb" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)">名稱</label>
+            <input type="text" id="wr-cf-name" placeholder="顯示名稱" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--muted)">Category</label>
+              <select id="wr-cf-category" class="input" style="width:100%;margin-top:4px">
+                <option value="finance">finance</option>
+                <option value="dev">dev</option>
+                <option value="content">content</option>
+                <option value="marketing">marketing</option>
+                <option value="business">business</option>
+                <option value="collaboration">collaboration</option>
+                <option value="planning">planning</option>
+                <option value="freelance">freelance</option>
+                <option value="company">company</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--muted)">Card Type</label>
+              <select id="wr-cf-cardtype" class="input" style="width:100%;margin-top:4px">
+                <option value="strategy">strategy</option>
+                <option value="metrics">metrics</option>
+                <option value="collab">collab</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+              <input type="checkbox" id="wr-cf-auto"> 由 cron 自動更新（auto）
+            </label>
+            <div style="font-size:10px;color:var(--muted);margin-left:22px">只有 polymarket / taiwan-stock-auto / taiwan-stock-manual / tetora 四個 id 有對應的 updater。</div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)">Depends on（逗號分隔的 front id）</label>
+            <input type="text" id="wr-cf-depends" placeholder="e.g. tetora, polymarket" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+            <button class="wr-btn wr-btn-sec" onclick="closeCreateFrontModal()">取消</button>
+            <button class="wr-btn wr-btn-primary" onclick="submitCreateFront()">建立</button>
           </div>
         </div>
       </div>
