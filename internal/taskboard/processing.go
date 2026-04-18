@@ -885,14 +885,14 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	}
 }
 
-// isTimeoutError returns true when the error string or exit code indicates a timeout
-// or context cancellation (as opposed to a normal execution failure).
+// isTimeoutError returns true when the error string or exit code indicates a slot-exhaustion
+// or infrastructure timeout (as opposed to a context cancellation or normal execution failure).
+// "context canceled" is intentionally excluded: it signals daemon shutdown (retryable, not stalled).
 func isTimeoutError(errMsg string, exitCode int) bool {
 	lower := strings.ToLower(errMsg)
 	return strings.Contains(lower, "timeout") ||
 		strings.Contains(lower, "timed out") ||
 		strings.Contains(lower, "deadline exceeded") ||
-		strings.Contains(lower, "context canceled") ||
 		exitCode == -1
 }
 
