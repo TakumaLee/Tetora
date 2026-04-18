@@ -377,11 +377,14 @@ func (e *Engine) getDailyCost() (float64, error) {
 }
 
 // get30DayDailyCosts returns the total cost per day for the past 30 days.
+// Columns are accessed by name (via AS aliases) — Go map iteration order is
+// non-deterministic, so any positional `vals[i]` access on a row map would
+// silently flip between day and cost depending on the iteration order.
 func (e *Engine) get30DayDailyCosts() ([]float64, error) {
 	if e.cfg.HistoryDB == "" {
 		return nil, fmt.Errorf("historyDB not configured")
 	}
-	sql := `SELECT DATE(started_at) as day, COALESCE(SUM(cost_usd), 0) FROM job_runs
+	sql := `SELECT DATE(started_at) AS day, COALESCE(SUM(cost_usd), 0) AS total_cost FROM job_runs
 	        WHERE datetime(started_at) >= datetime('now', '-30 days')
 	        GROUP BY day ORDER BY day`
 	rows, err := db.Query(e.cfg.HistoryDB, sql)
@@ -390,14 +393,7 @@ func (e *Engine) get30DayDailyCosts() ([]float64, error) {
 	}
 	costs := make([]float64, 0, len(rows))
 	for _, row := range rows {
-		vals := make([]any, 0, len(row))
-		for _, v := range row {
-			vals = append(vals, v)
-		}
-		if len(vals) < 2 {
-			continue
-		}
-		switch v := vals[1].(type) {
+		switch v := row["total_cost"].(type) {
 		case float64:
 			costs = append(costs, v)
 		case int64:
