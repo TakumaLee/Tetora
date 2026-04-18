@@ -134,6 +134,14 @@ func TestCreateLearnedSkill_LoadedAsLearned(t *testing.T) {
 		t.Fatalf("CreateLearnedSkill() error: %v", err)
 	}
 
+	// Before approval: must NOT appear in LoadFileSkills (fail-closed).
+	if skills := LoadFileSkills(cfg); len(skills) != 0 {
+		t.Fatalf("unapproved learned skill surfaced in LoadFileSkills: %+v", skills)
+	}
+
+	// Approve by flipping metadata.json.approved and invalidating cache.
+	approveLearnedSkillForTest(t, cfg, "learned-one")
+
 	skills := LoadFileSkills(cfg)
 	var found bool
 	for _, s := range skills {
@@ -142,8 +150,34 @@ func TestCreateLearnedSkill_LoadedAsLearned(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("created learned skill not found in LoadFileSkills with Learned=true")
+		t.Error("approved learned skill not found in LoadFileSkills with Learned=true")
 	}
+}
+
+// approveLearnedSkillForTest flips metadata.json.approved=true for a
+// learned skill and invalidates the LoadFileSkills cache so the next call
+// picks up the new state. Mirrors what a production ApproveSkill for the
+// learned/ path would do; kept test-local to avoid scope creep in this PR.
+func approveLearnedSkillForTest(t *testing.T, cfg *AppConfig, name string) {
+	t.Helper()
+	metaPath := filepath.Join(SkillsDir(cfg), "learned", name, "metadata.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("read metadata.json: %v", err)
+	}
+	var meta SkillMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("parse metadata.json: %v", err)
+	}
+	meta.Approved = true
+	out, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
+	if err := os.WriteFile(metaPath, out, 0o644); err != nil {
+		t.Fatalf("write metadata.json: %v", err)
+	}
+	invalidateSkillsCache(cfg)
 }
 
 func TestCreateLearnedSkill_Duplicate(t *testing.T) {
@@ -187,6 +221,36 @@ func TestCreateLearnedSkill_NoTriggers(t *testing.T) {
 	json.Unmarshal(data, &meta)
 	if meta.Matcher != nil {
 		t.Error("matcher should be nil when no triggers specified")
+	}
+}
+
+// TestAutoInjectLearnedSkills_SkipsUnapproved asserts that a freshly-created
+// learned skill (CreateLearnedSkill writes approved=false) is NOT returned by
+// AutoInjectLearnedSkills, even though the 24h recency window in
+// ShouldInjectLearnedSkill would otherwise match. LoadFileSkills is the
+// approval gate; this test guards against regressions that would let
+// unapproved LLM-extracted skills leak into downstream task prompts.
+func TestAutoInjectLearnedSkills_SkipsUnapproved(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{BaseDir: dir}
+
+	spec := LearnedSkillSpec{
+		Name:        "unapproved-flow",
+		Description: "pending human review",
+		Triggers:    []string{"unapproved-flow"},
+		CreatedBy:   "kokuyou",
+	}
+	if err := CreateLearnedSkill(cfg, spec); err != nil {
+		t.Fatalf("CreateLearnedSkill: %v", err)
+	}
+
+	// Prompt that would trip both keyword match and the 24h recency window.
+	task := TaskContext{Agent: "kokuyou", Prompt: "run the unapproved-flow please"}
+	injected := AutoInjectLearnedSkills(cfg, task)
+	for _, s := range injected {
+		if s.Name == "unapproved-flow" {
+			t.Errorf("unapproved learned skill leaked into AutoInjectLearnedSkills: %+v", s)
+		}
 	}
 }
 
@@ -302,6 +366,8 @@ func TestShouldInjectLearnedSkill_RecentFile(t *testing.T) {
 	if err := CreateLearnedSkill(cfg, spec); err != nil {
 		t.Fatalf("CreateLearnedSkill() error: %v", err)
 	}
+	// LoadFileSkills fails closed on unapproved learned skills; approve first.
+	approveLearnedSkillForTest(t, cfg, "recent-extracted")
 
 	skills := LoadFileSkills(cfg)
 	var learnedSkill SkillConfig

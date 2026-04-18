@@ -235,6 +235,12 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 		}
 	}
 	// --- Also scan skills/learned/ directory for agent-extracted skills pending review ---
+	//
+	// Security gate: learned/ is populated by LLM extraction (CreateLearnedSkill)
+	// and every entry starts with approved=false. Only explicitly-approved
+	// entries may be surfaced to AutoInjectLearnedSkills / downstream prompts.
+	// metadata.json is the canonical approval record; a missing or unparseable
+	// metadata.json is treated as unapproved (fail-closed).
 	learnedDir := filepath.Join(dir, "learned")
 	learnedEntries, err := os.ReadDir(learnedDir)
 	if err == nil {
@@ -243,35 +249,44 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 				continue
 			}
 			skillDir := filepath.Join(learnedDir, entry.Name())
+			// Fail-closed: require metadata.json with approved=true. Frontmatter
+			// alone is not sufficient (it carries no approval field).
+			metaPath := filepath.Join(skillDir, "metadata.json")
+			data, err := os.ReadFile(metaPath)
+			if err != nil {
+				continue
+			}
+			var meta SkillMetadata
+			if json.Unmarshal(data, &meta) != nil {
+				continue
+			}
+			if !meta.Approved {
+				continue
+			}
+			// Prefer frontmatter-derived SkillConfig for learned skills (it
+			// captures triggers, allowed-tools, etc.); fall back to metadata.json.
 			if sc := loadSkillFromFrontmatter(skillDir); sc != nil {
 				sc.Learned = true
 				skills = append(skills, *sc)
 				continue
 			}
-			// Also try metadata.json in learned skills.
-			metaPath := filepath.Join(skillDir, "metadata.json")
-			if data, err := os.ReadFile(metaPath); err == nil {
-				var meta SkillMetadata
-				if json.Unmarshal(data, &meta) == nil {
-					sc := SkillConfig{
-						Name:        meta.Name,
-						Description: meta.Description,
-						Command:     meta.Command,
-						Args:        meta.Args,
-						Env:         meta.Env,
-						Matcher:     meta.Matcher,
-						Example:     meta.Example,
-						Workdir:     skillDir,
-						Learned:     true,
-					}
-					skillMDPath := filepath.Join(skillDir, "SKILL.md")
-					if info, err := os.Stat(skillMDPath); err == nil {
-						sc.DocPath = skillMDPath
-						sc.DocSize = int(info.Size())
-					}
-					skills = append(skills, sc)
-				}
+			sc := SkillConfig{
+				Name:        meta.Name,
+				Description: meta.Description,
+				Command:     meta.Command,
+				Args:        meta.Args,
+				Env:         meta.Env,
+				Matcher:     meta.Matcher,
+				Example:     meta.Example,
+				Workdir:     skillDir,
+				Learned:     true,
 			}
+			skillMDPath := filepath.Join(skillDir, "SKILL.md")
+			if info, err := os.Stat(skillMDPath); err == nil {
+				sc.DocPath = skillMDPath
+				sc.DocSize = int(info.Size())
+			}
+			skills = append(skills, sc)
 		}
 	}
 
@@ -750,8 +765,11 @@ func CreateLearnedSkill(cfg *AppConfig, spec LearnedSkillSpec) error {
 	if len(triggers) > 0 {
 		sb.WriteString("triggers: [" + strings.Join(triggers, ", ") + "]\n")
 	}
-	if spec.CreatedBy != "" {
-		sb.WriteString("maintainer: " + spec.CreatedBy + "\n")
+	// CreatedBy is normally an internal agent name, but defense-in-depth:
+	// apply the same newline-collapse as Description so a hypothetical
+	// future caller feeding external input cannot break the frontmatter.
+	if createdBy := sanitizeFrontmatterScalar(spec.CreatedBy); createdBy != "" {
+		sb.WriteString("maintainer: " + createdBy + "\n")
 	}
 	sb.WriteString("---\n")
 	if spec.Doc != "" {
