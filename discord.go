@@ -1939,6 +1939,8 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	if sess != nil {
 		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
 			if fresh, _ := findChannelSession(dbPath, chKey); fresh != nil {
+				log.DebugCtx(ctx, "session refresh: redirecting output to fresh session",
+					"archivedSession", current.ID, "freshSession", fresh.ID)
 				sess = fresh
 			}
 		}
@@ -2746,6 +2748,8 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 	if sess != nil {
 		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
 			if fresh, _ := findChannelSession(dbPath, sessionID); fresh != nil {
+				log.DebugCtx(ctx, "session refresh: redirecting output to fresh session",
+					"archivedSession", current.ID, "freshSession", fresh.ID)
 				sess = fresh
 			}
 		}
