@@ -19692,7 +19692,9 @@ function renderWorkerEvents(events) {
   function pollAutoUpdateStatus(btn) {
     var maxAttempts = 150; // 150 × 2s = 5 分鐘上限
     var attempts = 0;
-    // 後端 markWarRoomAutoUpdateStart 同步設 running=true，樂觀假設已見。
+    // markWarRoomAutoUpdateStart 在後端 202 回應前就同步設 running=true，
+    // 所以這裡可以樂觀地當作「已觀察到 running=true」，即使 job 在第一次
+    // poll 前就跑完（→ running=false）也能正確判定為完成而早退。
     var sawRunning = true;
     function finish(timedOut) {
       if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
@@ -19711,6 +19713,7 @@ function renderWorkerEvents(events) {
         .then(function(m) {
           if (!m) { finish(); return; }
           if (m.running) sawRunning = true;
+          // Transition running=true → running=false signals completion.
           if (sawRunning && !m.running) { finish(); return; }
           if (attempts >= maxAttempts) { finish(true); return; }
           setTimeout(tick, 2000);
@@ -19720,6 +19723,7 @@ function renderWorkerEvents(events) {
           setTimeout(tick, 2000);
         });
     }
+    // Short delay so the cron engine has scheduled the goroutine by first poll.
     setTimeout(tick, 500);
   }
 
