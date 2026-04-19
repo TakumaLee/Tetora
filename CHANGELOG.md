@@ -10,6 +10,16 @@
 
 ---
 
+## [v2.4.1] - 2026-04-19
+
+### Fixed
+- **Discord session amnesia after fresh-session compaction (#84)**: Previously `delete-after-inject` removed the compact summary after the first `executeRoute` read, exposing a race where subsequent Discord messages in the same session lost prior context. Summary is now persisted in workspace memory and overwritten by the next compact; injection is guarded by `!canResume` so only the first message of a fresh session pays the system-prompt cost — follow-up messages rely on provider `--continue` for conversation history
+- **Compact summary freshness signal**: `[Summary generated: <RFC3339>]` prepended to the stored summary so the consuming agent can judge staleness if compaction tasks fail repeatedly
+- **Compact summary detail**: Expanded summary target from 300–500 → 1500–2000 words with 7 focused sections (tasks, decisions, verbatim identifiers, unfinished work, user preferences, errors/retries, concrete numbers); per-message input cap raised 800 → 1600 chars; timeout 90s → 180s; budget $0.50 → $1.0 to safely accommodate Opus coordinator configurations
+- **Dispatch slot-aware retry spam (#83)**: Per-task retry policy with slot and stall guards; prevents the retry loop from re-posting `require_human_confirm` comments on every rescan and from burn-looping on no-slot conditions
+
+---
+
 ## [v2.2.5] - 2026-04-17
 
 ### Added
