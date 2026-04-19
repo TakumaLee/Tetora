@@ -309,6 +309,15 @@ func (tb *Engine) UpdateTask(id string, updates map[string]any) (TaskBoard, erro
 			setClauses = append(setClauses, fmt.Sprintf("allow_dangerous = %d", v))
 		case "retryPolicy":
 			setClauses = append(setClauses, fmt.Sprintf("retry_policy = '%s'", db.Escape(fmt.Sprintf("%v", val))))
+		case "retryCount":
+			var n int
+			switch v := val.(type) {
+			case int:
+				n = v
+			case float64:
+				n = int(v)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("retry_count = %d", n))
 		}
 	}
 
@@ -647,10 +656,12 @@ func (tb *Engine) AutoRetryFailed() error {
 		}
 
 		newRetry := currentRetry + 1
+		nowForUpdate := time.Now().UTC().Format(time.RFC3339)
 		updateSQL := fmt.Sprintf(`
 			UPDATE tasks SET status = 'todo', retry_count = %d, next_retry_at = '', updated_at = '%s'
 			WHERE id = '%s' AND retry_count = %d
-		`, newRetry, time.Now().UTC().Format(time.RFC3339), db.Escape(id), currentRetry)
+			  AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= '%s')
+		`, newRetry, nowForUpdate, db.Escape(id), currentRetry, db.Escape(nowForUpdate))
 
 		if err := db.Exec(tb.dbPath, updateSQL); err != nil {
 			log.Warn("auto retry failed task", "id", id, "error", err)
