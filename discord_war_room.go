@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,68 +12,38 @@ import (
 	"tetora/internal/discord"
 	"tetora/internal/httpapi"
 	"tetora/internal/log"
+	"tetora/internal/warroom"
 )
 
-// --- War Room Status JSON types ---
-
-type warRoomStatus struct {
-	SchemaVersion int        `json:"schema_version"`
-	GeneratedAt   string     `json:"generated_at"`
-	Fronts        []warFront `json:"fronts"`
+// warFrontSummary is a display-only projection of a front used by wrShowStatus.
+// Writes go through warroom.UpdateFrontFields so unknown fields are preserved
+// byte-for-byte; this struct is never marshalled back to disk.
+type warFrontSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Status   string `json:"status"`
+	Summary  string `json:"summary"`
+	Blocking string `json:"blocking"`
 }
 
-type warFront struct {
-	ID                      string           `json:"id"`
-	Name                    string           `json:"name"`
-	Category                string           `json:"category"`
-	Auto                    bool             `json:"auto"`
-	Status                  string           `json:"status"`
-	Summary                 string           `json:"summary"`
-	Blocking                string           `json:"blocking"`
-	NextAction              string           `json:"next_action"`
-	LastUpdated             string           `json:"last_updated"`
-	StalenessThresholdHours *int             `json:"staleness_threshold_hours"`
-	ManualOverride          warManualOverride `json:"manual_override"`
-	DependsOn               []string         `json:"depends_on"`
-}
-
-type warManualOverride struct {
-	Active    bool    `json:"active"`
-	ExpiresAt *string `json:"expires_at"`
-}
-
-func (db *DiscordBot) warRoomStatusPath() string {
-	return filepath.Join(db.cfg.BaseDir, "workspace/memory/war-room/status.json")
-}
-
-func (db *DiscordBot) loadWarRoomStatus() (*warRoomStatus, error) {
-	data, err := os.ReadFile(db.warRoomStatusPath())
-	if err != nil {
-		return nil, fmt.Errorf("read status.json: %w", err)
-	}
-	var s warRoomStatus
-	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parse status.json: %w", err)
-	}
-	return &s, nil
-}
-
-func (db *DiscordBot) saveWarRoomStatus(s *warRoomStatus) error {
-	s.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal status.json: %w", err)
-	}
-	return os.WriteFile(db.warRoomStatusPath(), data, 0o644)
-}
-
-func findFront(s *warRoomStatus, id string) *warFront {
-	for i := range s.Fronts {
-		if s.Fronts[i].ID == id {
-			return &s.Fronts[i]
+// findFrontIndex returns the index of the front with the given ID, or -1.
+func findFrontIndex(s *warroom.Status, id string) int {
+	for i, raw := range s.Fronts {
+		fid, err := warroom.FrontID(raw)
+		if err == nil && fid == id {
+			return i
 		}
 	}
-	return nil
+	return -1
+}
+
+// frontName extracts the display name from a raw front (falls back to id).
+func frontName(raw json.RawMessage, fallback string) string {
+	var name string
+	if err := warroom.FrontField(raw, "name", &name); err == nil && name != "" {
+		return name
+	}
+	return fallback
 }
 
 // --- /wr Slash Command Handler ---
@@ -170,100 +139,149 @@ func (db *DiscordBot) wrIntel(frontID, note string, eph func(string) discord.Int
 	}
 }
 
-func (db *DiscordBot) wrUpdate(frontID, status, summary string, eph func(string) discord.InteractionResponse) discord.InteractionResponse {
-	s, err := db.loadWarRoomStatus()
+// mutateFront loads status.json under warroom.Mu, applies fields to the front
+// matching frontID, and saves atomically. Returns the front's display name (or
+// frontID if absent) on success. mutate may return nil fields to skip saving.
+func (db *DiscordBot) mutateFront(frontID string, mutate func(raw json.RawMessage) (map[string]any, error)) (string, error) {
+	statusPath := warroom.StatusPath(db.cfg.BaseDir)
+
+	warroom.Mu.Lock()
+	defer warroom.Mu.Unlock()
+
+	s, err := warroom.LoadStatus(statusPath)
 	if err != nil {
-		log.Error("wr update: load failed", "err", err)
-		return eph("❌ 讀取 status.json 失敗。")
+		return "", fmt.Errorf("load: %w", err)
 	}
-	f := findFront(s, frontID)
-	if f == nil {
-		return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
+	idx := findFrontIndex(s, frontID)
+	if idx < 0 {
+		return "", fmt.Errorf("front not found: %s", frontID)
 	}
-	f.Status = status
-	f.Summary = summary
-	f.LastUpdated = time.Now().UTC().Format(time.RFC3339)
-	f.ManualOverride = warManualOverride{Active: false}
-	if err := db.saveWarRoomStatus(s); err != nil {
-		log.Error("wr update: save failed", "err", err)
-		return eph("❌ 寫入 status.json 失敗。")
+	raw := s.Fronts[idx]
+	name := frontName(raw, frontID)
+
+	fields, err := mutate(raw)
+	if err != nil {
+		return name, err
+	}
+	if fields == nil {
+		return name, nil
+	}
+
+	newRaw, err := warroom.UpdateFrontFields(raw, fields)
+	if err != nil {
+		return name, fmt.Errorf("merge fields: %w", err)
+	}
+	s.Fronts[idx] = newRaw
+
+	if err := warroom.SaveStatus(statusPath, s); err != nil {
+		return name, fmt.Errorf("save: %w", err)
+	}
+	return name, nil
+}
+
+func (db *DiscordBot) wrUpdate(frontID, status, summary string, eph func(string) discord.InteractionResponse) discord.InteractionResponse {
+	name, err := db.mutateFront(frontID, func(raw json.RawMessage) (map[string]any, error) {
+		return map[string]any{
+			"status":       status,
+			"summary":      summary,
+			"last_updated": time.Now().UTC().Format(time.RFC3339),
+			"manual_override": map[string]any{
+				"active": false,
+			},
+		}, nil
+	})
+	if err != nil {
+		log.Error("wr update: mutate failed", "front_id", frontID, "err", err)
+		if strings.HasPrefix(err.Error(), "front not found") {
+			return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
+		}
+		return eph("❌ 讀寫 status.json 失敗。")
 	}
 	return discord.InteractionResponse{
 		Type: discord.InteractionResponseMessage,
 		Data: &discord.InteractionResponseData{
-			Content: fmt.Sprintf("%s **%s** → `%s`\n> %s", wrStatusEmoji(status), f.Name, status, summary),
+			Content: fmt.Sprintf("%s **%s** → `%s`\n> %s", wrStatusEmoji(status), name, status, summary),
 		},
 	}
 }
 
 func (db *DiscordBot) wrBlock(frontID, blockingText string, eph func(string) discord.InteractionResponse) discord.InteractionResponse {
-	s, err := db.loadWarRoomStatus()
+	name, err := db.mutateFront(frontID, func(raw json.RawMessage) (map[string]any, error) {
+		return map[string]any{
+			"status":       "red",
+			"blocking":     blockingText,
+			"last_updated": time.Now().UTC().Format(time.RFC3339),
+		}, nil
+	})
 	if err != nil {
-		log.Error("wr block: load failed", "err", err)
-		return eph("❌ 讀取 status.json 失敗。")
-	}
-	f := findFront(s, frontID)
-	if f == nil {
-		return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
-	}
-	f.Status = "red"
-	f.Blocking = blockingText
-	f.LastUpdated = time.Now().UTC().Format(time.RFC3339)
-	if err := db.saveWarRoomStatus(s); err != nil {
-		log.Error("wr block: save failed", "err", err)
-		return eph("❌ 寫入 status.json 失敗。")
+		log.Error("wr block: mutate failed", "front_id", frontID, "err", err)
+		if strings.HasPrefix(err.Error(), "front not found") {
+			return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
+		}
+		return eph("❌ 讀寫 status.json 失敗。")
 	}
 	return discord.InteractionResponse{
 		Type: discord.InteractionResponseMessage,
 		Data: &discord.InteractionResponseData{
-			Content: fmt.Sprintf("🚨 **%s** blocked\n> %s", f.Name, blockingText),
+			Content: fmt.Sprintf("🚨 **%s** blocked\n> %s", name, blockingText),
 		},
 	}
 }
 
 func (db *DiscordBot) wrQuickStatus(frontID, status string, eph func(string) discord.InteractionResponse) discord.InteractionResponse {
-	s, err := db.loadWarRoomStatus()
-	if err != nil {
-		log.Error("wr quick: load failed", "err", err)
-		return eph("❌ 讀取 status.json 失敗。")
-	}
-	f := findFront(s, frontID)
-	if f == nil {
-		return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
-	}
 	now := time.Now().UTC()
 	expires := now.Add(24 * time.Hour).Format(time.RFC3339)
-	f.Status = status
-	f.LastUpdated = now.Format(time.RFC3339)
-	f.ManualOverride = warManualOverride{Active: true, ExpiresAt: &expires}
-	if err := db.saveWarRoomStatus(s); err != nil {
-		log.Error("wr quick: save failed", "err", err)
-		return eph("❌ 寫入 status.json 失敗。")
+	name, err := db.mutateFront(frontID, func(raw json.RawMessage) (map[string]any, error) {
+		return map[string]any{
+			"status":       status,
+			"last_updated": now.Format(time.RFC3339),
+			"manual_override": map[string]any{
+				"active":     true,
+				"expires_at": expires,
+			},
+		}, nil
+	})
+	if err != nil {
+		log.Error("wr quick: mutate failed", "front_id", frontID, "err", err)
+		if strings.HasPrefix(err.Error(), "front not found") {
+			return eph(fmt.Sprintf("❌ 找不到戰線 `%s`。", frontID))
+		}
+		return eph("❌ 讀寫 status.json 失敗。")
 	}
 	return discord.InteractionResponse{
 		Type: discord.InteractionResponseMessage,
 		Data: &discord.InteractionResponseData{
-			Content: fmt.Sprintf("%s **%s** → `%s` (manual override, 有效 24h)", wrStatusEmoji(status), f.Name, status),
+			Content: fmt.Sprintf("%s **%s** → `%s` (manual override, 有效 24h)", wrStatusEmoji(status), name, status),
 		},
 	}
 }
 
 func (db *DiscordBot) wrShowStatus(eph func(string) discord.InteractionResponse) discord.InteractionResponse {
-	s, err := db.loadWarRoomStatus()
+	statusPath := warroom.StatusPath(db.cfg.BaseDir)
+
+	warroom.Mu.Lock()
+	s, err := warroom.LoadStatus(statusPath)
+	warroom.Mu.Unlock()
 	if err != nil {
 		log.Error("wr status: load failed", "err", err)
 		return eph("❌ 讀取 status.json 失敗。")
 	}
 
-	sorted := make([]warFront, len(s.Fronts))
-	copy(sorted, s.Fronts)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return wrStatusPriority(sorted[i].Status) < wrStatusPriority(sorted[j].Status)
+	projected := make([]warFrontSummary, 0, len(s.Fronts))
+	for _, raw := range s.Fronts {
+		var f warFrontSummary
+		if err := json.Unmarshal(raw, &f); err != nil {
+			continue
+		}
+		projected = append(projected, f)
+	}
+	sort.SliceStable(projected, func(i, j int) bool {
+		return wrStatusPriority(projected[i].Status) < wrStatusPriority(projected[j].Status)
 	})
 
 	var sb strings.Builder
 	sb.WriteString("**⚔️ War Room Status**\n")
-	for _, f := range sorted {
+	for _, f := range projected {
 		summary := f.Summary
 		if len([]rune(summary)) > 50 {
 			summary = string([]rune(summary)[:50]) + "…"

@@ -149,6 +149,9 @@ type Env struct {
 	// RunDailyNotesJob runs the daily notes generation job.
 	RunDailyNotesJob func(ctx context.Context, cfg *config.Config) error
 
+	// RunWarRoomAutoUpdate runs the War Room auto-updater job.
+	RunWarRoomAutoUpdate func(ctx context.Context, cfg *config.Config) error
+
 	// SendWebhooks delivers outgoing webhook notifications.
 	SendWebhooks func(cfg *config.Config, event string, payload webhook.Payload)
 
@@ -738,6 +741,24 @@ func (ce *Engine) tick(ctx context.Context) {
 			continue
 		}
 
+		// Special handling for war room auto-update job.
+		if j.ID == "war_room_autoupdate" {
+			nowLocal := now.In(j.loc)
+			if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
+				continue
+			}
+			if !j.expr.Matches(nowLocal) {
+				continue
+			}
+			if !j.lastRun.IsZero() &&
+				j.lastRun.In(j.loc).Truncate(time.Minute).Equal(nowLocal.Truncate(time.Minute)) {
+				continue
+			}
+			j.nextRun = NextRunAfter(j.expr, j.loc, nowLocal)
+			go ce.runWarRoomAutoUpdateAsync(ctx, j)
+			continue
+		}
+
 		// Special handling for backlog triage job.
 		if j.ID == "backlog-triage" {
 			nowLocal := now.In(j.loc)
@@ -836,6 +857,30 @@ func (ce *Engine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 		}
 	} else {
 		log.Info("daily notes job completed")
+	}
+}
+
+func (ce *Engine) runWarRoomAutoUpdateAsync(ctx context.Context, j *cronJob) {
+	if ce.env.RunWarRoomAutoUpdate == nil {
+		return
+	}
+	ce.mu.Lock()
+	j.runCount++
+	j.running = true
+	ce.mu.Unlock()
+	ce.jobWg.Add(1)
+	defer ce.jobWg.Done()
+	defer func() {
+		ce.mu.Lock()
+		j.runCount--
+		j.running = j.runCount > 0
+		j.lastRun = time.Now()
+		ce.mu.Unlock()
+	}()
+	if err := ce.env.RunWarRoomAutoUpdate(ctx, ce.cfg); err != nil {
+		log.Error("war room autoupdate failed", "error", err)
+	} else {
+		log.Info("war room autoupdate completed")
 	}
 }
 
@@ -1238,6 +1283,19 @@ func (ce *Engine) RunJobByID(_ context.Context, id string) error {
 		ce.mu.Unlock()
 		return fmt.Errorf("job %q already running %d/%d instances", id, target.runCount, maxRuns)
 	}
+	ce.mu.Unlock()
+
+	// Special-ID dispatch bypasses the generic prompt-based runJob.
+	if id == "war_room_autoupdate" {
+		jobCtx, jobCancel := context.WithCancel(ce.ctx)
+		go func() {
+			defer jobCancel()
+			ce.runWarRoomAutoUpdateAsync(jobCtx, target)
+		}()
+		return nil
+	}
+
+	ce.mu.Lock()
 	target.runCount++
 	target.running = true
 	jobCtx, jobCancel := context.WithCancel(ce.ctx)
@@ -1595,7 +1653,7 @@ func (ce *Engine) StartupReplay(ctx context.Context) {
 		if j.IdleMinHours > 0 || j.RequireApproval || j.Trigger == "idle" {
 			continue
 		}
-		if j.ID == "daily_notes" || j.ID == "backlog-triage" {
+		if j.ID == "daily_notes" || j.ID == "backlog-triage" || j.ID == "war_room_autoupdate" {
 			continue
 		}
 

@@ -1218,7 +1218,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 
 	// Discord thread-per-task: post result to thread.
 	if doDiscordNotify {
-		state.discordBot.notifier.NotifyComplete(task.ID, result)
+		state.discordBot.notifier.NotifyComplete(task, result)
 	}
 
 	return result

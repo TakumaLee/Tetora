@@ -18,7 +18,7 @@ export const defaultLang: Lang = 'en';
 export const ui: Record<Lang, Record<string, string>> = {
   en: {
     tagline: "AI Agent Orchestration Platform — workflows, taskboards, and multi-agent collaboration in a single binary.",
-    download_btn: "Download v2.2.6",
+    download_btn: "Download v2.3.0",
     copy: "click to copy",
     copied: "copied!",
     why_title: "Why Tetora?",
@@ -51,7 +51,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   'zh-TW': {
     tagline: "AI Agent 編排平台 — 工作流、任務看板、多 Agent 協作，單一執行檔即可運行。",
-    download_btn: "下載 v2.2.6",
+    download_btn: "下載 v2.3.0",
     copy: "點擊複製",
     copied: "已複製!",
     why_title: "為什麼選 Tetora？",
@@ -82,7 +82,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   ja: {
     tagline: "AIエージェントオーケストレーションプラットフォーム — ワークフロー、タスクボード、マルチエージェント協調を単一バイナリで。",
-    download_btn: "ダウンロード v2.2.6",
+    download_btn: "ダウンロード v2.3.0",
     copy: "クリックでコピー",
     copied: "コピーしました!",
     why_title: "なぜ Tetora？",
@@ -113,7 +113,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   ko: {
     tagline: "AI 에이전트 오케스트레이션 플랫폼 — 워크플로우, 태스크보드, 멀티 에이전트 협업을 단일 바이너리로.",
-    download_btn: "다운로드 v2.2.6",
+    download_btn: "다운로드 v2.3.0",
     copy: "클릭하여 복사",
     copied: "복사됨!",
     why_title: "왜 Tetora?",
@@ -144,7 +144,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   es: {
     tagline: "Plataforma de orquestación de agentes IA — flujos de trabajo, tableros de tareas y colaboración multi-agente en un solo binario.",
-    download_btn: "Descargar v2.2.6",
+    download_btn: "Descargar v2.3.0",
     copy: "clic para copiar",
     copied: "¡copiado!",
     why_title: "¿Por qué Tetora?",
@@ -175,7 +175,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   fr: {
     tagline: "Plateforme d'orchestration d'agents IA — workflows, tableaux de tâches et collaboration multi-agents dans un seul binaire.",
-    download_btn: "Télécharger v2.2.6",
+    download_btn: "Télécharger v2.3.0",
     copy: "cliquer pour copier",
     copied: "copié !",
     why_title: "Pourquoi Tetora ?",
@@ -206,7 +206,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   de: {
     tagline: "KI-Agenten-Orchestrierungsplattform — Workflows, Taskboards und Multi-Agenten-Kollaboration in einer einzigen Binärdatei.",
-    download_btn: "Download v2.2.6",
+    download_btn: "Download v2.3.0",
     copy: "Klicken zum Kopieren",
     copied: "Kopiert!",
     why_title: "Warum Tetora?",
@@ -237,7 +237,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   th: {
     tagline: "แพลตฟอร์มจัดการ AI Agent — เวิร์กโฟลว์, ทาสก์บอร์ด และการทำงานร่วมกันของหลาย Agent ในไฟล์เดียว",
-    download_btn: "ดาวน์โหลด v2.2.6",
+    download_btn: "ดาวน์โหลด v2.3.0",
     copy: "คลิกเพื่อคัดลอก",
     copied: "คัดลอกแล้ว!",
     why_title: "ทำไมต้อง Tetora?",
@@ -268,7 +268,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   id: {
     tagline: "Platform orkestrasi AI Agent — workflow, taskboard, dan kolaborasi multi-agen dalam satu binary.",
-    download_btn: "Unduh v2.2.6",
+    download_btn: "Unduh v2.3.0",
     copy: "klik untuk salin",
     copied: "tersalin!",
     why_title: "Mengapa Tetora?",
@@ -299,7 +299,7 @@ export const ui: Record<Lang, Record<string, string>> = {
   },
   fil: {
     tagline: "AI Agent Orchestration Platform — workflows, taskboards, at multi-agent collaboration sa iisang binary.",
-    download_btn: "I-download v2.2.6",
+    download_btn: "I-download v2.3.0",
     copy: "i-click para kopyahin",
     copied: "nakopya na!",
     why_title: "Bakit Tetora?",

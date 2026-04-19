@@ -1,6 +1,6 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.2.6
+VERSION  := 2.4.0
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
@@ -26,7 +26,7 @@ dashboard: $(DASH_PARTS)
 		echo '<script>'; \
 		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
 		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/pwa.js dashboard/war-room.js; \
+		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js; \
 		echo '</script>'; \
 		cat dashboard/foot.html; \
 	} > dashboard.html

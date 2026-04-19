@@ -153,6 +153,7 @@ type Config struct {
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"`
 	Security              SecurityConfig                   `json:"security,omitempty"`
 	DailyNotes            DailyNotesConfig                 `json:"dailyNotes,omitempty"`
+	WarRoomAutoUpdate     WarRoomAutoUpdateConfig          `json:"warRoomAutoUpdate,omitempty"`
 	SkillStore            SkillStoreConfig                 `json:"skillStore,omitempty"`
 	Usage                 UsageConfig                      `json:"usage,omitempty"`
 	WorkflowTriggers      []WorkflowTriggerConfig          `json:"workflowTriggers,omitempty"`

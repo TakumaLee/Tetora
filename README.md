@@ -253,6 +253,14 @@ Hot-reload is supported: send `SIGHUP` to the running daemon to reload `config.j
 
 ---
 
+## Task Memory Layering
+
+Tetora organizes task and memory state into three layers with different lifecycles — session-bound todos (Claude Code `TaskCreate`), cross-session structured tickets (`tetora task` / taskboard), and permanent markdown documents (specs, plans, roadmaps under `docs/` or `tasks/`). Agent memory subsystems (`rules/`, `skills/`, `memory/`) sit alongside these layers with their own promotion path.
+
+**[Full design doc (zh-TW): Task Memory Layering](docs/task-memory-layering.md)** — when to use which layer, dispatch flow, anti-patterns, and maintenance guidance.
+
+---
+
 ## Session Compaction
 
 Tetora automatically compresses session context when it grows too large. This directly affects **API cost** — large sessions cause expensive cache writes on every request.

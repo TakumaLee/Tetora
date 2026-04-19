@@ -721,6 +721,8 @@ func main() {
 		} else {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
+			// Register war room auto-updater job if enabled.
+			registerWarRoomAutoUpdateJob(ctx, cfg, cron)
 			cron.Start(ctx)
 			cron.StartupReplay(ctx)
 		}
@@ -2425,6 +2427,7 @@ Commands:
   knowledge <action> Manage knowledge base (list|add|remove|path)
   skill <action>     Manage skills (list|run|test)
   workflow <action>  Manage workflows (list|show|validate|create|delete)
+  task <action>      Persistent taskboard (list|create|show|update|move|assign|comment|thread)
   budget <action>    Cost governance (show|pause|resume)
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
@@ -2455,6 +2458,9 @@ Examples:
   tetora agent remove <name>           Remove an agent
   tetora history list                  Show recent execution history
   tetora history cost                  Show cost summary
+  tetora task list --assignee=hisui    List tasks assigned to an agent
+  tetora task create --title="..." --assignee=hisui --description="..."
+                                       Create a persistent cross-session ticket
   tetora config migrate --dry-run      Preview config migrations
   tetora session list                  List recent sessions
   tetora session list --agent <name>   List sessions for a specific agent

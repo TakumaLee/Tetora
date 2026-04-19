@@ -101,6 +101,7 @@ import (
 	"tetora/internal/upload"
 	"tetora/internal/usage"
 	"tetora/internal/voice"
+	warroomAutoupdate "tetora/internal/warroom/autoupdate"
 	"tetora/internal/webhook"
 	"tetora/internal/workspace"
 )
@@ -5768,6 +5769,10 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 			return runDailyNotesJob(ctx, c)
 		},
 
+		RunWarRoomAutoUpdate: func(ctx context.Context, c *Config) error {
+			return warroomAutoupdate.Run(ctx, c)
+		},
+
 		SendWebhooks: func(c *Config, event string, payload webhook.Payload) {
 			sendWebhooks(c, event, payload)
 		},
@@ -8058,6 +8063,26 @@ func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEng
 	}
 
 	log.Info("daily notes job registered", "schedule", schedule)
+}
+
+func registerWarRoomAutoUpdateJob(ctx context.Context, cfg *Config, cronEngine *CronEngine) {
+	if !cfg.WarRoomAutoUpdate.Enabled {
+		return
+	}
+
+	schedule := cfg.WarRoomAutoUpdate.ScheduleOrDefault()
+
+	if err := cronEngine.AddJob(CronJobConfig{
+		ID:       "war_room_autoupdate",
+		Name:     "War Room Auto-Updater",
+		Enabled:  true,
+		Schedule: schedule,
+	}); err != nil {
+		log.Info("war room autoupdate register", "schedule", schedule, "note", err)
+		return
+	}
+
+	log.Info("war room autoupdate registered", "schedule", schedule)
 }
 
 func runDailyNotesJob(ctx context.Context, cfg *Config) error {

@@ -88,17 +88,19 @@
 
   // ── Render grid ───────────────────────────────────────────────
   function renderWarRoom(data) {
-    var fronts = (data && Array.isArray(data.fronts)) ? data.fronts : [];
+    var allFronts = (data && Array.isArray(data.fronts)) ? data.fronts : [];
+    var fronts = allFronts.filter(function(f) { return !f.archived; });
     var genAt  = (data && data.generated_at) ? data.generated_at : '';
     document.getElementById('wr-last-updated').textContent =
       genAt ? '上次更新：' + wrFormatTime(genAt) : '無更新紀錄';
 
     var grid = document.getElementById('wr-grid');
     if (fronts.length === 0) {
-      grid.innerHTML = '<div class="wr-empty">尚無戰線資料。請在 status.json 中新增 fronts。</div>';
+      grid.innerHTML = '<div class="wr-empty">尚無戰線資料。按「+ 新增戰線」開始。</div>';
       return;
     }
     grid.innerHTML = fronts.map(renderWarRoomCard).join('');
+    loadAutoUpdateMeta();
   }
 
   // ── Per-type card dispatch ─────────────────────────────────────
@@ -136,7 +138,12 @@
       var moExpired = mo.expires_at && new Date(mo.expires_at) <= new Date();
       if (!moExpired) {
         var moExpStr = mo.expires_at ? wrFormatTime(mo.expires_at) : '無限期';
-        parts.push('<span class="wr-override-badge">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + '</span>');
+        parts.push(
+          '<span class="wr-override-badge" role="button" tabindex="0"' +
+          ' title="點擊清除覆蓋" onclick="event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')}"' +
+          ' style="cursor:pointer">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + ' &#x2715;</span>'
+        );
       }
     }
     if (parts.length === 0) return '';
@@ -188,10 +195,28 @@
       : '';
     return [
       '<div class="wr-action-bar">',
+      '  ' + _wrStatusCapsule(front),
       '  <button class="wr-btn wr-btn-primary" onclick="event.stopPropagation();openWrModal(\'' + esc(front.id) + '\',true)">&#x1F4E5; Add Intel</button>',
       '  ' + editBtn,
       '</div>'
     ].join('\n');
+  }
+
+  function _wrStatusCapsule(front) {
+    var id = esc(front.id);
+    var cur = front.status || '';
+    function btn(st, icon, title) {
+      var active = cur === st ? ' is-active' : '';
+      return '<button class="wr-stat-btn' + active + '" title="' + title + '"' +
+        ' onclick="event.stopPropagation();setWrStatus(\'' + id + '\',\'' + st + '\')">' +
+        icon + '</button>';
+    }
+    return '<div class="wr-stat-capsule" data-front-id="' + id + '" onclick="event.stopPropagation()">' +
+      btn('green',  '&#x1F7E2;', '運行中') +
+      btn('yellow', '&#x1F7E1;', '注意') +
+      btn('red',    '&#x1F534;', '阻塞') +
+      btn('paused', '&#x23F8;&#xFE0F;', '暫停') +
+      '</div>';
   }
 
   function _wrCardFooter(front) {
@@ -354,36 +379,136 @@
   }
 
   function saveWarRoomFront(id) {
-    if (!_warRoomData || !Array.isArray(_warRoomData.fronts)) return;
-    var front = _warRoomData.fronts.find(function(f) { return f.id === id; });
-    if (!front) return;
-
     var statusEl  = document.getElementById('wr-ef-status-'  + id);
     var summaryEl = document.getElementById('wr-ef-summary-' + id);
     var blockEl   = document.getElementById('wr-ef-blocking-'+ id);
     var nextEl    = document.getElementById('wr-ef-next-'    + id);
+    if (!statusEl) return;
 
-    front.status      = statusEl  ? statusEl.value  : front.status;
-    front.summary     = summaryEl ? summaryEl.value : front.summary;
-    front.blocking    = blockEl   ? blockEl.value   : front.blocking;
-    front.next_action = nextEl    ? nextEl.value    : front.next_action;
-    front.last_updated = new Date().toISOString();
-    _warRoomData.generated_at = new Date().toISOString();
-
-    var body = JSON.stringify(_warRoomData, null, 2);
-    fetch('/api/workspace/file', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'memory/war-room/status.json', content: body })
+    // DOM 不存在時送 null → server 的 nil-guard 會跳過該欄位。
+    // 不可送 ''（空字串）：server 看到非 nil 會清空現有值（metrics 卡片無該欄位時必中）。
+    var body = {
+      front_id: id,
+      status: statusEl.value,
+      summary: summaryEl ? summaryEl.value : null,
+      blocking: blockEl ? blockEl.value : null,
+      next_action: nextEl ? nextEl.value : null
+    };
+    fetch('/api/war-room/front/status', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      renderWarRoom(_warRoomData);
       closeWrModal();
+      loadWarRoom();
     })
     .catch(function(err) {
       alert('儲存失敗：' + err.message);
     });
+  }
+
+  // ── Quick actions (T1) ────────────────────────────────────────
+  var _wrStatusPending = {}; // frontId → true while a status POST is in-flight
+
+  function _wrSetCapsuleBusy(frontId, busy) {
+    var el = document.querySelector('.wr-stat-capsule[data-front-id="' + frontId + '"]');
+    if (!el) return;
+    el.style.pointerEvents = busy ? 'none' : '';
+    el.style.opacity = busy ? '0.5' : '';
+  }
+
+  function setWrStatus(frontId, status) {
+    if (!_warRoomData || !Array.isArray(_warRoomData.fronts)) return;
+    if (_wrStatusPending[frontId]) return; // debounce: ignore while in-flight
+    var front = _warRoomData.fronts.find(function(f) { return f.id === frontId; });
+    if (!front) return;
+
+    // Auto fronts prompt for override duration; non-auto just flip status.
+    if (front.auto) {
+      _wrOverridePrompt(frontId, status);
+      return;
+    }
+    _wrPostStatus(frontId, status, null);
+  }
+
+  function _wrOverridePrompt(frontId, status) {
+    // Build a tiny popover. Use prompt() fallback for simplicity.
+    var hours = prompt('此戰線為自動更新。手動覆寫此狀態多少小時？ (1 / 4 / 24，0 表示不設覆蓋)', '4');
+    if (hours === null) return;
+    var h = parseInt(hours, 10);
+    if (isNaN(h) || h < 0) { alert('請輸入非負整數'); return; }
+    _wrPostStatus(frontId, status, h > 0 ? h : null);
+  }
+
+  function _wrPostStatus(frontId, status, overrideHours) {
+    var body = { front_id: frontId, status: status };
+    if (overrideHours != null) body.override_hours = overrideHours;
+    _wrStatusPending[frontId] = true;
+    _wrSetCapsuleBusy(frontId, true);
+    fetch('/api/war-room/front/status', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      loadWarRoom();
+    }).catch(function(err) {
+      alert('更新失敗：' + err.message);
+    }).finally(function() {
+      delete _wrStatusPending[frontId];
+      _wrSetCapsuleBusy(frontId, false);
+    });
+  }
+
+  function clearWrOverride(frontId) {
+    fetch('/api/war-room/front/override', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ front_id: frontId, active: false })
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      loadWarRoom();
+    }).catch(function(err) { alert('清除覆蓋失敗：' + err.message); });
+  }
+
+  function triggerAutoUpdate() {
+    var btn = document.getElementById('wr-autoupdate-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 執行中...'; }
+    fetch('/api/war-room/autoupdate/trigger', { method: 'POST' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function() { loadWarRoom(); })
+      .catch(function(err) { alert('autoupdate 觸發失敗：' + err.message); })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
+      });
+  }
+
+  function loadAutoUpdateMeta() {
+    var el = document.getElementById('wr-autoupdate-meta');
+    if (!el) return;
+    fetch('/api/war-room/autoupdate/meta')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(m) {
+        if (!m) { el.textContent = ''; return; }
+        var parts = [];
+        if (m.last_run && m.last_run !== '0001-01-01T00:00:00Z') {
+          parts.push('上次: ' + wrFormatTime(m.last_run));
+        } else {
+          parts.push('上次: 未執行');
+        }
+        if (m.next_run && m.next_run !== '0001-01-01T00:00:00Z') {
+          parts.push('下次: ' + wrFormatTime(m.next_run));
+        }
+        if (!m.enabled) parts.push('(disabled)');
+        if (m.running) parts.push('⏳ 執行中');
+        el.textContent = parts.join(' · ');
+      })
+      .catch(function() { /* silent */ });
   }
 
   // ── Modal ─────────────────────────────────────────────────────
@@ -449,13 +574,41 @@
     }
   });
 
+  function _wrDependsGraph(front) {
+    var deps = Array.isArray(front.depends_on) ? front.depends_on : [];
+    var dependents = [];
+    if (_warRoomData && Array.isArray(_warRoomData.fronts)) {
+      _warRoomData.fronts.forEach(function(f) {
+        if (!f.archived && Array.isArray(f.depends_on) && f.depends_on.indexOf(front.id) !== -1) {
+          dependents.push(f);
+        }
+      });
+    }
+    if (deps.length === 0 && dependents.length === 0) return '';
+    function chip(f) {
+      var cls = f.status === 'red' ? ' red' : (f.status === 'yellow' ? ' yellow' : '');
+      var name = f.name || f.id;
+      return '<span class="wr-depends-chip' + cls + '" onclick="event.stopPropagation();openWrModal(\'' +
+        esc(f.id) + '\')" style="cursor:pointer">' + esc(name) + '</span>';
+    }
+    var depsHtml = deps.map(function(id) {
+      var f = _warRoomData.fronts.find(function(x) { return x.id === id; });
+      return f ? chip(f) : '<span class="wr-depends-chip">' + esc(id) + ' (?)</span>';
+    }).join('');
+    var dependentsHtml = dependents.map(chip).join('');
+    var parts = [];
+    if (depsHtml) parts.push('<div><span style="font-size:10px;color:var(--muted);margin-right:6px">依賴 →</span>' + depsHtml + '</div>');
+    if (dependentsHtml) parts.push('<div><span style="font-size:10px;color:var(--muted);margin-right:6px">← 被依賴</span>' + dependentsHtml + '</div>');
+    return '<div style="margin-bottom:12px;padding:8px 0;border-bottom:1px dashed var(--border);display:flex;flex-direction:column;gap:4px">' + parts.join('') + '</div>';
+  }
+
   function _wrRenderModalMain(front) {
     var type = front.card_type || 'strategy';
-    var html = '';
+    var html = _wrDependsGraph(front);
     if (type === 'metrics') {
-      html = _wrModalMetrics(front);
+      html += _wrModalMetrics(front);
     } else {
-      html = _wrModalStrategy(front);
+      html += _wrModalStrategy(front);
     }
     // Always append collapsible md placeholder
     html += _wrExpandSection(front);
@@ -706,6 +859,116 @@
     ].join(';');
     document.body.appendChild(toast);
     setTimeout(function() { toast.remove(); }, 2400);
+  }
+
+  // ── Create front (T2) ─────────────────────────────────────────
+  function openCreateFrontModal() {
+    var ids = ['wr-cf-id','wr-cf-name','wr-cf-depends'];
+    ids.forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+    var auto = document.getElementById('wr-cf-auto'); if (auto) auto.checked = false;
+    var m = document.getElementById('wr-create-modal');
+    if (m) { m.classList.add('open'); document.body.style.overflow = 'hidden'; }
+  }
+  function closeCreateFrontModal() {
+    var m = document.getElementById('wr-create-modal');
+    if (m) { m.classList.remove('open'); document.body.style.overflow = ''; }
+  }
+  function submitCreateFront() {
+    var id = (document.getElementById('wr-cf-id').value || '').trim();
+    var name = (document.getElementById('wr-cf-name').value || '').trim();
+    var cat = document.getElementById('wr-cf-category').value;
+    var ct = document.getElementById('wr-cf-cardtype').value;
+    var auto = document.getElementById('wr-cf-auto').checked;
+    var depStr = (document.getElementById('wr-cf-depends').value || '').trim();
+    var deps = depStr ? depStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) { alert('ID 格式錯誤：小寫字母數字連字號'); return; }
+    if (!name) { alert('請填名稱'); return; }
+
+    fetch('/api/war-room/front', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id, name: name, category: cat, card_type: ct, auto: auto, depends_on: deps })
+    }).then(function(r) {
+      if (r.status === 409) throw new Error('ID 已存在');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      closeCreateFrontModal();
+      loadWarRoom();
+    }).catch(function(err) { alert('建立失敗：' + err.message); });
+  }
+
+  // ── Archive / delete (T2) ─────────────────────────────────────
+  function archiveCurrentFront() {
+    if (!_wrCurrentFrontId) return;
+    if (!confirm('封存「' + _wrCurrentFrontId + '」？卡片會從戰情室消失，但資料保留（可手動改 archived=false 還原）')) return;
+    fetch('/api/war-room/front/' + encodeURIComponent(_wrCurrentFrontId), { method: 'DELETE' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        closeWrModal(); loadWarRoom();
+      }).catch(function(err) { alert('封存失敗：' + err.message); });
+  }
+  function deleteCurrentFront() {
+    if (!_wrCurrentFrontId) return;
+    if (!confirm('確定要【永久刪除】「' + _wrCurrentFrontId + '」嗎？此動作不可還原。')) return;
+    fetch('/api/war-room/front/' + encodeURIComponent(_wrCurrentFrontId) + '?hard=true', { method: 'DELETE' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        closeWrModal(); loadWarRoom();
+      }).catch(function(err) { alert('刪除失敗：' + err.message); });
+  }
+
+  // ── Copy / export (T3) ────────────────────────────────────────
+  function copyFrontSummary() {
+    if (!_warRoomData || !_wrCurrentFrontId) return;
+    var f = _warRoomData.fronts.find(function(x) { return x.id === _wrCurrentFrontId; });
+    if (!f) return;
+    var lines = [
+      '### ' + (f.name || f.id) + ' (' + (f.status || 'unknown') + ')',
+      f.summary ? '- 摘要：' + f.summary : '',
+      f.blocking ? '- 阻礙：' + f.blocking : '',
+      f.next_action ? '- 下一步：' + f.next_action : '',
+      f.last_updated ? '- 更新：' + f.last_updated : ''
+    ].filter(Boolean);
+    _wrCopy(lines.join('\n'));
+  }
+  function exportWarRoomMarkdown() {
+    if (!_warRoomData) return;
+    var fronts = (_warRoomData.fronts || []).filter(function(f) { return !f.archived; });
+    var out = ['# 戰情室 — ' + new Date().toISOString().slice(0,10), ''];
+    fronts.forEach(function(f) {
+      out.push('## ' + (f.name || f.id) + ' (' + (f.status || 'unknown') + ')');
+      if (f.summary) out.push('- 摘要：' + f.summary);
+      if (f.blocking) out.push('- 阻礙：' + f.blocking);
+      if (f.next_action) out.push('- 下一步：' + f.next_action);
+      if (f.last_updated) out.push('- 更新：' + f.last_updated);
+      out.push('');
+    });
+    _wrCopy(out.join('\n'));
+  }
+  function _wrCopy(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(function() { _wrShowToast('已複製到剪貼簿'); })
+        .catch(function() { _wrFallbackCopy(text); });
+    } else { _wrFallbackCopy(text); }
+  }
+  function _wrFallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); _wrShowToast('已複製到剪貼簿'); }
+    catch (e) { alert('複製失敗，請手動：\n\n' + text); }
+    document.body.removeChild(ta);
+  }
+
+  // ── Intel filter (T3) ─────────────────────────────────────────
+  function filterIntelList() {
+    var q = (document.getElementById('wr-intel-search').value || '').toLowerCase();
+    var entries = document.querySelectorAll('#wr-intel-list .wr-intel-entry');
+    entries.forEach(function(el) {
+      var txt = el.textContent.toLowerCase();
+      el.style.display = (!q || txt.indexOf(q) !== -1) ? '' : 'none';
+    });
   }
 
   function esc(str) {

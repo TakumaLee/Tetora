@@ -4507,7 +4507,41 @@ body:not([class*="theme-"])::after, body.theme-default::after {
         align-items: center;
         gap: 5px;
         margin-top: 10px;
+        flex-wrap: wrap;
       }
+      .wr-stat-capsule {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--wr-btn-sec-bg);
+      }
+      .wr-stat-btn {
+        border: none;
+        background: transparent;
+        padding: 3px 7px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1;
+        transition: background 0.1s;
+      }
+      .wr-stat-btn:hover { background: var(--wr-btn-sec-hover); }
+      .wr-stat-btn.is-active { background: var(--accent); }
+      .wr-depends-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin: 2px 4px 2px 0;
+        background: var(--wr-btn-sec-bg);
+      }
+      .wr-depends-chip.red { color: var(--red); border-color: rgba(239,68,68,0.4); }
+      .wr-depends-chip.yellow { color: var(--yellow); border-color: rgba(245,158,11,0.4); }
       .wr-btn {
         border: none;
         border-radius: 6px;
@@ -4927,8 +4961,14 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <div>
         <div class="wr-title">&#x1F5FA; 戰情室</div>
         <div class="wr-meta" id="wr-last-updated">讀取中...</div>
+        <div class="wr-meta" id="wr-autoupdate-meta" style="font-size:11px;margin-top:2px"></div>
       </div>
-      <button class="wr-refresh-btn" onclick="loadWarRoom()">&#x21BB; 手動刷新</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="wr-refresh-btn" onclick="loadWarRoom()">&#x21BB; 手動刷新</button>
+        <button class="wr-refresh-btn" id="wr-autoupdate-btn" onclick="triggerAutoUpdate()" title="ad-hoc 觸發 cron">&#x26A1; 立即跑 autoupdate</button>
+        <button class="wr-refresh-btn" onclick="openCreateFrontModal()">&#x2795; 新增戰線</button>
+        <button class="wr-refresh-btn" onclick="exportWarRoomMarkdown()" title="複製所有 fronts 的 markdown 摘要">&#x1F4CB; 匯出</button>
+      </div>
     </div>
 
     <div class="wr-grid" id="wr-grid">
@@ -4947,9 +4987,10 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       </div>
       <div class="wr-modal-actions" id="wr-modal-actions">
         <button class="wr-btn wr-btn-primary" id="wr-modal-add-intel-btn">&#x1F4E5; Add Intel</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F504; Refresh</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x1F4AC; Ask Claude</button>
-        <button class="wr-btn wr-btn-sec" onclick="alert('功能開發中')">&#x2699;&#xFE0F; Dispatch</button>
+        <button class="wr-btn wr-btn-sec" onclick="triggerAutoUpdate()">&#x1F504; 觸發 Autoupdate</button>
+        <button class="wr-btn wr-btn-sec" onclick="copyFrontSummary()" title="複製此 front 的狀態摘要">&#x1F4CB; 複製摘要</button>
+        <button class="wr-btn wr-btn-sec" style="margin-left:auto" onclick="archiveCurrentFront()" title="封存（可還原）">&#x1F4E6; 封存</button>
+        <button class="wr-btn wr-btn-sec" onclick="deleteCurrentFront()" style="color:var(--red);border-color:rgba(239,68,68,0.4)" title="硬刪除">&#x1F5D1; 刪除</button>
       </div>
       <div class="wr-modal-body">
         <div class="wr-modal-main" id="wr-modal-main">
@@ -4960,9 +5001,71 @@ body:not([class*="theme-"])::after, body.theme-default::after {
             <div class="wr-sidebar-label">&#x1F4E5; Intel 累積</div>
             <textarea class="wr-intel-textarea" id="wr-intel-input" rows="6" placeholder="貼上文章、備註、觀察…"></textarea>
             <button class="wr-intel-submit" id="wr-intel-submit-btn">提交 Intel</button>
+            <input type="search" id="wr-intel-search" placeholder="&#x1F50D; 搜尋 intel..." oninput="filterIntelList()"
+              style="margin-top:8px;width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box">
           </div>
           <div class="wr-intel-list" id="wr-intel-list">
             <div class="wr-intel-placeholder">尚無 Intel 記錄</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- War Room Create-Front Modal -->
+  <div class="wr-modal-overlay" id="wr-create-modal" role="dialog" aria-modal="true" aria-labelledby="wr-create-modal-title" onclick="if(event.target===this)closeCreateFrontModal()">
+    <div class="wr-modal" id="wr-create-panel" style="max-width:520px">
+      <div class="wr-modal-header">
+        <div class="wr-modal-title" id="wr-create-modal-title">&#x2795; 新增戰線</div>
+        <button class="wr-modal-close" onclick="closeCreateFrontModal()" aria-label="關閉">&#x2715;</button>
+      </div>
+      <div class="wr-modal-body" style="grid-template-columns:1fr;padding:16px 20px 20px">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label style="font-size:11px;color:var(--muted)">ID（小寫字母數字連字號）</label>
+            <input type="text" id="wr-cf-id" placeholder="e.g. polymarket-arb" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)">名稱</label>
+            <input type="text" id="wr-cf-name" placeholder="顯示名稱" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--muted)">Category</label>
+              <select id="wr-cf-category" class="input" style="width:100%;margin-top:4px">
+                <option value="finance">finance</option>
+                <option value="dev">dev</option>
+                <option value="content">content</option>
+                <option value="marketing">marketing</option>
+                <option value="business">business</option>
+                <option value="collaboration">collaboration</option>
+                <option value="planning">planning</option>
+                <option value="freelance">freelance</option>
+                <option value="company">company</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--muted)">Card Type</label>
+              <select id="wr-cf-cardtype" class="input" style="width:100%;margin-top:4px">
+                <option value="strategy">strategy</option>
+                <option value="metrics">metrics</option>
+                <option value="collab">collab</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+              <input type="checkbox" id="wr-cf-auto"> 由 cron 自動更新（auto）
+            </label>
+            <div style="font-size:10px;color:var(--muted);margin-left:22px">只有 polymarket / taiwan-stock-auto / taiwan-stock-manual / tetora 四個 id 有對應的 updater。</div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted)">Depends on（逗號分隔的 front id）</label>
+            <input type="text" id="wr-cf-depends" placeholder="e.g. tetora, polymarket" class="input" style="width:100%;margin-top:4px">
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+            <button class="wr-btn wr-btn-sec" onclick="closeCreateFrontModal()">取消</button>
+            <button class="wr-btn wr-btn-primary" onclick="submitCreateFront()">建立</button>
           </div>
         </div>
       </div>
@@ -8024,8 +8127,13 @@ function inlineFormat(text) {
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic.
   text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Links.
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Links. Restrict href to http(s) or relative paths to block javascript: /
+  // data: scheme XSS (renderMarkdown is also used for task/memory views where
+  // input may not be fully trusted).
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, label, url) {
+    var safe = /^(https?:\/\/|\/|#|mailto:)/i.test(url) ? url : '#';
+    return '<a href="' + safe + '" target="_blank" rel="noopener">' + label + '</a>';
+  });
   return text;
 }
 
@@ -17223,6 +17331,162 @@ document.addEventListener('visibilitychange', function() {
   }
 });
 
+// --- Documentation Viewer ---
+
+var docsLangNames = {
+  'en':'English','zh-TW':'繁體中文','ja':'日本語','ko':'한국어',
+  'id':'Bahasa Indonesia','th':'ภาษาไทย','fil':'Filipino',
+  'es':'Español','fr':'Français','de':'Deutsch'
+};
+
+var docsState = {
+  list: [],
+  activeFile: '',
+  activeName: '',
+  lang: detectDocsLang(),
+  loaded: false
+};
+
+function detectDocsLang() {
+  var stored = localStorage.getItem('tetora-docs-lang');
+  if (stored) return stored;
+  var nav = (navigator.language || '').replace('_', '-');
+  var supported = ['zh-TW', 'ja', 'ko', 'id', 'th', 'fil', 'es', 'fr', 'de'];
+  for (var i = 0; i < supported.length; i++) {
+    if (nav === supported[i]) return supported[i];
+  }
+  var prefix = nav.split('-')[0];
+  for (var i = 0; i < supported.length; i++) {
+    if (supported[i].split('-')[0] === prefix) return supported[i];
+  }
+  return 'en';
+}
+
+async function refreshDocs() {
+  if (docsState.loaded) return;
+  try {
+    var list = await fetchJSON('/api/docs');
+    docsState.list = list || [];
+    docsState.loaded = true;
+    if (docsState.list.length === 0) {
+      showDocsUnderConstruction();
+      return;
+    }
+    renderDocsSidebar();
+    // Load README by default
+    var readme = docsState.list.find(function(d) { return d.file === 'README.md'; });
+    if (readme) {
+      loadDoc(readme.file, readme.name);
+    } else if (docsState.list.length > 0) {
+      loadDoc(docsState.list[0].file, docsState.list[0].name);
+    }
+  } catch(e) {
+    showDocsUnderConstruction();
+  }
+}
+
+function showDocsUnderConstruction() {
+  var sidebar = document.getElementById('docs-sidebar-list');
+  if (sidebar) sidebar.innerHTML = '<div style="color:var(--muted);padding:16px;font-size:12px;text-align:center">Coming soon</div>';
+  var content = document.getElementById('docs-rendered');
+  if (content) content.innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:60vh;color:var(--muted);text-align:center">' +
+      '<div style="font-size:40px;margin-bottom:16px">🚧</div>' +
+      '<div style="font-size:18px;font-weight:600;margin-bottom:8px">Documentation Under Construction</div>' +
+      '<div style="font-size:13px;max-width:360px">Documentation is being prepared. Check back later for guides, API references, and workflow examples.</div>' +
+    '</div>';
+  var title = document.getElementById('docs-title');
+  if (title) title.textContent = 'Documentation';
+}
+
+function renderDocsSidebar(filter) {
+  var sidebar = document.getElementById('docs-sidebar-list');
+  if (!sidebar) return;
+  var items = docsState.list;
+  if (filter) {
+    var q = filter.toLowerCase();
+    items = items.filter(function(d) {
+      return (d.name || '').toLowerCase().indexOf(q) >= 0 ||
+             (d.description || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  if (items.length === 0) {
+    sidebar.innerHTML = '<div style="color:var(--muted);padding:12px;font-size:12px">No results</div>';
+    return;
+  }
+  sidebar.innerHTML = items.map(function(d) {
+    var active = d.file === docsState.activeFile ? ' docs-nav-active' : '';
+    return '<button class="docs-nav-item' + active + '" onclick="loadDoc(\'' + escAttr(d.file) + '\',\'' + escAttr(d.name) + '\')">' +
+      '<span class="docs-nav-name">' + esc(d.name) + '</span>' +
+      '<span class="docs-nav-desc">' + esc(d.description) + '</span>' +
+      '</button>';
+  }).join('');
+}
+
+function renderDocsLangSelect() {
+  var sel = document.getElementById('docs-lang-select');
+  if (!sel) return;
+  var active = docsState.list.find(function(d) { return d.file === docsState.activeFile; });
+  var langs = (active && active.langs) || [];
+  if (langs.length === 0) {
+    sel.style.display = 'none';
+    return;
+  }
+  sel.style.display = '';
+  var currentLang = docsState.lang;
+  var options = '<option value="en"' + (currentLang === 'en' ? ' selected' : '') + '>English</option>';
+  for (var i = 0; i < langs.length; i++) {
+    var selected = currentLang === langs[i] ? ' selected' : '';
+    options += '<option value="' + langs[i] + '"' + selected + '>' + (docsLangNames[langs[i]] || langs[i]) + '</option>';
+  }
+  sel.innerHTML = options;
+  // If current lang not available for this doc, show English selected
+  if (currentLang !== 'en' && langs.indexOf(currentLang) < 0) {
+    sel.value = 'en';
+  }
+}
+
+function changeDocsLang(lang) {
+  docsState.lang = lang;
+  localStorage.setItem('tetora-docs-lang', lang);
+  if (docsState.activeFile) {
+    loadDoc(docsState.activeFile, docsState.activeName);
+  }
+}
+
+async function loadDoc(file, name) {
+  docsState.activeFile = file;
+  docsState.activeName = name;
+  renderDocsSidebar(document.getElementById('docs-search') ? document.getElementById('docs-search').value : '');
+
+  var title = document.getElementById('docs-title');
+  var content = document.getElementById('docs-rendered');
+  if (title) title.textContent = name || file;
+  if (content) content.innerHTML = '<div style="color:var(--muted);padding:24px;font-size:13px">Loading...</div>';
+
+  renderDocsLangSelect();
+
+  try {
+    var url = '/api/docs/' + file;
+    if (docsState.lang && docsState.lang !== 'en') {
+      url += '?lang=' + encodeURIComponent(docsState.lang);
+    }
+    var resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var text = await resp.text();
+    if (content) {
+      content.innerHTML = renderMarkdown(text);
+      content.scrollTop = 0;
+    }
+  } catch(e) {
+    if (content) content.innerHTML = '<div style="color:var(--red);padding:24px;font-size:13px">Failed to load: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+
+function filterDocsSearch() {
+  var q = (document.getElementById('docs-search') || {}).value || '';
+  renderDocsSidebar(q);
+}
 // --- PWA ---
 if ('serviceWorker' in navigator) {
   // Nuclear: unregister ALL existing service workers and clear ALL caches first
@@ -19029,17 +19293,19 @@ function renderWorkerEvents(events) {
 
   // ── Render grid ───────────────────────────────────────────────
   function renderWarRoom(data) {
-    var fronts = (data && Array.isArray(data.fronts)) ? data.fronts : [];
+    var allFronts = (data && Array.isArray(data.fronts)) ? data.fronts : [];
+    var fronts = allFronts.filter(function(f) { return !f.archived; });
     var genAt  = (data && data.generated_at) ? data.generated_at : '';
     document.getElementById('wr-last-updated').textContent =
       genAt ? '上次更新：' + wrFormatTime(genAt) : '無更新紀錄';
 
     var grid = document.getElementById('wr-grid');
     if (fronts.length === 0) {
-      grid.innerHTML = '<div class="wr-empty">尚無戰線資料。請在 status.json 中新增 fronts。</div>';
+      grid.innerHTML = '<div class="wr-empty">尚無戰線資料。按「+ 新增戰線」開始。</div>';
       return;
     }
     grid.innerHTML = fronts.map(renderWarRoomCard).join('');
+    loadAutoUpdateMeta();
   }
 
   // ── Per-type card dispatch ─────────────────────────────────────
@@ -19077,7 +19343,12 @@ function renderWorkerEvents(events) {
       var moExpired = mo.expires_at && new Date(mo.expires_at) <= new Date();
       if (!moExpired) {
         var moExpStr = mo.expires_at ? wrFormatTime(mo.expires_at) : '無限期';
-        parts.push('<span class="wr-override-badge">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + '</span>');
+        parts.push(
+          '<span class="wr-override-badge" role="button" tabindex="0"' +
+          ' title="點擊清除覆蓋" onclick="event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')}"' +
+          ' style="cursor:pointer">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + ' &#x2715;</span>'
+        );
       }
     }
     if (parts.length === 0) return '';
@@ -19129,10 +19400,28 @@ function renderWorkerEvents(events) {
       : '';
     return [
       '<div class="wr-action-bar">',
+      '  ' + _wrStatusCapsule(front),
       '  <button class="wr-btn wr-btn-primary" onclick="event.stopPropagation();openWrModal(\'' + esc(front.id) + '\',true)">&#x1F4E5; Add Intel</button>',
       '  ' + editBtn,
       '</div>'
     ].join('\n');
+  }
+
+  function _wrStatusCapsule(front) {
+    var id = esc(front.id);
+    var cur = front.status || '';
+    function btn(st, icon, title) {
+      var active = cur === st ? ' is-active' : '';
+      return '<button class="wr-stat-btn' + active + '" title="' + title + '"' +
+        ' onclick="event.stopPropagation();setWrStatus(\'' + id + '\',\'' + st + '\')">' +
+        icon + '</button>';
+    }
+    return '<div class="wr-stat-capsule" data-front-id="' + id + '" onclick="event.stopPropagation()">' +
+      btn('green',  '&#x1F7E2;', '運行中') +
+      btn('yellow', '&#x1F7E1;', '注意') +
+      btn('red',    '&#x1F534;', '阻塞') +
+      btn('paused', '&#x23F8;&#xFE0F;', '暫停') +
+      '</div>';
   }
 
   function _wrCardFooter(front) {
@@ -19295,36 +19584,136 @@ function renderWorkerEvents(events) {
   }
 
   function saveWarRoomFront(id) {
-    if (!_warRoomData || !Array.isArray(_warRoomData.fronts)) return;
-    var front = _warRoomData.fronts.find(function(f) { return f.id === id; });
-    if (!front) return;
-
     var statusEl  = document.getElementById('wr-ef-status-'  + id);
     var summaryEl = document.getElementById('wr-ef-summary-' + id);
     var blockEl   = document.getElementById('wr-ef-blocking-'+ id);
     var nextEl    = document.getElementById('wr-ef-next-'    + id);
+    if (!statusEl) return;
 
-    front.status      = statusEl  ? statusEl.value  : front.status;
-    front.summary     = summaryEl ? summaryEl.value : front.summary;
-    front.blocking    = blockEl   ? blockEl.value   : front.blocking;
-    front.next_action = nextEl    ? nextEl.value    : front.next_action;
-    front.last_updated = new Date().toISOString();
-    _warRoomData.generated_at = new Date().toISOString();
-
-    var body = JSON.stringify(_warRoomData, null, 2);
-    fetch('/api/workspace/file', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: 'memory/war-room/status.json', content: body })
+    // DOM 不存在時送 null → server 的 nil-guard 會跳過該欄位。
+    // 不可送 ''（空字串）：server 看到非 nil 會清空現有值（metrics 卡片無該欄位時必中）。
+    var body = {
+      front_id: id,
+      status: statusEl.value,
+      summary: summaryEl ? summaryEl.value : null,
+      blocking: blockEl ? blockEl.value : null,
+      next_action: nextEl ? nextEl.value : null
+    };
+    fetch('/api/war-room/front/status', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
     })
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      renderWarRoom(_warRoomData);
       closeWrModal();
+      loadWarRoom();
     })
     .catch(function(err) {
       alert('儲存失敗：' + err.message);
     });
+  }
+
+  // ── Quick actions (T1) ────────────────────────────────────────
+  var _wrStatusPending = {}; // frontId → true while a status POST is in-flight
+
+  function _wrSetCapsuleBusy(frontId, busy) {
+    var el = document.querySelector('.wr-stat-capsule[data-front-id="' + frontId + '"]');
+    if (!el) return;
+    el.style.pointerEvents = busy ? 'none' : '';
+    el.style.opacity = busy ? '0.5' : '';
+  }
+
+  function setWrStatus(frontId, status) {
+    if (!_warRoomData || !Array.isArray(_warRoomData.fronts)) return;
+    if (_wrStatusPending[frontId]) return; // debounce: ignore while in-flight
+    var front = _warRoomData.fronts.find(function(f) { return f.id === frontId; });
+    if (!front) return;
+
+    // Auto fronts prompt for override duration; non-auto just flip status.
+    if (front.auto) {
+      _wrOverridePrompt(frontId, status);
+      return;
+    }
+    _wrPostStatus(frontId, status, null);
+  }
+
+  function _wrOverridePrompt(frontId, status) {
+    // Build a tiny popover. Use prompt() fallback for simplicity.
+    var hours = prompt('此戰線為自動更新。手動覆寫此狀態多少小時？ (1 / 4 / 24，0 表示不設覆蓋)', '4');
+    if (hours === null) return;
+    var h = parseInt(hours, 10);
+    if (isNaN(h) || h < 0) { alert('請輸入非負整數'); return; }
+    _wrPostStatus(frontId, status, h > 0 ? h : null);
+  }
+
+  function _wrPostStatus(frontId, status, overrideHours) {
+    var body = { front_id: frontId, status: status };
+    if (overrideHours != null) body.override_hours = overrideHours;
+    _wrStatusPending[frontId] = true;
+    _wrSetCapsuleBusy(frontId, true);
+    fetch('/api/war-room/front/status', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      loadWarRoom();
+    }).catch(function(err) {
+      alert('更新失敗：' + err.message);
+    }).finally(function() {
+      delete _wrStatusPending[frontId];
+      _wrSetCapsuleBusy(frontId, false);
+    });
+  }
+
+  function clearWrOverride(frontId) {
+    fetch('/api/war-room/front/override', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ front_id: frontId, active: false })
+    }).then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      loadWarRoom();
+    }).catch(function(err) { alert('清除覆蓋失敗：' + err.message); });
+  }
+
+  function triggerAutoUpdate() {
+    var btn = document.getElementById('wr-autoupdate-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 執行中...'; }
+    fetch('/api/war-room/autoupdate/trigger', { method: 'POST' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function() { loadWarRoom(); })
+      .catch(function(err) { alert('autoupdate 觸發失敗：' + err.message); })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
+      });
+  }
+
+  function loadAutoUpdateMeta() {
+    var el = document.getElementById('wr-autoupdate-meta');
+    if (!el) return;
+    fetch('/api/war-room/autoupdate/meta')
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(m) {
+        if (!m) { el.textContent = ''; return; }
+        var parts = [];
+        if (m.last_run && m.last_run !== '0001-01-01T00:00:00Z') {
+          parts.push('上次: ' + wrFormatTime(m.last_run));
+        } else {
+          parts.push('上次: 未執行');
+        }
+        if (m.next_run && m.next_run !== '0001-01-01T00:00:00Z') {
+          parts.push('下次: ' + wrFormatTime(m.next_run));
+        }
+        if (!m.enabled) parts.push('(disabled)');
+        if (m.running) parts.push('⏳ 執行中');
+        el.textContent = parts.join(' · ');
+      })
+      .catch(function() { /* silent */ });
   }
 
   // ── Modal ─────────────────────────────────────────────────────
@@ -19390,13 +19779,41 @@ function renderWorkerEvents(events) {
     }
   });
 
+  function _wrDependsGraph(front) {
+    var deps = Array.isArray(front.depends_on) ? front.depends_on : [];
+    var dependents = [];
+    if (_warRoomData && Array.isArray(_warRoomData.fronts)) {
+      _warRoomData.fronts.forEach(function(f) {
+        if (!f.archived && Array.isArray(f.depends_on) && f.depends_on.indexOf(front.id) !== -1) {
+          dependents.push(f);
+        }
+      });
+    }
+    if (deps.length === 0 && dependents.length === 0) return '';
+    function chip(f) {
+      var cls = f.status === 'red' ? ' red' : (f.status === 'yellow' ? ' yellow' : '');
+      var name = f.name || f.id;
+      return '<span class="wr-depends-chip' + cls + '" onclick="event.stopPropagation();openWrModal(\'' +
+        esc(f.id) + '\')" style="cursor:pointer">' + esc(name) + '</span>';
+    }
+    var depsHtml = deps.map(function(id) {
+      var f = _warRoomData.fronts.find(function(x) { return x.id === id; });
+      return f ? chip(f) : '<span class="wr-depends-chip">' + esc(id) + ' (?)</span>';
+    }).join('');
+    var dependentsHtml = dependents.map(chip).join('');
+    var parts = [];
+    if (depsHtml) parts.push('<div><span style="font-size:10px;color:var(--muted);margin-right:6px">依賴 →</span>' + depsHtml + '</div>');
+    if (dependentsHtml) parts.push('<div><span style="font-size:10px;color:var(--muted);margin-right:6px">← 被依賴</span>' + dependentsHtml + '</div>');
+    return '<div style="margin-bottom:12px;padding:8px 0;border-bottom:1px dashed var(--border);display:flex;flex-direction:column;gap:4px">' + parts.join('') + '</div>';
+  }
+
   function _wrRenderModalMain(front) {
     var type = front.card_type || 'strategy';
-    var html = '';
+    var html = _wrDependsGraph(front);
     if (type === 'metrics') {
-      html = _wrModalMetrics(front);
+      html += _wrModalMetrics(front);
     } else {
-      html = _wrModalStrategy(front);
+      html += _wrModalStrategy(front);
     }
     // Always append collapsible md placeholder
     html += _wrExpandSection(front);
@@ -19647,6 +20064,116 @@ function renderWorkerEvents(events) {
     ].join(';');
     document.body.appendChild(toast);
     setTimeout(function() { toast.remove(); }, 2400);
+  }
+
+  // ── Create front (T2) ─────────────────────────────────────────
+  function openCreateFrontModal() {
+    var ids = ['wr-cf-id','wr-cf-name','wr-cf-depends'];
+    ids.forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+    var auto = document.getElementById('wr-cf-auto'); if (auto) auto.checked = false;
+    var m = document.getElementById('wr-create-modal');
+    if (m) { m.classList.add('open'); document.body.style.overflow = 'hidden'; }
+  }
+  function closeCreateFrontModal() {
+    var m = document.getElementById('wr-create-modal');
+    if (m) { m.classList.remove('open'); document.body.style.overflow = ''; }
+  }
+  function submitCreateFront() {
+    var id = (document.getElementById('wr-cf-id').value || '').trim();
+    var name = (document.getElementById('wr-cf-name').value || '').trim();
+    var cat = document.getElementById('wr-cf-category').value;
+    var ct = document.getElementById('wr-cf-cardtype').value;
+    var auto = document.getElementById('wr-cf-auto').checked;
+    var depStr = (document.getElementById('wr-cf-depends').value || '').trim();
+    var deps = depStr ? depStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) { alert('ID 格式錯誤：小寫字母數字連字號'); return; }
+    if (!name) { alert('請填名稱'); return; }
+
+    fetch('/api/war-room/front', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id, name: name, category: cat, card_type: ct, auto: auto, depends_on: deps })
+    }).then(function(r) {
+      if (r.status === 409) throw new Error('ID 已存在');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      closeCreateFrontModal();
+      loadWarRoom();
+    }).catch(function(err) { alert('建立失敗：' + err.message); });
+  }
+
+  // ── Archive / delete (T2) ─────────────────────────────────────
+  function archiveCurrentFront() {
+    if (!_wrCurrentFrontId) return;
+    if (!confirm('封存「' + _wrCurrentFrontId + '」？卡片會從戰情室消失，但資料保留（可手動改 archived=false 還原）')) return;
+    fetch('/api/war-room/front/' + encodeURIComponent(_wrCurrentFrontId), { method: 'DELETE' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        closeWrModal(); loadWarRoom();
+      }).catch(function(err) { alert('封存失敗：' + err.message); });
+  }
+  function deleteCurrentFront() {
+    if (!_wrCurrentFrontId) return;
+    if (!confirm('確定要【永久刪除】「' + _wrCurrentFrontId + '」嗎？此動作不可還原。')) return;
+    fetch('/api/war-room/front/' + encodeURIComponent(_wrCurrentFrontId) + '?hard=true', { method: 'DELETE' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        closeWrModal(); loadWarRoom();
+      }).catch(function(err) { alert('刪除失敗：' + err.message); });
+  }
+
+  // ── Copy / export (T3) ────────────────────────────────────────
+  function copyFrontSummary() {
+    if (!_warRoomData || !_wrCurrentFrontId) return;
+    var f = _warRoomData.fronts.find(function(x) { return x.id === _wrCurrentFrontId; });
+    if (!f) return;
+    var lines = [
+      '### ' + (f.name || f.id) + ' (' + (f.status || 'unknown') + ')',
+      f.summary ? '- 摘要：' + f.summary : '',
+      f.blocking ? '- 阻礙：' + f.blocking : '',
+      f.next_action ? '- 下一步：' + f.next_action : '',
+      f.last_updated ? '- 更新：' + f.last_updated : ''
+    ].filter(Boolean);
+    _wrCopy(lines.join('\n'));
+  }
+  function exportWarRoomMarkdown() {
+    if (!_warRoomData) return;
+    var fronts = (_warRoomData.fronts || []).filter(function(f) { return !f.archived; });
+    var out = ['# 戰情室 — ' + new Date().toISOString().slice(0,10), ''];
+    fronts.forEach(function(f) {
+      out.push('## ' + (f.name || f.id) + ' (' + (f.status || 'unknown') + ')');
+      if (f.summary) out.push('- 摘要：' + f.summary);
+      if (f.blocking) out.push('- 阻礙：' + f.blocking);
+      if (f.next_action) out.push('- 下一步：' + f.next_action);
+      if (f.last_updated) out.push('- 更新：' + f.last_updated);
+      out.push('');
+    });
+    _wrCopy(out.join('\n'));
+  }
+  function _wrCopy(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(function() { _wrShowToast('已複製到剪貼簿'); })
+        .catch(function() { _wrFallbackCopy(text); });
+    } else { _wrFallbackCopy(text); }
+  }
+  function _wrFallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); _wrShowToast('已複製到剪貼簿'); }
+    catch (e) { alert('複製失敗，請手動：\n\n' + text); }
+    document.body.removeChild(ta);
+  }
+
+  // ── Intel filter (T3) ─────────────────────────────────────────
+  function filterIntelList() {
+    var q = (document.getElementById('wr-intel-search').value || '').toLowerCase();
+    var entries = document.querySelectorAll('#wr-intel-list .wr-intel-entry');
+    entries.forEach(function(el) {
+      var txt = el.textContent.toLowerCase();
+      el.style.display = (!q || txt.indexOf(q) !== -1) ? '' : 'none';
+    });
   }
 
   function esc(str) {
