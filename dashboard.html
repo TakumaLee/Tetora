@@ -19522,14 +19522,43 @@ function renderWorkerEvents(events) {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ 執行中...'; }
     fetch('/api/war-room/autoupdate/trigger', { method: 'POST' })
       .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
+        // 202 Accepted = fire-and-forget scheduled; 200 also acceptable for back-compat.
+        if (!r.ok && r.status !== 202) throw new Error('HTTP ' + r.status);
+        return r.json().catch(function() { return {}; });
       })
-      .then(function() { loadWarRoom(); })
-      .catch(function(err) { alert('autoupdate 觸發失敗：' + err.message); })
-      .finally(function() {
+      .then(function() { pollAutoUpdateStatus(btn); })
+      .catch(function(err) {
+        alert('autoupdate 觸發失敗：' + err.message);
         if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
       });
+  }
+
+  function pollAutoUpdateStatus(btn) {
+    var maxAttempts = 150; // 150 × 2s = 5 分鐘上限
+    var attempts = 0;
+    var sawRunning = false;
+    function finish(timedOut) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
+      loadWarRoom();
+      if (timedOut) console.warn('autoupdate poll timeout after ' + (attempts * 2) + 's');
+    }
+    function tick() {
+      attempts++;
+      fetch('/api/war-room/autoupdate/meta')
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(m) {
+          if (!m) { finish(); return; }
+          if (m.running) sawRunning = true;
+          if (sawRunning && !m.running) { finish(); return; }
+          if (attempts >= maxAttempts) { finish(true); return; }
+          setTimeout(tick, 2000);
+        })
+        .catch(function() {
+          if (attempts >= maxAttempts) { finish(true); return; }
+          setTimeout(tick, 2000);
+        });
+    }
+    setTimeout(tick, 500);
   }
 
   function loadAutoUpdateMeta() {

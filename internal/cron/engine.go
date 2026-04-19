@@ -755,6 +755,7 @@ func (ce *Engine) tick(ctx context.Context) {
 				continue
 			}
 			j.nextRun = NextRunAfter(j.expr, j.loc, nowLocal)
+			ce.markWarRoomAutoUpdateStart(j)
 			go ce.runWarRoomAutoUpdateAsync(ctx, j)
 			continue
 		}
@@ -860,14 +861,19 @@ func (ce *Engine) runDailyNotesJobAsync(ctx context.Context, j *cronJob) {
 	}
 }
 
-func (ce *Engine) runWarRoomAutoUpdateAsync(ctx context.Context, j *cronJob) {
-	if ce.env.RunWarRoomAutoUpdate == nil {
-		return
-	}
+// markWarRoomAutoUpdateStart synchronously marks the job as running. Callers
+// must invoke this before launching the async goroutine so that an immediate
+// /autoupdate/meta poll sees running=true without racing the goroutine scheduler.
+func (ce *Engine) markWarRoomAutoUpdateStart(j *cronJob) {
 	ce.mu.Lock()
 	j.runCount++
 	j.running = true
 	ce.mu.Unlock()
+}
+
+// runWarRoomAutoUpdateAsync expects markWarRoomAutoUpdateStart to have been
+// called already. It only decrements the running counter on exit.
+func (ce *Engine) runWarRoomAutoUpdateAsync(ctx context.Context, j *cronJob) {
 	ce.jobWg.Add(1)
 	defer ce.jobWg.Done()
 	defer func() {
@@ -877,6 +883,9 @@ func (ce *Engine) runWarRoomAutoUpdateAsync(ctx context.Context, j *cronJob) {
 		j.lastRun = time.Now()
 		ce.mu.Unlock()
 	}()
+	if ce.env.RunWarRoomAutoUpdate == nil {
+		return
+	}
 	if err := ce.env.RunWarRoomAutoUpdate(ctx, ce.cfg); err != nil {
 		log.Error("war room autoupdate failed", "error", err)
 	} else {
@@ -1287,6 +1296,7 @@ func (ce *Engine) RunJobByID(_ context.Context, id string) error {
 
 	// Special-ID dispatch bypasses the generic prompt-based runJob.
 	if id == "war_room_autoupdate" {
+		ce.markWarRoomAutoUpdateStart(target)
 		jobCtx, jobCancel := context.WithCancel(ce.ctx)
 		go func() {
 			defer jobCancel()
