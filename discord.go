@@ -1741,17 +1741,16 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt = soulPrompt
 		}
 	}
-	// Fresh-session compaction: inject the previous session's summary into the system prompt.
-	// Use delete-after-inject so the summary is only injected once regardless of message count.
-	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
+	// Fresh-session compaction: inject the previous session's summary only on the first
+	// message of a new session. Subsequent messages resume via provider --continue, so the
+	// first turn's system prompt (which carried the summary) is already in conversation
+	// history — re-injecting would multiply token cost per message for no added context.
+	// The memory key is not deleted; the next compact overwrites it.
+	if db.cfg.Session.Compaction.Strategy == "fresh-session" && !canResume {
 		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
 		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
 			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
 			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
-			if err2 := deleteMemory(db.cfg, agent, memKey); err2 != nil {
-				log.WarnCtx(ctx, "failed to clear compact summary after injection, overwriting with tombstone", "memKey", memKey, "error", err2)
-				_ = setMemory(db.cfg, agent, memKey, "")
-			}
 		}
 	}
 	// Discord tasks run unattended — default to bypassPermissions if not set by agent.
