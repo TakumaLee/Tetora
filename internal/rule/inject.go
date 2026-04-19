@@ -73,6 +73,13 @@ func BuildPromptForAgent(cfg *config.Config, rulesDir, prompt, agentName string)
 			skipped = append(skipped, e.Path)
 			return
 		}
+		// First rule bypasses the budget guard so an empty emission never
+		// happens, but if that first rule alone exceeds budget everything after
+		// gets silently squeezed out. Surface that as a skipped marker so the
+		// caller can see the truncation instead of guessing.
+		if used == 0 && cost > budget {
+			skipped = append(skipped, fmt.Sprintf("%s (oversized: %dB > budget %dB, emitted anyway)", e.Path, cost, budget))
+		}
 		b.WriteString(header)
 		b.WriteString(content)
 		b.WriteString("\n\n")
