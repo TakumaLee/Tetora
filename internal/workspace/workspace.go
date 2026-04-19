@@ -8,6 +8,7 @@ import (
 
 	"tetora/internal/config"
 	"tetora/internal/log"
+	"tetora/internal/rule"
 	"tetora/internal/sprite"
 )
 
@@ -289,16 +290,26 @@ func GetWorkspaceSkillsPath(cfg *config.Config) string {
 	return filepath.Join(cfg.WorkspaceDir, "skills")
 }
 
-// InjectContent applies the three-tier workspace injection into a task's system prompt and addDirs.
-// It injects workspace/rules/ and workspace/knowledge/ directories, with size-based fallback to index mode.
-// Agent-specific rules (files containing agentName) are appended to systemPrompt.
-func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, agentName string) {
+// InjectContent applies the workspace injection into a task's system prompt
+// and addDirs. Rules are injected dynamically: INDEX.md is parsed to select
+// always-on + keyword-matched rules for the given task prompt, and their full
+// content is written to systemPrompt. When INDEX parsing fails, falls back to
+// the legacy whole-directory DirIndex/addDirs behaviour. Knowledge/ uses the
+// legacy behaviour unchanged. Agent-specific rules (files containing agentName)
+// are appended unconditionally.
+func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, agentName, taskPrompt string) {
 	if cfg.WorkspaceDir == "" {
 		return
 	}
 
-	const maxInjectionSize = 50 * 1024 // 50KB — skip entirely above this
-	const indexThreshold = 20 * 1024   // 20KB — inject index instead of full dir above this
+	// Two-tier fallback injection for dirs without a dynamic matcher:
+	//   ≤ indexThreshold : add dir to addDirs (provider --add-dir filesystem access)
+	//   > indexThreshold : inject DirIndex (filename + first line per file) into systemPrompt
+	//
+	// There is no upper cliff. DirIndex output is bounded by file count, not
+	// source size, so it degrades gracefully for arbitrarily large dirs.
+	const indexThreshold = 20 * 1024 // 20KB
+	const warnSize = 200 * 1024      // log-only warning; does not skip injection
 
 	injectDir := func(dir string) {
 		fi, err := os.Stat(dir)
@@ -306,9 +317,9 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 			return
 		}
 		size := DirSize(dir)
-		if size > maxInjectionSize {
-			log.Warn("workspace dir exceeds 50KB, skipping injection", "dir", dir, "size", size)
-			return
+		if size > warnSize {
+			log.Warn("workspace dir is very large; consider pruning",
+				"dir", dir, "size", size)
 		}
 		if size > indexThreshold {
 			idx := DirIndex(dir)
@@ -325,11 +336,17 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 		*addDirs = append(*addDirs, dir)
 	}
 
-	injectDir(filepath.Join(cfg.WorkspaceDir, "rules"))
+	rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")
+	if rulesBlock := rule.BuildPromptForAgent(cfg, rulesDir, taskPrompt, agentName); rulesBlock != "" {
+		*systemPrompt += "\n\n" + rulesBlock
+	} else {
+		// No frontmatter or INDEX entries → fall back to legacy whole-dir injection.
+		injectDir(rulesDir)
+	}
 	injectDir(filepath.Join(cfg.WorkspaceDir, "knowledge"))
 
 	if agentName != "" {
-		roleRules := AgentRules(filepath.Join(cfg.WorkspaceDir, "rules"), agentName)
+		roleRules := AgentRules(rulesDir, agentName)
 		if roleRules != "" {
 			*systemPrompt += "\n\n" + roleRules
 		}

@@ -543,6 +543,7 @@ type PromptBudgetConfig struct {
 	KnowledgeMax     int `json:"knowledgeMax,omitempty"`
 	SkillsMax        int `json:"skillsMax,omitempty"`
 	MaxSkillsPerTask int `json:"maxSkillsPerTask,omitempty"`
+	MaxRulesPerTask  int `json:"maxRulesPerTask,omitempty"`
 	ContextMax       int `json:"contextMax,omitempty"`
 	TotalMax         int `json:"totalMax,omitempty"`
 }
@@ -557,7 +558,14 @@ func (c PromptBudgetConfig) RulesMaxOrDefault() int {
 	if c.RulesMax > 0 {
 		return c.RulesMax
 	}
-	return 4000
+	// 8000 chars covers 2-3 matched rules (avg ~3KB each) as full content.
+	return 8000
+}
+func (c PromptBudgetConfig) MaxRulesPerTaskOrDefault() int {
+	if c.MaxRulesPerTask > 0 {
+		return c.MaxRulesPerTask
+	}
+	return 3
 }
 func (c PromptBudgetConfig) KnowledgeMaxOrDefault() int {
 	if c.KnowledgeMax > 0 {
