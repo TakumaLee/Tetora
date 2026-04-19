@@ -384,12 +384,14 @@
     var nextEl    = document.getElementById('wr-ef-next-'    + id);
     if (!statusEl) return;
 
+    // DOM 不存在時送 null → server 的 nil-guard 會跳過該欄位。
+    // 不可送 ''（空字串）：server 看到非 nil 會清空現有值（metrics 卡片無該欄位時必中）。
     var body = {
       front_id: id,
       status: statusEl.value,
-      summary: summaryEl ? summaryEl.value : '',
-      blocking: blockEl ? blockEl.value : '',
-      next_action: nextEl ? nextEl.value : ''
+      summary: summaryEl ? summaryEl.value : null,
+      blocking: blockEl ? blockEl.value : null,
+      next_action: nextEl ? nextEl.value : null
     };
     fetch('/api/war-room/front/status', {
       method: 'POST',

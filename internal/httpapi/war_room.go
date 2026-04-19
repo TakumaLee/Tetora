@@ -67,6 +67,31 @@ var validCardTypes = map[string]bool{
 	"collab":   true,
 }
 
+// validCategories enumerates supported category values when creating fronts.
+// Keep in sync with the <select id="wr-cf-category"> options in dashboard.html /
+// dashboard/body.html.
+var validCategories = map[string]bool{
+	"finance":       true,
+	"dev":           true,
+	"content":       true,
+	"marketing":     true,
+	"business":      true,
+	"collaboration": true,
+	"planning":      true,
+	"freelance":     true,
+	"company":       true,
+}
+
+// reservedFrontIDs blocks front IDs that would collide with exact sub-routes
+// under /api/war-room/front/*. Go's ServeMux prefers exact matches over
+// subtree patterns, so a front with id "status" or "override" could not be
+// reached by the subtree handler (e.g. DELETE /api/war-room/front/status would
+// be routed to the status POST handler and reject with 405).
+var reservedFrontIDs = map[string]bool{
+	"status":   true,
+	"override": true,
+}
+
 // RegisterWarRoomRoutes registers the War Room API endpoints.
 //
 //	GET  /api/war-room/md/{front_id}  — return raw markdown living document
@@ -326,8 +351,16 @@ func RegisterWarRoomRoutes(mux *http.ServeMux, d WarRoomDeps) {
 			http.Error(w, `{"error":"invalid_id"}`, http.StatusBadRequest)
 			return
 		}
+		if reservedFrontIDs[req.ID] {
+			http.Error(w, `{"error":"reserved_id","detail":"id collides with a sub-route"}`, http.StatusConflict)
+			return
+		}
 		if strings.TrimSpace(req.Name) == "" {
 			http.Error(w, `{"error":"name_required"}`, http.StatusBadRequest)
+			return
+		}
+		if !validCategories[req.Category] {
+			http.Error(w, `{"error":"invalid_category"}`, http.StatusBadRequest)
 			return
 		}
 		if !validCardTypes[req.CardType] {
