@@ -629,10 +629,9 @@ func lessonKey(improvement string) string {
 }
 
 func recordLessonEvent(dbPath, key string, ref *Result) error {
-	// Ensure table exists — InitLessonEventsDB is idempotent.
-	if err := InitLessonEventsDB(dbPath); err != nil {
-		return err
-	}
+	// Callers go through InitDB → InitLessonEventsDB on start-up; we rely on
+	// that so each event insert is a single statement rather than retrying
+	// CREATE TABLE IF NOT EXISTS on every reflection.
 	createdAt := ref.CreatedAt
 	if createdAt == "" {
 		createdAt = time.Now().UTC().Format(time.RFC3339)
@@ -803,8 +802,15 @@ func PromoteLessons(workspaceDir, dbPath string, threshold int, autoWrite bool) 
 	}
 
 	// Flip [pending] → [promoted-YYYYMMDD] for each candidate in auto-lessons.md.
-	// We operate on byte content to avoid restructuring the markdown.
-	if content, err := os.ReadFile(result.AutoLessons); err == nil {
+	// We operate on byte content to avoid restructuring the markdown. ENOENT is
+	// tolerated (fresh workspace with no prior auto-lessons); any other read
+	// error is surfaced so the caller doesn't see a successful report while
+	// markers silently stay in [pending].
+	content, err := os.ReadFile(result.AutoLessons)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("PromoteLessons: read auto-lessons.md: %w", err)
+	}
+	if err == nil {
 		updated := string(content)
 		marker := fmt.Sprintf("[promoted-%s]", stamp)
 		for _, c := range candidates {
@@ -853,11 +859,13 @@ func QueryLessonHistory(dbPath, lessonKeyPrefix string, limit int) ([]LessonEven
 			`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
 			 FROM lesson_events ORDER BY created_at DESC LIMIT %d`, limit))
 	} else {
+		// Escape % _ \ in the caller-supplied prefix so a lesson key containing
+		// those literal characters doesn't inadvertently broaden the match.
 		rows, err = db.QueryArgs(dbPath,
 			fmt.Sprintf(`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
-			 FROM lesson_events WHERE lesson_key LIKE ?
+			 FROM lesson_events WHERE lesson_key LIKE ? ESCAPE '\'
 			 ORDER BY created_at DESC LIMIT %d`, limit),
-			lessonKeyPrefix+"%")
+			escapeLIKE(lessonKeyPrefix)+"%")
 	}
 	if err != nil {
 		return nil, err
@@ -937,6 +945,16 @@ func AuditStaleRules(workspaceDir string, staleDays int) ([]StaleRuleResult, err
 func escapeMarkdown(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	return strings.TrimSpace(s)
+}
+
+// escapeLIKE escapes SQLite LIKE wildcards so caller-supplied prefixes match
+// literally. Pair with `ESCAPE '\'` in the SQL so `\%`, `\_`, `\\` are treated
+// as the literal chars % _ \.
+func escapeLIKE(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // --- JSON field helpers (package-local) ---

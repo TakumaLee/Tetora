@@ -3811,7 +3811,11 @@ func buildReflectionDeps(cfg *Config) tools.ReflectionDeps {
 			var args struct {
 				Threshold int `json:"threshold"`
 			}
-			_ = json.Unmarshal(input, &args)
+			if len(input) > 0 {
+				if err := json.Unmarshal(input, &args); err != nil {
+					return "", fmt.Errorf("invalid input: %w", err)
+				}
+			}
 			threshold := args.Threshold
 			if threshold <= 0 {
 				threshold = 3

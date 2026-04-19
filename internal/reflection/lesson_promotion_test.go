@@ -248,6 +248,65 @@ func TestAuditStaleRules(t *testing.T) {
 	}
 }
 
+func TestPromoteLessons_ReadFileErrorSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "history.db")
+	if err := InitDB(dbPath); err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	improvement := "Always record commit hash before reflection"
+	for i := 0; i < 3; i++ {
+		ref := newRef("task-ro-"+string(rune('0'+i)), "kokuyou", improvement, 2)
+		if err := ExtractAutoLesson(dir, dbPath, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Corrupt auto-lessons.md: replace the file with a directory so ReadFile
+	// returns a non-ENOENT error. PromoteLessons must surface it, not quietly
+	// produce a report whose markers were never flipped.
+	autoPath := filepath.Join(dir, "memory", "auto-lessons.md")
+	if err := os.Remove(autoPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(autoPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PromoteLessons(dir, dbPath, 3, true); err == nil {
+		t.Fatal("expected PromoteLessons to return error when auto-lessons.md is unreadable")
+	} else if !strings.Contains(err.Error(), "read auto-lessons.md") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryLessonHistory_EscapesLIKEWildcards(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "history.db")
+	if err := InitDB(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	// One key contains a literal `%`, another does not. Prefix "50%" must
+	// match only the literal-percent key; without escape, the `%` would act
+	// as a wildcard and both rows would match.
+	refA := newRef("task-pct", "kokuyou", "50% done with refactor", 2)
+	refB := newRef("task-nopct", "kokuyou", "50Z done with refactor", 2)
+	if err := ExtractAutoLesson(dir, dbPath, refA); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractAutoLesson(dir, dbPath, refB); err != nil {
+		t.Fatal(err)
+	}
+	got, err := QueryLessonHistory(dbPath, "50%", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 event matching literal '50%%', got %d: %+v", len(got), got)
+	}
+	if got[0].TaskID != "task-pct" {
+		t.Errorf("expected task-pct, got %s", got[0].TaskID)
+	}
+}
+
 func TestQueryLessonHistory_PrefixFilter(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "history.db")
