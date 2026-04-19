@@ -3797,8 +3797,8 @@ func buildReflectionDeps(cfg *Config) tools.ReflectionDeps {
 			if limit <= 0 {
 				limit = 50
 			}
-			if limit > 200 {
-				limit = 200
+			if limit > reflection.MaxLessonHistoryLimit {
+				limit = reflection.MaxLessonHistoryLimit
 			}
 			events, err := reflection.QueryLessonHistory(cfg.HistoryDB, args.KeyPrefix, limit)
 			if err != nil {

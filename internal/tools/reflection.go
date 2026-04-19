@@ -2,8 +2,10 @@ package tools
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"tetora/internal/config"
+	"tetora/internal/reflection"
 )
 
 // ReflectionDeps holds handler closures for reflection/lesson tools.
@@ -26,7 +28,7 @@ func RegisterReflectionTools(r *Registry, cfg *config.Config, enabled func(strin
 		r.Register(&ToolDef{
 			Name:        "reflection_search",
 			Description: "Search past task reflections by keyword, agent, task ID, score upper bound, or date. Useful for answering 'has this happened before?' or tracing a rule back to its source experiences.",
-			InputSchema: json.RawMessage(`{
+			InputSchema: json.RawMessage(fmt.Sprintf(`{
 				"type": "object",
 				"properties": {
 					"keyword":  {"type": "string", "description": "Substring match against improvement or feedback text"},
@@ -34,9 +36,9 @@ func RegisterReflectionTools(r *Registry, cfg *config.Config, enabled func(strin
 					"taskId":   {"type": "string", "description": "Filter by exact task ID"},
 					"scoreMax": {"type": "integer", "description": "Score upper bound inclusive, 1-5; omit for no filter"},
 					"since":    {"type": "string", "description": "RFC3339 lower bound for created_at"},
-					"limit":    {"type": "integer", "description": "Max results, default 10, cap 50"}
+					"limit":    {"type": "integer", "description": "Max results, default 10, cap %d"}
 				}
-			}`),
+			}`, reflection.MaxSearchReflectionsLimit)),
 			Handler: deps.SearchHandler,
 			Builtin: true,
 		})
@@ -62,13 +64,13 @@ func RegisterReflectionTools(r *Registry, cfg *config.Config, enabled func(strin
 		r.Register(&ToolDef{
 			Name:        "lesson_history",
 			Description: "List raw lesson_events for a lesson_key prefix. Traces every occurrence of a repeated mistake across tasks/agents.",
-			InputSchema: json.RawMessage(`{
+			InputSchema: json.RawMessage(fmt.Sprintf(`{
 				"type": "object",
 				"properties": {
-					"keyPrefix": {"type": "string", "description": "Lesson key prefix (first 40 chars of improvement). Empty returns all events."},
-					"limit":     {"type": "integer", "description": "Max results, default 50, cap 200"}
+					"keyPrefix": {"type": "string", "description": "Lesson key prefix (first 40 bytes of improvement, UTF-8 boundary-safe). Empty returns all events."},
+					"limit":     {"type": "integer", "description": "Max results, default 50, cap %d"}
 				}
-			}`),
+			}`, reflection.MaxLessonHistoryLimit)),
 			Handler: deps.LessonHistoryHandler,
 			Builtin: true,
 		})

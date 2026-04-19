@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"tetora/internal/reflection"
@@ -226,13 +225,12 @@ func cmdLessonsPrune(args []string) {
 
 func cmdLessonsAudit(args []string) {
 	fs := flag.NewFlagSet("lessons audit", flag.ExitOnError)
-	staleDaysStr := fs.String("stale-days", "90", "flag rules/*.md older than N days")
+	days := fs.Int("stale-days", 90, "flag rules/*.md older than N days")
 	asJSON := fs.Bool("json", false, "emit JSON output")
 	_ = fs.Parse(args)
 
-	days, err := strconv.Atoi(*staleDaysStr)
-	if err != nil || days <= 0 {
-		fmt.Fprintf(os.Stderr, "invalid --stale-days: %s\n", *staleDaysStr)
+	if *days <= 0 {
+		fmt.Fprintf(os.Stderr, "invalid --stale-days: %d (must be > 0)\n", *days)
 		os.Exit(1)
 	}
 
@@ -242,7 +240,7 @@ func cmdLessonsAudit(args []string) {
 		os.Exit(1)
 	}
 
-	results, err := reflection.AuditStaleRules(cfg.WorkspaceDir, days)
+	results, err := reflection.AuditStaleRules(cfg.WorkspaceDir, *days)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "audit failed: %v\n", err)
 		os.Exit(1)
@@ -256,10 +254,10 @@ func cmdLessonsAudit(args []string) {
 	}
 
 	if len(results) == 0 {
-		fmt.Printf("No stale rules (cutoff %d days).\n", days)
+		fmt.Printf("No stale rules (cutoff %d days).\n", *days)
 		return
 	}
-	fmt.Printf("Stale rules (cutoff %d days):\n", days)
+	fmt.Printf("Stale rules (cutoff %d days):\n", *days)
 	for _, r := range results {
 		fmt.Printf("  %s  (last modified %s, ~%d days ago)\n", r.RelativePath, r.LastModified, r.AgeDays)
 	}

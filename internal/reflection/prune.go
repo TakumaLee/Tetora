@@ -13,6 +13,9 @@ import (
 
 // PruneReport summarises the state-machine transitions applied to
 // workspace/memory/auto-lessons.md on a single PruneAutoLessons call.
+// Kept counts only unchanged lesson entries — not headers, blank lines, or
+// entries that were flipped/removed — so it mirrors "entries still pending
+// review" rather than "lines untouched in the file".
 type PruneReport struct {
 	Path            string `json:"path"`
 	DryRun          bool   `json:"dryRun"`
@@ -90,11 +93,15 @@ func PruneAutoLessons(workspaceDir, dbPath string, now time.Time, thresholds Pru
 
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		isEntry := strings.HasPrefix(trimmed, "- [")
 		action := classifyPruneLine(line, ages, thresholds)
 		switch action {
 		case pruneKeep:
 			out = append(out, line)
-			rep.Kept++
+			if isEntry {
+				rep.Kept++
+			}
 		case pruneFlipStale:
 			out = append(out, strings.Replace(line, "[pending]", "[stale]", 1))
 			rep.PendingToStale++

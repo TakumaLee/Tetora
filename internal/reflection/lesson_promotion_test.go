@@ -6,7 +6,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
+
+func TestLessonKey_UTF8BoundarySafe(t *testing.T) {
+	// 14 Han characters × 3 bytes = 42 bytes. Byte-index 40 lands inside
+	// the 14th character's 3-byte sequence; naïve truncation produces
+	// invalid UTF-8. lessonKey must back off to the last valid boundary.
+	long := strings.Repeat("之", 14) // 42 bytes
+	key := lessonKey(long)
+	if !utf8.ValidString(key) {
+		t.Fatalf("key is invalid UTF-8: %q (% x)", key, []byte(key))
+	}
+	if len(key) > 40 {
+		t.Errorf("key should be ≤40 bytes, got %d", len(key))
+	}
+	// ASCII stays byte-accurate.
+	ascii := strings.Repeat("x", 50)
+	if lessonKey(ascii) != strings.Repeat("x", 40) {
+		t.Errorf("ASCII truncation should be exactly 40 bytes")
+	}
+	// Short inputs unchanged.
+	if got := lessonKey("short"); got != "short" {
+		t.Errorf("short input should pass through, got %q", got)
+	}
+}
 
 func newRef(taskID, agent, improvement string, score int) *Result {
 	return &Result{

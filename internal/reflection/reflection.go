@@ -9,10 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
+)
+
+// Query limit caps, shared by reflection/lesson-event helpers and the
+// agent-facing tools so "limit" has one ceiling per query kind.
+const (
+	MaxSearchReflectionsLimit = 50
+	MaxLessonHistoryLimit     = 200
 )
 
 // Result holds the reflection output.
@@ -361,26 +369,32 @@ func SearchReflections(dbPath string, q SearchQuery) ([]Result, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	if limit > 50 {
-		limit = 50
+	if limit > MaxSearchReflectionsLimit {
+		limit = MaxSearchReflectionsLimit
 	}
 
 	var clauses []string
+	var args []any
 	if q.Keyword != "" {
-		kw := db.Escape(q.Keyword)
-		clauses = append(clauses, fmt.Sprintf("(improvement LIKE '%%%s%%' OR feedback LIKE '%%%s%%')", kw, kw))
+		clauses = append(clauses, "(improvement LIKE ? OR feedback LIKE ?)")
+		pat := "%" + q.Keyword + "%"
+		args = append(args, pat, pat)
 	}
 	if q.Agent != "" {
-		clauses = append(clauses, fmt.Sprintf("agent = '%s'", db.Escape(q.Agent)))
+		clauses = append(clauses, "agent = ?")
+		args = append(args, q.Agent)
 	}
 	if q.TaskID != "" {
-		clauses = append(clauses, fmt.Sprintf("task_id = '%s'", db.Escape(q.TaskID)))
+		clauses = append(clauses, "task_id = ?")
+		args = append(args, q.TaskID)
 	}
 	if q.ScoreMax > 0 {
+		// Integer comparison — inline safely with %d, no user-supplied text.
 		clauses = append(clauses, fmt.Sprintf("score <= %d", q.ScoreMax))
 	}
 	if q.Since != "" {
-		clauses = append(clauses, fmt.Sprintf("created_at >= '%s'", db.Escape(q.Since)))
+		clauses = append(clauses, "created_at >= ?")
+		args = append(args, q.Since)
 	}
 	where := ""
 	if len(clauses) > 0 {
@@ -391,7 +405,7 @@ func SearchReflections(dbPath string, q SearchQuery) ([]Result, error) {
 		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
 		 FROM reflections %s ORDER BY created_at DESC LIMIT %d`,
 		where, limit)
-	rows, err := db.Query(dbPath, sql)
+	rows, err := db.QueryArgs(dbPath, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -416,11 +430,10 @@ func GetReflection(dbPath, taskID string) (*Result, error) {
 	if dbPath == "" || taskID == "" {
 		return nil, fmt.Errorf("GetReflection: dbPath and taskID required")
 	}
-	sql := fmt.Sprintf(
+	rows, err := db.QueryArgs(dbPath,
 		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
-		 FROM reflections WHERE task_id = '%s' LIMIT 1`,
-		db.Escape(taskID))
-	rows, err := db.Query(dbPath, sql)
+		 FROM reflections WHERE task_id = ? LIMIT 1`,
+		taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -598,14 +611,21 @@ func ExtractAutoLesson(workspaceDir, dbPath string, ref *Result) error {
 	return nil
 }
 
-// lessonKey returns the dedup/promotion key for an improvement: first 40
-// characters (byte-wise, matching legacy behaviour so existing markdown entries
-// stay compatible).
+// lessonKey returns the dedup/promotion key for an improvement: up to the
+// first 40 bytes, but always landing on a valid UTF-8 boundary so multi-byte
+// characters (e.g. 中文) are never chopped mid-sequence. Existing byte-40-keyed
+// entries stay compatible because ASCII improvements are untouched and any
+// trailing invalid suffix would have been invalid before too.
 func lessonKey(improvement string) string {
-	if len(improvement) > 40 {
-		return improvement[:40]
+	const maxBytes = 40
+	if len(improvement) <= maxBytes {
+		return improvement
 	}
-	return improvement
+	key := improvement[:maxBytes]
+	for len(key) > 0 && !utf8.ValidString(key) {
+		key = key[:len(key)-1]
+	}
+	return key
 }
 
 func recordLessonEvent(dbPath, key string, ref *Result) error {
@@ -819,6 +839,9 @@ func QueryLessonHistory(dbPath, lessonKeyPrefix string, limit int) ([]LessonEven
 	if limit <= 0 {
 		limit = 100
 	}
+	if limit > MaxLessonHistoryLimit {
+		limit = MaxLessonHistoryLimit
+	}
 	if err := InitLessonEventsDB(dbPath); err != nil {
 		return nil, err
 	}
@@ -826,15 +849,15 @@ func QueryLessonHistory(dbPath, lessonKeyPrefix string, limit int) ([]LessonEven
 	var rows []map[string]any
 	var err error
 	if lessonKeyPrefix == "" {
-		rows, err = db.QueryArgs(dbPath,
-			`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
-			 FROM lesson_events ORDER BY created_at DESC LIMIT `+fmt.Sprintf("%d", limit))
-	} else {
-		pattern := db.Escape(lessonKeyPrefix) + "%"
 		rows, err = db.Query(dbPath, fmt.Sprintf(
 			`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
-			 FROM lesson_events WHERE lesson_key LIKE '%s'
-			 ORDER BY created_at DESC LIMIT %d`, pattern, limit))
+			 FROM lesson_events ORDER BY created_at DESC LIMIT %d`, limit))
+	} else {
+		rows, err = db.QueryArgs(dbPath,
+			fmt.Sprintf(`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
+			 FROM lesson_events WHERE lesson_key LIKE ?
+			 ORDER BY created_at DESC LIMIT %d`, limit),
+			lessonKeyPrefix+"%")
 	}
 	if err != nil {
 		return nil, err
