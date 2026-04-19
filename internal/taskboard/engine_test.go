@@ -1,6 +1,7 @@
 package taskboard
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -167,6 +168,56 @@ func TestSetRetryBackoff_SecondFailure5Minutes(t *testing.T) {
 	hi := after.Add(6 * time.Minute)
 	if parsed.Before(lo) || parsed.After(hi) {
 		t.Errorf("next_retry_at %v not in [%v, %v]", parsed, lo, hi)
+	}
+}
+
+// TestAutoRetryFailed_RequireHumanConfirm_NoRepeat verifies that a failed task
+// with retry_policy.require_human_confirm=true produces exactly one
+// "[retry-policy] Human confirmation required" comment no matter how many times
+// AutoRetryFailed is invoked by the daemon. Previously the handler added the
+// comment and `continue`d without updating next_retry_at, so the next scan
+// matched the same row and repeated the comment (one per daemon tick).
+func TestAutoRetryFailed_RequireHumanConfirm_NoRepeat(t *testing.T) {
+	engine := newTestEngine(t)
+
+	task, err := engine.CreateTask(TaskBoard{
+		Title:       "human-confirm repeat guard",
+		Status:      "todo",
+		RetryPolicy: `{"require_human_confirm":true}`,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := engine.MoveTask(task.ID, "failed"); err != nil {
+		t.Fatalf("MoveTask failed: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := engine.AutoRetryFailed(); err != nil {
+			t.Fatalf("AutoRetryFailed iter=%d: %v", i, err)
+		}
+	}
+
+	comments, err := engine.GetThread(task.ID)
+	if err != nil {
+		t.Fatalf("GetThread: %v", err)
+	}
+	count := 0
+	for _, c := range comments {
+		if strings.Contains(c.Content, "[retry-policy] Human confirmation required") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 [retry-policy] comment after 3 scans, got %d", count)
+	}
+
+	got, err := engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.NextRetryAt != "9999-12-31T23:59:59Z" {
+		t.Errorf("expected sentinel next_retry_at, got %q", got.NextRetryAt)
 	}
 }
 
