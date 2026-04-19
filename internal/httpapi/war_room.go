@@ -25,6 +25,10 @@ var (
 
 const warRoomNoteMaxLen = 4096
 
+// maxOverrideHours caps manual_override.expires_at offset at 30 days so a
+// typo (e.g. 99999999) cannot produce an expiry thousands of years out.
+const maxOverrideHours = 24 * 30
+
 // reValidFrontID matches kebab-case front IDs: lowercase alphanumeric and hyphens only.
 // A leading hyphen is rejected because the regex requires starting with [a-z0-9].
 var reValidFrontID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -232,6 +236,10 @@ func RegisterWarRoomRoutes(mux *http.ServeMux, d WarRoomDeps) {
 			updates["next_action"] = *req.NextAction
 		}
 		if req.OverrideHours != nil && *req.OverrideHours > 0 {
+			if *req.OverrideHours > maxOverrideHours {
+				http.Error(w, `{"error":"override_hours_too_large","detail":"max 720 (30 days)"}`, http.StatusBadRequest)
+				return
+			}
 			expires := time.Now().UTC().Add(time.Duration(*req.OverrideHours) * time.Hour).Format(time.RFC3339)
 			updates["manual_override"] = map[string]any{
 				"active":     true,
@@ -267,6 +275,10 @@ func RegisterWarRoomRoutes(mux *http.ServeMux, d WarRoomDeps) {
 		}
 		if !reValidFrontID.MatchString(req.FrontID) {
 			http.Error(w, `{"error":"invalid_front_id"}`, http.StatusBadRequest)
+			return
+		}
+		if req.Hours > maxOverrideHours {
+			http.Error(w, `{"error":"hours_too_large","detail":"max 720 (30 days)"}`, http.StatusBadRequest)
 			return
 		}
 		var override map[string]any

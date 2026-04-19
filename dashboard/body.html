@@ -2128,10 +2128,10 @@
   </div>
 
   <!-- War Room Create-Front Modal -->
-  <div class="wr-modal-overlay" id="wr-create-modal" role="dialog" aria-modal="true" onclick="if(event.target===this)closeCreateFrontModal()">
+  <div class="wr-modal-overlay" id="wr-create-modal" role="dialog" aria-modal="true" aria-labelledby="wr-create-modal-title" onclick="if(event.target===this)closeCreateFrontModal()">
     <div class="wr-modal" id="wr-create-panel" style="max-width:520px">
       <div class="wr-modal-header">
-        <div class="wr-modal-title">&#x2795; 新增戰線</div>
+        <div class="wr-modal-title" id="wr-create-modal-title">&#x2795; 新增戰線</div>
         <button class="wr-modal-close" onclick="closeCreateFrontModal()" aria-label="關閉">&#x2715;</button>
       </div>
       <div class="wr-modal-body" style="grid-template-columns:1fr;padding:16px 20px 20px">

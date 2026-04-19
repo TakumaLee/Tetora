@@ -141,6 +141,7 @@
         parts.push(
           '<span class="wr-override-badge" role="button" tabindex="0"' +
           ' title="點擊清除覆蓋" onclick="event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')"' +
+          ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();event.stopPropagation();clearWrOverride(\'' + esc(front.id) + '\')}"' +
           ' style="cursor:pointer">&#x1F512; 覆蓋中 到 ' + esc(moExpStr) + ' &#x2715;</span>'
         );
       }
@@ -210,7 +211,7 @@
         ' onclick="event.stopPropagation();setWrStatus(\'' + id + '\',\'' + st + '\')">' +
         icon + '</button>';
     }
-    return '<div class="wr-stat-capsule" onclick="event.stopPropagation()">' +
+    return '<div class="wr-stat-capsule" data-front-id="' + id + '" onclick="event.stopPropagation()">' +
       btn('green',  '&#x1F7E2;', '運行中') +
       btn('yellow', '&#x1F7E1;', '注意') +
       btn('red',    '&#x1F534;', '阻塞') +
@@ -409,8 +410,18 @@
   }
 
   // ── Quick actions (T1) ────────────────────────────────────────
+  var _wrStatusPending = {}; // frontId → true while a status POST is in-flight
+
+  function _wrSetCapsuleBusy(frontId, busy) {
+    var el = document.querySelector('.wr-stat-capsule[data-front-id="' + frontId + '"]');
+    if (!el) return;
+    el.style.pointerEvents = busy ? 'none' : '';
+    el.style.opacity = busy ? '0.5' : '';
+  }
+
   function setWrStatus(frontId, status) {
     if (!_warRoomData || !Array.isArray(_warRoomData.fronts)) return;
+    if (_wrStatusPending[frontId]) return; // debounce: ignore while in-flight
     var front = _warRoomData.fronts.find(function(f) { return f.id === frontId; });
     if (!front) return;
 
@@ -434,6 +445,8 @@
   function _wrPostStatus(frontId, status, overrideHours) {
     var body = { front_id: frontId, status: status };
     if (overrideHours != null) body.override_hours = overrideHours;
+    _wrStatusPending[frontId] = true;
+    _wrSetCapsuleBusy(frontId, true);
     fetch('/api/war-room/front/status', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -441,7 +454,12 @@
     }).then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       loadWarRoom();
-    }).catch(function(err) { alert('更新失敗：' + err.message); });
+    }).catch(function(err) {
+      alert('更新失敗：' + err.message);
+    }).finally(function() {
+      delete _wrStatusPending[frontId];
+      _wrSetCapsuleBusy(frontId, false);
+    });
   }
 
   function clearWrOverride(frontId) {
