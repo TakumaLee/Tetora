@@ -2881,7 +2881,7 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 // agent: agent-specific rules from workspace/rules/{agentName}*
 // on-demand: memory only via {{memory.KEY}} template
 func injectWorkspaceContent(cfg *Config, task *Task, agentName string) {
-	workspace.InjectContent(cfg, &task.SystemPrompt, &task.AddDirs, agentName)
+	workspace.InjectContent(cfg, &task.SystemPrompt, &task.AddDirs, agentName, task.Prompt)
 }
 
 // estimateDirSize returns the total size of all files (non-recursive) in a directory.

@@ -27,7 +27,7 @@ func TestExtractAutoLesson_CreatesFile(t *testing.T) {
 		t.Fatalf("ExtractAutoLesson: %v", err)
 	}
 
-	autoPath := filepath.Join(dir, "rules", "auto-lessons.md")
+	autoPath := filepath.Join(dir, "memory", "auto-lessons.md")
 	data, err := os.ReadFile(autoPath)
 	if err != nil {
 		t.Fatalf("auto-lessons.md not created: %v", err)
@@ -66,7 +66,7 @@ func TestExtractAutoLesson_Dedup(t *testing.T) {
 		t.Fatalf("first ExtractAutoLesson: %v", err)
 	}
 
-	autoPath := filepath.Join(dir, "rules", "auto-lessons.md")
+	autoPath := filepath.Join(dir, "memory", "auto-lessons.md")
 	data1, _ := os.ReadFile(autoPath)
 
 	// Second call with same improvement — should be a no-op.
@@ -106,7 +106,7 @@ func TestExtractAutoLesson_ScoreTooHigh(t *testing.T) {
 		t.Fatalf("ExtractAutoLesson with score=3: %v", err)
 	}
 
-	autoPath := filepath.Join(dir, "rules", "auto-lessons.md")
+	autoPath := filepath.Join(dir, "memory", "auto-lessons.md")
 	if _, err := os.Stat(autoPath); !os.IsNotExist(err) {
 		data, _ := os.ReadFile(autoPath)
 		// File should not have been created at all, but if it exists it must not contain our text.
@@ -140,7 +140,7 @@ func TestExtractAutoLesson_EmptyImprovement(t *testing.T) {
 		t.Errorf("empty improvement should be a no-op, got: %v", err)
 	}
 
-	autoPath := filepath.Join(dir, "rules", "auto-lessons.md")
+	autoPath := filepath.Join(dir, "memory", "auto-lessons.md")
 	if _, err := os.Stat(autoPath); !os.IsNotExist(err) {
 		t.Error("auto-lessons.md should not be created for empty improvement")
 	}

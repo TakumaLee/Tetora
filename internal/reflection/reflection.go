@@ -406,20 +406,24 @@ func QueryTimeSavings(dbPath, month string) ([]TimeSavingsRow, error) {
 	return results, nil
 }
 
-// ExtractAutoLesson appends a lesson entry to {workspaceDir}/rules/auto-lessons.md
+// ExtractAutoLesson appends a lesson entry to {workspaceDir}/memory/auto-lessons.md
 // when the reflection score is low (≤ 2) and improvement text is non-empty.
 // Duplicate improvements (matched by first 40 chars) are silently skipped.
+//
+// Lives under memory/ (not rules/) because entries are a pending-promotion queue,
+// not governance. Rules/ is for validated cross-agent rules; unpromoted raw
+// lessons would bloat it past the workspace injection cap.
 func ExtractAutoLesson(workspaceDir string, ref *Result) error {
 	if ref == nil || ref.Improvement == "" || ref.Score >= 3 {
 		return nil
 	}
 
-	rulesDir := filepath.Join(workspaceDir, "rules")
-	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
-		return fmt.Errorf("ExtractAutoLesson: mkdir rules: %w", err)
+	memoryDir := filepath.Join(workspaceDir, "memory")
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		return fmt.Errorf("ExtractAutoLesson: mkdir memory: %w", err)
 	}
 
-	autoPath := filepath.Join(rulesDir, "auto-lessons.md")
+	autoPath := filepath.Join(memoryDir, "auto-lessons.md")
 
 	// Dedup: check if improvement already present.
 	key := ref.Improvement

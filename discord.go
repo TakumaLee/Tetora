@@ -1749,7 +1749,12 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	if db.cfg.Session.Compaction.Strategy == "fresh-session" && !canResume {
 		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
 		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
-			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
+			task.SystemPrompt += "\n\n## Previous Session Summary (READ BEFORE REPLYING)\n\n" +
+				"The visible conversation history starts fresh — the previous session was compacted " +
+				"into the summary below. **If the user's message references context not visible in " +
+				"the current conversation (names, tasks, decisions, prior dispatches), check this " +
+				"summary first before asking them to repeat themselves.** Treat this summary as " +
+				"authoritative recent memory.\n\n---\n\n" + summary
 			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
 		}
 	}
