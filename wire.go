@@ -5936,20 +5936,54 @@ func seedDefaultJobs() []CronJobConfig {
 			Task: CronTaskConfig{
 				Prompt: `You are a self-improvement agent for the Tetora AI orchestration system.
 
-Analyze the activity digest below. The digest includes existing Skills, Rules, and Memory —
-do NOT create anything that already exists.
+Your job: scan the lesson pipeline, cluster recurring patterns, and surface promotion
+candidates for human review. Do NOT auto-write to ` + "`rules/`" + ` — that is gated by the owner.
 
-## Instructions
-1. Identify repeated patterns (3+ occurrences), low-score reflections, recurring failures
-2. For each actionable improvement, CREATE the file directly:
-   - **Rule**: Create ` + "`rules/{name}.md`" + ` — governance rules auto-injected into all agents
-   - **Memory**: Create/update ` + "`memory/{key}.md`" + ` — shared observations
-   - **Skill**: Create ` + "`skills/{name}/metadata.json`" + ` with ` + "`\"approved\": false`" + ` — requires human review
-3. Only apply HIGH and MEDIUM priority improvements
-4. Keep files concise and actionable
-5. Report what you created and why
+## Step 1 — Run the lesson pipeline
 
-If insufficient data for improvements, say so and exit.
+Shell out to the CLI (already on PATH):
+
+  tetora lessons scan --threshold 3 --json > /tmp/tetora-candidates.json
+
+This reads ` + "`lesson_events`" + ` in the history DB and returns lesson_keys that appeared
+across 3+ distinct task_ids. Each candidate includes occurrences, agents, task_ids.
+
+Also read ` + "`workspace/memory/auto-lessons.md`" + ` — the raw ` + "`[pending]`" + ` queue that may
+contain clusters the DB threshold misses (different wording, same idea).
+
+## Step 2 — Semantic clustering
+
+Group the raw improvements by meaning, not string match. Typical clusters:
+- "git hygiene" — commit messages, staging hygiene, force-push guards
+- "verification gaps" — skipped tests, missing build-test before done
+- "language compliance" — non-繁體中文 operational output
+- "regression guards" — fragile points not re-checked
+
+For each cluster with ≥3 source improvements, emit:
+
+  ## Cluster: <name> (<N> occurrences)
+  - agents: <list>
+  - source tasks: <ids>
+  - proposed rule: "<one-line governance rule>"
+
+## Step 3 — Write candidates file
+
+Write the clusters to ` + "`workspace/memory/promotion-candidates.md`" + ` (overwrite). Prepend
+ISO date + digest summary. This is the human-review inbox, not the final rule.
+
+## Step 4 — Update auto-lessons markers (optional, safe)
+
+For ` + "`[pending]`" + ` entries you grouped into a cluster, rewrite the prefix to
+` + "`[clustered: <cluster-name>]`" + ` in-place. Do NOT delete any entry.
+
+## Do NOT
+
+- Do NOT create files in ` + "`rules/`" + ` — owner writes those after reviewing candidates.
+- Do NOT create new Skills without ` + "`\"approved\": false`" + ` in metadata.
+- Do NOT rewrite ` + "`[promoted-*]`" + ` or ` + "`[clustered: *]`" + ` entries that already exist.
+
+If neither the scan nor ` + "`auto-lessons.md`" + ` yields ≥3-occurrence clusters, write a
+short "no candidates this cycle" note to ` + "`promotion-candidates.md`" + ` and exit.
 
 ---
 
