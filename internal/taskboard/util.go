@@ -63,6 +63,16 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		json.Unmarshal([]byte(workdirsJSON), &workdirs)
 	}
 
+	retryPolicy := fmt.Sprintf("%v", row["retry_policy"])
+	if retryPolicy == "<nil>" {
+		retryPolicy = ""
+	}
+
+	nextRetryAt := fmt.Sprintf("%v", row["next_retry_at"])
+	if nextRetryAt == "<nil>" {
+		nextRetryAt = ""
+	}
+
 	return TaskBoard{
 		ID:            fmt.Sprintf("%v", row["id"]),
 		Project:       fmt.Sprintf("%v", row["project"]),
@@ -88,6 +98,8 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		WorkflowRunID:  workflowRunID,
 		Workdirs:       workdirs,
 		AllowDangerous: getFloat64(row, "allow_dangerous") != 0,
+		RetryPolicy:    retryPolicy,
+		NextRetryAt:    nextRetryAt,
 	}
 }
 
@@ -133,6 +145,8 @@ func toSnakeCase(s string) string {
 		return "workflow_run_id"
 	case "executionCount":
 		return "execution_count"
+	case "retryPolicy":
+		return "retry_policy"
 	default:
 		return s
 	}

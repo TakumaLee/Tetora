@@ -1,7 +1,9 @@
 package taskboard
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"tetora/internal/config"
 )
@@ -123,5 +125,131 @@ func TestNormalizeTaskID_PrefixedID(t *testing.T) {
 	}
 	if moved.Status != "doing" {
 		t.Errorf("expected 'doing', got %q", moved.Status)
+	}
+}
+
+// =============================================================================
+// SetRetryBackoff tests (Proposal C)
+// =============================================================================
+
+func TestSetRetryBackoff_FirstFailureNoDelay(t *testing.T) {
+	// retryCount=0 → no backoff; next_retry_at should remain unset.
+	engine := newTestEngine(t)
+	task, _ := engine.CreateTask(TaskBoard{Title: "backoff test", Status: "todo"})
+	engine.MoveTask(task.ID, "failed")
+
+	engine.SetRetryBackoff(task.ID, 0)
+
+	got, _ := engine.GetTask(task.ID)
+	if got.NextRetryAt != "" {
+		t.Errorf("expected no next_retry_at for retryCount=0, got %q", got.NextRetryAt)
+	}
+}
+
+func TestSetRetryBackoff_SecondFailure5Minutes(t *testing.T) {
+	// retryCount=1 → 5min backoff.
+	engine := newTestEngine(t)
+	task, _ := engine.CreateTask(TaskBoard{Title: "backoff test r1", Status: "todo"})
+	engine.MoveTask(task.ID, "failed")
+
+	before := time.Now().UTC()
+	engine.SetRetryBackoff(task.ID, 1)
+	after := time.Now().UTC()
+
+	got, _ := engine.GetTask(task.ID)
+	if got.NextRetryAt == "" {
+		t.Fatal("expected next_retry_at to be set for retryCount=1")
+	}
+	parsed, err := time.Parse(time.RFC3339, got.NextRetryAt)
+	if err != nil {
+		t.Fatalf("next_retry_at not RFC3339: %v", err)
+	}
+	lo := before.Add(4 * time.Minute)
+	hi := after.Add(6 * time.Minute)
+	if parsed.Before(lo) || parsed.After(hi) {
+		t.Errorf("next_retry_at %v not in [%v, %v]", parsed, lo, hi)
+	}
+}
+
+// TestAutoRetryFailed_RequireHumanConfirm_NoRepeat verifies that a failed task
+// with retry_policy.require_human_confirm=true produces exactly one
+// "[retry-policy] Human confirmation required" comment no matter how many times
+// AutoRetryFailed is invoked by the daemon. Previously the handler added the
+// comment and `continue`d without updating next_retry_at, so the next scan
+// matched the same row and repeated the comment (one per daemon tick).
+func TestAutoRetryFailed_RequireHumanConfirm_NoRepeat(t *testing.T) {
+	engine := newTestEngine(t)
+
+	task, err := engine.CreateTask(TaskBoard{
+		Title:       "human-confirm repeat guard",
+		Status:      "todo",
+		RetryPolicy: `{"require_human_confirm":true}`,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := engine.MoveTask(task.ID, "failed"); err != nil {
+		t.Fatalf("MoveTask failed: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := engine.AutoRetryFailed(); err != nil {
+			t.Fatalf("AutoRetryFailed iter=%d: %v", i, err)
+		}
+	}
+
+	comments, err := engine.GetThread(task.ID)
+	if err != nil {
+		t.Fatalf("GetThread: %v", err)
+	}
+	count := 0
+	for _, c := range comments {
+		if strings.Contains(c.Content, "[retry-policy] Human confirmation required") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 [retry-policy] comment after 3 scans, got %d", count)
+	}
+
+	got, err := engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.NextRetryAt != "9999-12-31T23:59:59Z" {
+		t.Errorf("expected sentinel next_retry_at, got %q", got.NextRetryAt)
+	}
+}
+
+func TestSetRetryBackoff_CapsAt80Minutes(t *testing.T) {
+	// retryCount=5 (shift=4) → cap at 5min × 16 = 80min.
+	engine := newTestEngine(t)
+	task, _ := engine.CreateTask(TaskBoard{Title: "backoff cap test", Status: "todo"})
+	engine.MoveTask(task.ID, "failed")
+
+	before := time.Now().UTC()
+	engine.SetRetryBackoff(task.ID, 5)
+	after := time.Now().UTC()
+
+	got, _ := engine.GetTask(task.ID)
+	if got.NextRetryAt == "" {
+		t.Fatal("expected next_retry_at to be set")
+	}
+	parsed, _ := time.Parse(time.RFC3339, got.NextRetryAt)
+	lo := before.Add(79 * time.Minute)
+	hi := after.Add(81 * time.Minute)
+	if parsed.Before(lo) || parsed.After(hi) {
+		t.Errorf("next_retry_at %v not in [%v, %v] (expected ~80min cap)", parsed, lo, hi)
+	}
+
+	// retryCount=10 should give the same cap.
+	engine2 := newTestEngine(t)
+	task2, _ := engine2.CreateTask(TaskBoard{Title: "backoff cap test 2", Status: "todo"})
+	engine2.MoveTask(task2.ID, "failed")
+	engine2.SetRetryBackoff(task2.ID, 10)
+	got2, _ := engine2.GetTask(task2.ID)
+	parsed2, _ := time.Parse(time.RFC3339, got2.NextRetryAt)
+	if parsed2.Before(lo) || parsed2.After(hi) {
+		t.Errorf("retryCount=10 next_retry_at %v should also be ~80min, not higher", parsed2)
 	}
 }

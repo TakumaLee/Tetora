@@ -179,6 +179,10 @@ type DispatcherDeps struct {
 	Discord DiscordEmbedSender
 	// DiscordNotifyChannelID is the Discord channel for task board notifications.
 	DiscordNotifyChannelID string
+
+	// AvailableSlots returns the number of free dispatch slots, or nil if not tracked.
+	// Used to defer failed-task retries when the system is under slot pressure.
+	AvailableSlots func() int
 }
 
 // Dispatcher auto-dispatches tasks with status=todo and a non-empty assignee.
@@ -600,6 +604,37 @@ func (d *Dispatcher) notifyStaleReset(taskID, title string, threshold time.Durat
 		Color:     0xFEE75C,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Footer:    &discord.EmbedFooter{Text: "tetora taskboard"},
+	}
+	d.deps.Discord.SendEmbed(ch, embed)
+}
+
+func (d *Dispatcher) notifyStalled(taskID, title string, tokensIn int, errMsg string) {
+	log.Warn("taskboard dispatch: task stalled (tokensIn=0 + timeout)", "id", taskID, "title", title, "error", errMsg)
+
+	if d.deps.Discord == nil {
+		return
+	}
+	ch := d.deps.DiscordNotifyChannelID
+	if ch == "" {
+		return
+	}
+
+	shortID := taskID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+
+	embed := discord.Embed{
+		Title: "Task Stalled — Manual Review Required",
+		Description: fmt.Sprintf(
+			"Task **%s** (`%s`) produced **0 tokens** and timed out.\n"+
+				"Auto-retry is disabled. Manual intervention required.\n\n"+
+				"**Error**: %s",
+			title, shortID, errMsg,
+		),
+		Color:     0xED4245, // red
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Footer:    &discord.EmbedFooter{Text: "tetora taskboard — slot-aware retry"},
 	}
 	d.deps.Discord.SendEmbed(ch, embed)
 }

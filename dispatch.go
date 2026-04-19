@@ -3029,9 +3029,9 @@ func cmdTask(args []string) {
 		fmt.Println("Usage: tetora task <list|create|show|update|move|assign|comment|thread>")
 		fmt.Println("\nCommands:")
 		fmt.Println("  list [--status=STATUS] [--assignee=AGENT] [--project=PROJECT]")
-		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE] [--depends-on=ID]... [--workdirs=DIR]...")
+		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE] [--depends-on=ID]... [--workdirs=DIR]... [--retry-policy=JSON]")
 		fmt.Println("  show TASK_ID [--full]")
-		fmt.Println("  update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY]")
+		fmt.Println("  update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY] [--retry-policy=JSON]")
 		fmt.Println("  move TASK_ID --status=STATUS")
 		fmt.Println("  assign TASK_ID --assignee=AGENT")
 		fmt.Println("  comment TASK_ID --author=AUTHOR --content=CONTENT [--type=TYPE]")
@@ -3110,7 +3110,7 @@ func cmdTask(args []string) {
 		}
 
 	case "create":
-		var title, description, priority, assignee, taskType string
+		var title, description, priority, assignee, taskType, retryPolicy string
 		var dependsOn []string
 		var workdirs []string
 		var allowDangerous bool
@@ -3137,6 +3137,8 @@ func cmdTask(args []string) {
 				}
 			} else if arg == "--allow-dangerous" {
 				allowDangerous = true
+			} else if strings.HasPrefix(arg, "--retry-policy=") {
+				retryPolicy = strings.TrimPrefix(arg, "--retry-policy=")
 			}
 		}
 
@@ -3154,6 +3156,7 @@ func cmdTask(args []string) {
 			DependsOn:      dependsOn,
 			Workdirs:       workdirs,
 			AllowDangerous: allowDangerous,
+			RetryPolicy:    retryPolicy,
 		})
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -3208,6 +3211,9 @@ func cmdTask(args []string) {
 		if task.CompletedAt != "" {
 			fmt.Printf("- **Completed**: %s\n", task.CompletedAt)
 		}
+		if task.RetryPolicy != "" {
+			fmt.Printf("- **Retry Policy**: %s\n", task.RetryPolicy)
+		}
 		if task.Description != "" {
 			fmt.Printf("\n## Description\n\n%s\n", task.Description)
 		}
@@ -3247,6 +3253,8 @@ func cmdTask(args []string) {
 					dependsOn = append(dependsOn, depID)
 				}
 				hasDeps = true
+			} else if strings.HasPrefix(arg, "--retry-policy=") {
+				updates["retryPolicy"] = strings.TrimPrefix(arg, "--retry-policy=")
 			}
 		}
 		if hasDeps {
@@ -3954,6 +3962,10 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 
 		Discord:                discordSender(state),
 		DiscordNotifyChannelID: cfg.Discord.NotifyChannelID,
+
+		// Feature B: expose semaphore free slots so failed-task retry can be
+		// deferred when all dispatch slots are occupied.
+		AvailableSlots: func() int { return cap(sem) - len(sem) },
 	}
 
 	return taskboard.NewDispatcher(engine, cfg, deps)

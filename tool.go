@@ -3117,6 +3117,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			DependsOn   []string `json:"dependsOn"`
 			Workflow    string   `json:"workflow"`
 			Type        string   `json:"type"`
+			RetryPolicy string   `json:"retryPolicy"`
 		}
 		if err := json.Unmarshal(input, &args); err != nil {
 			return "", fmt.Errorf("invalid input: %w", err)
@@ -3138,6 +3139,7 @@ func toolTaskboardCreate(cfg *Config) ToolHandler {
 			DependsOn:   args.DependsOn,
 			Workflow:    args.Workflow,
 			Type:        args.Type,
+			RetryPolicy: args.RetryPolicy,
 		})
 		if err != nil {
 			return "", err

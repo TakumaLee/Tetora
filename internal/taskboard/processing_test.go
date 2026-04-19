@@ -10,15 +10,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"tetora/internal/config"
 	"tetora/internal/db"
+	"tetora/internal/discord"
 	"tetora/internal/dispatch"
 	"tetora/internal/log"
 )
+
+// mockDiscordSender records SendEmbed calls for assertion in tests.
+type mockDiscordSender struct {
+	mu     sync.Mutex
+	embeds []discord.Embed
+}
+
+func (m *mockDiscordSender) SendEmbed(_ string, embed discord.Embed) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.embeds = append(m.embeds, embed)
+}
+
+func (m *mockDiscordSender) embedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.embeds)
+}
 
 // =============================================================================
 // Test helpers
@@ -1588,5 +1608,207 @@ func TestDispatchTask_RealError_AutoRetried(t *testing.T) {
 	}
 	if got.RetryCount != 1 {
 		t.Errorf("expected retry_count 1 (auto-retry increments), got %d", got.RetryCount)
+	}
+}
+
+// =============================================================================
+// Proposal B: slot-aware retry deferral
+// =============================================================================
+
+func TestDispatchTask_NoSlots_StaysFailedDeferRetry(t *testing.T) {
+	// When AvailableSlots() returns 0, AutoRetryFailed must NOT be called
+	// immediately. The task should stay in "failed" state.
+	ex := &fixedResultExecutor{result: dispatch.TaskResult{
+		Status: "error",
+		Error:  "runtime error: nil pointer dereference",
+		Output: "crash output",
+	}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{MaxRetries: 3}, DispatcherDeps{
+		Executor:       ex,
+		FillDefaults:   func(_ *config.Config, _ *dispatch.Task) {},
+		AvailableSlots: func() int { return 0 }, // no free slots
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "slot pressure test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	got, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	// Task must stay "failed" — AutoRetryFailed was skipped due to no slots.
+	if got.Status != "failed" {
+		t.Errorf("expected status 'failed' when no slots, got %q", got.Status)
+	}
+}
+
+func TestDispatchTask_HasSlots_AutoRetried(t *testing.T) {
+	// Confirm baseline: when slots are available, auto-retry fires as normal.
+	ex := &fixedResultExecutor{result: dispatch.TaskResult{
+		Status: "error",
+		Error:  "runtime error: nil pointer dereference",
+		Output: "crash output",
+	}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{MaxRetries: 3}, DispatcherDeps{
+		Executor:       ex,
+		FillDefaults:   func(_ *config.Config, _ *dispatch.Task) {},
+		AvailableSlots: func() int { return 2 }, // slots available
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "slot available test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	got, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	// With slots available, AutoRetryFailed should have run → status "todo".
+	if got.Status != "todo" {
+		t.Errorf("expected status 'todo' when slots available, got %q", got.Status)
+	}
+}
+
+// =============================================================================
+// Proposal D: stalled detection (tokensIn=0 + timeout)
+// =============================================================================
+
+func TestDispatchTask_Stalled_DisablesAutoRetry_NotifiesDiscord(t *testing.T) {
+	// tokensIn=0 with a timeout error → task flagged as stalled.
+	// Auto-retry must be disabled; Discord must be notified.
+	ex := &fixedResultExecutor{result: dispatch.TaskResult{
+		Status:   "error",
+		Error:    "context deadline exceeded: slot exhaustion timeout",
+		Output:   "",
+		TokensIn: 0,
+	}}
+
+	disc := &mockDiscordSender{}
+	d := newTestDispatcher(t, config.TaskBoardConfig{MaxRetries: 3}, DispatcherDeps{
+		Executor:               ex,
+		FillDefaults:           func(_ *config.Config, _ *dispatch.Task) {},
+		Discord:                disc,
+		DiscordNotifyChannelID: "chan-999",
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "stalled task test",
+		Status:   "todo",
+		Assignee: "kokuyou",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	got, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+
+	// Stalled task must remain "failed" — not reset to "todo".
+	if got.Status != "failed" {
+		t.Errorf("expected status 'failed' for stalled task, got %q", got.Status)
+	}
+
+	// Discord must have been notified exactly once.
+	if disc.embedCount() != 1 {
+		t.Errorf("expected 1 Discord embed for stalled task, got %d", disc.embedCount())
+	}
+
+	// System comment must include stalled flag.
+	comments, _ := d.engine.GetThread(task.ID)
+	var stalledComment bool
+	for _, c := range comments {
+		if c.Author == "system" && strings.Contains(c.Content, "stalled") {
+			stalledComment = true
+			break
+		}
+	}
+	if !stalledComment {
+		t.Error("expected system comment containing 'stalled'")
+	}
+}
+
+func TestDispatchTask_ZeroTokensNoTimeout_NotStalled(t *testing.T) {
+	// tokensIn=0 but error is NOT a timeout → not classified as stalled.
+	// Normal auto-retry path should run.
+	ex := &fixedResultExecutor{result: dispatch.TaskResult{
+		Status:   "error",
+		Error:    "bad request: invalid parameters",
+		Output:   "some output",
+		TokensIn: 0,
+	}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{MaxRetries: 3}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "zero tokens non-timeout",
+		Status:   "todo",
+		Assignee: "kokuyou",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	got, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	// Non-timeout failure should still be auto-retried → "todo".
+	if got.Status != "todo" {
+		t.Errorf("expected status 'todo' (non-stalled retry), got %q", got.Status)
+	}
+}
+
+// =============================================================================
+// isTimeoutError unit tests
+// =============================================================================
+
+func TestIsTimeoutError_Patterns(t *testing.T) {
+	cases := []struct {
+		err      string
+		exitCode int
+		want     bool
+	}{
+		{"context deadline exceeded", 0, true},
+		{"operation timed out", 0, true},
+		{"process timed out waiting for slot", 0, true},
+		{"deadline exceeded: resource unavailable", 0, true},
+		{"context canceled", 0, false}, // canceled ≠ timeout
+		{"runtime error: nil pointer dereference", 0, false},
+		{"bad request", 0, false},
+		{"", -1, true},  // exitCode=-1 always timeout
+		{"", 0, false},  // no error, normal exit
+		{"some random error", 1, false},
+	}
+	for _, c := range cases {
+		got := isTimeoutError(c.err, c.exitCode)
+		if got != c.want {
+			t.Errorf("isTimeoutError(%q, %d) = %v, want %v", c.err, c.exitCode, got, c.want)
+		}
 	}
 }

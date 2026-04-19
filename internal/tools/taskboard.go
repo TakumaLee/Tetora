@@ -75,7 +75,8 @@ func RegisterTaskboardTools(r *Registry, cfg *config.Config, enabled func(string
 					"parentId": {"type": "string", "description": "Parent task ID (for subtasks)"},
 					"model": {"type": "string", "description": "LLM model override (e.g. sonnet, haiku, opus)"},
 					"dependsOn": {"type": "array", "items": {"type": "string"}, "description": "Task IDs this task depends on"},
-					"type": {"type": "string", "description": "Task type for branch naming: feat/fix/refactor/chore (default: feat)"}
+					"type": {"type": "string", "description": "Task type for branch naming: feat/fix/refactor/chore (default: feat)"},
+					"retryPolicy": {"type": "string", "description": "JSON retry policy override, e.g. {\"max\":1,\"require_human_confirm\":true}. Overrides global maxRetries for this task."}
 				},
 				"required": ["title"]
 			}`),
