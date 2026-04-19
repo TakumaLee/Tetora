@@ -300,7 +300,10 @@ func RegisterWarRoomRoutes(mux *http.ServeMux, d WarRoomDeps) {
 		w.Write([]byte(`{"ok":true}`))
 	})
 
-	// POST /api/war-room/autoupdate/trigger — run autoupdate ad-hoc.
+	// POST /api/war-room/autoupdate/trigger — kick off autoupdate ad-hoc.
+	// Fire-and-forget: returns 202 Accepted once the job is scheduled. The
+	// caller should poll /api/war-room/autoupdate/meta to observe completion
+	// (running transitions from true → false).
 	mux.HandleFunc("/api/war-room/autoupdate/trigger", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -311,16 +314,17 @@ func RegisterWarRoomRoutes(mux *http.ServeMux, d WarRoomDeps) {
 			http.Error(w, `{"error":"unavailable","detail":"autoupdate trigger not wired"}`, http.StatusServiceUnavailable)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-		defer cancel()
-		if err := d.TriggerAutoUpdate(ctx); err != nil {
+		// Use Background context: the job must outlive the HTTP request; the
+		// cron engine manages its own lifecycle/timeout.
+		if err := d.TriggerAutoUpdate(context.Background()); err != nil {
 			log.Error("war-room autoupdate trigger failed", "err", err)
 			b, _ := json.Marshal(map[string]string{"error": "trigger_failed", "detail": err.Error()})
 			http.Error(w, string(b), http.StatusInternalServerError)
 			return
 		}
 		log.Info("war-room autoupdate triggered via HTTP")
-		w.Write([]byte(`{"ok":true}`))
+		w.WriteHeader(http.StatusAccepted)
+		w.Write([]byte(`{"ok":true,"accepted":true,"poll":"/api/war-room/autoupdate/meta"}`))
 	})
 
 	// GET /api/war-room/autoupdate/meta — return last/next run metadata.
