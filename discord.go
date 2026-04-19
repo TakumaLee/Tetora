@@ -1934,6 +1934,16 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
 
+	// Refresh session reference: compact may have archived sess while runSingleTask was blocking.
+	// Route output to the current active session to avoid posting to an archived session.
+	if sess != nil {
+		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
+			if fresh, _ := findChannelSession(dbPath, chKey); fresh != nil {
+				sess = fresh
+			}
+		}
+	}
+
 	// Record to session.
 	if sess != nil {
 		now := time.Now().Format(time.RFC3339)
@@ -2730,6 +2740,16 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+
+	// Refresh session reference: compact may have archived sess while runSingleTask was blocking.
+	// Route output to the current active session to avoid posting to an archived session.
+	if sess != nil {
+		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
+			if fresh, _ := findChannelSession(dbPath, sessionID); fresh != nil {
+				sess = fresh
+			}
+		}
+	}
 
 	// Record to session.
 	if sess != nil {
