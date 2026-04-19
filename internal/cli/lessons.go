@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"tetora/internal/reflection"
 )
@@ -26,6 +27,8 @@ func CmdLessons(args []string) {
 		cmdLessonsHistory(args[1:])
 	case "audit":
 		cmdLessonsAudit(args[1:])
+	case "prune":
+		cmdLessonsPrune(args[1:])
 	case "-h", "--help", "help":
 		printLessonsUsage()
 	default:
@@ -46,10 +49,11 @@ Commands:
   promote  [--threshold N] [--apply] [--json]    Materialise a promotion report (dry-run by default)
   history  <key-prefix> [--limit N] [--json]     Show events for a lesson_key prefix
   audit    [--stale-days N] [--json]             Flag stale rules/*.md files
+  prune    [--apply] [--json]                    Apply [pending]→[stale]→remove state machine
 
 Options:
   --threshold N   Minimum distinct task_ids per lesson_key (default 3)
-  --apply         Write rules/auto-promoted-YYYYMMDD.md and flip [pending] → [promoted-DATE]
+  --apply         Write rules/auto-promoted-YYYYMMDD.md (promote) or mutate auto-lessons.md (prune)
   --stale-days N  Mark rules files older than N days as stale (default 90)
   --json          Emit machine-readable JSON instead of human output
 `)
@@ -177,6 +181,47 @@ func cmdLessonsHistory(args []string) {
 			fmt.Printf("  improvement: %s\n", e.Improvement)
 		}
 	}
+}
+
+func cmdLessonsPrune(args []string) {
+	fs := flag.NewFlagSet("lessons prune", flag.ExitOnError)
+	apply := fs.Bool("apply", false, "write changes to auto-lessons.md (dry-run by default)")
+	asJSON := fs.Bool("json", false, "emit JSON output")
+	_ = fs.Parse(args)
+
+	cfg := LoadCLIConfig(FindConfigPath())
+	if cfg.WorkspaceDir == "" {
+		fmt.Fprintln(os.Stderr, "error: WorkspaceDir must be configured")
+		os.Exit(1)
+	}
+
+	rep, err := reflection.PruneAutoLessons(
+		cfg.WorkspaceDir, cfg.HistoryDB,
+		time.Now(),
+		reflection.DefaultPruneThresholds(),
+		!*apply,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "prune failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(rep)
+		return
+	}
+
+	mode := "dry-run"
+	if *apply {
+		mode = "applied"
+	}
+	fmt.Printf("Prune (%s): %s\n", mode, rep.Path)
+	fmt.Printf("  pending → stale : %d\n", rep.PendingToStale)
+	fmt.Printf("  stale   removed : %d\n", rep.StaleRemoved)
+	fmt.Printf("  rejected removed: %d\n", rep.RejectedRemoved)
+	fmt.Printf("  kept            : %d\n", rep.Kept)
 }
 
 func cmdLessonsAudit(args []string) {

@@ -5939,14 +5939,24 @@ func seedDefaultJobs() []CronJobConfig {
 Your job: scan the lesson pipeline, cluster recurring patterns, and surface promotion
 candidates for human review. Do NOT auto-write to ` + "`rules/`" + ` — that is gated by the owner.
 
-## Step 1 — Run the lesson pipeline
+## Step 1 — Prune then scan
 
-Shell out to the CLI (already on PATH):
+Shell out to the CLI (already on PATH), in order:
 
-  tetora lessons scan --threshold 3 --json > /tmp/tetora-candidates.json
+  tetora lessons prune --apply --json   > /tmp/tetora-prune.json
+  tetora lessons scan  --threshold 3 --json > /tmp/tetora-candidates.json
 
-This reads ` + "`lesson_events`" + ` in the history DB and returns lesson_keys that appeared
-across 3+ distinct task_ids. Each candidate includes occurrences, agents, task_ids.
+` + "`prune`" + ` runs the state machine on ` + "`workspace/memory/auto-lessons.md`" + `:
+
+  [pending]  → [stale]   after 30d of no activity on that task_id
+  [stale]    → removed   after 60d total
+  [rejected] → removed   after 90d
+
+This keeps the queue from bloating past 100 entries.
+
+` + "`scan`" + ` reads ` + "`lesson_events`" + ` in the history DB and returns lesson_keys that
+appeared across 3+ distinct task_ids. Each candidate includes occurrences,
+agents, task_ids.
 
 Also read ` + "`workspace/memory/auto-lessons.md`" + ` — the raw ` + "`[pending]`" + ` queue that may
 contain clusters the DB threshold misses (different wording, same idea).
