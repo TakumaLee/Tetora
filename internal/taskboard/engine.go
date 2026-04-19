@@ -617,16 +617,16 @@ func (tb *Engine) AutoRetryFailed() error {
 		if policy != nil && policy.RequireHumanConfirm {
 			tb.AddComment(id, "system",
 				fmt.Sprintf("[retry-policy] Human confirmation required to retry (attempt %d/%d). Run: tetora task move %s --status=todo", currentRetry+1, effectiveMax, id))
-			// Push next_retry_at far into the future so the next scan does not
-			// keep matching this task and spamming the same comment every minute.
-			// Manual move (--status=todo) resets next_retry_at via the normal flow.
-			farFuture := time.Now().UTC().Add(7 * 24 * time.Hour).Format(time.RFC3339)
-			suppressSQL := fmt.Sprintf(
-				`UPDATE tasks SET next_retry_at = '%s' WHERE id = '%s' AND status = 'failed'`,
-				db.Escape(farFuture), db.Escape(id),
+			// Park next_retry_at at a far-future sentinel so the scan stops
+			// matching this task entirely until a human manually moves it back
+			// to todo. Without this, the filter (next_retry_at <= now) would
+			// re-enter this branch every minute and spam duplicate comments.
+			sentinelSQL := fmt.Sprintf(
+				`UPDATE tasks SET next_retry_at = '9999-12-31T23:59:59Z' WHERE id = '%s' AND status = 'failed'`,
+				db.Escape(id),
 			)
-			if err := db.Exec(tb.dbPath, suppressSQL); err != nil {
-				log.Warn("auto retry: failed to suppress rescan", "id", id, "error", err)
+			if err := db.Exec(tb.dbPath, sentinelSQL); err != nil {
+				log.Warn("auto retry: failed to set human-confirm sentinel", "id", id, "error", err)
 			}
 			log.Info("auto retry: skipping — human confirmation required", "id", id)
 			continue
