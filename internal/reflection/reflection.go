@@ -9,10 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
+)
+
+// Query limit caps, shared by reflection/lesson-event helpers and the
+// agent-facing tools so "limit" has one ceiling per query kind.
+const (
+	MaxSearchReflectionsLimit = 50
+	MaxLessonHistoryLimit     = 200
 )
 
 // Result holds the reflection output.
@@ -85,6 +93,35 @@ func InitDB(dbPath string) error {
 				return fmt.Errorf("init reflections migration: %w", err)
 			}
 		}
+	}
+	if err := InitLessonEventsDB(dbPath); err != nil {
+		return err
+	}
+	return nil
+}
+
+// InitLessonEventsDB creates the lesson_events table used by the promotion
+// pipeline. Each row records a single auto-lesson trigger keyed by
+// lesson_key (improvement[:40]) so that promotion logic can count distinct
+// task occurrences without relying on the text-based dedup in auto-lessons.md.
+func InitLessonEventsDB(dbPath string) error {
+	if dbPath == "" {
+		return nil
+	}
+	if err := db.Exec(dbPath, `CREATE TABLE IF NOT EXISTS lesson_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lesson_key TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  agent TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  improvement TEXT NOT NULL DEFAULT '',
+  score INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);`); err != nil {
+		return fmt.Errorf("init lesson_events table: %w", err)
+	}
+	if err := db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_lesson_events_key ON lesson_events(lesson_key);`); err != nil {
+		return fmt.Errorf("init lesson_events index: %w", err)
 	}
 	return nil
 }
@@ -310,6 +347,111 @@ func Query(dbPath, agent string, limit int) ([]Result, error) {
 	return results, nil
 }
 
+// SearchQuery filters reflections for interactive agent lookup.
+// Empty fields are ignored. Keyword matches improvement OR feedback.
+type SearchQuery struct {
+	Keyword  string
+	Agent    string
+	TaskID   string
+	ScoreMax int // inclusive upper bound; 0 means no filter
+	Since    string // RFC3339 lower bound; empty = no filter
+	Limit    int
+}
+
+// SearchReflections returns reflections matching q, newest first.
+// Intended as the backing query for the agent-callable `reflection_search`
+// tool. Uses parameterised escape helpers for all user-supplied strings.
+func SearchReflections(dbPath string, q SearchQuery) ([]Result, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("SearchReflections: dbPath required")
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > MaxSearchReflectionsLimit {
+		limit = MaxSearchReflectionsLimit
+	}
+
+	var clauses []string
+	var args []any
+	if q.Keyword != "" {
+		clauses = append(clauses, "(improvement LIKE ? OR feedback LIKE ?)")
+		pat := "%" + q.Keyword + "%"
+		args = append(args, pat, pat)
+	}
+	if q.Agent != "" {
+		clauses = append(clauses, "agent = ?")
+		args = append(args, q.Agent)
+	}
+	if q.TaskID != "" {
+		clauses = append(clauses, "task_id = ?")
+		args = append(args, q.TaskID)
+	}
+	if q.ScoreMax > 0 {
+		// Integer comparison — inline safely with %d, no user-supplied text.
+		clauses = append(clauses, fmt.Sprintf("score <= %d", q.ScoreMax))
+	}
+	if q.Since != "" {
+		clauses = append(clauses, "created_at >= ?")
+		args = append(args, q.Since)
+	}
+	where := ""
+	if len(clauses) > 0 {
+		where = "WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
+		 FROM reflections %s ORDER BY created_at DESC LIMIT %d`,
+		where, limit)
+	rows, err := db.QueryArgs(dbPath, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]Result, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, Result{
+			TaskID:      jsonStr(row["task_id"]),
+			Agent:       jsonStr(row["agent"]),
+			Score:       jsonInt(row["score"]),
+			Feedback:    jsonStr(row["feedback"]),
+			Improvement: jsonStr(row["improvement"]),
+			CostUSD:     jsonFloat(row["cost_usd"]),
+			CreatedAt:   jsonStr(row["created_at"]),
+		})
+	}
+	return results, nil
+}
+
+// GetReflection fetches a single reflection by task_id (the most useful handle
+// agents have when following a `## Sources` link from a rule).
+func GetReflection(dbPath, taskID string) (*Result, error) {
+	if dbPath == "" || taskID == "" {
+		return nil, fmt.Errorf("GetReflection: dbPath and taskID required")
+	}
+	rows, err := db.QueryArgs(dbPath,
+		`SELECT task_id, agent, score, feedback, improvement, cost_usd, created_at
+		 FROM reflections WHERE task_id = ? LIMIT 1`,
+		taskID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	r := rows[0]
+	return &Result{
+		TaskID:      jsonStr(r["task_id"]),
+		Agent:       jsonStr(r["agent"]),
+		Score:       jsonInt(r["score"]),
+		Feedback:    jsonStr(r["feedback"]),
+		Improvement: jsonStr(r["improvement"]),
+		CostUSD:     jsonFloat(r["cost_usd"]),
+		CreatedAt:   jsonStr(r["created_at"]),
+	}, nil
+}
+
 // BuildContext formats recent reflections as a text block suitable
 // for injection into agent prompts. Returns empty string if no reflections exist.
 func BuildContext(dbPath, role string, limit int) string {
@@ -408,14 +550,26 @@ func QueryTimeSavings(dbPath, month string) ([]TimeSavingsRow, error) {
 
 // ExtractAutoLesson appends a lesson entry to {workspaceDir}/memory/auto-lessons.md
 // when the reflection score is low (≤ 2) and improvement text is non-empty.
-// Duplicate improvements (matched by first 40 chars) are silently skipped.
+// Duplicate improvements (matched by first 40 chars) are silently skipped in
+// the markdown file, but every trigger is still recorded in lesson_events when
+// dbPath is non-empty — that's the authoritative source for promotion counts.
 //
 // Lives under memory/ (not rules/) because entries are a pending-promotion queue,
 // not governance. Rules/ is for validated cross-agent rules; unpromoted raw
 // lessons would bloat it past the workspace injection cap.
-func ExtractAutoLesson(workspaceDir string, ref *Result) error {
+func ExtractAutoLesson(workspaceDir, dbPath string, ref *Result) error {
 	if ref == nil || ref.Improvement == "" || ref.Score >= 3 {
 		return nil
+	}
+
+	key := lessonKey(ref.Improvement)
+
+	// Record the event first — even if markdown write skips due to dedup,
+	// we still want the occurrence counted for promotion.
+	if dbPath != "" {
+		if err := recordLessonEvent(dbPath, key, ref); err != nil {
+			return fmt.Errorf("ExtractAutoLesson: record event: %w", err)
+		}
 	}
 
 	memoryDir := filepath.Join(workspaceDir, "memory")
@@ -425,11 +579,7 @@ func ExtractAutoLesson(workspaceDir string, ref *Result) error {
 
 	autoPath := filepath.Join(memoryDir, "auto-lessons.md")
 
-	// Dedup: check if improvement already present.
-	key := ref.Improvement
-	if len(key) > 40 {
-		key = key[:40]
-	}
+	// Dedup: check if improvement already present in markdown.
 	if existing, err := os.ReadFile(autoPath); err == nil {
 		if strings.Contains(string(existing), key) {
 			return nil
@@ -459,6 +609,352 @@ func ExtractAutoLesson(workspaceDir string, ref *Result) error {
 		return fmt.Errorf("ExtractAutoLesson: write entry: %w", err)
 	}
 	return nil
+}
+
+// lessonKey returns the dedup/promotion key for an improvement: up to the
+// first 40 bytes, but always landing on a valid UTF-8 boundary so multi-byte
+// characters (e.g. 中文) are never chopped mid-sequence. Existing byte-40-keyed
+// entries stay compatible because ASCII improvements are untouched and any
+// trailing invalid suffix would have been invalid before too.
+func lessonKey(improvement string) string {
+	const maxBytes = 40
+	if len(improvement) <= maxBytes {
+		return improvement
+	}
+	key := improvement[:maxBytes]
+	for len(key) > 0 && !utf8.ValidString(key) {
+		key = key[:len(key)-1]
+	}
+	return key
+}
+
+func recordLessonEvent(dbPath, key string, ref *Result) error {
+	// Callers go through InitDB → InitLessonEventsDB on start-up; we rely on
+	// that so each event insert is a single statement rather than retrying
+	// CREATE TABLE IF NOT EXISTS on every reflection.
+	createdAt := ref.CreatedAt
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	return db.ExecArgs(dbPath,
+		`INSERT INTO lesson_events (lesson_key, task_id, agent, session_id, improvement, score, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		key, ref.TaskID, ref.Agent, "", ref.Improvement, ref.Score, createdAt)
+}
+
+// PromotionCandidate describes a lesson_key that has fired enough times to be
+// considered for promotion from auto-lessons.md into rules/.
+type PromotionCandidate struct {
+	LessonKey    string   `json:"lessonKey"`
+	Occurrences  int      `json:"occurrences"`
+	Agents       []string `json:"agents"`
+	TaskIDs      []string `json:"taskIds"`
+	Improvements []string `json:"improvements"`
+	FirstSeen    string   `json:"firstSeen"`
+	LastSeen     string   `json:"lastSeen"`
+}
+
+// LessonEvent is a single historical trigger recorded in lesson_events.
+type LessonEvent struct {
+	LessonKey   string `json:"lessonKey"`
+	TaskID      string `json:"taskId"`
+	Agent       string `json:"agent"`
+	SessionID   string `json:"sessionId"`
+	Improvement string `json:"improvement"`
+	Score       int    `json:"score"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// PromotionResult summarises a PromoteLessons run.
+type PromotionResult struct {
+	Candidates  []PromotionCandidate `json:"candidates"`
+	ReportPath  string               `json:"reportPath,omitempty"`
+	PromotedIDs []string             `json:"promotedIds"`
+	AutoLessons string               `json:"autoLessonsPath,omitempty"`
+}
+
+// StaleRuleResult describes a rules/*.md file that has not been modified in
+// the configured staleDays window.
+type StaleRuleResult struct {
+	Path         string `json:"path"`
+	RelativePath string `json:"relativePath"`
+	LastModified string `json:"lastModified"`
+	AgeDays      int    `json:"ageDays"`
+}
+
+// ScanPromotionCandidates inspects lesson_events and returns lesson_key groups
+// whose distinct occurrences reach the given threshold. Dedup inside a single
+// task_id is applied (a task repeatedly re-triggering the same lesson only
+// counts once) to prevent a noisy task from inflating the count.
+func ScanPromotionCandidates(dbPath string, threshold int) ([]PromotionCandidate, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("ScanPromotionCandidates: dbPath required")
+	}
+	if threshold < 1 {
+		threshold = 3
+	}
+	if err := InitLessonEventsDB(dbPath); err != nil {
+		return nil, err
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT lesson_key,
+		        COUNT(DISTINCT task_id) AS occurrences,
+		        MIN(created_at) AS first_seen,
+		        MAX(created_at) AS last_seen
+		 FROM lesson_events
+		 GROUP BY lesson_key
+		 HAVING COUNT(DISTINCT task_id) >= %d
+		 ORDER BY occurrences DESC, last_seen DESC`, threshold)
+
+	groupRows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, fmt.Errorf("scan groups: %w", err)
+	}
+
+	candidates := make([]PromotionCandidate, 0, len(groupRows))
+	for _, row := range groupRows {
+		cand := PromotionCandidate{
+			LessonKey:   db.Str(row["lesson_key"]),
+			Occurrences: db.Int(row["occurrences"]),
+			FirstSeen:   db.Str(row["first_seen"]),
+			LastSeen:    db.Str(row["last_seen"]),
+		}
+		// Pull the detail rows for this lesson_key.
+		detailRows, err := db.QueryArgs(dbPath,
+			`SELECT task_id, agent, improvement
+			 FROM lesson_events WHERE lesson_key = ? ORDER BY created_at`,
+			cand.LessonKey)
+		if err != nil {
+			return nil, fmt.Errorf("scan details: %w", err)
+		}
+		seenTask := make(map[string]struct{})
+		seenAgent := make(map[string]struct{})
+		seenImprovement := make(map[string]struct{})
+		for _, dr := range detailRows {
+			tid := db.Str(dr["task_id"])
+			ag := db.Str(dr["agent"])
+			im := db.Str(dr["improvement"])
+			if _, ok := seenTask[tid]; !ok && tid != "" {
+				cand.TaskIDs = append(cand.TaskIDs, tid)
+				seenTask[tid] = struct{}{}
+			}
+			if _, ok := seenAgent[ag]; !ok && ag != "" {
+				cand.Agents = append(cand.Agents, ag)
+				seenAgent[ag] = struct{}{}
+			}
+			if _, ok := seenImprovement[im]; !ok && im != "" {
+				cand.Improvements = append(cand.Improvements, im)
+				seenImprovement[im] = struct{}{}
+			}
+		}
+		candidates = append(candidates, cand)
+	}
+	return candidates, nil
+}
+
+// PromoteLessons runs ScanPromotionCandidates and, when autoWrite is true,
+// materialises a report file under {workspaceDir}/rules/auto-promoted-YYYYMMDD.md
+// and flips the corresponding entries in memory/auto-lessons.md from
+// [pending] → [promoted-YYYYMMDD]. When autoWrite is false, no files are
+// modified and only the candidate list is returned (dry-run).
+func PromoteLessons(workspaceDir, dbPath string, threshold int, autoWrite bool) (*PromotionResult, error) {
+	candidates, err := ScanPromotionCandidates(dbPath, threshold)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &PromotionResult{Candidates: candidates}
+	result.AutoLessons = filepath.Join(workspaceDir, "memory", "auto-lessons.md")
+
+	if !autoWrite || len(candidates) == 0 {
+		return result, nil
+	}
+
+	stamp := time.Now().UTC().Format("20060102")
+	rulesDir := filepath.Join(workspaceDir, "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		return nil, fmt.Errorf("PromoteLessons: mkdir rules: %w", err)
+	}
+	reportPath := filepath.Join(rulesDir, fmt.Sprintf("auto-promoted-%s.md", stamp))
+	result.ReportPath = reportPath
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# Auto-Promoted Rules (%s)\n\n", time.Now().UTC().Format("2006-01-02")))
+	b.WriteString("> Candidates surfaced from `lesson_events` (≥ threshold distinct tasks).\n")
+	b.WriteString("> Promoted entries require human review before merging into topical rule files.\n\n")
+	for _, c := range candidates {
+		b.WriteString(fmt.Sprintf("## Pattern: %s\n", escapeMarkdown(c.LessonKey)))
+		b.WriteString(fmt.Sprintf("- Occurrences: %d (distinct tasks)\n", c.Occurrences))
+		b.WriteString(fmt.Sprintf("- Agents: %s\n", strings.Join(c.Agents, ", ")))
+		b.WriteString(fmt.Sprintf("- Task IDs: %s\n", strings.Join(c.TaskIDs, ", ")))
+		b.WriteString(fmt.Sprintf("- First seen: %s\n", c.FirstSeen))
+		b.WriteString(fmt.Sprintf("- Last seen:  %s\n", c.LastSeen))
+		b.WriteString("- Improvements:\n")
+		for _, im := range c.Improvements {
+			b.WriteString(fmt.Sprintf("  - %s\n", im))
+		}
+		b.WriteString("\n")
+		result.PromotedIDs = append(result.PromotedIDs, c.LessonKey)
+	}
+	if err := os.WriteFile(reportPath, []byte(b.String()), 0o644); err != nil {
+		return nil, fmt.Errorf("PromoteLessons: write report: %w", err)
+	}
+
+	// Flip [pending] → [promoted-YYYYMMDD] for each candidate in auto-lessons.md.
+	// We operate on byte content to avoid restructuring the markdown. ENOENT is
+	// tolerated (fresh workspace with no prior auto-lessons); any other read
+	// error is surfaced so the caller doesn't see a successful report while
+	// markers silently stay in [pending].
+	content, err := os.ReadFile(result.AutoLessons)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("PromoteLessons: read auto-lessons.md: %w", err)
+	}
+	if err == nil {
+		updated := string(content)
+		marker := fmt.Sprintf("[promoted-%s]", stamp)
+		for _, c := range candidates {
+			// Walk each line looking for a "[pending]" line containing the lesson_key.
+			lines := strings.Split(updated, "\n")
+			for i, line := range lines {
+				if !strings.Contains(line, "[pending]") {
+					continue
+				}
+				if !strings.Contains(line, c.LessonKey) {
+					continue
+				}
+				lines[i] = strings.Replace(line, "[pending]", marker, 1)
+			}
+			updated = strings.Join(lines, "\n")
+		}
+		if updated != string(content) {
+			if err := os.WriteFile(result.AutoLessons, []byte(updated), 0o644); err != nil {
+				return nil, fmt.Errorf("PromoteLessons: rewrite auto-lessons.md: %w", err)
+			}
+		}
+	}
+	return result, nil
+}
+
+// QueryLessonHistory returns all lesson_events whose lesson_key starts with
+// the given prefix. Empty prefix returns the entire history.
+func QueryLessonHistory(dbPath, lessonKeyPrefix string, limit int) ([]LessonEvent, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("QueryLessonHistory: dbPath required")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > MaxLessonHistoryLimit {
+		limit = MaxLessonHistoryLimit
+	}
+	if err := InitLessonEventsDB(dbPath); err != nil {
+		return nil, err
+	}
+
+	var rows []map[string]any
+	var err error
+	if lessonKeyPrefix == "" {
+		rows, err = db.Query(dbPath, fmt.Sprintf(
+			`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
+			 FROM lesson_events ORDER BY created_at DESC LIMIT %d`, limit))
+	} else {
+		// Escape % _ \ in the caller-supplied prefix so a lesson key containing
+		// those literal characters doesn't inadvertently broaden the match.
+		rows, err = db.QueryArgs(dbPath,
+			fmt.Sprintf(`SELECT lesson_key, task_id, agent, session_id, improvement, score, created_at
+			 FROM lesson_events WHERE lesson_key LIKE ? ESCAPE '\'
+			 ORDER BY created_at DESC LIMIT %d`, limit),
+			escapeLIKE(lessonKeyPrefix)+"%")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	events := make([]LessonEvent, 0, len(rows))
+	for _, r := range rows {
+		events = append(events, LessonEvent{
+			LessonKey:   db.Str(r["lesson_key"]),
+			TaskID:      db.Str(r["task_id"]),
+			Agent:       db.Str(r["agent"]),
+			SessionID:   db.Str(r["session_id"]),
+			Improvement: db.Str(r["improvement"]),
+			Score:       db.Int(r["score"]),
+			CreatedAt:   db.Str(r["created_at"]),
+		})
+	}
+	return events, nil
+}
+
+// AuditStaleRules scans {workspaceDir}/rules/*.md (excluding INDEX.md and
+// auto-promoted-*.md) and returns any file whose mtime is older than
+// staleDays. Caller decides whether to prune or flag the results.
+func AuditStaleRules(workspaceDir string, staleDays int) ([]StaleRuleResult, error) {
+	if staleDays <= 0 {
+		staleDays = 90
+	}
+	rulesDir := filepath.Join(workspaceDir, "rules")
+	info, err := os.Stat(rulesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("AuditStaleRules: stat: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("AuditStaleRules: rules path is not a directory: %s", rulesDir)
+	}
+
+	cutoff := time.Now().Add(-time.Duration(staleDays) * 24 * time.Hour)
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return nil, fmt.Errorf("AuditStaleRules: read: %w", err)
+	}
+
+	var out []StaleRuleResult
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		if name == "INDEX.md" || strings.HasPrefix(name, "auto-promoted-") {
+			continue
+		}
+		full := filepath.Join(rulesDir, name)
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if fi.ModTime().After(cutoff) {
+			continue
+		}
+		age := int(time.Since(fi.ModTime()).Hours() / 24)
+		out = append(out, StaleRuleResult{
+			Path:         full,
+			RelativePath: filepath.Join("rules", name),
+			LastModified: fi.ModTime().UTC().Format(time.RFC3339),
+			AgeDays:      age,
+		})
+	}
+	return out, nil
+}
+
+func escapeMarkdown(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
+}
+
+// escapeLIKE escapes SQLite LIKE wildcards so caller-supplied prefixes match
+// literally. Pair with `ESCAPE '\'` in the SQL so `\%`, `\_`, `\\` are treated
+// as the literal chars % _ \.
+func escapeLIKE(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
+	return s
 }
 
 // --- JSON field helpers (package-local) ---
