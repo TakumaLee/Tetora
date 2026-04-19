@@ -70,6 +70,7 @@ func registerBuiltins(r *ToolRegistry, cfg *Config) {
 	tools.RegisterDailyTools(r, cfg, enabled, buildDailyDeps(cfg))
 	registerAdminTools(r, cfg, enabled)
 	tools.RegisterTaskboardTools(r, cfg, enabled, buildTaskboardDeps(cfg))
+	tools.RegisterReflectionTools(r, cfg, enabled, buildReflectionDeps(cfg))
 	tools.RegisterImageGenTools(r, cfg, enabled, buildImageGenDeps())
 }
 
