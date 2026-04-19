@@ -23,7 +23,7 @@ func TestExtractAutoLesson_CreatesFile(t *testing.T) {
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := ExtractAutoLesson(dir, ref); err != nil {
+	if err := ExtractAutoLesson(dir, "", ref); err != nil {
 		t.Fatalf("ExtractAutoLesson: %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestExtractAutoLesson_Dedup(t *testing.T) {
 	}
 
 	// First call — should write.
-	if err := ExtractAutoLesson(dir, ref); err != nil {
+	if err := ExtractAutoLesson(dir, "", ref); err != nil {
 		t.Fatalf("first ExtractAutoLesson: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestExtractAutoLesson_Dedup(t *testing.T) {
 	data1, _ := os.ReadFile(autoPath)
 
 	// Second call with same improvement — should be a no-op.
-	if err := ExtractAutoLesson(dir, ref); err != nil {
+	if err := ExtractAutoLesson(dir, "", ref); err != nil {
 		t.Fatalf("second ExtractAutoLesson: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestExtractAutoLesson_ScoreTooHigh(t *testing.T) {
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := ExtractAutoLesson(dir, ref); err != nil {
+	if err := ExtractAutoLesson(dir, "", ref); err != nil {
 		t.Fatalf("ExtractAutoLesson with score=3: %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestExtractAutoLesson_ScoreTooHigh(t *testing.T) {
 
 func TestExtractAutoLesson_NilRef(t *testing.T) {
 	dir := t.TempDir()
-	if err := ExtractAutoLesson(dir, nil); err != nil {
+	if err := ExtractAutoLesson(dir, "", nil); err != nil {
 		t.Errorf("nil ref should be a no-op, got: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestExtractAutoLesson_EmptyImprovement(t *testing.T) {
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := ExtractAutoLesson(dir, ref); err != nil {
+	if err := ExtractAutoLesson(dir, "", ref); err != nil {
 		t.Errorf("empty improvement should be a no-op, got: %v", err)
 	}
 

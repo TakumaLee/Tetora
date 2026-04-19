@@ -3734,6 +3734,98 @@ func buildTaskboardDeps(cfg *Config) tools.TaskboardDeps {
 	}
 }
 
+// buildReflectionDeps constructs ReflectionDeps for the agent-facing
+// reflection/lesson query tools. All handlers read cfg.HistoryDB for the
+// reflections / lesson_events tables.
+func buildReflectionDeps(cfg *Config) tools.ReflectionDeps {
+	return tools.ReflectionDeps{
+		SearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Keyword  string `json:"keyword"`
+				Agent    string `json:"agent"`
+				TaskID   string `json:"taskId"`
+				ScoreMax int    `json:"scoreMax"`
+				Since    string `json:"since"`
+				Limit    int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			results, err := reflection.SearchReflections(cfg.HistoryDB, reflection.SearchQuery{
+				Keyword:  args.Keyword,
+				Agent:    args.Agent,
+				TaskID:   args.TaskID,
+				ScoreMax: args.ScoreMax,
+				Since:    args.Since,
+				Limit:    args.Limit,
+			})
+			if err != nil {
+				return "", fmt.Errorf("search failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(results, "", "  ")
+			return string(out), nil
+		},
+		GetHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				TaskID string `json:"taskId"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			if args.TaskID == "" {
+				return "", fmt.Errorf("taskId is required")
+			}
+			r, err := reflection.GetReflection(cfg.HistoryDB, args.TaskID)
+			if err != nil {
+				return "", fmt.Errorf("get failed: %w", err)
+			}
+			if r == nil {
+				return fmt.Sprintf(`{"error":"reflection not found for taskId %q"}`, args.TaskID), nil
+			}
+			out, _ := json.MarshalIndent(r, "", "  ")
+			return string(out), nil
+		},
+		LessonHistoryHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				KeyPrefix string `json:"keyPrefix"`
+				Limit     int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			limit := args.Limit
+			if limit <= 0 {
+				limit = 50
+			}
+			if limit > reflection.MaxLessonHistoryLimit {
+				limit = reflection.MaxLessonHistoryLimit
+			}
+			events, err := reflection.QueryLessonHistory(cfg.HistoryDB, args.KeyPrefix, limit)
+			if err != nil {
+				return "", fmt.Errorf("history query failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(events, "", "  ")
+			return string(out), nil
+		},
+		LessonCandidatesHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Threshold int `json:"threshold"`
+			}
+			_ = json.Unmarshal(input, &args)
+			threshold := args.Threshold
+			if threshold <= 0 {
+				threshold = 3
+			}
+			candidates, err := reflection.ScanPromotionCandidates(cfg.HistoryDB, threshold)
+			if err != nil {
+				return "", fmt.Errorf("scan failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(candidates, "", "  ")
+			return string(out), nil
+		},
+	}
+}
+
 // buildDailyDeps constructs DailyDeps from root handler functions.
 func buildDailyDeps(cfg *Config) tools.DailyDeps {
 	return tools.DailyDeps{
@@ -5731,7 +5823,7 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 					ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
 					ref.AIDurationSec = int(result.DurationMs / 1000)
 					_ = storeReflection(hdb, ref)
-					extractAutoLesson(cfg.WorkspaceDir, ref)
+					extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
 				}()
 			}
 			return result
@@ -5844,20 +5936,64 @@ func seedDefaultJobs() []CronJobConfig {
 			Task: CronTaskConfig{
 				Prompt: `You are a self-improvement agent for the Tetora AI orchestration system.
 
-Analyze the activity digest below. The digest includes existing Skills, Rules, and Memory —
-do NOT create anything that already exists.
+Your job: scan the lesson pipeline, cluster recurring patterns, and surface promotion
+candidates for human review. Do NOT auto-write to ` + "`rules/`" + ` — that is gated by the owner.
 
-## Instructions
-1. Identify repeated patterns (3+ occurrences), low-score reflections, recurring failures
-2. For each actionable improvement, CREATE the file directly:
-   - **Rule**: Create ` + "`rules/{name}.md`" + ` — governance rules auto-injected into all agents
-   - **Memory**: Create/update ` + "`memory/{key}.md`" + ` — shared observations
-   - **Skill**: Create ` + "`skills/{name}/metadata.json`" + ` with ` + "`\"approved\": false`" + ` — requires human review
-3. Only apply HIGH and MEDIUM priority improvements
-4. Keep files concise and actionable
-5. Report what you created and why
+## Step 1 — Prune then scan
 
-If insufficient data for improvements, say so and exit.
+Shell out to the CLI (already on PATH), in order:
+
+  tetora lessons prune --apply --json   > /tmp/tetora-prune.json
+  tetora lessons scan  --threshold 3 --json > /tmp/tetora-candidates.json
+
+` + "`prune`" + ` runs the state machine on ` + "`workspace/memory/auto-lessons.md`" + `:
+
+  [pending]  → [stale]   after 30d of no activity on that task_id
+  [stale]    → removed   after 60d total
+  [rejected] → removed   after 90d
+
+This keeps the queue from bloating past 100 entries.
+
+` + "`scan`" + ` reads ` + "`lesson_events`" + ` in the history DB and returns lesson_keys that
+appeared across 3+ distinct task_ids. Each candidate includes occurrences,
+agents, task_ids.
+
+Also read ` + "`workspace/memory/auto-lessons.md`" + ` — the raw ` + "`[pending]`" + ` queue that may
+contain clusters the DB threshold misses (different wording, same idea).
+
+## Step 2 — Semantic clustering
+
+Group the raw improvements by meaning, not string match. Typical clusters:
+- "git hygiene" — commit messages, staging hygiene, force-push guards
+- "verification gaps" — skipped tests, missing build-test before done
+- "language compliance" — non-繁體中文 operational output
+- "regression guards" — fragile points not re-checked
+
+For each cluster with ≥3 source improvements, emit:
+
+  ## Cluster: <name> (<N> occurrences)
+  - agents: <list>
+  - source tasks: <ids>
+  - proposed rule: "<one-line governance rule>"
+
+## Step 3 — Write candidates file
+
+Write the clusters to ` + "`workspace/memory/promotion-candidates.md`" + ` (overwrite). Prepend
+ISO date + digest summary. This is the human-review inbox, not the final rule.
+
+## Step 4 — Update auto-lessons markers (optional, safe)
+
+For ` + "`[pending]`" + ` entries you grouped into a cluster, rewrite the prefix to
+` + "`[clustered: <cluster-name>]`" + ` in-place. Do NOT delete any entry.
+
+## Do NOT
+
+- Do NOT create files in ` + "`rules/`" + ` — owner writes those after reviewing candidates.
+- Do NOT create new Skills without ` + "`\"approved\": false`" + ` in metadata.
+- Do NOT rewrite ` + "`[promoted-*]`" + ` or ` + "`[clustered: *]`" + ` entries that already exist.
+
+If neither the scan nor ` + "`auto-lessons.md`" + ` yields ≥3-occurrence clusters, write a
+short "no candidates this cycle" note to ` + "`promotion-candidates.md`" + ` and exit.
 
 ---
 
@@ -7418,8 +7554,24 @@ func estimateManualDuration(taskType string, score int) int {
 func queryTimeSavings(dbPath, month string) ([]reflection.TimeSavingsRow, error) {
 	return reflection.QueryTimeSavings(dbPath, month)
 }
-func extractAutoLesson(workspaceDir string, ref *ReflectionResult) error {
-	return reflection.ExtractAutoLesson(workspaceDir, ref)
+func extractAutoLesson(workspaceDir, dbPath string, ref *ReflectionResult) error {
+	return reflection.ExtractAutoLesson(workspaceDir, dbPath, ref)
+}
+
+func scanLessonPromotionCandidates(dbPath string, threshold int) ([]reflection.PromotionCandidate, error) {
+	return reflection.ScanPromotionCandidates(dbPath, threshold)
+}
+
+func promoteLessons(workspaceDir, dbPath string, threshold int, autoWrite bool) (*reflection.PromotionResult, error) {
+	return reflection.PromoteLessons(workspaceDir, dbPath, threshold, autoWrite)
+}
+
+func queryLessonHistory(dbPath, prefix string, limit int) ([]reflection.LessonEvent, error) {
+	return reflection.QueryLessonHistory(dbPath, prefix, limit)
+}
+
+func auditStaleRules(workspaceDir string, staleDays int) ([]reflection.StaleRuleResult, error) {
+	return reflection.AuditStaleRules(workspaceDir, staleDays)
 }
 
 // ============================================================
