@@ -73,8 +73,8 @@ function renderDocsSidebar(filter) {
   if (filter) {
     var q = filter.toLowerCase();
     items = items.filter(function(d) {
-      return d.name.toLowerCase().indexOf(q) >= 0 ||
-             d.description.toLowerCase().indexOf(q) >= 0;
+      return (d.name || '').toLowerCase().indexOf(q) >= 0 ||
+             (d.description || '').toLowerCase().indexOf(q) >= 0;
     });
   }
   if (items.length === 0) {

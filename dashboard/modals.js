@@ -126,8 +126,13 @@ function inlineFormat(text) {
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic.
   text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Links.
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Links. Restrict href to http(s) or relative paths to block javascript: /
+  // data: scheme XSS (renderMarkdown is also used for task/memory views where
+  // input may not be fully trusted).
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, label, url) {
+    var safe = /^(https?:\/\/|\/|#|mailto:)/i.test(url) ? url : '#';
+    return '<a href="' + safe + '" target="_blank" rel="noopener">' + label + '</a>';
+  });
   return text;
 }
 
