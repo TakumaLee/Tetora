@@ -75,10 +75,14 @@ func HookCommand(listenAddr string) string {
 const tetoraHookMarker = "/api/hooks/event"
 const tetoraGateMarker = "/api/hooks/plan-gate"
 const tetoraAskUserDenyMarker = "/api/hooks/deny-ask-user"
+const tetoraPreBashGuardMarker = "/api/hooks/pre-bash"
 
 // IsTetoraHook returns true if the command belongs to any Tetora hook type.
 func IsTetoraHook(cmd string) bool {
-	return strings.Contains(cmd, tetoraHookMarker) || IsTetoraGateHook(cmd) || IsTetoraAskUserDenyHook(cmd)
+	return strings.Contains(cmd, tetoraHookMarker) ||
+		IsTetoraGateHook(cmd) ||
+		IsTetoraAskUserDenyHook(cmd) ||
+		IsTetoraPreBashGuardHook(cmd)
 }
 
 // IsTetoraGateHook returns true if the command is the plan-gate hook.
@@ -89,6 +93,11 @@ func IsTetoraGateHook(cmd string) bool {
 // IsTetoraAskUserDenyHook returns true if the command is the ask-user deny hook.
 func IsTetoraAskUserDenyHook(cmd string) bool {
 	return strings.Contains(cmd, tetoraAskUserDenyMarker)
+}
+
+// IsTetoraPreBashGuardHook returns true if the command is the pre-bash guard hook.
+func IsTetoraPreBashGuardHook(cmd string) bool {
+	return strings.Contains(cmd, tetoraPreBashGuardMarker)
 }
 
 // --- New hook format (Claude Code 2025+) ---
@@ -137,6 +146,23 @@ func AskUserDenyCommand() string {
 	return `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","reason":"Use tetora_ask_user MCP tool to ask the user remotely via Discord."}}' # /api/hooks/deny-ask-user`
 }
 
+// PreBashGuardHookCommand returns the curl command for the PreToolUse:Bash
+// self-preservation guard. On curl failure (tetora down, network issue) the
+// command prints the "allow" JSON so the user's shell workflow is not broken
+// when the daemon is offline. Timeout kept short so a wedged daemon cannot
+// stall every Bash call indefinitely.
+func PreBashGuardHookCommand(listenAddr string) string {
+	addr := listenAddr
+	if strings.HasPrefix(addr, ":") {
+		addr = "localhost" + addr
+	}
+	const allowJSON = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}`
+	return fmt.Sprintf(
+		`curl -sf --max-time 3 -X POST http://%s/api/hooks/pre-bash -H 'Content-Type:application/json' -d @/dev/stdin 2>/dev/null || echo '%s'`,
+		addr, allowJSON,
+	)
+}
+
 // IsTetoraRule checks if a HookRule contains any Tetora hook commands.
 func IsTetoraRule(rule HookRule) bool {
 	for _, h := range rule.Hooks {
@@ -167,6 +193,16 @@ func IsTetoraAskUserDenyRule(rule HookRule) bool {
 	return false
 }
 
+// IsTetoraPreBashGuardRule checks if a HookRule contains a pre-bash guard command.
+func IsTetoraPreBashGuardRule(rule HookRule) bool {
+	for _, h := range rule.Hooks {
+		if IsTetoraPreBashGuardHook(h.Command) {
+			return true
+		}
+	}
+	return false
+}
+
 // Install adds Tetora hook entries to Claude Code settings.
 func Install(listenAddr string) error {
 	settings, path, err := LoadSettings()
@@ -191,6 +227,9 @@ func Install(listenAddr string) error {
 	denyCmd := AskUserDenyCommand()
 	hooks.PreToolUse = addTetoraAskUserDenyRule(hooks.PreToolUse, denyCmd, "AskUserQuestion")
 
+	bashGuardCmd := PreBashGuardHookCommand(listenAddr)
+	hooks.PreToolUse = addTetoraPreBashGuardRule(hooks.PreToolUse, bashGuardCmd, "Bash", 5)
+
 	hooksData, err := json.Marshal(hooks)
 	if err != nil {
 		return fmt.Errorf("marshal hooks: %w", err)
@@ -203,9 +242,10 @@ func Install(listenAddr string) error {
 
 	fmt.Printf("Hooks installed in %s\n", path)
 	fmt.Printf("Hook commands:\n")
-	fmt.Printf("  event:     %s\n", cmd)
-	fmt.Printf("  plan-gate: %s\n", gateCmd)
-	fmt.Printf("  deny-ask:  %s\n", denyCmd)
+	fmt.Printf("  event:      %s\n", cmd)
+	fmt.Printf("  plan-gate:  %s\n", gateCmd)
+	fmt.Printf("  deny-ask:   %s\n", denyCmd)
+	fmt.Printf("  bash-guard: %s\n", bashGuardCmd)
 	return nil
 }
 
@@ -259,6 +299,25 @@ func addTetoraAskUserDenyRule(rules []HookRule, cmd, matcher string) []HookRule 
 		Matcher: matcher,
 		Hooks: []HookHandler{
 			{Type: "command", Command: cmd, Timeout: 10},
+		},
+	}
+	return append(filtered, rule)
+}
+
+// addTetoraPreBashGuardRule adds a PreToolUse:Bash self-preservation rule,
+// replacing any existing one.
+func addTetoraPreBashGuardRule(rules []HookRule, cmd, matcher string, timeout int) []HookRule {
+	filtered := make([]HookRule, 0, len(rules))
+	for _, r := range rules {
+		if len(r.Hooks) == 0 || IsTetoraPreBashGuardRule(r) {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	rule := HookRule{
+		Matcher: matcher,
+		Hooks: []HookHandler{
+			{Type: "command", Command: cmd, Timeout: timeout},
 		},
 	}
 	return append(filtered, rule)

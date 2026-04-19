@@ -6895,10 +6895,52 @@ var dangerousOpsPatterns = []struct {
 	{"make bump", regexp.MustCompile(`(?i)\bmake\s+bump\b`)},
 	{"make reload", regexp.MustCompile(`(?i)\bmake\s+reload\b`)},
 	{"kill daemon", regexp.MustCompile(`(?i)\bkill\s+.*tetora\b`)},
-	{"launchctl bootout tetora", regexp.MustCompile(`(?i)\blaunchctl\s+(bootout|unload).*tetora`)},
+	{"pkill/killall tetora", regexp.MustCompile(`(?i)\b(pkill|killall)\b[^|&;]*\btetora\b`)},
+	{"launchctl control tetora", regexp.MustCompile(`(?i)\blaunchctl\s+(bootout|unload|load|stop|start|kickstart|remove|kill|reboot)\b[^|&;]*com\.tetora\.daemon\b`)},
 	// Broad filesystem scans — agents must not scan entire home or root.
 	{"find home directory", regexp.MustCompile(`\bfind\s+(~|/Users/\w+|\$HOME)\s`)},
 	{"find root", regexp.MustCompile(`\bfind\s+/\s`)},
+}
+
+// daemonPIDForGuard is the PID the self-kill guard protects. Defaults to the
+// running process; tests override it to simulate a daemon PID.
+var daemonPIDForGuard = os.Getpid
+
+// selfPreservationPatternNames is the subset of dangerousOpsPatterns whose job
+// is to stop Tetora from killing itself. Used by the PreToolUse:Bash hook so
+// that only these (plus the dynamic PID guard) deny a Bash command at runtime.
+var selfPreservationPatternNames = map[string]bool{
+	"tetora stop":              true,
+	"tetora drain":             true,
+	"tetora restart":           true,
+	"tetora serve":             true,
+	"tetora upgrade":           true,
+	"make bump":                true,
+	"make reload":              true,
+	"kill daemon":              true,
+	"pkill/killall tetora":     true,
+	"launchctl control tetora": true,
+}
+
+// checkSelfPreservation scans a Bash command for self-kill patterns only.
+// Returns (blocked, patternName). Safe to call outside of dispatch — no config
+// lookup, no whitelist. Intended for the PreToolUse:Bash guard hook.
+func checkSelfPreservation(command string) (bool, string) {
+	for _, p := range dangerousOpsPatterns {
+		if !selfPreservationPatternNames[p.name] {
+			continue
+		}
+		if p.pattern.MatchString(command) {
+			return true, p.name
+		}
+	}
+	if pid := daemonPIDForGuard(); pid > 0 {
+		re := regexp.MustCompile(`(?i)\bkill\b[^|&;\n]*\b` + strconv.Itoa(pid) + `\b`)
+		if re.MatchString(command) {
+			return true, "kill daemon PID"
+		}
+	}
+	return false, ""
 }
 
 // checkDangerousOps scans prompt text for destructive operation patterns.
@@ -6922,6 +6964,16 @@ func checkDangerousOps(cfg *Config, prompt string, agentName string) (bool, stri
 				continue
 			}
 			return true, p.name
+		}
+	}
+
+	// Dynamic self-kill guard: block any `kill <pid>` targeting the running
+	// daemon, even when the command does not mention "tetora".
+	if pid := daemonPIDForGuard(); pid > 0 {
+		const name = "kill daemon PID"
+		re := regexp.MustCompile(`(?i)\bkill\b[^|&;\n]*\b` + strconv.Itoa(pid) + `\b`)
+		if re.MatchString(prompt) && !stringSliceContains(whitelist, name) {
+			return true, name
 		}
 	}
 

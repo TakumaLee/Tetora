@@ -4191,6 +4191,7 @@ func (s *Server) registerHookRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/hooks/install-status", s.handleHookInstallStatus)
 	mux.HandleFunc("/api/hooks/plan-gate", s.handlePlanGate)
 	mux.HandleFunc("/api/hooks/ask-user", s.handleAskUser)
+	mux.HandleFunc("/api/hooks/pre-bash", s.handlePreBashGuard)
 	mux.HandleFunc("/api/hooks/usage", s.hookReceiver.HandleUsageUpdate)
 }
 
@@ -4361,6 +4362,83 @@ func (s *Server) handleHookNotify(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`))
+}
+
+// --- Self-preservation Bash guard (PreToolUse:Bash) ---
+
+// handlePreBashGuard handles POST /api/hooks/pre-bash.
+// Called by the PreToolUse:Bash hook script. Denies any Bash command that
+// matches a self-preservation pattern (kill tetora, pkill, launchctl control,
+// kill-by-daemon-PID). All other commands are allowed.
+func (s *Server) handlePreBashGuard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, `{"error":"read body failed"}`, http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var event HookEvent
+	_ = json.Unmarshal(body, &event)
+
+	// Only inspect Bash calls; let every other tool fall through to default.
+	if event.ResolvedToolName() != "Bash" {
+		preBashAllow(w)
+		return
+	}
+
+	toolInput := event.ToolInput
+	if len(toolInput) == 0 && event.Tool != nil {
+		toolInput = event.Tool.Input
+	}
+	var input struct {
+		Command string `json:"command"`
+	}
+	_ = json.Unmarshal(toolInput, &input)
+	cmd := input.Command
+	if cmd == "" {
+		preBashAllow(w)
+		return
+	}
+
+	blocked, pattern := checkSelfPreservation(cmd)
+	if !blocked {
+		preBashAllow(w)
+		return
+	}
+
+	log.Warn("pre-bash guard: blocked self-kill attempt",
+		"pattern", pattern,
+		"session", event.ResolvedSessionID(),
+		"command", truncate(cmd, 200))
+
+	reason := fmt.Sprintf(
+		"Blocked by Tetora self-preservation guard: pattern=%q. "+
+			"Restart/stop Tetora from outside Claude Code (e.g. run `launchctl bootstrap` in your host shell).",
+		pattern)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": reason,
+		},
+	})
+}
+
+func preBashAllow(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":      "PreToolUse",
+			"permissionDecision": "allow",
+		},
+	})
 }
 
 // --- Plan Gate (PreToolUse:ExitPlanMode long-poll) ---

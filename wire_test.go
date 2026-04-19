@@ -7950,6 +7950,147 @@ func TestApplyDangerousOpsCheck_Safe(t *testing.T) {
 	}
 }
 
+func TestCheckDangerousOps_SelfKillGuards(t *testing.T) {
+	cfg := &Config{}
+	cases := []struct {
+		prompt  string
+		wantPat string
+	}{
+		{"pkill -f tetora serve", "tetora serve"},
+		{"killall tetora", "pkill/killall tetora"},
+		{"pkill tetora", "pkill/killall tetora"},
+		{"launchctl kickstart -k gui/501/com.tetora.daemon", "launchctl control tetora"},
+		{"launchctl stop com.tetora.daemon", "launchctl control tetora"},
+		{"launchctl remove com.tetora.daemon", "launchctl control tetora"},
+		{"launchctl bootout gui/501/com.tetora.daemon", "launchctl control tetora"},
+	}
+	for _, tc := range cases {
+		blocked, pattern := checkDangerousOps(cfg, tc.prompt, "")
+		if !blocked {
+			t.Errorf("prompt %q should be blocked", tc.prompt)
+			continue
+		}
+		if pattern != tc.wantPat {
+			t.Errorf("prompt %q: got pattern %q, want %q", tc.prompt, pattern, tc.wantPat)
+		}
+	}
+
+	// Sibling launchd jobs (polymarket, scout, tracker, etc.) must not be
+	// caught by the main-daemon guard — the user needs to restart them freely.
+	siblings := []string{
+		"launchctl kickstart -k gui/501/com.tetora.polymarket-arb-daemon",
+		"launchctl stop com.tetora.polymarket-scout",
+		"launchctl bootout gui/501/com.tetora.polymarket-tracker",
+		"launchctl kickstart -k gui/501/com.tetora.polymarket-discovery",
+	}
+	for _, prompt := range siblings {
+		blocked, pattern := checkDangerousOps(cfg, prompt, "")
+		if blocked {
+			t.Errorf("sibling launchd job %q should NOT be blocked (matched %q)", prompt, pattern)
+		}
+	}
+}
+
+func TestCheckSelfPreservation(t *testing.T) {
+	prev := daemonPIDForGuard
+	daemonPIDForGuard = func() int { return 40354 }
+	defer func() { daemonPIDForGuard = prev }()
+
+	blockedCases := []struct {
+		cmd     string
+		wantPat string
+	}{
+		{"tetora stop", "tetora stop"},
+		{"tetora restart", "tetora restart"},
+		{"/Users/vmgs.takuma/.tetora/bin/tetora serve", "tetora serve"},
+		{"make bump", "make bump"},
+		{"pkill -f tetora", "tetora serve"}, // matches `tetora` word before `serve` pattern? No — this matches pkill pattern
+		{"killall tetora", "pkill/killall tetora"},
+		{"launchctl bootout gui/501/com.tetora.daemon", "launchctl control tetora"},
+		{"launchctl kickstart -k gui/501/com.tetora.daemon", "launchctl control tetora"},
+		{"kill -9 40354", "kill daemon PID"},
+		{"sudo kill -TERM 40354", "kill daemon PID"},
+	}
+	for _, tc := range blockedCases {
+		blocked, pattern := checkSelfPreservation(tc.cmd)
+		if !blocked {
+			t.Errorf("cmd %q should be blocked", tc.cmd)
+			continue
+		}
+		// pattern may differ for pkill -f tetora (no "serve" after); check non-empty only for that.
+		if tc.cmd == "pkill -f tetora" {
+			if pattern != "pkill/killall tetora" {
+				t.Errorf("cmd %q: got pattern %q, want %q", tc.cmd, pattern, "pkill/killall tetora")
+			}
+			continue
+		}
+		if pattern != tc.wantPat {
+			t.Errorf("cmd %q: got pattern %q, want %q", tc.cmd, pattern, tc.wantPat)
+		}
+	}
+
+	// Commands that should NOT be blocked (they match other dangerousOpsPatterns
+	// like `rm -rf`, but the self-preservation scope only covers daemon-protection
+	// patterns — not general destructive ops).
+	allowCases := []string{
+		"rm -rf /tmp/foo",
+		"git push --force",
+		"DROP TABLE users;",
+		"find /Users/takuma -name '*.log'",
+		"echo tetora is running",
+		"kill 12345",     // not our PID
+		"kill 4035",      // substring of our PID
+		"ls ~/.tetora/",  // path mentions tetora, not a kill
+	}
+	for _, cmd := range allowCases {
+		blocked, pattern := checkSelfPreservation(cmd)
+		if blocked {
+			t.Errorf("cmd %q should NOT be blocked by self-preservation (matched %q)", cmd, pattern)
+		}
+	}
+}
+
+func TestCheckDangerousOps_SelfKillPIDGuard(t *testing.T) {
+	prev := daemonPIDForGuard
+	daemonPIDForGuard = func() int { return 40354 }
+	defer func() { daemonPIDForGuard = prev }()
+
+	cfg := &Config{}
+
+	// Positive: bare PID kill should be blocked.
+	for _, prompt := range []string{
+		"kill 40354",
+		"kill -9 40354",
+		"kill -TERM 40354",
+		"sudo kill -15 40354",
+	} {
+		blocked, pattern := checkDangerousOps(cfg, prompt, "")
+		if !blocked {
+			t.Errorf("prompt %q should be blocked", prompt)
+			continue
+		}
+		if pattern != "kill daemon PID" {
+			t.Errorf("prompt %q: got pattern %q, want %q", prompt, pattern, "kill daemon PID")
+		}
+	}
+
+	// Negative: a PID that is a substring of the daemon PID must not trigger.
+	blocked, _ := checkDangerousOps(cfg, "kill 4035", "")
+	if blocked {
+		t.Error("kill with substring PID must not be blocked")
+	}
+	// Negative: a different PID must not trigger.
+	blocked, _ = checkDangerousOps(cfg, "kill 12345", "")
+	if blocked {
+		t.Error("kill with unrelated PID must not be blocked")
+	}
+	// Negative: referencing the PID without a kill verb is fine.
+	blocked, _ = checkDangerousOps(cfg, "the daemon runs at PID 40354", "")
+	if blocked {
+		t.Error("mentioning the PID without kill should not be blocked")
+	}
+}
+
 // ---- from memory_test.go ----
 
 
