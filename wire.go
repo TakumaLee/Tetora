@@ -10292,8 +10292,8 @@ func compactSessionFresh(ctx context.Context, cfg *Config, dbPath, sessionID, ch
 	var lines []string
 	for _, m := range msgs {
 		content := m.Content
-		if len(content) > 800 {
-			content = content[:800] + "…"
+		if len(content) > 1600 {
+			content = content[:1600] + "…"
 		}
 		lines = append(lines, fmt.Sprintf("[%s] %s", m.Role, content))
 	}
@@ -10301,12 +10301,16 @@ func compactSessionFresh(ctx context.Context, cfg *Config, dbPath, sessionID, ch
 	summaryPrompt := fmt.Sprintf(
 		`You are summarising a conversation to preserve context across session boundaries.
 The conversation occurred between a user and an AI assistant (agent: %s).
-Write a compact summary (300–500 words) covering:
-1. Main tasks requested and their outcomes
-2. Decisions made or conclusions reached
-3. Key entities: file paths, URLs, IDs, code identifiers — copy VERBATIM, do not paraphrase
-4. Unfinished work or open questions
-5. User's apparent preferences or constraints observed during this session
+Write a detailed summary (1500–2000 words) covering:
+1. Main tasks requested and their outcomes, in chronological order
+2. Decisions made, conclusions reached, and the reasoning behind them
+3. Key entities: file paths, URLs, IDs, code identifiers, config keys, command names — copy VERBATIM, do not paraphrase
+4. Unfinished work, open questions, and explicit next steps
+5. User's preferences, constraints, tone, and any durable instructions observed during this session
+6. Any errors, failures, or retries and how they were resolved
+7. Concrete numbers: token counts, thresholds, timings, amounts — keep exact values
+
+Prefer completeness over brevity. The agent reading this summary must be able to continue the conversation without losing operational detail. Do NOT compress away specifics in favour of generalities — generalities are useless; specifics are the point.
 
 Output ONLY the summary. No headers, no markdown lists unless the original content used them.
 
@@ -10318,8 +10322,8 @@ Conversation (%d messages, %d input-tokens):
 	coordinator := cfg.SmartDispatch.Coordinator
 	task := Task{
 		Prompt:  summaryPrompt,
-		Timeout: "90s",
-		Budget:  0.3,
+		Timeout: "180s",
+		Budget:  0.5,
 		Source:  "compact_fresh",
 	}
 	fillDefaults(cfg, &task)
