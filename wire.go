@@ -10323,8 +10323,11 @@ Conversation (%d messages, %d input-tokens):
 	task := Task{
 		Prompt:  summaryPrompt,
 		Timeout: "180s",
-		Budget:  0.5,
-		Source:  "compact_fresh",
+		// Budget headroom across coordinator model choices: Sonnet runs ~$0.16
+		// for 40k input + 2k output; Opus the same input runs ~$0.80. $1.0 caps
+		// both safely without under-budgeting if coordinator is swapped.
+		Budget: 1.0,
+		Source: "compact_fresh",
 	}
 	fillDefaults(cfg, &task)
 	if rc, ok := cfg.Agents[coordinator]; ok && rc.Model != "" {
