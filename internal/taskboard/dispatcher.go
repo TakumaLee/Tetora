@@ -644,6 +644,20 @@ func (d *Dispatcher) scan() {
 	d.scanReviews()
 	d.healthCheck()
 
+	// Promote failed tasks whose backoff window has elapsed. This covers tasks
+	// that were deferred via the "no slots" early return in dispatchTask, where
+	// AutoRetryFailed is intentionally skipped.
+	//
+	// The slot guard is back-pressure, not correctness: promoting failed→todo
+	// is cheap but when every slot is saturated the promoted task can't
+	// dispatch for minutes anyway, and running the UPDATE on every scan tick
+	// just adds churn. Next scan with a free slot re-runs this and catches up.
+	if d.deps.AvailableSlots == nil || d.deps.AvailableSlots() > 0 {
+		if err := d.engine.AutoRetryFailed(); err != nil {
+			log.Warn("taskboard scan: AutoRetryFailed error", "error", err)
+		}
+	}
+
 	maxTasks := d.engine.config.AutoDispatch.MaxConcurrentTasks
 	if maxTasks <= 0 {
 		maxTasks = 3
