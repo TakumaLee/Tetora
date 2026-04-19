@@ -2220,6 +2220,30 @@ func startHTTPServer(s *Server) *http.Server {
 	httpapi.RegisterHabitsRoutes(mux, s.app.Habits)
 	httpapi.RegisterWarRoomRoutes(mux, httpapi.WarRoomDeps{
 		WorkspaceDir: func() string { return s.Cfg().WorkspaceDir },
+		TriggerAutoUpdate: func(ctx context.Context) error {
+			if s.cron == nil {
+				return fmt.Errorf("cron engine not initialised")
+			}
+			return s.cron.RunJobByID(ctx, "war_room_autoupdate")
+		},
+		AutoUpdateMeta: func() httpapi.AutoUpdateMeta {
+			if s.cron == nil {
+				return httpapi.AutoUpdateMeta{}
+			}
+			for _, j := range s.cron.ListJobs() {
+				if j.ID == "war_room_autoupdate" {
+					return httpapi.AutoUpdateMeta{
+						Enabled:  j.Enabled,
+						Schedule: j.Schedule,
+						LastRun:  j.LastRun,
+						NextRun:  j.NextRun,
+						Running:  j.Running,
+						LastErr:  j.LastErr,
+					}
+				}
+			}
+			return httpapi.AutoUpdateMeta{}
+		},
 	})
 	httpapi.RegisterProjectRoutes(mux, httpapi.ProjectsDeps{
 		ListProjects: func(status string) (any, error) {
