@@ -492,11 +492,19 @@
   function pollAutoUpdateStatus(btn) {
     var maxAttempts = 150; // 150 × 2s = 5 分鐘上限
     var attempts = 0;
-    var sawRunning = false;
+    // markWarRoomAutoUpdateStart 在後端 202 回應前就同步設 running=true，
+    // 所以這裡可以樂觀地當作「已觀察到 running=true」，即使 job 在第一次
+    // poll 前就跑完（→ running=false）也能正確判定為完成而早退。
+    var sawRunning = true;
     function finish(timedOut) {
       if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
       loadWarRoom();
-      if (timedOut) console.warn('autoupdate poll timeout after ' + (attempts * 2) + 's');
+      if (timedOut) {
+        console.warn('autoupdate poll timeout after ' + (attempts * 2) + 's');
+        if (typeof _wrShowToast === 'function') {
+          _wrShowToast('autoupdate 逾時未結束，請稍後刷新查看');
+        }
+      }
     }
     function tick() {
       attempts++;

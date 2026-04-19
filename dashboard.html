@@ -19536,11 +19536,17 @@ function renderWorkerEvents(events) {
   function pollAutoUpdateStatus(btn) {
     var maxAttempts = 150; // 150 × 2s = 5 分鐘上限
     var attempts = 0;
-    var sawRunning = false;
+    // 後端 markWarRoomAutoUpdateStart 同步設 running=true，樂觀假設已見。
+    var sawRunning = true;
     function finish(timedOut) {
       if (btn) { btn.disabled = false; btn.innerHTML = '&#x26A1; 立即跑 autoupdate'; }
       loadWarRoom();
-      if (timedOut) console.warn('autoupdate poll timeout after ' + (attempts * 2) + 's');
+      if (timedOut) {
+        console.warn('autoupdate poll timeout after ' + (attempts * 2) + 's');
+        if (typeof _wrShowToast === 'function') {
+          _wrShowToast('autoupdate 逾時未結束，請稍後刷新查看');
+        }
+      }
     }
     function tick() {
       attempts++;
