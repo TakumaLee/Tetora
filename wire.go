@@ -3734,6 +3734,98 @@ func buildTaskboardDeps(cfg *Config) tools.TaskboardDeps {
 	}
 }
 
+// buildReflectionDeps constructs ReflectionDeps for the agent-facing
+// reflection/lesson query tools. All handlers read cfg.HistoryDB for the
+// reflections / lesson_events tables.
+func buildReflectionDeps(cfg *Config) tools.ReflectionDeps {
+	return tools.ReflectionDeps{
+		SearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Keyword  string `json:"keyword"`
+				Agent    string `json:"agent"`
+				TaskID   string `json:"taskId"`
+				ScoreMax int    `json:"scoreMax"`
+				Since    string `json:"since"`
+				Limit    int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			results, err := reflection.SearchReflections(cfg.HistoryDB, reflection.SearchQuery{
+				Keyword:  args.Keyword,
+				Agent:    args.Agent,
+				TaskID:   args.TaskID,
+				ScoreMax: args.ScoreMax,
+				Since:    args.Since,
+				Limit:    args.Limit,
+			})
+			if err != nil {
+				return "", fmt.Errorf("search failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(results, "", "  ")
+			return string(out), nil
+		},
+		GetHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				TaskID string `json:"taskId"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			if args.TaskID == "" {
+				return "", fmt.Errorf("taskId is required")
+			}
+			r, err := reflection.GetReflection(cfg.HistoryDB, args.TaskID)
+			if err != nil {
+				return "", fmt.Errorf("get failed: %w", err)
+			}
+			if r == nil {
+				return fmt.Sprintf(`{"error":"reflection not found for taskId %q"}`, args.TaskID), nil
+			}
+			out, _ := json.MarshalIndent(r, "", "  ")
+			return string(out), nil
+		},
+		LessonHistoryHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				KeyPrefix string `json:"keyPrefix"`
+				Limit     int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			limit := args.Limit
+			if limit <= 0 {
+				limit = 50
+			}
+			if limit > 200 {
+				limit = 200
+			}
+			events, err := reflection.QueryLessonHistory(cfg.HistoryDB, args.KeyPrefix, limit)
+			if err != nil {
+				return "", fmt.Errorf("history query failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(events, "", "  ")
+			return string(out), nil
+		},
+		LessonCandidatesHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Threshold int `json:"threshold"`
+			}
+			_ = json.Unmarshal(input, &args)
+			threshold := args.Threshold
+			if threshold <= 0 {
+				threshold = 3
+			}
+			candidates, err := reflection.ScanPromotionCandidates(cfg.HistoryDB, threshold)
+			if err != nil {
+				return "", fmt.Errorf("scan failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(candidates, "", "  ")
+			return string(out), nil
+		},
+	}
+}
+
 // buildDailyDeps constructs DailyDeps from root handler functions.
 func buildDailyDeps(cfg *Config) tools.DailyDeps {
 	return tools.DailyDeps{
@@ -5731,7 +5823,7 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 					ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
 					ref.AIDurationSec = int(result.DurationMs / 1000)
 					_ = storeReflection(hdb, ref)
-					extractAutoLesson(cfg.WorkspaceDir, ref)
+					extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
 				}()
 			}
 			return result
@@ -7418,8 +7510,24 @@ func estimateManualDuration(taskType string, score int) int {
 func queryTimeSavings(dbPath, month string) ([]reflection.TimeSavingsRow, error) {
 	return reflection.QueryTimeSavings(dbPath, month)
 }
-func extractAutoLesson(workspaceDir string, ref *ReflectionResult) error {
-	return reflection.ExtractAutoLesson(workspaceDir, ref)
+func extractAutoLesson(workspaceDir, dbPath string, ref *ReflectionResult) error {
+	return reflection.ExtractAutoLesson(workspaceDir, dbPath, ref)
+}
+
+func scanLessonPromotionCandidates(dbPath string, threshold int) ([]reflection.PromotionCandidate, error) {
+	return reflection.ScanPromotionCandidates(dbPath, threshold)
+}
+
+func promoteLessons(workspaceDir, dbPath string, threshold int, autoWrite bool) (*reflection.PromotionResult, error) {
+	return reflection.PromoteLessons(workspaceDir, dbPath, threshold, autoWrite)
+}
+
+func queryLessonHistory(dbPath, prefix string, limit int) ([]reflection.LessonEvent, error) {
+	return reflection.QueryLessonHistory(dbPath, prefix, limit)
+}
+
+func auditStaleRules(workspaceDir string, staleDays int) ([]reflection.StaleRuleResult, error) {
+	return reflection.AuditStaleRules(workspaceDir, staleDays)
 }
 
 // ============================================================

@@ -3867,7 +3867,7 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 				} else {
 					log.Debug("taskboard reflection stored", "taskId", task.ID[:8], "agent", ref.Agent, "score", ref.Score)
 				}
-				extractAutoLesson(cfg.WorkspaceDir, ref)
+				extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
 			}()
 		}
 		if shouldExtractSkill(cfg, rootTask, rootResult) {
