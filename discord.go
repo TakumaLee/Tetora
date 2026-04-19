@@ -1741,10 +1741,12 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt = soulPrompt
 		}
 	}
-	// Fresh-session compaction: inject the previous session's summary into the system prompt.
-	// Persisted across injections — the next compact overwrites the same memory key,
-	// so a stale summary can't accumulate but a failed write can't erase history either.
-	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
+	// Fresh-session compaction: inject the previous session's summary only on the first
+	// message of a new session. Subsequent messages resume via provider --continue, so the
+	// first turn's system prompt (which carried the summary) is already in conversation
+	// history — re-injecting would multiply token cost per message for no added context.
+	// The memory key is not deleted; the next compact overwrites it.
+	if db.cfg.Session.Compaction.Strategy == "fresh-session" && !canResume {
 		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
 		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
 			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary

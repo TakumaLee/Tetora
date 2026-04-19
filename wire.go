@@ -10338,6 +10338,11 @@ Conversation (%d messages, %d input-tokens):
 
 	summaryText := strings.TrimSpace(result.Output)
 
+	// Prepend generation timestamp so the consuming agent can judge freshness — if compact
+	// keeps failing, a stale summary will still be injected, and the timestamp is the signal.
+	summaryText = fmt.Sprintf("[Summary generated: %s]\n\n%s",
+		time.Now().UTC().Format(time.RFC3339), summaryText)
+
 	// Persist summary to workspace memory, keyed by agent + channel so the new
 	// session can find it on the next executeRoute call.
 	keyPart := chKey
