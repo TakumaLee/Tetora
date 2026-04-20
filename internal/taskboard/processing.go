@@ -1457,6 +1457,10 @@ Reply with ONLY a JSON object:
 // inferScopeBoundary returns a scope_boundary value inferred from task text when
 // none is explicitly set. Matches keyword patterns in the title/description.
 // Returns empty string when no confident inference can be made.
+//
+// Inference is intentionally limited to diagnostic_only (the most conservative
+// scope). test_only / review_only / implement_allowed require explicit opt-in
+// to avoid silently constraining tasks that share vocabulary.
 func inferScopeBoundary(text string) string {
 	lower := strings.ToLower(text)
 	// Implementation keywords take precedence: a task that also creates/fixes/implements

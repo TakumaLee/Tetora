@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -53,6 +54,7 @@ func LoadDedupConfig(baseDir string) (*DedupConfig, error) {
 }
 
 // ExtractRootCauseKey returns the first enabled root_cause key found (case-insensitive) in taskName.
+// Keys are iterated in sorted order so that multi-match tasks map to a deterministic counter.
 // Returns "" if no match or root_causes is not configured.
 func ExtractRootCauseKey(cfg *DedupConfig, taskName string) string {
 	if len(cfg.RootCauses) == 0 {
@@ -60,8 +62,13 @@ func ExtractRootCauseKey(cfg *DedupConfig, taskName string) string {
 		return ""
 	}
 	lower := strings.ToLower(taskName)
-	for key, enabled := range cfg.RootCauses {
-		if enabled && strings.Contains(lower, strings.ToLower(key)) {
+	keys := make([]string, 0, len(cfg.RootCauses))
+	for key := range cfg.RootCauses {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if cfg.RootCauses[key] && strings.Contains(lower, strings.ToLower(key)) {
 			return key
 		}
 	}

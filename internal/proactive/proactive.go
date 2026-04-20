@@ -86,8 +86,8 @@ func New(cfg *config.Config, broker *dispatch.Broker, sem, childSem chan struct{
 		sem:       sem,
 		childSem:  childSem,
 		guard: dedupguard.New(
-			"~/.tetora/workspace/config/dedup-guard.json",
-			"~/.tetora/runtime/dedup_guard.db",
+			filepath.Join(cfg.BaseDir, "workspace", "config", "dedup-guard.json"),
+			filepath.Join(cfg.BaseDir, "runtime", "dedup_guard.db"),
 		),
 	}
 }
