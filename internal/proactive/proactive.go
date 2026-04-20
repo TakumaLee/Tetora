@@ -516,6 +516,34 @@ func (e *Engine) getFailedTasksToday() (float64, error) {
 	return 0, nil
 }
 
+// getSkippedConcurrentToday returns the number of skipped_concurrent_limit runs today.
+func (e *Engine) getSkippedConcurrentToday() (float64, error) {
+	if e.cfg.HistoryDB == "" {
+		return 0, fmt.Errorf("historyDB not configured")
+	}
+
+	today := time.Now().Format("2006-01-02")
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status = '%s'", db.Escape(today), history.StatusSkippedConcurrentLimit)
+
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	for _, v := range rows[0] {
+		switch val := v.(type) {
+		case int64:
+			return float64(val), nil
+		case float64:
+			return val, nil
+		}
+	}
+	return 0, nil
+}
+
 // --- Action Execution ---
 
 // executeAction performs the action defined in a rule.
@@ -868,6 +896,9 @@ func (e *Engine) ResolveTemplate(tmpl string, rule config.ProactiveRule) string 
 	}
 	if failedTasks, err := e.getFailedTasksToday(); err == nil {
 		vars["FailedTasksToday"] = fmt.Sprintf("%.0f", failedTasks)
+	}
+	if skipped, err := e.getSkippedConcurrentToday(); err == nil {
+		vars["SkippedToday"] = fmt.Sprintf("%.0f", skipped)
 	}
 
 	// Add trigger-specific variables.
