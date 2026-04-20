@@ -7,10 +7,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"tetora/internal/dedupguard"
 	"tetora/internal/log"
 )
+
+// guardCache caches one *dedupguard.Guard per dbPath so that schemaOnce
+// and the 30-second configCacheTTL survive across RunDedupGuard calls.
+var guardCache sync.Map // key: dbPath string → *dedupguard.Guard
+
+func getOrCreateGuard(configPath, dbPath string) *dedupguard.Guard {
+	if v, ok := guardCache.Load(dbPath); ok {
+		return v.(*dedupguard.Guard)
+	}
+	g := dedupguard.New(configPath, dbPath)
+	actual, _ := guardCache.LoadOrStore(dbPath, g)
+	return actual.(*dedupguard.Guard)
+}
 
 const dedupConfigSubpath = "config/dedup-guard.json"
 const dedupDBSubpath = "runtime/dedup_guard.db"
@@ -80,7 +94,7 @@ func RunDedupGuard(ctx context.Context, baseDir, taskName string) DedupCheckResu
 	}
 	configPath := filepath.Join(baseDir, dedupConfigSubpath)
 	dbPath := filepath.Join(baseDir, dedupDBSubpath)
-	guard := dedupguard.New(configPath, dbPath)
+	guard := getOrCreateGuard(configPath, dbPath)
 	suppressed, guardErr := guard.Check(key)
 	if guardErr != nil {
 		return DedupCheckResult{}
