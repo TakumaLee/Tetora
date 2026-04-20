@@ -189,3 +189,44 @@ func TestSkill(ctx context.Context, skill SkillConfig) (*SkillResult, error) {
 func resolveEnvRef(value, fieldName string) string {
 	return os.ExpandEnv(value)
 }
+
+// TaskSignals holds observable signals from a completed agent task.
+// Used by ShouldExtractSkill to decide if a learned skill should be extracted.
+//
+// Current population status (dispatch/shouldExtractSkill):
+//   - ToolCallCount: populated via regex count of `"type":"tool_use"` markers.
+//   - TaskPrompt / AgentRole: populated directly from the task.
+//   - ErrorRecovery / UserCorrection: reserved; not yet populated. Kept as
+//     real gate conditions so future providers (or an error-pattern classifier
+//     over result.Output) can opt in without a skill.go API change. Tests
+//     assert the gate still fires on these flags to prevent regressions.
+type TaskSignals struct {
+	ToolCallCount  int    // total tool calls made during the task
+	ErrorRecovery  bool   // reserved — true if agent recovered from ≥1 error
+	UserCorrection bool   // reserved — true if user corrected the agent during the task
+	TaskPrompt     string // original task prompt (used for duplicate detection)
+	AgentRole      string // agent that completed the task
+}
+
+// ShouldExtractSkill returns true if the task signals warrant auto-extracting
+// a learned skill. Any one condition is sufficient:
+//   - 5+ tool calls (complex multi-step workflow)
+//   - error recovery occurred
+//   - user corrected the agent
+//
+// Returns false if an existing file skill already covers this workflow
+// (checked via historical prompt overlap) to avoid redundant extractions.
+func ShouldExtractSkill(cfg *AppConfig, signals TaskSignals) bool {
+	triggered := signals.ToolCallCount >= 5 || signals.ErrorRecovery || signals.UserCorrection
+	if !triggered {
+		return false
+	}
+	// Skip if an existing skill was already created for a similar workflow.
+	if signals.TaskPrompt != "" && cfg.HistoryDB != "" {
+		existing := SuggestSkillsForPrompt(cfg.HistoryDB, signals.TaskPrompt, 1)
+		if len(existing) > 0 {
+			return false
+		}
+	}
+	return true
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"tetora/internal/classify"
 )
@@ -89,6 +90,26 @@ func ShouldInjectSkill(skill SkillConfig, task TaskContext) bool {
 	}
 
 	// No match found, don't inject.
+	return false
+}
+
+// ShouldInjectLearnedSkill extends normal injection rules for learned (agent-extracted)
+// skills with a recency-based injection window. A learned skill is injected if:
+//   (a) it matches via the normal ShouldInjectSkill rules, OR
+//   (b) it was extracted within the past 24 hours — ensuring at least the next
+//       dispatch sees a newly-extracted skill even if no keywords match yet.
+func ShouldInjectLearnedSkill(s SkillConfig, task TaskContext) bool {
+	if ShouldInjectSkill(s, task) {
+		return true
+	}
+	// Recency window: inject any skill whose SKILL.md was written within 24h.
+	if s.DocPath != "" {
+		if info, err := os.Stat(s.DocPath); err == nil {
+			if time.Since(info.ModTime()) < 24*time.Hour {
+				return true
+			}
+		}
+	}
 	return false
 }
 

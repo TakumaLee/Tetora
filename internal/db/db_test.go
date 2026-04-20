@@ -18,6 +18,13 @@ func TestEscape(t *testing.T) {
 		{"mixed: quote and null", "a'\x00b", "a''b"},
 		{"only null bytes", "\x00\x00", ""},
 		{"only quotes", "'''", "''''''"},
+		{"backslash passes through", `a\b`, `a\b`},
+		{"backslash before quote stays literal", `a\'b`, `a\''b`},
+		{"double backslash stays literal", `a\\b`, `a\\b`},
+		{"multi-byte UTF-8 passes through", "中文'字", "中文''字"},
+		{"emoji 4-byte UTF-8 passes through", "🔥'x", "🔥''x"},
+		{"CJK with null byte", "漢\x00字", "漢字"},
+		{"tab and newline are literal", "a\tb\nc'd", "a\tb\nc''d"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

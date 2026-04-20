@@ -1,17 +1,17 @@
 export PATH := /usr/local/Cellar/go/1.26.0/bin:$(PATH)
 
-VERSION  := 2.2.5
+VERSION  := 2.4.2
 BINARY   := tetora
 INSTALL  := $(HOME)/.tetora/bin
 LDFLAGS  := -s -w -X main.tetoraVersion=$(VERSION)
 PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
-.PHONY: build dev reload install clean release test bump bump-force dashboard local-install
+.PHONY: build dev reload install clean release release-stable test bump bump-force dashboard local-install
 
 DASH_PARTS := dashboard/head.html dashboard/style.css dashboard/body.html \
 	dashboard/core.js dashboard/views.js dashboard/workers.js \
 	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js \
+	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js \
 	dashboard/foot.html
 
 dashboard: $(DASH_PARTS)
@@ -26,7 +26,7 @@ dashboard: $(DASH_PARTS)
 		echo '<script>'; \
 		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
 		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
-		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/pwa.js; \
+		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js; \
 		echo '</script>'; \
 		cat dashboard/foot.html; \
 	} > dashboard.html
@@ -34,6 +34,7 @@ dashboard: $(DASH_PARTS)
 
 build: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
+	@codesign -s - -f -i com.takumalee.tetora $(BINARY) 2>/dev/null || true
 
 dev: dashboard
 	go build -ldflags "$(LDFLAGS)" -o $(INSTALL)/$(BINARY) .
@@ -194,3 +195,54 @@ release: local-install
 	@echo ""
 	@echo "Release binaries:"
 	@ls -lh dist/
+
+# Stable release workflow. Usage: make release-stable VERSION=2.2.6
+# Steps: validate → clean-tree check → running-workflow check → tests → bump Makefile → cross-build → checksum → local-install → git commit + tag (no push).
+release-stable: _bump_check_running_workflows
+	@if ! echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "ERROR: VERSION must be stable format x.y.z (e.g. VERSION=2.2.6)"; \
+		echo "  Got:   '$(VERSION)'"; \
+		echo "  Usage: make release-stable VERSION=2.2.6"; \
+		exit 1; \
+	fi
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+		echo "ERROR: tracked files have uncommitted changes — commit or stash first"; \
+		git status --short; \
+		exit 1; \
+	fi
+	@if git rev-parse "v$(VERSION)" >/dev/null 2>&1; then \
+		echo "ERROR: git tag v$(VERSION) already exists"; \
+		exit 1; \
+	fi
+	@echo "==> Running tests..."
+	@go test ./... || { echo "ERROR: tests failed, aborting release"; exit 1; }
+	@echo "==> Updating Makefile VERSION → $(VERSION)"
+	@sed -i '' "s/^VERSION  := .*/VERSION  := $(VERSION)/" Makefile
+	@echo "==> Building cross-platform binaries..."
+	@rm -rf dist
+	@mkdir -p dist
+	@for platform in $(PLATFORMS); do \
+		os=$${platform%/*}; \
+		arch=$${platform#*/}; \
+		ext=""; \
+		if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+		echo "  - $$os/$$arch"; \
+		GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" \
+			-o dist/$(BINARY)-$$os-$$arch$$ext . || { echo "ERROR: build failed for $$os/$$arch"; exit 1; }; \
+	done
+	@echo "==> Generating SHA256SUMS..."
+	@cd dist && shasum -a 256 $(BINARY)-* > SHA256SUMS
+	@echo "==> Installing to local daemon..."
+	@$(MAKE) --no-print-directory local-install
+	@echo "==> Creating git commit + tag..."
+	@git add Makefile
+	@git commit -m "release: v$(VERSION)"
+	@git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
+	@echo ""
+	@echo "✓ Release v$(VERSION) ready"
+	@ls -lh dist/
+	@echo ""
+	@echo "Next steps (run manually):"
+	@echo "  git push origin main"
+	@echo "  git push origin v$(VERSION)"
+	@echo "  gh release create v$(VERSION) dist/* --generate-notes"

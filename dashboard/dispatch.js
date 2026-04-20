@@ -36,7 +36,7 @@ function onJobProjectChange() {
   }
 }
 
-var TAB_LIST = ['dashboard','chat','operations','team-builder','store','docs','settings'];
+var TAB_LIST = ['dashboard','chat','operations','team-builder','store','docs','settings','war-room'];
 
 // Backward-compat mapping: old tab names → new tab + sub-tab
 var TAB_COMPAT = {
@@ -87,6 +87,9 @@ function switchTab(tab) {
   if (tab === 'dashboard') {
     applyDashView();
     loadDashViewData();
+  }
+  if (tab === 'war-room') {
+    if (typeof loadWarRoom === 'function') loadWarRoom();
   }
   updateSidebarHighlight();
   closeSidebar();
@@ -153,6 +156,8 @@ function updateSidebarHighlight() {
   } else if (currentTab === 'settings') {
     var sub = getActiveSubTab('settings');
     activeId = 'tab-settings-' + (sub || 'general');
+  } else if (currentTab === 'war-room') {
+    activeId = 'tab-war-room';
   }
   var el = document.getElementById(activeId);
   if (el) el.classList.add('active');

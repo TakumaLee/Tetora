@@ -682,6 +682,9 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 			d.engine.AddComment(t.ID, reviewer, fmt.Sprintf("[review] Fix required: %s", rv.Comment))
 
 			maxRetries := d.engine.config.MaxRetriesOrDefault()
+			if policy := ParseRetryPolicy(t.RetryPolicy); policy != nil && policy.Max > 0 {
+				maxRetries = policy.Max
+			}
 			if t.RetryCount < maxRetries && d.deps.Executor != nil {
 				t.RetryCount++
 				d.engine.UpdateTask(t.ID, map[string]any{"retryCount": t.RetryCount})
@@ -856,8 +859,41 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 		log.Warn("taskboard dispatch: task failed", "id", t.ID, "error", result.Error)
 		d.postTaskSkillFailures(t, task, result.Error)
+
+		// Proposal D: stalled detection — tokensIn=0 AND timeout indicates slot exhaustion
+		// or agent never started. Auto-retry is disabled; manual intervention required.
+		isStalled := result.TokensIn == 0 && isTimeoutError(result.Error, result.ExitCode)
+		if isStalled {
+			d.engine.AddComment(t.ID, "system",
+				"[auto-flag] Task is stalled (tokensIn=0 with timeout/slot exhaustion). Auto-retry disabled.")
+			d.notifyStalled(t.ID, t.Title, result.TokensIn, result.Error)
+			// Do not call AutoRetryFailed — stalled task requires manual intervention.
+			return
+		}
+
+		// Proposal C: set exponential backoff before promoting to retry.
+		d.engine.SetRetryBackoff(t.ID, t.RetryCount)
+
+		// Proposal B: skip retry if no slots available; backoff already set so
+		// AutoRetryFailed will pick it up on the next scan when slots free.
+		if d.deps.AvailableSlots != nil && d.deps.AvailableSlots() <= 0 {
+			log.Info("taskboard dispatch: no slots available, deferring failed task retry", "id", t.ID)
+			return
+		}
+
 		d.engine.AutoRetryFailed()
 	}
+}
+
+// isTimeoutError returns true when the error string or exit code indicates a slot-exhaustion
+// or infrastructure timeout (as opposed to a context cancellation or normal execution failure).
+// "context canceled" is intentionally excluded: it signals daemon shutdown (retryable, not stalled).
+func isTimeoutError(errMsg string, exitCode int) bool {
+	lower := strings.ToLower(errMsg)
+	return strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "deadline exceeded") ||
+		exitCode == -1
 }
 
 // =============================================================================
@@ -980,6 +1016,9 @@ func (d *Dispatcher) runTaskWithWorkflow(ctx context.Context, t TaskBoard, task 
 
 func (d *Dispatcher) devQALoop(ctx context.Context, t TaskBoard, task dispatch.Task, usedWorkflow bool, workflowName string) devQALoopResult {
 	maxRetries := d.engine.config.MaxRetriesOrDefault()
+	if policy := ParseRetryPolicy(t.RetryPolicy); policy != nil && policy.Max > 0 {
+		maxRetries = policy.Max
+	}
 
 	reviewer := d.engine.config.AutoDispatch.ReviewAgent
 	if reviewer == "" {

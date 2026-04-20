@@ -76,6 +76,36 @@ type DiscordBot struct {
 	chatLockMu sync.RWMutex
 }
 
+// buildNotifyOptions converts config-shape notify rules into the domain type
+// used by the discord package, so the config schema and internal types can
+// evolve independently.
+func buildNotifyOptions(src tetoraConfig.DiscordNotifyConfig) discord.NotifyOptions {
+	opts := discord.NotifyOptions{
+		TaskStart:        src.TaskStart,
+		TaskCompleteOk:   src.TaskCompleteOk,
+		TaskCompleteFail: src.TaskCompleteFail,
+		FailureChannelID: src.FailureChannelID,
+		MentionUserID:    src.MentionUserID,
+		MentionOnFail:    src.MentionOnFail,
+	}
+	if len(src.Overrides) > 0 {
+		opts.Overrides = make([]discord.NotifyOverride, 0, len(src.Overrides))
+		for _, o := range src.Overrides {
+			opts.Overrides = append(opts.Overrides, discord.NotifyOverride{
+				Match: discord.NotifyMatch{
+					Agent:        o.Match.Agent,
+					NameContains: o.Match.NameContains,
+					JobID:        o.Match.JobID,
+				},
+				TaskStart:        o.TaskStart,
+				TaskCompleteOk:   o.TaskCompleteOk,
+				TaskCompleteFail: o.TaskCompleteFail,
+			})
+		}
+	}
+	return opts
+}
+
 func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{}, cron *CronEngine) *DiscordBot {
 	apiClient := discord.NewClient(cfg.Discord.BotToken)
 	db := &DiscordBot{
@@ -127,7 +157,7 @@ func newDiscordBot(cfg *Config, state *dispatchState, sem, childSem chan struct{
 
 	// Task notification (thread-per-task).
 	if ch := cfg.Discord.NotifyChannelID; ch != "" {
-		db.notifier = discord.NewTaskNotifier(db.api, ch)
+		db.notifier = discord.NewTaskNotifier(db.api, ch, buildNotifyOptions(cfg.Discord.Notify))
 		log.Info("discord task notifier enabled", "channel", ch)
 	}
 
@@ -264,6 +294,9 @@ func (db *DiscordBot) handleEvent(payload discord.GatewayPayload) {
 			db.botUserID = ready.User.ID
 			db.sessionID = ready.SessionID
 			log.Info("discord bot connected", "user", ready.User.Username, "id", ready.User.ID)
+
+			// Register /wr slash command on connect.
+			go db.registerWrSlashCommand(db.botUserID)
 
 			// P14.5: Auto-join voice channels if configured
 			if db.cfg.Discord.Voice.Enabled && len(db.cfg.Discord.Voice.AutoJoin) > 0 {
@@ -513,6 +546,10 @@ func (db *DiscordBot) handleCommand(msg discord.Message, cmdText string) {
 		db.cmdMode(msg)
 	case "new":
 		db.cmdNewSession(msg)
+	case "compact":
+		db.cmdCompactSession(msg)
+	case "context", "ctx":
+		db.cmdContext(msg)
 	case "cancel":
 		db.cmdCancel(msg)
 	case "chat":
@@ -1397,6 +1434,63 @@ func (db *DiscordBot) cmdCompactSession(msg discord.Message) {
 	db.sendMessage(msg.ChannelID, "Session compacted.")
 }
 
+func (db *DiscordBot) cmdContext(msg discord.Message) {
+	dbPath := db.cfg.HistoryDB
+	if dbPath == "" {
+		db.sendMessage(msg.ChannelID, "History DB not configured.")
+		return
+	}
+	chKey := channelSessionKey("discord", msg.ChannelID)
+	sess, err := findChannelSession(dbPath, chKey)
+	if err != nil || sess == nil {
+		db.sendMessage(msg.ChannelID, "No active session in this channel.")
+		return
+	}
+	maxTokens := db.cfg.Session.MaxContextTokensOrDefault()
+	pct := 0
+	if maxTokens > 0 {
+		pct = sess.ContextSize * 100 / maxTokens
+	}
+	bar := contextBar(pct)
+	color := 0x57F287 // green
+	if pct >= 90 {
+		color = 0xED4245 // red
+	} else if pct >= 70 {
+		color = 0xFEE75C // yellow
+	}
+	// Clamp displayed percentage so the numeric value never contradicts the bar
+	// (contextBar already clamps internally).
+	displayPct := pct
+	if displayPct > 100 {
+		displayPct = 100
+	}
+	agent := sess.Agent
+	if agent == "" {
+		agent = "(unset)"
+	}
+	db.sendEmbed(msg.ChannelID, discord.Embed{
+		Title: "Session Context",
+		Color: color,
+		Fields: []discord.EmbedField{
+			{Name: "Usage", Value: fmt.Sprintf("`%s` %d%%", bar, displayPct), Inline: false},
+			{Name: "Tokens", Value: fmt.Sprintf("%d / %d", sess.ContextSize, maxTokens), Inline: true},
+			{Name: "Messages", Value: fmt.Sprintf("%d", sess.MessageCount), Inline: true},
+			{Name: "Agent", Value: agent, Inline: true},
+		},
+	})
+}
+
+func contextBar(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := pct / 5 // 20-char bar
+	return strings.Repeat("█", filled) + strings.Repeat("░", 20-filled)
+}
+
 func (db *DiscordBot) cmdHelp(msg discord.Message) {
 	db.sendEmbed(msg.ChannelID, discord.Embed{
 		Title:       "Tetora Help",
@@ -1412,6 +1506,8 @@ func (db *DiscordBot) cmdHelp(msg discord.Message) {
 			{Name: "!cloud [agent]", Value: "Switch back to cloud models"},
 			{Name: "!mode", Value: "Show inference mode summary"},
 			{Name: "!new", Value: "Start a new session (clear context)"},
+			{Name: "!compact", Value: "Summarize & carry forward current session"},
+			{Name: "!context / !ctx", Value: "Show session context usage (tokens, %)"},
 			{Name: "!cancel", Value: "Cancel all running tasks"},
 			{Name: "!chat <agent>", Value: "Lock this channel to an agent (skip dispatch)"},
 			{Name: "!end", Value: "Unlock channel, resume smart dispatch"},
@@ -1645,17 +1741,21 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 			task.SystemPrompt = soulPrompt
 		}
 	}
-	// Fresh-session compaction: inject the previous session's summary into the system prompt.
-	// Use delete-after-inject so the summary is only injected once regardless of message count.
-	if db.cfg.Session.Compaction.Strategy == "fresh-session" {
+	// Fresh-session compaction: inject the previous session's summary only on the first
+	// message of a new session. Subsequent messages resume via provider --continue, so the
+	// first turn's system prompt (which carried the summary) is already in conversation
+	// history — re-injecting would multiply token cost per message for no added context.
+	// The memory key is not deleted; the next compact overwrites it.
+	if db.cfg.Session.Compaction.Strategy == "fresh-session" && !canResume {
 		memKey := "session_compact_" + sanitizeKey(agent+"_"+chKey)
 		if summary, err := getMemory(db.cfg, agent, memKey); err == nil && summary != "" {
-			task.SystemPrompt += "\n\n## Previous Session Summary\n" + summary
+			task.SystemPrompt += "\n\n## Previous Session Summary (READ BEFORE REPLYING)\n\n" +
+				"The visible conversation history starts fresh — the previous session was compacted " +
+				"into the summary below. **If the user's message references context not visible in " +
+				"the current conversation (names, tasks, decisions, prior dispatches), check this " +
+				"summary first before asking them to repeat themselves.** Treat this summary as " +
+				"authoritative recent memory.\n\n---\n\n" + summary
 			log.InfoCtx(ctx, "injected session compact summary", "agent", agent, "memKey", memKey)
-			if err2 := deleteMemory(db.cfg, agent, memKey); err2 != nil {
-				log.WarnCtx(ctx, "failed to clear compact summary after injection, overwriting with tombstone", "memKey", memKey, "error", err2)
-				_ = setMemory(db.cfg, agent, memKey, "")
-			}
 		}
 	}
 	// Discord tasks run unattended — default to bypassPermissions if not set by agent.
@@ -1838,6 +1938,18 @@ func (db *DiscordBot) executeRoute(msg discord.Message, prompt string, route Rou
 
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, route.Agent, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+
+	// Refresh session reference: compact may have archived sess while runSingleTask was blocking.
+	// Route output to the current active session to avoid posting to an archived session.
+	if sess != nil {
+		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
+			if fresh, _ := findChannelSession(dbPath, chKey); fresh != nil {
+				log.DebugCtx(ctx, "session refresh: redirecting output to fresh session",
+					"archivedSession", current.ID, "freshSession", fresh.ID)
+				sess = fresh
+			}
+		}
+	}
 
 	// Record to session.
 	if sess != nil {
@@ -2635,6 +2747,18 @@ func (db *DiscordBot) handleThreadRoute(msg discord.Message, prompt string, bind
 
 	recordHistory(db.cfg.HistoryDB, task.ID, task.Name, task.Source, role, task, result,
 		taskStart.Format(time.RFC3339), time.Now().Format(time.RFC3339), result.OutputFile)
+
+	// Refresh session reference: compact may have archived sess while runSingleTask was blocking.
+	// Route output to the current active session to avoid posting to an archived session.
+	if sess != nil {
+		if current, _ := querySessionByID(dbPath, sess.ID); current != nil && current.Status == "archived" {
+			if fresh, _ := findChannelSession(dbPath, sessionID); fresh != nil {
+				log.DebugCtx(ctx, "session refresh: redirecting output to fresh session",
+					"archivedSession", current.ID, "freshSession", fresh.ID)
+				sess = fresh
+			}
+		}
+	}
 
 	// Record to session.
 	if sess != nil {
@@ -3511,15 +3635,10 @@ func handleDiscordInteraction(db *DiscordBot, w http.ResponseWriter, r *http.Req
 		return
 
 	case discord.InteractionTypeApplicationCmd:
-		// Application commands — respond with a basic message for now.
 		log.InfoCtx(ctx, "discord application command received")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(discord.InteractionResponse{
-			Type: discord.InteractionResponseMessage,
-			Data: &discord.InteractionResponseData{
-				Content: "Command received. Use the Tetora dashboard for full functionality.",
-			},
-		})
+		resp := db.handleWrSlashCommand(&interaction)
+		json.NewEncoder(w).Encode(resp)
 		return
 
 	default:
@@ -3842,6 +3961,10 @@ func (db *DiscordBot) handleGatewayInteraction(interaction *discord.Interaction)
 
 	case discord.InteractionTypeModalSubmit:
 		resp := db.handleGatewayModal(ctx, interaction)
+		db.respondToInteraction(interaction, resp)
+
+	case discord.InteractionTypeApplicationCmd:
+		resp := db.handleWrSlashCommand(interaction)
 		db.respondToInteraction(interaction, resp)
 	}
 }

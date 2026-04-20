@@ -492,14 +492,16 @@ func (r ProactiveRule) IsEnabled() bool {
 }
 
 type ProactiveTrigger struct {
-	Type     string  `json:"type"`
-	Cron     string  `json:"cron,omitempty"`
-	TZ       string  `json:"tz,omitempty"`
-	Event    string  `json:"event,omitempty"`
-	Metric   string  `json:"metric,omitempty"`
-	Op       string  `json:"op,omitempty"`
-	Value    float64 `json:"value,omitempty"`
-	Interval string  `json:"interval,omitempty"`
+	Type          string  `json:"type"`
+	Cron          string  `json:"cron,omitempty"`
+	TZ            string  `json:"tz,omitempty"`
+	Event         string  `json:"event,omitempty"`
+	Metric        string  `json:"metric,omitempty"`
+	Op            string  `json:"op,omitempty"`
+	Value         float64 `json:"value,omitempty"`
+	Interval      string  `json:"interval,omitempty"`
+	// DynamicFormula overrides Value when set. Supported: "median_30d_x1.5"
+	DynamicFormula string `json:"dynamic_formula,omitempty"`
 }
 
 type ProactiveAction struct {
@@ -542,6 +544,7 @@ type PromptBudgetConfig struct {
 	KnowledgeMax     int `json:"knowledgeMax,omitempty"`
 	SkillsMax        int `json:"skillsMax,omitempty"`
 	MaxSkillsPerTask int `json:"maxSkillsPerTask,omitempty"`
+	MaxRulesPerTask  int `json:"maxRulesPerTask,omitempty"`
 	ContextMax       int `json:"contextMax,omitempty"`
 	TotalMax         int `json:"totalMax,omitempty"`
 }
@@ -556,7 +559,14 @@ func (c PromptBudgetConfig) RulesMaxOrDefault() int {
 	if c.RulesMax > 0 {
 		return c.RulesMax
 	}
-	return 4000
+	// 8000 chars covers 2-3 matched rules (avg ~3KB each) as full content.
+	return 8000
+}
+func (c PromptBudgetConfig) MaxRulesPerTaskOrDefault() int {
+	if c.MaxRulesPerTask > 0 {
+		return c.MaxRulesPerTask
+	}
+	return 3
 }
 func (c PromptBudgetConfig) KnowledgeMaxOrDefault() int {
 	if c.KnowledgeMax > 0 {
@@ -779,6 +789,8 @@ type DiscordBotConfig struct {
 	NotifyChannelID   string                         `json:"notifyChannelID,omitempty"`
 	ShowProgress      *bool                          `json:"showProgress,omitempty"`
 	Routes            map[string]DiscordRouteConfig  `json:"routes,omitempty"`
+	Recap             DiscordRecapConfig             `json:"recap,omitempty"`
+	Notify            DiscordNotifyConfig            `json:"notify,omitempty"`
 	// HumanAssigneeMap maps human gate assignee names (e.g. "takuma") to Discord
 	// channel IDs. When a human gate fires, the notification is routed to the
 	// mapped channel. Falls back to the default notify channel if no mapping found.
@@ -787,6 +799,58 @@ type DiscordBotConfig struct {
 	// "https://tetora.example.com"). Used to build the dashboard link in human
 	// gate Discord notifications. If empty, falls back to http://localhost<listenAddr>.
 	DashboardBaseURL  string                         `json:"dashboardBaseURL,omitempty"`
+}
+
+// DiscordNotifyConfig controls per-event task notification behavior.
+// All fields default to legacy behavior (equivalent to "thread") when empty,
+// preserving backwards compatibility.
+type DiscordNotifyConfig struct {
+	// Level for task start messages. Valid: "off" | "channel" | "thread".
+	// Empty defaults to "thread" (legacy behavior).
+	TaskStart string `json:"taskStart,omitempty"`
+	// Level for successful task completion messages.
+	TaskCompleteOk string `json:"taskCompleteOk,omitempty"`
+	// Level for failed task completion messages.
+	TaskCompleteFail string `json:"taskCompleteFail,omitempty"`
+	// FailureChannelID, when set, redirects fail messages to a dedicated channel
+	// instead of the main NotifyChannelID. Success/start still use the main channel.
+	FailureChannelID string `json:"failureChannelId,omitempty"`
+	// MentionUserID, when set and MentionOnFail is true, prepends <@userId> to
+	// failure messages so Discord pushes a notification.
+	MentionUserID string `json:"mentionUserId,omitempty"`
+	// MentionOnFail triggers @mention on task failure. Requires MentionUserID.
+	MentionOnFail bool `json:"mentionOnFail,omitempty"`
+	// Overrides apply per-task rules; first match wins (top-down).
+	Overrides []DiscordNotifyOverride `json:"overrides,omitempty"`
+}
+
+// DiscordNotifyOverride applies a custom level to tasks matching Match.
+// Empty level fields inherit from the top-level DiscordNotifyConfig.
+type DiscordNotifyOverride struct {
+	Match            DiscordNotifyMatch `json:"match"`
+	TaskStart        string             `json:"taskStart,omitempty"`
+	TaskCompleteOk   string             `json:"taskCompleteOk,omitempty"`
+	TaskCompleteFail string             `json:"taskCompleteFail,omitempty"`
+}
+
+// DiscordNotifyMatch matches a task by any combination of fields (AND).
+// Empty fields act as wildcards. NameContains is a substring check.
+type DiscordNotifyMatch struct {
+	Agent        string `json:"agent,omitempty"`
+	NameContains string `json:"nameContains,omitempty"`
+	JobID        string `json:"jobId,omitempty"`
+}
+
+// DiscordRecapConfig forwards Claude Code "away_summary" transcripts to Discord
+// threads. One thread per Claude session, auto-created under a parent channel
+// chosen by cwd mapping.
+type DiscordRecapConfig struct {
+	Enabled              bool              `json:"enabled,omitempty"`
+	DefaultParentChannel string            `json:"defaultParentChannel,omitempty"`
+	ProjectChannels      map[string]string `json:"projectChannels,omitempty"`
+	TranscriptRoot       string            `json:"transcriptRoot,omitempty"`
+	PollIntervalMs       int               `json:"pollIntervalMs,omitempty"`
+	ThreadAutoArchiveMin int               `json:"threadAutoArchiveMin,omitempty"`
 }
 
 type DiscordRouteConfig struct {
@@ -1114,6 +1178,9 @@ type TaskBoardDispatchConfig struct {
 	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
 	TriageBudget          float64               `json:"triageBudget,omitempty"`
 	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
+	// MaxRSSMB is the RSS hard-limit for subprocess (MB). Exceeding it cancels the context → SIGKILL.
+	// 0 = disabled. Default 2048 (2 GB).
+	MaxRSSMB int `json:"maxRssMb,omitempty"`
 }
 
 func (c TaskBoardDispatchConfig) MaxTasksPerAgentOrDefault() int {
@@ -1128,6 +1195,13 @@ func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
 		return c.TriageBudget
 	}
 	return 0.05
+}
+
+func (c TaskBoardDispatchConfig) MaxRSSMBOrDefault() int {
+	if c.MaxRSSMB > 0 {
+		return c.MaxRSSMB
+	}
+	return 2048
 }
 
 type WorkflowRoutingConfig struct {
@@ -1315,6 +1389,18 @@ func (c DailyNotesConfig) ScheduleOrDefault() string {
 		return c.Schedule
 	}
 	return "0 0 * * *"
+}
+
+type WarRoomAutoUpdateConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Schedule string `json:"schedule,omitempty"`
+}
+
+func (c WarRoomAutoUpdateConfig) ScheduleOrDefault() string {
+	if c.Schedule != "" {
+		return c.Schedule
+	}
+	return "*/15 * * * *"
 }
 
 type UsageConfig struct {

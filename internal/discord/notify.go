@@ -3,6 +3,7 @@ package discord
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,26 +15,74 @@ import (
 // truncateStr delegates to text.TruncateStr.
 var truncateStr = text.TruncateStr
 
-// TaskNotifier posts thread-per-task notifications to a fixed Discord channel.
+// Notification levels for task events. Empty string means "inherit" (or default
+// to LevelThread at the root for backwards compatibility).
+const (
+	LevelOff     = "off"     // silent — no message posted
+	LevelChannel = "channel" // post to main/failure channel, no thread creation
+	LevelThread  = "thread"  // legacy behavior — post + create thread for start; complete posts in thread if it exists
+)
+
+// NotifyOptions configures TaskNotifier behavior. All fields are optional.
+// When every field is zero, behavior is identical to pre-config legacy defaults
+// (thread for every event, no failure redirect, no mentions).
+type NotifyOptions struct {
+	TaskStart        string
+	TaskCompleteOk   string
+	TaskCompleteFail string
+	FailureChannelID string
+	MentionUserID    string
+	MentionOnFail    bool
+	Overrides        []NotifyOverride
+}
+
+// NotifyOverride applies custom levels to tasks matching Match. Empty level
+// fields inherit from the top-level NotifyOptions.
+type NotifyOverride struct {
+	Match            NotifyMatch
+	TaskStart        string
+	TaskCompleteOk   string
+	TaskCompleteFail string
+}
+
+// NotifyMatch matches a task. Empty fields act as wildcards; multiple fields
+// combine with AND. NameContains is a case-sensitive substring check. An
+// all-empty match never matches (guard against accidental global overrides).
+type NotifyMatch struct {
+	Agent        string
+	NameContains string
+	JobID        string
+}
+
+// TaskNotifier posts thread-per-task notifications to a fixed Discord channel,
+// honoring per-event levels and optional overrides.
 type TaskNotifier struct {
 	client    *Client
 	channelID string
+	opts      NotifyOptions
 
 	mu      sync.Mutex
 	threads map[string]string // taskID → Discord thread channel ID
 }
 
-// NewTaskNotifier creates a notifier for the given channel.
-func NewTaskNotifier(client *Client, channelID string) *TaskNotifier {
+// NewTaskNotifier creates a notifier for the given channel with the given
+// options. A zero-value NotifyOptions preserves legacy behavior.
+func NewTaskNotifier(client *Client, channelID string, opts NotifyOptions) *TaskNotifier {
 	return &TaskNotifier{
 		client:    client,
 		channelID: channelID,
+		opts:      opts,
 		threads:   make(map[string]string),
 	}
 }
 
-// NotifyStart posts a start message and creates a thread.
+// NotifyStart posts a start message and (if level=thread) creates a thread.
 func (n *TaskNotifier) NotifyStart(task dtypes.Task) {
+	level := n.resolveLevel(task, "start")
+	if level == LevelOff {
+		return
+	}
+
 	role := task.Agent
 	if role == "" {
 		role = "default"
@@ -53,6 +102,11 @@ func (n *TaskNotifier) NotifyStart(task dtypes.Task) {
 		return
 	}
 
+	if level == LevelChannel {
+		return
+	}
+
+	// level == LevelThread — create thread and remember it for completion.
 	threadName := name
 	if len([]rune(threadName)) > 97 {
 		threadName = string([]rune(threadName)[:97]) + "..."
@@ -69,28 +123,41 @@ func (n *TaskNotifier) NotifyStart(task dtypes.Task) {
 	n.mu.Unlock()
 }
 
-// NotifyComplete posts a result embed to the task's thread.
-func (n *TaskNotifier) NotifyComplete(taskID string, result dtypes.TaskResult) {
+// NotifyComplete posts a result embed. Behavior:
+//   - level=off: silent.
+//   - failure + FailureChannelID set: post to failure channel (not thread).
+//   - level=thread + thread exists + not redirected: post inside the thread.
+//   - otherwise: post flat to the target channel.
+//
+// Failure messages honor MentionOnFail + MentionUserID by prepending <@id>.
+func (n *TaskNotifier) NotifyComplete(task dtypes.Task, result dtypes.TaskResult) {
+	// Reclaim any stored thread ID, even if we end up not posting there, so the
+	// map doesn't leak when start created a thread but complete is silent.
 	n.mu.Lock()
-	threadID, ok := n.threads[taskID]
-	if ok {
-		delete(n.threads, taskID)
+	threadID, hadThread := n.threads[task.ID]
+	if hadThread {
+		delete(n.threads, task.ID)
 	}
 	n.mu.Unlock()
 
-	if !ok {
+	isFail := result.Status != "success"
+	event := "ok"
+	if isFail {
+		event = "fail"
+	}
+	level := n.resolveLevel(task, event)
+	if level == LevelOff {
 		return
 	}
 
 	var statusEmoji string
 	var color int
-	switch result.Status {
-	case "success":
-		statusEmoji = "✅"
-		color = 0x57F287
-	default:
+	if isFail {
 		statusEmoji = "❌"
 		color = 0xED4245
+	} else {
+		statusEmoji = "✅"
+		color = 0x57F287
 	}
 
 	elapsed := time.Duration(result.DurationMs) * time.Millisecond
@@ -100,7 +167,6 @@ func (n *TaskNotifier) NotifyComplete(taskID string, result dtypes.TaskResult) {
 	if result.Error != "" {
 		desc += "\n**Error:** " + truncateStr(result.Error, 300)
 	}
-
 	if result.Output != "" {
 		out := result.Output
 		if len(out) > 400 {
@@ -120,7 +186,70 @@ func (n *TaskNotifier) NotifyComplete(taskID string, result dtypes.TaskResult) {
 			Text: fmt.Sprintf("tokens: %d in / %d out | model: %s", result.TokensIn, result.TokensOut, result.Model),
 		},
 	}
-	n.client.SendEmbed(threadID, embed)
+
+	redirectedToFailure := isFail && n.opts.FailureChannelID != ""
+	target := n.channelID
+	if redirectedToFailure {
+		target = n.opts.FailureChannelID
+	} else if level == LevelThread && hadThread {
+		target = threadID
+	}
+
+	var content string
+	if isFail && n.opts.MentionOnFail && n.opts.MentionUserID != "" {
+		content = fmt.Sprintf("<@%s>", n.opts.MentionUserID)
+	}
+
+	n.client.SendEmbedWithContent(target, content, embed)
+}
+
+// resolveLevel picks the applicable level for a task event ("start" | "ok" | "fail").
+// Precedence: first matching override (if its field is non-empty) > top-level
+// options > default LevelThread.
+func (n *TaskNotifier) resolveLevel(task dtypes.Task, event string) string {
+	var ovStart, ovOk, ovFail string
+	for _, ov := range n.opts.Overrides {
+		if matchTask(ov.Match, task) {
+			ovStart = ov.TaskStart
+			ovOk = ov.TaskCompleteOk
+			ovFail = ov.TaskCompleteFail
+			break
+		}
+	}
+	switch event {
+	case "start":
+		return firstNonEmpty(ovStart, n.opts.TaskStart, LevelThread)
+	case "ok":
+		return firstNonEmpty(ovOk, n.opts.TaskCompleteOk, LevelThread)
+	case "fail":
+		return firstNonEmpty(ovFail, n.opts.TaskCompleteFail, LevelThread)
+	}
+	return LevelThread
+}
+
+func matchTask(m NotifyMatch, task dtypes.Task) bool {
+	if m.Agent == "" && m.JobID == "" && m.NameContains == "" {
+		return false
+	}
+	if m.Agent != "" && m.Agent != task.Agent {
+		return false
+	}
+	if m.JobID != "" && m.JobID != task.ID {
+		return false
+	}
+	if m.NameContains != "" && !strings.Contains(task.Name, m.NameContains) {
+		return false
+	}
+	return true
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (n *TaskNotifier) createThread(messageID, name string) (string, error) {

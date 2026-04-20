@@ -235,6 +235,12 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 		}
 	}
 	// --- Also scan skills/learned/ directory for agent-extracted skills pending review ---
+	//
+	// Security gate: learned/ is populated by LLM extraction (CreateLearnedSkill)
+	// and every entry starts with approved=false. Only explicitly-approved
+	// entries may be surfaced to AutoInjectLearnedSkills / downstream prompts.
+	// metadata.json is the canonical approval record; a missing or unparseable
+	// metadata.json is treated as unapproved (fail-closed).
 	learnedDir := filepath.Join(dir, "learned")
 	learnedEntries, err := os.ReadDir(learnedDir)
 	if err == nil {
@@ -243,35 +249,44 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 				continue
 			}
 			skillDir := filepath.Join(learnedDir, entry.Name())
+			// Fail-closed: require metadata.json with approved=true. Frontmatter
+			// alone is not sufficient (it carries no approval field).
+			metaPath := filepath.Join(skillDir, "metadata.json")
+			data, err := os.ReadFile(metaPath)
+			if err != nil {
+				continue
+			}
+			var meta SkillMetadata
+			if json.Unmarshal(data, &meta) != nil {
+				continue
+			}
+			if !meta.Approved {
+				continue
+			}
+			// Prefer frontmatter-derived SkillConfig for learned skills (it
+			// captures triggers, allowed-tools, etc.); fall back to metadata.json.
 			if sc := loadSkillFromFrontmatter(skillDir); sc != nil {
 				sc.Learned = true
 				skills = append(skills, *sc)
 				continue
 			}
-			// Also try metadata.json in learned skills.
-			metaPath := filepath.Join(skillDir, "metadata.json")
-			if data, err := os.ReadFile(metaPath); err == nil {
-				var meta SkillMetadata
-				if json.Unmarshal(data, &meta) == nil {
-					sc := SkillConfig{
-						Name:        meta.Name,
-						Description: meta.Description,
-						Command:     meta.Command,
-						Args:        meta.Args,
-						Env:         meta.Env,
-						Matcher:     meta.Matcher,
-						Example:     meta.Example,
-						Workdir:     skillDir,
-						Learned:     true,
-					}
-					skillMDPath := filepath.Join(skillDir, "SKILL.md")
-					if info, err := os.Stat(skillMDPath); err == nil {
-						sc.DocPath = skillMDPath
-						sc.DocSize = int(info.Size())
-					}
-					skills = append(skills, sc)
-				}
+			sc := SkillConfig{
+				Name:        meta.Name,
+				Description: meta.Description,
+				Command:     meta.Command,
+				Args:        meta.Args,
+				Env:         meta.Env,
+				Matcher:     meta.Matcher,
+				Example:     meta.Example,
+				Workdir:     skillDir,
+				Learned:     true,
 			}
+			skillMDPath := filepath.Join(skillDir, "SKILL.md")
+			if info, err := os.Stat(skillMDPath); err == nil {
+				sc.DocPath = skillMDPath
+				sc.DocSize = int(info.Size())
+			}
+			skills = append(skills, sc)
 		}
 	}
 
@@ -702,5 +717,145 @@ func CreateSkillToolHandler(ctx context.Context, cfg *AppConfig, input json.RawM
 	}
 	b, _ := json.Marshal(result)
 	return string(b), nil
+}
+
+// LearnedSkillSpec is the input for creating an auto-extracted learned skill.
+type LearnedSkillSpec struct {
+	Name        string   // skill name (alphanumeric+hyphens, max 64 chars)
+	Description string   // one-line description
+	Triggers    []string // keywords that trigger injection
+	Doc         string   // SKILL.md body content (below frontmatter)
+	CreatedBy   string   // agent role that extracted the skill
+}
+
+// CreateLearnedSkill writes a SKILL.md + metadata.json to skills/learned/{name}/.
+// The skill is created with approved=false (pending human review).
+// Format matches workspace/skills/learned/char-pose-gen/ as the canonical example.
+func CreateLearnedSkill(cfg *AppConfig, spec LearnedSkillSpec) error {
+	if !IsValidSkillName(spec.Name) {
+		return fmt.Errorf("invalid skill name %q: must be alphanumeric+hyphens, max 64 chars", spec.Name)
+	}
+
+	learnedDir := filepath.Join(SkillsDir(cfg), "learned", spec.Name)
+	if _, err := os.Stat(learnedDir); err == nil {
+		return fmt.Errorf("learned skill %q already exists", spec.Name)
+	}
+
+	if err := os.MkdirAll(learnedDir, 0o755); err != nil {
+		return fmt.Errorf("create learned skill dir: %w", err)
+	}
+
+	// Build SKILL.md with frontmatter matching char-pose-gen format.
+	// The source of Description/Triggers is LLM output (Haiku); sanitize
+	// aggressively before writing to prevent YAML-frontmatter injection:
+	//   - Description: collapse any newline/CR into a single space so the
+	//     scalar stays on one line and can't terminate the frontmatter block.
+	//   - Triggers: accept only [A-Za-z0-9_-]; drop anything else so a
+	//     rogue comma/`]`/quote cannot corrupt the inline array. Also dedup
+	//     and cap length to keep the file compact.
+	desc := sanitizeFrontmatterScalar(spec.Description)
+	triggers := sanitizeFrontmatterTriggers(spec.Triggers)
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("name: " + spec.Name + "\n")
+	if desc != "" {
+		sb.WriteString("description: " + desc + "\n")
+	}
+	if len(triggers) > 0 {
+		sb.WriteString("triggers: [" + strings.Join(triggers, ", ") + "]\n")
+	}
+	// CreatedBy is normally an internal agent name, but defense-in-depth:
+	// apply the same newline-collapse as Description so a hypothetical
+	// future caller feeding external input cannot break the frontmatter.
+	if createdBy := sanitizeFrontmatterScalar(spec.CreatedBy); createdBy != "" {
+		sb.WriteString("maintainer: " + createdBy + "\n")
+	}
+	sb.WriteString("---\n")
+	if spec.Doc != "" {
+		sb.WriteString("\n")
+		sb.WriteString(strings.TrimSpace(spec.Doc))
+		sb.WriteString("\n")
+	}
+
+	skillMDPath := filepath.Join(learnedDir, "SKILL.md")
+	if err := os.WriteFile(skillMDPath, []byte(sb.String()), 0o644); err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("write SKILL.md: %w", err)
+	}
+
+	// Build metadata.json (approved=false — requires human review before use).
+	meta := SkillMetadata{
+		Name:        spec.Name,
+		Description: spec.Description,
+		CreatedBy:   spec.CreatedBy,
+		Approved:    false,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(spec.Triggers) > 0 {
+		meta.Matcher = &SkillMatcher{Keywords: spec.Triggers}
+	}
+
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(learnedDir, "metadata.json"), metaData, 0o644); err != nil {
+		os.RemoveAll(learnedDir)
+		return fmt.Errorf("write metadata.json: %w", err)
+	}
+
+	invalidateSkillsCache(cfg)
+	logInfo("learned skill extracted", "name", spec.Name, "createdBy", spec.CreatedBy)
+	return nil
+}
+
+// sanitizeFrontmatterScalar collapses any embedded newline/CR in a
+// frontmatter scalar value (description, etc.) to a single space, preventing
+// untrusted input (LLM output) from terminating the YAML frontmatter block.
+func sanitizeFrontmatterScalar(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.TrimSpace(s)
+}
+
+// sanitizeFrontmatterTriggers restricts each trigger to a safe charset
+// (alphanumeric + `_-`), drops empty/duplicate entries, and caps the total
+// count. This protects the inline-array frontmatter form against injection
+// from LLM-supplied values containing `,`, `]`, `'`, or `"`.
+func sanitizeFrontmatterTriggers(in []string) []string {
+	const maxTriggers = 16
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, t := range in {
+		clean := strings.Map(func(r rune) rune {
+			switch {
+			case r >= 'a' && r <= 'z':
+				return r
+			case r >= 'A' && r <= 'Z':
+				return r
+			case r >= '0' && r <= '9':
+				return r
+			case r == '-' || r == '_':
+				return r
+			default:
+				return -1
+			}
+		}, t)
+		if clean == "" {
+			continue
+		}
+		if _, dup := seen[clean]; dup {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+		if len(out) >= maxTriggers {
+			break
+		}
+	}
+	return out
 }
 

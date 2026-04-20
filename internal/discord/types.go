@@ -193,6 +193,58 @@ type InteractionData struct {
 	Name string `json:"name,omitempty"`
 }
 
+// Application command option type constants.
+const (
+	ApplicationCommandOptionSubCommand = 1
+	ApplicationCommandOptionString     = 3
+)
+
+// ApplicationCommand defines a Discord application (slash) command for registration.
+type ApplicationCommand struct {
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Options     []ApplicationCommandOption `json:"options,omitempty"`
+}
+
+// ApplicationCommandOption is a subcommand or parameter definition.
+type ApplicationCommandOption struct {
+	Type        int                        `json:"type"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Required    bool                       `json:"required,omitempty"`
+	Choices     []ApplicationCommandChoice `json:"choices,omitempty"`
+	Options     []ApplicationCommandOption `json:"options,omitempty"`
+}
+
+// ApplicationCommandChoice is a fixed choice for a string option.
+type ApplicationCommandChoice struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// SlashCommandData is the parsed "data" field of a slash command interaction.
+type SlashCommandData struct {
+	Name    string               `json:"name"`
+	Options []SlashCommandOption `json:"options,omitempty"`
+}
+
+// SlashCommandOption represents a resolved option in an incoming slash command.
+type SlashCommandOption struct {
+	Name    string               `json:"name"`
+	Type    int                  `json:"type"`
+	Value   string               `json:"value,omitempty"`
+	Options []SlashCommandOption `json:"options,omitempty"`
+}
+
+// OptionMap returns a map from option name to string value for quick access.
+func (o SlashCommandOption) OptionMap() map[string]string {
+	m := make(map[string]string, len(o.Options))
+	for _, opt := range o.Options {
+		m[opt.Name] = opt.Value
+	}
+	return m
+}
+
 // InteractionResponse represents a response to a Discord interaction.
 type InteractionResponse struct {
 	Type int                      `json:"type"`

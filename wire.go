@@ -101,6 +101,7 @@ import (
 	"tetora/internal/upload"
 	"tetora/internal/usage"
 	"tetora/internal/voice"
+	warroomAutoupdate "tetora/internal/warroom/autoupdate"
 	"tetora/internal/webhook"
 	"tetora/internal/workspace"
 	"tetora/internal/search"
@@ -3763,6 +3764,102 @@ func buildTaskboardDeps(cfg *Config) tools.TaskboardDeps {
 	}
 }
 
+// buildReflectionDeps constructs ReflectionDeps for the agent-facing
+// reflection/lesson query tools. All handlers read cfg.HistoryDB for the
+// reflections / lesson_events tables.
+func buildReflectionDeps(cfg *Config) tools.ReflectionDeps {
+	return tools.ReflectionDeps{
+		SearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Keyword  string `json:"keyword"`
+				Agent    string `json:"agent"`
+				TaskID   string `json:"taskId"`
+				ScoreMax int    `json:"scoreMax"`
+				Since    string `json:"since"`
+				Limit    int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			results, err := reflection.SearchReflections(cfg.HistoryDB, reflection.SearchQuery{
+				Keyword:  args.Keyword,
+				Agent:    args.Agent,
+				TaskID:   args.TaskID,
+				ScoreMax: args.ScoreMax,
+				Since:    args.Since,
+				Limit:    args.Limit,
+			})
+			if err != nil {
+				return "", fmt.Errorf("search failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(results, "", "  ")
+			return string(out), nil
+		},
+		GetHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				TaskID string `json:"taskId"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			if args.TaskID == "" {
+				return "", fmt.Errorf("taskId is required")
+			}
+			r, err := reflection.GetReflection(cfg.HistoryDB, args.TaskID)
+			if err != nil {
+				return "", fmt.Errorf("get failed: %w", err)
+			}
+			if r == nil {
+				return fmt.Sprintf(`{"error":"reflection not found for taskId %q"}`, args.TaskID), nil
+			}
+			out, _ := json.MarshalIndent(r, "", "  ")
+			return string(out), nil
+		},
+		LessonHistoryHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				KeyPrefix string `json:"keyPrefix"`
+				Limit     int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", fmt.Errorf("invalid input: %w", err)
+			}
+			limit := args.Limit
+			if limit <= 0 {
+				limit = 50
+			}
+			if limit > reflection.MaxLessonHistoryLimit {
+				limit = reflection.MaxLessonHistoryLimit
+			}
+			events, err := reflection.QueryLessonHistory(cfg.HistoryDB, args.KeyPrefix, limit)
+			if err != nil {
+				return "", fmt.Errorf("history query failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(events, "", "  ")
+			return string(out), nil
+		},
+		LessonCandidatesHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			var args struct {
+				Threshold int `json:"threshold"`
+			}
+			if len(input) > 0 {
+				if err := json.Unmarshal(input, &args); err != nil {
+					return "", fmt.Errorf("invalid input: %w", err)
+				}
+			}
+			threshold := args.Threshold
+			if threshold <= 0 {
+				threshold = 3
+			}
+			candidates, err := reflection.ScanPromotionCandidates(cfg.HistoryDB, threshold)
+			if err != nil {
+				return "", fmt.Errorf("scan failed: %w", err)
+			}
+			out, _ := json.MarshalIndent(candidates, "", "  ")
+			return string(out), nil
+		},
+	}
+}
+
 // buildDailyDeps constructs DailyDeps from root handler functions.
 func buildDailyDeps(cfg *Config) tools.DailyDeps {
 	return tools.DailyDeps{
@@ -5823,7 +5920,7 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 					ref.EstimatedManualDurationSec = estimateManualDuration(taskType, ref.Score)
 					ref.AIDurationSec = int(result.DurationMs / 1000)
 					_ = storeReflection(hdb, ref)
-					extractAutoLesson(cfg.WorkspaceDir, ref)
+					extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
 				}()
 			}
 			return result
@@ -5859,6 +5956,10 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 
 		RunDailyNotesJob: func(ctx context.Context, c *Config) error {
 			return runDailyNotesJob(ctx, c)
+		},
+
+		RunWarRoomAutoUpdate: func(ctx context.Context, c *Config) error {
+			return warroomAutoupdate.Run(ctx, c)
 		},
 
 		SendWebhooks: func(c *Config, event string, payload webhook.Payload) {
@@ -5932,20 +6033,64 @@ func seedDefaultJobs() []CronJobConfig {
 			Task: CronTaskConfig{
 				Prompt: `You are a self-improvement agent for the Tetora AI orchestration system.
 
-Analyze the activity digest below. The digest includes existing Skills, Rules, and Memory —
-do NOT create anything that already exists.
+Your job: scan the lesson pipeline, cluster recurring patterns, and surface promotion
+candidates for human review. Do NOT auto-write to ` + "`rules/`" + ` — that is gated by the owner.
 
-## Instructions
-1. Identify repeated patterns (3+ occurrences), low-score reflections, recurring failures
-2. For each actionable improvement, CREATE the file directly:
-   - **Rule**: Create ` + "`rules/{name}.md`" + ` — governance rules auto-injected into all agents
-   - **Memory**: Create/update ` + "`memory/{key}.md`" + ` — shared observations
-   - **Skill**: Create ` + "`skills/{name}/metadata.json`" + ` with ` + "`\"approved\": false`" + ` — requires human review
-3. Only apply HIGH and MEDIUM priority improvements
-4. Keep files concise and actionable
-5. Report what you created and why
+## Step 1 — Prune then scan
 
-If insufficient data for improvements, say so and exit.
+Shell out to the CLI (already on PATH), in order:
+
+  tetora lessons prune --apply --json   > /tmp/tetora-prune.json
+  tetora lessons scan  --threshold 3 --json > /tmp/tetora-candidates.json
+
+` + "`prune`" + ` runs the state machine on ` + "`workspace/memory/auto-lessons.md`" + `:
+
+  [pending]  → [stale]   after 30d of no activity on that task_id
+  [stale]    → removed   after 60d total
+  [rejected] → removed   after 90d
+
+This keeps the queue from bloating past 100 entries.
+
+` + "`scan`" + ` reads ` + "`lesson_events`" + ` in the history DB and returns lesson_keys that
+appeared across 3+ distinct task_ids. Each candidate includes occurrences,
+agents, task_ids.
+
+Also read ` + "`workspace/memory/auto-lessons.md`" + ` — the raw ` + "`[pending]`" + ` queue that may
+contain clusters the DB threshold misses (different wording, same idea).
+
+## Step 2 — Semantic clustering
+
+Group the raw improvements by meaning, not string match. Typical clusters:
+- "git hygiene" — commit messages, staging hygiene, force-push guards
+- "verification gaps" — skipped tests, missing build-test before done
+- "language compliance" — non-繁體中文 operational output
+- "regression guards" — fragile points not re-checked
+
+For each cluster with ≥3 source improvements, emit:
+
+  ## Cluster: <name> (<N> occurrences)
+  - agents: <list>
+  - source tasks: <ids>
+  - proposed rule: "<one-line governance rule>"
+
+## Step 3 — Write candidates file
+
+Write the clusters to ` + "`workspace/memory/promotion-candidates.md`" + ` (overwrite). Prepend
+ISO date + digest summary. This is the human-review inbox, not the final rule.
+
+## Step 4 — Update auto-lessons markers (optional, safe)
+
+For ` + "`[pending]`" + ` entries you grouped into a cluster, rewrite the prefix to
+` + "`[clustered: <cluster-name>]`" + ` in-place. Do NOT delete any entry.
+
+## Do NOT
+
+- Do NOT create files in ` + "`rules/`" + ` — owner writes those after reviewing candidates.
+- Do NOT create new Skills without ` + "`\"approved\": false`" + ` in metadata.
+- Do NOT rewrite ` + "`[promoted-*]`" + ` or ` + "`[clustered: *]`" + ` entries that already exist.
+
+If neither the scan nor ` + "`auto-lessons.md`" + ` yields ≥3-occurrence clusters, write a
+short "no candidates this cycle" note to ` + "`promotion-candidates.md`" + ` and exit.
 
 ---
 
@@ -7506,8 +7651,24 @@ func estimateManualDuration(taskType string, score int) int {
 func queryTimeSavings(dbPath, month string) ([]reflection.TimeSavingsRow, error) {
 	return reflection.QueryTimeSavings(dbPath, month)
 }
-func extractAutoLesson(workspaceDir string, ref *ReflectionResult) error {
-	return reflection.ExtractAutoLesson(workspaceDir, ref)
+func extractAutoLesson(workspaceDir, dbPath string, ref *ReflectionResult) error {
+	return reflection.ExtractAutoLesson(workspaceDir, dbPath, ref)
+}
+
+func scanLessonPromotionCandidates(dbPath string, threshold int) ([]reflection.PromotionCandidate, error) {
+	return reflection.ScanPromotionCandidates(dbPath, threshold)
+}
+
+func promoteLessons(workspaceDir, dbPath string, threshold int, autoWrite bool) (*reflection.PromotionResult, error) {
+	return reflection.PromoteLessons(workspaceDir, dbPath, threshold, autoWrite)
+}
+
+func queryLessonHistory(dbPath, prefix string, limit int) ([]reflection.LessonEvent, error) {
+	return reflection.QueryLessonHistory(dbPath, prefix, limit)
+}
+
+func auditStaleRules(workspaceDir string, staleDays int) ([]reflection.StaleRuleResult, error) {
+	return reflection.AuditStaleRules(workspaceDir, staleDays)
 }
 
 // ============================================================
@@ -8151,6 +8312,26 @@ func registerDailyNotesJob(ctx context.Context, cfg *Config, cronEngine *CronEng
 	}
 
 	log.Info("daily notes job registered", "schedule", schedule)
+}
+
+func registerWarRoomAutoUpdateJob(ctx context.Context, cfg *Config, cronEngine *CronEngine) {
+	if !cfg.WarRoomAutoUpdate.Enabled {
+		return
+	}
+
+	schedule := cfg.WarRoomAutoUpdate.ScheduleOrDefault()
+
+	if err := cronEngine.AddJob(CronJobConfig{
+		ID:       "war_room_autoupdate",
+		Name:     "War Room Auto-Updater",
+		Enabled:  true,
+		Schedule: schedule,
+	}); err != nil {
+		log.Info("war room autoupdate register", "schedule", schedule, "note", err)
+		return
+	}
+
+	log.Info("war room autoupdate registered", "schedule", schedule)
 }
 
 func runDailyNotesJob(ctx context.Context, cfg *Config) error {
@@ -10360,8 +10541,8 @@ func compactSessionFresh(ctx context.Context, cfg *Config, dbPath, sessionID, ch
 	var lines []string
 	for _, m := range msgs {
 		content := m.Content
-		if len(content) > 800 {
-			content = content[:800] + "…"
+		if len(content) > 1600 {
+			content = content[:1600] + "…"
 		}
 		lines = append(lines, fmt.Sprintf("[%s] %s", m.Role, content))
 	}
@@ -10369,12 +10550,16 @@ func compactSessionFresh(ctx context.Context, cfg *Config, dbPath, sessionID, ch
 	summaryPrompt := fmt.Sprintf(
 		`You are summarising a conversation to preserve context across session boundaries.
 The conversation occurred between a user and an AI assistant (agent: %s).
-Write a compact summary (300–500 words) covering:
-1. Main tasks requested and their outcomes
-2. Decisions made or conclusions reached
-3. Key entities: file paths, URLs, IDs, code identifiers — copy VERBATIM, do not paraphrase
-4. Unfinished work or open questions
-5. User's apparent preferences or constraints observed during this session
+Write a detailed summary (1500–2000 words) covering:
+1. Main tasks requested and their outcomes, in chronological order
+2. Decisions made, conclusions reached, and the reasoning behind them
+3. Key entities: file paths, URLs, IDs, code identifiers, config keys, command names — copy VERBATIM, do not paraphrase
+4. Unfinished work, open questions, and explicit next steps
+5. User's preferences, constraints, tone, and any durable instructions observed during this session
+6. Any errors, failures, or retries and how they were resolved
+7. Concrete numbers: token counts, thresholds, timings, amounts — keep exact values
+
+Prefer completeness over brevity. The agent reading this summary must be able to continue the conversation without losing operational detail. Do NOT compress away specifics in favour of generalities — generalities are useless; specifics are the point.
 
 Output ONLY the summary. No headers, no markdown lists unless the original content used them.
 
@@ -10386,9 +10571,12 @@ Conversation (%d messages, %d input-tokens):
 	coordinator := cfg.SmartDispatch.Coordinator
 	task := Task{
 		Prompt:  summaryPrompt,
-		Timeout: "90s",
-		Budget:  0.3,
-		Source:  "compact_fresh",
+		Timeout: "180s",
+		// Budget headroom across coordinator model choices: Sonnet runs ~$0.16
+		// for 40k input + 2k output; Opus the same input runs ~$0.80. $1.0 caps
+		// both safely without under-budgeting if coordinator is swapped.
+		Budget: 1.0,
+		Source: "compact_fresh",
 	}
 	fillDefaults(cfg, &task)
 	if rc, ok := cfg.Agents[coordinator]; ok && rc.Model != "" {
@@ -10401,6 +10589,11 @@ Conversation (%d messages, %d input-tokens):
 	}
 
 	summaryText := strings.TrimSpace(result.Output)
+
+	// Prepend generation timestamp so the consuming agent can judge freshness — if compact
+	// keeps failing, a stale summary will still be injected, and the timestamp is the signal.
+	summaryText = fmt.Sprintf("[Summary generated: %s]\n\n%s",
+		time.Now().UTC().Format(time.RFC3339), summaryText)
 
 	// Persist summary to workspace memory, keyed by agent + channel so the new
 	// session can find it on the next executeRoute call.
@@ -11628,6 +11821,7 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 		AllowedTools:   task.AllowedTools,
 		OnEvent:        onEvent,
 		AgentName:      agentName,
+		MaxRSSMB:       cfg.TaskBoard.AutoDispatch.MaxRSSMBOrDefault(),
 	}
 
 	if task.MCP != "" {

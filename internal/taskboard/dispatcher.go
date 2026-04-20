@@ -179,6 +179,10 @@ type DispatcherDeps struct {
 	Discord DiscordEmbedSender
 	// DiscordNotifyChannelID is the Discord channel for task board notifications.
 	DiscordNotifyChannelID string
+
+	// AvailableSlots returns the number of free dispatch slots, or nil if not tracked.
+	// Used to defer failed-task retries when the system is under slot pressure.
+	AvailableSlots func() int
 }
 
 // Dispatcher auto-dispatches tasks with status=todo and a non-empty assignee.
@@ -320,8 +324,12 @@ func (d *Dispatcher) resetOrphanedWorkflowRuns() {
 		return
 	}
 	// Count before update to get accurate number.
-	rows, _ := db.Query(d.cfg.HistoryDB,
+	rows, err := db.Query(d.cfg.HistoryDB,
 		`SELECT COUNT(*) as cnt FROM workflow_runs WHERE status = 'running'`)
+	if err != nil {
+		log.Error("resetOrphanedWorkflowRuns: count query failed", "error", err)
+		return
+	}
 	cnt := "0"
 	if len(rows) > 0 {
 		cnt = fmt.Sprintf("%v", rows[0]["cnt"])
@@ -600,10 +608,55 @@ func (d *Dispatcher) notifyStaleReset(taskID, title string, threshold time.Durat
 	d.deps.Discord.SendEmbed(ch, embed)
 }
 
+func (d *Dispatcher) notifyStalled(taskID, title string, tokensIn int, errMsg string) {
+	log.Warn("taskboard dispatch: task stalled (tokensIn=0 + timeout)", "id", taskID, "title", title, "error", errMsg)
+
+	if d.deps.Discord == nil {
+		return
+	}
+	ch := d.deps.DiscordNotifyChannelID
+	if ch == "" {
+		return
+	}
+
+	shortID := taskID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+
+	embed := discord.Embed{
+		Title: "Task Stalled — Manual Review Required",
+		Description: fmt.Sprintf(
+			"Task **%s** (`%s`) produced **0 tokens** and timed out.\n"+
+				"Auto-retry is disabled. Manual intervention required.\n\n"+
+				"**Error**: %s",
+			title, shortID, errMsg,
+		),
+		Color:     0xED4245, // red
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Footer:    &discord.EmbedFooter{Text: "tetora taskboard — slot-aware retry"},
+	}
+	d.deps.Discord.SendEmbed(ch, embed)
+}
+
 func (d *Dispatcher) scan() {
 	d.ResetStuckDoing()
 	d.scanReviews()
 	d.healthCheck()
+
+	// Promote failed tasks whose backoff window has elapsed. This covers tasks
+	// that were deferred via the "no slots" early return in dispatchTask, where
+	// AutoRetryFailed is intentionally skipped.
+	//
+	// The slot guard is back-pressure, not correctness: promoting failed→todo
+	// is cheap but when every slot is saturated the promoted task can't
+	// dispatch for minutes anyway, and running the UPDATE on every scan tick
+	// just adds churn. Next scan with a free slot re-runs this and catches up.
+	if d.deps.AvailableSlots == nil || d.deps.AvailableSlots() > 0 {
+		if err := d.engine.AutoRetryFailed(); err != nil {
+			log.Warn("taskboard scan: AutoRetryFailed error", "error", err)
+		}
+	}
 
 	maxTasks := d.engine.config.AutoDispatch.MaxConcurrentTasks
 	if maxTasks <= 0 {
@@ -632,6 +685,19 @@ func (d *Dispatcher) scan() {
 	dispatched := 0
 
 	for _, t := range tasks {
+		// resetOrphanedDoing can incorrectly reset completed tasks; skip dispatch and restore.
+		if t.CompletedAt != "" && t.CompletedAt != "<nil>" {
+			log.Warn("taskboard dispatch: todo task has completed_at set, restoring to done to prevent redundant dispatch",
+				"id", t.ID, "title", t.Title, "completedAt", t.CompletedAt)
+			if _, err := d.engine.MoveTask(t.ID, "done"); err != nil {
+				log.Error("scan: failed to restore completed task to done", "id", t.ID, "error", err)
+			} else {
+				d.engine.AddComment(t.ID, "system",
+					"[auto-fix] Task had completed_at set but was in todo state. Restored to done to prevent redundant dispatch.")
+			}
+			continue
+		}
+
 		if t.Assignee == "" {
 			defaultAgent := d.engine.config.AutoDispatch.DefaultAgent
 			if defaultAgent == "" {
@@ -684,8 +750,12 @@ func (d *Dispatcher) scan() {
 		// Verify the CAS succeeded by re-reading status.
 		// Note: db.Exec shells out to sqlite3 CLI so RowsAffected is unavailable;
 		// re-SELECT is the best available verification in this architecture.
-		verifyRows, _ := db.Query(d.engine.dbPath, fmt.Sprintf(
+		verifyRows, verifyErr := db.Query(d.engine.dbPath, fmt.Sprintf(
 			`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
+		if verifyErr != nil {
+			log.Error("taskboard dispatch: verify-claim query failed", "id", t.ID, "error", verifyErr)
+			continue
+		}
 		if len(verifyRows) == 0 || fmt.Sprintf("%v", verifyRows[0]["status"]) != "doing" {
 			log.Info("taskboard dispatch: task already claimed by another scan", "id", t.ID)
 			continue
@@ -1196,13 +1266,47 @@ func (d *Dispatcher) scanReviews() {
 }
 
 // approveReviewTask marks a review task as done and merges its worktree if preserved.
+// Same-task concurrent calls are prevented upstream by reviewInFlight.LoadOrStore, so
+// the UPDATE WHERE status='review' + verify pattern here guards restart-safety only
+// (daemon restarts can replay scanReviews against an already-done task).
 func (d *Dispatcher) approveReviewTask(t TaskBoard, reviewer string, costUSD float64) {
+	// Pre-check: skip if not in review state (prevents duplicate side effects on restart).
+	preRows, err := db.Query(d.engine.dbPath, fmt.Sprintf(
+		`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
+	if err != nil || len(preRows) == 0 {
+		log.Warn("approveReviewTask: pre-check query failed", "id", t.ID, "error", err)
+		return
+	}
+	if fmt.Sprintf("%v", preRows[0]["status"]) != "review" {
+		log.Info("approveReviewTask: task not in review, skipping",
+			"id", t.ID, "currentStatus", fmt.Sprintf("%v", preRows[0]["status"]))
+		return
+	}
+
 	nowISO := time.Now().UTC().Format(time.RFC3339)
+	// Only transition from review→done; concurrent calls for the same task cannot
+	// reach here (reviewInFlight.LoadOrStore), so this is a restart-safety guard.
 	sql := fmt.Sprintf(
-		`UPDATE tasks SET status = 'done', completed_at = '%s', updated_at = '%s', cost_usd = cost_usd + %.6f WHERE id = '%s'`,
+		`UPDATE tasks SET status = 'done', completed_at = '%s', updated_at = '%s', cost_usd = cost_usd + %.6f WHERE id = '%s' AND status = 'review'`,
 		db.Escape(nowISO), db.Escape(nowISO), costUSD, db.Escape(t.ID),
 	)
-	db.Exec(d.engine.dbPath, sql)
+	if err := db.Exec(d.engine.dbPath, sql); err != nil {
+		log.Warn("approveReviewTask: update failed", "id", t.ID, "error", err)
+		return
+	}
+
+	// Verify the UPDATE applied (sqlite3 CLI does not expose RowsAffected).
+	// A status other than 'done' here means a concurrent restart raced us, skip side effects.
+	verifyRows, verifyErr := db.Query(d.engine.dbPath, fmt.Sprintf(
+		`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(t.ID)))
+	if verifyErr != nil || len(verifyRows) == 0 {
+		log.Warn("approveReviewTask: verify query failed", "id", t.ID, "error", verifyErr)
+		return
+	}
+	if fmt.Sprintf("%v", verifyRows[0]["status"]) != "done" {
+		log.Info("approveReviewTask: CAS failed (concurrent update), skipping side effects", "id", t.ID)
+		return
+	}
 
 	// Merge preserved worktree if it exists.
 	d.mergePreservedWorktree(t)

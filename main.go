@@ -1,4 +1,5 @@
 package main
+
 import (
 	"context"
 	"encoding/json"
@@ -35,6 +36,7 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/messaging/gchat"
 	"tetora/internal/messaging/groupchat"
+	imessagebot "tetora/internal/messaging/imessage"
 	linebot "tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
 	signalbot "tetora/internal/messaging/signal"
@@ -44,6 +46,7 @@ import (
 	"tetora/internal/messaging/whatsapp"
 	"tetora/internal/metrics"
 	"tetora/internal/migrate"
+	"tetora/internal/recap"
 	"tetora/internal/sandbox"
 	"tetora/internal/scheduling"
 	"tetora/internal/sla"
@@ -53,7 +56,6 @@ import (
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 	"tetora/internal/version"
-	imessagebot "tetora/internal/messaging/imessage"
 )
 
 // --- from main.go ---
@@ -180,6 +182,9 @@ func main() {
 			return
 		case "provider":
 			cli.CmdProvider(os.Args[2:])
+			return
+		case "lessons":
+			cli.CmdLessons(os.Args[2:])
 			return
 		case "release":
 			cli.CmdRelease(os.Args[2:])
@@ -650,13 +655,13 @@ func main() {
 		}
 		if cfg.Ops.BackupSchedule != "" && cfg.HistoryDB != "" {
 			bsched := scheduling.NewBackupScheduler(scheduling.BackupConfig{
-			DBPath:     cfg.HistoryDB,
-			BackupDir:  cfg.Ops.BackupDirResolved(cfg.BaseDir),
-			RetainDays: cfg.Ops.BackupRetainOrDefault(),
-			EscapeSQL:  db.Escape,
-			LogInfo:    log.Info,
-			LogWarn:    log.Warn,
-		})
+				DBPath:     cfg.HistoryDB,
+				BackupDir:  cfg.Ops.BackupDirResolved(cfg.BaseDir),
+				RetainDays: cfg.Ops.BackupRetainOrDefault(),
+				EscapeSQL:  db.Escape,
+				LogInfo:    log.Info,
+				LogWarn:    log.Warn,
+			})
 			bsched.Start(ctx)
 			log.Info("backup scheduler started", "schedule", cfg.Ops.BackupSchedule, "retain", cfg.Ops.BackupRetainOrDefault())
 		}
@@ -731,7 +736,10 @@ func main() {
 		} else {
 			// Register daily notes job if enabled.
 			registerDailyNotesJob(ctx, cfg, cron)
+			// Register war room auto-updater job if enabled.
+			registerWarRoomAutoUpdateJob(ctx, cfg, cron)
 			cron.Start(ctx)
+			cron.StartupReplay(ctx)
 		}
 
 		// Startup disk check.
@@ -851,6 +859,22 @@ func main() {
 				"paused", cfg.Budgets.Paused)
 		}
 
+		// Start zombie workflow janitor — resets stale running/resumed rows on a 30-min tick.
+		go func() {
+			ticker := time.NewTicker(30 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if count := resetZombieWorkflowRuns(cfg.HistoryDB, 4*time.Hour); count > 0 {
+						notifyFn(fmt.Sprintf("zombie janitor: terminated %d stale workflow(s)", count))
+					}
+				}
+			}
+		}()
+
 		// Start offline queue drainer.
 		if cfg.OfflineQueue.Enabled {
 			drainer := &queueDrainer{
@@ -898,6 +922,22 @@ func main() {
 					prevNotifyFn2(text)
 				}
 				discordBot.sendNotify(text)
+			}
+
+			// Recap watcher: mirror Claude Code transcript `away_summary` entries to
+			// per-session Discord threads. Skipped when no DB path or when disabled.
+			if cfg.Discord.Recap.Enabled && cfg.HistoryDB != "" {
+				if err := recap.InitSchema(cfg.HistoryDB); err != nil {
+					log.Warn("recap: init schema failed", "error", err)
+				} else {
+					recapRouter := &recap.Router{
+						Cfg:    cfg.Discord.Recap,
+						API:    discordBot.api,
+						DBPath: cfg.HistoryDB,
+					}
+					recapWatcher := recap.New(cfg.Discord.Recap, recapRouter)
+					go recapWatcher.Start(ctx)
+				}
 			}
 		}
 
@@ -1565,12 +1605,12 @@ type App struct {
 	TimeTracking *TimeTrackingService
 
 	// Infrastructure
-	SpawnTracker        *spawnTracker
-	JudgeCache          *judgeCache
-	ImageGenLimiter     *tools.ImageGenLimiter
-	Presence            *presenceManager
-	Reminder            *ReminderEngine
-	Search              *SearchService
+	SpawnTracker    *spawnTracker
+	JudgeCache      *judgeCache
+	ImageGenLimiter *tools.ImageGenLimiter
+	Presence        *presenceManager
+	Reminder        *ReminderEngine
+	Search          *SearchService
 }
 
 // SyncToGlobals sets all global singletons from App fields.
@@ -2339,7 +2379,6 @@ func validateConfig(cfg *Config) {
 	}
 }
 
-
 // configFileMu serializes all read-modify-write operations on the config file
 // so concurrent HTTP handlers cannot interleave their reads and writes.
 var configFileMu sync.Mutex
@@ -2393,7 +2432,6 @@ func updateConfigMCPs(configPath, mcpName string, mcpConfig json.RawMessage) err
 	return nil
 }
 
-
 // modelChangeResult holds the old and new model/provider for display.
 type modelChangeResult struct {
 	OldModel    string
@@ -2421,7 +2459,6 @@ func updateAgentModel(cfg *Config, agentName, model, providerName string) (model
 	}
 	return res, cli.UpdateConfigAgents(configPath, agentName, agentJSON)
 }
-
 
 // --- from cli.go ---
 
@@ -2456,6 +2493,7 @@ Commands:
   knowledge <action> Manage knowledge base (list|add|remove|path)
   skill <action>     Manage skills (list|run|test)
   workflow <action>  Manage workflows (list|show|validate|create|delete)
+  task <action>      Persistent taskboard (list|create|show|update|move|assign|comment|thread)
   budget <action>    Cost governance (show|pause|resume)
   webhook <action>   Manage incoming webhooks (list|show|test)
   data <action>      Data retention & privacy (status|cleanup|export|purge)
@@ -2486,6 +2524,9 @@ Examples:
   tetora agent remove <name>           Remove an agent
   tetora history list                  Show recent execution history
   tetora history cost                  Show cost summary
+  tetora task list --assignee=hisui    List tasks assigned to an agent
+  tetora task create --title="..." --assignee=hisui --description="..."
+                                       Create a persistent cross-session ticket
   tetora config migrate --dry-run      Preview config migrations
   tetora session list                  List recent sessions
   tetora session list --agent <name>   List sessions for a specific agent
@@ -3339,19 +3380,19 @@ func getSystemHealth(cfg *Config) map[string]any {
 
 	// Active integrations.
 	integrations := map[string]bool{
-		"telegram":  cfg.Telegram.Enabled,
-		"slack":     cfg.Slack.Enabled,
-		"discord":   cfg.Discord.Enabled,
-		"whatsapp":  cfg.WhatsApp.Enabled,
-		"line":      cfg.LINE.Enabled,
-		"matrix":    cfg.Matrix.Enabled,
-		"teams":     cfg.Teams.Enabled,
-		"signal":    cfg.Signal.Enabled,
-		"gchat":     cfg.GoogleChat.Enabled,
-		"gmail":     cfg.Gmail.Enabled,
-		"calendar":  cfg.Calendar.Enabled,
-		"twitter":   cfg.Twitter.Enabled,
-		"imessage":  cfg.IMessage.Enabled,
+		"telegram":      cfg.Telegram.Enabled,
+		"slack":         cfg.Slack.Enabled,
+		"discord":       cfg.Discord.Enabled,
+		"whatsapp":      cfg.WhatsApp.Enabled,
+		"line":          cfg.LINE.Enabled,
+		"matrix":        cfg.Matrix.Enabled,
+		"teams":         cfg.Teams.Enabled,
+		"signal":        cfg.Signal.Enabled,
+		"gchat":         cfg.GoogleChat.Enabled,
+		"gmail":         cfg.Gmail.Enabled,
+		"calendar":      cfg.Calendar.Enabled,
+		"twitter":       cfg.Twitter.Enabled,
+		"imessage":      cfg.IMessage.Enabled,
 		"homeassistant": cfg.HomeAssistant.Enabled,
 	}
 	health["integrations"] = integrations

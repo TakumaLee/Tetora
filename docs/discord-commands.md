@@ -17,6 +17,8 @@ Tetora responds to commands prefixed with `!` in any channel where the bot is ac
 | `!chat <agent>` | Lock this channel to a specific agent |
 | `!end` | Unlock channel, resume smart dispatch |
 | `!new` | Start a new session (clear context) |
+| `!compact` | Summarize current session & carry forward |
+| `!context` / `!ctx` | Show session context usage (tokens, %) |
 | `!ask <prompt>` | One-off question (no routing, no session) |
 | `!cancel` | Cancel all running tasks |
 | `!status` | Show daemon status |
@@ -156,6 +158,29 @@ Resumes smart dispatch routing.
 ```
 
 Clears the current conversation context and starts fresh.
+
+### Inspect context usage
+
+```
+!context
+!ctx
+```
+
+Shows the current session's token usage, a visual progress bar, message count, and bound agent. Color-coded: green (<70%), yellow (70–90%), red (≥90%).
+
+Use this to decide whether to `!compact` (summarize) or `!new` (hard reset) before the bot hits its auto-reset threshold (`session.maxContextTokens`, default `60000`).
+
+### Compact session
+
+```
+!compact
+```
+
+Summarizes the current session and carries the summary forward into a fresh session. Unlike `!new`, prior context is preserved as a condensed summary — useful when the conversation is long but you still want continuity.
+
+Compaction strategy is controlled by `session.compaction.strategy` in config:
+- `"fresh-session"` — archives the session and starts a new one seeded with the summary
+- Default — in-place summarization within the same session
 
 ### One-off question
 

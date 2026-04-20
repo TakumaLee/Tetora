@@ -2,13 +2,16 @@ package proactive
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"tetora/internal/config"
+	"tetora/internal/db"
 	"tetora/internal/dispatch"
 )
 
@@ -208,5 +211,106 @@ func TestHeartbeatCooldownSetToInterval(t *testing.T) {
 	want := 5 * time.Minute
 	if entry.duration != want {
 		t.Errorf("expected heartbeat cooldown duration %v (from Interval), got %v", want, entry.duration)
+	}
+}
+
+func TestComputeMedian(t *testing.T) {
+	cases := []struct {
+		name string
+		vals []float64
+		want float64
+	}{
+		{"empty", []float64{}, 0},
+		{"single", []float64{3.0}, 3.0},
+		{"odd", []float64{1, 5, 3}, 3.0},
+		{"even", []float64{1, 2, 3, 4}, 2.5},
+		{"unsorted input", []float64{9, 1, 5}, 5.0},
+	}
+	for _, tc := range cases {
+		got := computeMedian(tc.vals)
+		if got != tc.want {
+			t.Errorf("computeMedian(%v) = %v, want %v", tc.vals, got, tc.want)
+		}
+	}
+}
+
+func TestGetDynamicThreshold_UnknownFormula(t *testing.T) {
+	e := newEngineWithRules(nil, Deps{})
+	_, err := e.getDynamicThreshold("unknown_formula")
+	if err == nil {
+		t.Error("expected error for unknown formula, got nil")
+	}
+}
+
+func TestGetDynamicThreshold_NoHistoryDB(t *testing.T) {
+	// Engine with no historyDB: median_30d_x1.5 should return error, not panic.
+	e := newEngineWithRules(nil, Deps{})
+	_, err := e.getDynamicThreshold("median_30d_x1.5")
+	if err == nil {
+		t.Error("expected error when historyDB not configured, got nil")
+	}
+}
+
+// TestGet30DayDailyCosts_ColumnByName guards against reintroducing the
+// positional `vals[1]` access bug: Go map iteration order is non-deterministic,
+// so reading the second column by position flipped between day (a string like
+// "2026-04-18") and cost (a float) across runs. The fix uses named column
+// access (AS total_cost) and asserts the returned floats match the inserted
+// cost_usd values exactly.
+func TestGet30DayDailyCosts_ColumnByName(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "test.db")
+	schema := `CREATE TABLE IF NOT EXISTS job_runs (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  job_id TEXT NOT NULL DEFAULT '',
+	  name TEXT NOT NULL DEFAULT '',
+	  source TEXT NOT NULL DEFAULT '',
+	  started_at TEXT NOT NULL,
+	  finished_at TEXT NOT NULL DEFAULT '',
+	  status TEXT NOT NULL DEFAULT '',
+	  cost_usd REAL DEFAULT 0
+	);`
+	if err := db.Exec(dbPath, schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	// Insert three days of costs. Use distinct non-integer values so the
+	// positional-access bug (returning a date-string via int64 coercion, or
+	// zero via failed type-switch) would produce visibly wrong output.
+	insert := func(daysAgo int, cost float64) {
+		d := time.Now().AddDate(0, 0, -daysAgo).UTC().Format(time.RFC3339)
+		sql := fmt.Sprintf(
+			`INSERT INTO job_runs (job_id, name, source, started_at, cost_usd) VALUES ('j','n','s','%s',%f)`,
+			d, cost,
+		)
+		if err := db.Exec(dbPath, sql); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	// Two rows same day → SUM; plus two other days.
+	insert(2, 1.25)
+	insert(2, 0.75) // same day as above → sum = 2.00
+	insert(5, 3.50)
+	insert(10, 0.10)
+
+	e := newEngineWithRules(nil, Deps{})
+	e.cfg.HistoryDB = dbPath
+
+	costs, err := e.get30DayDailyCosts()
+	if err != nil {
+		t.Fatalf("get30DayDailyCosts: %v", err)
+	}
+
+	// Expect 3 distinct days; order is SQL-ordered by day so we sort a copy
+	// before comparing to keep the assertion insertion-order-independent.
+	if len(costs) != 3 {
+		t.Fatalf("expected 3 daily cost rows, got %d (costs=%v)", len(costs), costs)
+	}
+	sort.Float64s(costs)
+	want := []float64{0.10, 2.00, 3.50}
+	for i, w := range want {
+		if costs[i] < w-1e-9 || costs[i] > w+1e-9 {
+			t.Errorf("costs[%d] = %v, want %v (all=%v)", i, costs[i], w, costs)
+		}
 	}
 }

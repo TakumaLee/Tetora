@@ -125,14 +125,96 @@ func Pragma(dbPath string) error {
 	return nil
 }
 
-// Escape sanitizes a string for safe SQLite interpolation.
-// Handles single quotes, null bytes, and control characters.
+// Escape sanitizes a string for safe interpolation inside a single-quoted
+// SQLite string literal. It removes NULL bytes (which truncate SQL strings)
+// and doubles single quotes ('' is the SQL-standard escape).
+//
+// Backslash (\) is intentionally NOT escaped: SQLite uses SQL-standard string
+// literals, not C-style. Inside '...', a backslash is a literal character and
+// is not an escape introducer, so the injection vectors that exist in MySQL
+// ("\\'") or PostgreSQL E-strings do not apply here.
+//
+// Multi-byte UTF-8 is safe by construction: UTF-8 continuation bytes use the
+// high-bit pattern 10xxxxxx (0x80-0xBF) and can never contain 0x27 (') or
+// 0x00. So a valid UTF-8 sequence cannot smuggle an unescaped quote through
+// this function.
 func Escape(s string) string {
-	// Remove null bytes — these can truncate SQL strings.
 	s = strings.ReplaceAll(s, "\x00", "")
-	// Escape single quotes for SQL.
 	s = strings.ReplaceAll(s, "'", "''")
 	return s
+}
+
+// bindArgs replaces ? placeholders in query with safely-quoted argument values,
+// providing a parameterized-query interface over the sqlite3 CLI backend.
+//
+// Because this package drives SQLite via the sqlite3 CLI subprocess rather than
+// a native Go database/sql driver, there is no db.Prepare() or driver-level
+// binding available. bindArgs fills that gap: callers write standard ? placeholders
+// and pass Go values as separate arguments; bindArgs escapes each value via Escape
+// and interpolates it as a single-quoted SQL literal before the SQL string is
+// handed to the subprocess.
+//
+// Each ? is consumed left-to-right; extra args beyond the placeholder count are
+// silently ignored. Only string-like interpolation is performed — callers must
+// not rely on type-specific SQL casts. Use ExecArgs / QueryArgs instead of
+// calling bindArgs directly.
+//
+// WARNING: bindArgs does not parse SQL; a literal `?` inside a string literal
+// (e.g. `LIKE '%?%'`) is treated as a placeholder and silently consumed by the
+// next arg. None of the current callers hit this case, but future writers
+// should either rewrite such queries to use concatenation-free patterns
+// (e.g. `LIKE ?` with an arg of `"%pattern%"`) or avoid ExecArgs/QueryArgs
+// for those statements.
+func bindArgs(query string, args []any) string {
+	if len(args) == 0 {
+		return query
+	}
+	var b strings.Builder
+	b.Grow(len(query) + len(args)*32)
+	argIdx := 0
+	for i := 0; i < len(query); i++ {
+		if query[i] == '?' && argIdx < len(args) {
+			b.WriteByte('\'')
+			b.WriteString(Escape(fmt.Sprintf("%v", args[argIdx])))
+			b.WriteByte('\'')
+			argIdx++
+		} else {
+			b.WriteByte(query[i])
+		}
+	}
+	return b.String()
+}
+
+// ExecArgs runs a write SQL statement with ? parameterized arguments.
+// It is the parameterized equivalent of Exec: instead of building the SQL string
+// manually (which risks injection if values come from external input), callers
+// pass raw Go values and let bindArgs handle quoting.
+//
+// Example:
+//
+//	err := db.ExecArgs(dbPath,
+//	    "UPDATE workflows SET status=?, finished_at=? WHERE id=?",
+//	    "error", time.Now().UTC().Format(time.RFC3339), workflowID)
+//
+// Writes are serialized via writeMu, so ExecArgs is safe for concurrent use.
+func ExecArgs(dbPath, query string, args ...any) error {
+	return Exec(dbPath, bindArgs(query, args))
+}
+
+// QueryArgs runs a SQL query with ? parameterized arguments.
+// It is the parameterized equivalent of Query: instead of building the SQL string
+// manually (which risks injection if values come from external input), callers
+// pass raw Go values and let bindArgs handle quoting.
+//
+// Example:
+//
+//	rows, err := db.QueryArgs(dbPath,
+//	    "SELECT id, status FROM workflow_runs WHERE workflow_id=? AND status=?",
+//	    workflowID, "running")
+//
+// Returns nil (not an error) when the query produces zero rows.
+func QueryArgs(dbPath, query string, args ...any) ([]map[string]any, error) {
+	return Query(dbPath, bindArgs(query, args))
 }
 
 // --- JSON row helpers ---
