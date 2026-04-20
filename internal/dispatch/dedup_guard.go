@@ -27,7 +27,9 @@ func getOrCreateGuard(configPath, dbPath string) *dedupguard.Guard {
 	return actual.(*dedupguard.Guard)
 }
 
-const dedupConfigSubpath = "config/dedup-guard.json"
+// dedupConfigSubpath must match internal/proactive/proactive.go so both layers
+// read the same dedup-guard.json and share one set of thresholds / root_causes.
+const dedupConfigSubpath = "workspace/config/dedup-guard.json"
 const dedupDBSubpath = "runtime/dedup_guard.db"
 
 // DedupConfig holds the runtime dedup guard configuration.
@@ -39,7 +41,7 @@ type DedupConfig struct {
 	AlertTemplate string          `json:"alert_template"`
 }
 
-// LoadDedupConfig reads config/dedup-guard.json from baseDir each call (supports runtime reload).
+// LoadDedupConfig reads workspace/config/dedup-guard.json from baseDir each call (supports runtime reload).
 func LoadDedupConfig(baseDir string) (*DedupConfig, error) {
 	path := filepath.Join(baseDir, dedupConfigSubpath)
 	data, err := os.ReadFile(path)

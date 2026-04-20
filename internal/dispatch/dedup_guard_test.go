@@ -13,11 +13,11 @@ import (
 func writeTestConfig(t *testing.T, cfg DedupConfig) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "workspace", "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := json.Marshal(cfg)
-	if err := os.WriteFile(filepath.Join(dir, "config", "dedup-guard.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "workspace", "config", "dedup-guard.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -49,8 +49,8 @@ func TestLoadDedupConfig_MissingFile(t *testing.T) {
 
 func TestLoadDedupConfig_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "config"), 0o755)
-	os.WriteFile(filepath.Join(dir, "config", "dedup-guard.json"), []byte("{invalid"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "workspace", "config"), 0o755)
+	os.WriteFile(filepath.Join(dir, "workspace", "config", "dedup-guard.json"), []byte("{invalid"), 0o644)
 	_, err := LoadDedupConfig(dir)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -95,7 +95,7 @@ func TestExtractRootCauseKey_DisabledCause(t *testing.T) {
 
 func TestGetOrCreateGuard_SamePointer(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config", "dedup-guard.json")
+	configPath := filepath.Join(dir, "workspace", "config", "dedup-guard.json")
 	dbPath := filepath.Join(dir, "runtime", "dedup_guard.db")
 
 	g1 := getOrCreateGuard(configPath, dbPath)
