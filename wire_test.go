@@ -8004,7 +8004,7 @@ func TestCheckSelfPreservation(t *testing.T) {
 		{"tetora restart", "tetora restart"},
 		{"/Users/vmgs.takuma/.tetora/bin/tetora serve", "tetora serve"},
 		{"make bump", "make bump"},
-		{"pkill -f tetora", "tetora serve"}, // matches `tetora` word before `serve` pattern? No — this matches pkill pattern
+		{"pkill -f tetora", "pkill/killall tetora"},
 		{"killall tetora", "pkill/killall tetora"},
 		{"launchctl bootout gui/501/com.tetora.daemon", "launchctl control tetora"},
 		{"launchctl kickstart -k gui/501/com.tetora.daemon", "launchctl control tetora"},
@@ -8015,13 +8015,6 @@ func TestCheckSelfPreservation(t *testing.T) {
 		blocked, pattern := checkSelfPreservation(tc.cmd)
 		if !blocked {
 			t.Errorf("cmd %q should be blocked", tc.cmd)
-			continue
-		}
-		// pattern may differ for pkill -f tetora (no "serve" after); check non-empty only for that.
-		if tc.cmd == "pkill -f tetora" {
-			if pattern != "pkill/killall tetora" {
-				t.Errorf("cmd %q: got pattern %q, want %q", tc.cmd, pattern, "pkill/killall tetora")
-			}
 			continue
 		}
 		if pattern != tc.wantPat {
@@ -8046,6 +8039,52 @@ func TestCheckSelfPreservation(t *testing.T) {
 		blocked, pattern := checkSelfPreservation(cmd)
 		if blocked {
 			t.Errorf("cmd %q should NOT be blocked by self-preservation (matched %q)", cmd, pattern)
+		}
+	}
+}
+
+// TestCheckSelfPreservation_PayloadExclusion verifies that flag values used as
+// user-supplied data payloads do not trigger the Layer 2 guard.
+func TestCheckSelfPreservation_PayloadExclusion(t *testing.T) {
+	prev := daemonPIDForGuard
+	daemonPIDForGuard = func() int { return 40354 }
+	defer func() { daemonPIDForGuard = prev }()
+
+	// These commands carry protected keywords only in data payloads — must pass.
+	allowCases := []string{
+		`gh pr review 92 -b "body containing pkill tetora"`,
+		`gh pr review 92 --body "kill tetora daemon please"`,
+		`git commit -m "fix: launchctl bootstrap issue"`,
+		`git commit --message "tetora stop workaround"`,
+		`curl -X POST https://example.com -d '{"msg": "kill tetora"}'`,
+		`curl --data '{"cmd":"pkill tetora"}' https://example.com`,
+		"cat <<EOF\npkill tetora\nkillall tetora\nEOF",
+		"bash <<'EOF'\ntetora stop\nEOF",
+	}
+	for _, cmd := range allowCases {
+		blocked, pattern := checkSelfPreservation(cmd)
+		if blocked {
+			t.Errorf("payload cmd %q should NOT be blocked (matched %q)", cmd, pattern)
+		}
+	}
+
+	// Bare dangerous commands (not in payload position) must still be blocked.
+	blockedCases := []struct {
+		cmd     string
+		wantPat string
+	}{
+		{"pkill tetora", "pkill/killall tetora"},
+		{"kill -9 40354", "kill daemon PID"},
+		{"launchctl bootout system/com.tetora.daemon", "launchctl control tetora"},
+	}
+	for _, tc := range blockedCases {
+		blocked, pattern := checkSelfPreservation(tc.cmd)
+		if !blocked {
+			t.Errorf("cmd %q should be blocked", tc.cmd)
+			continue
+		}
+		if pattern != tc.wantPat {
+			t.Errorf("cmd %q: got pattern %q, want %q", tc.cmd, pattern, tc.wantPat)
 		}
 	}
 }
