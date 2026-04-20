@@ -39,6 +39,10 @@ type SessionDeps struct {
 	// CompactSession triggers context compaction for a session (fire-and-forget).
 	CompactSession func(sessionID string)
 
+	// SearchHistory returns archived + active messages for a session matching
+	// an optional query substring. Used by tetora_search_history MCP tool.
+	SearchHistory func(sessionID, query string, limit int) (any, error)
+
 	// ServeSSE serves a one-shot SSE stream for a session.
 	ServeSSE func(w http.ResponseWriter, r *http.Request, sessionID string)
 
@@ -243,6 +247,34 @@ func RegisterSessionRoutes(mux *http.ServeMux, d SessionDeps) {
 				fmt.Sprintf("session=%s", sessionID), clientIPFromRequest(r))
 			w.WriteHeader(http.StatusAccepted)
 			json.NewEncoder(w).Encode(map[string]string{"status": "compacting"})
+
+		// GET /sessions/{id}/history — search archived + active messages.
+		case action == "history" && r.Method == http.MethodGet:
+			if d.SearchHistory == nil {
+				http.Error(w, `{"error":"history search not available"}`, http.StatusServiceUnavailable)
+				return
+			}
+			q := r.URL.Query().Get("q")
+			limit := 20
+			if l := r.URL.Query().Get("limit"); l != "" {
+				if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+					limit = n
+				}
+			}
+			msgs, err := d.SearchHistory(sessionID, q, limit)
+			if err != nil {
+				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				return
+			}
+			if msgs == nil {
+				msgs = []any{}
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"session_id": sessionID,
+				"query":      q,
+				"limit":      limit,
+				"messages":   msgs,
+			})
 
 		default:
 			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)

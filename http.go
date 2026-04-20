@@ -41,6 +41,7 @@ import (
 	"tetora/internal/provider"
 	"tetora/internal/pwa"
 	"tetora/internal/quickaction"
+	"tetora/internal/session"
 	"tetora/internal/sla"
 	"tetora/internal/sprite"
 	"tetora/internal/store"
@@ -1119,6 +1120,9 @@ func startHTTPServer(s *Server) *http.Server {
 		},
 		ArchiveSession: func(id string) error {
 			return updateSessionStatus(cfg.HistoryDB, id, "archived")
+		},
+		SearchHistory: func(sessionID, query string, limit int) (any, error) {
+			return session.SearchSessionHistory(cfg.HistoryDB, sessionID, query, limit)
 		},
 		SendMessage: func(r *http.Request, sessionID, prompt string, async bool) (any, int, error) {
 			sess, err := querySessionByID(cfg.HistoryDB, sessionID)

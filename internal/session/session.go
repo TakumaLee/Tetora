@@ -36,7 +36,7 @@ func sessionSelectCols() string {
 	}
 	return fmt.Sprintf(
 		"id, %s, source, status, title, channel_key, total_cost, total_tokens_in, total_tokens_out, message_count, created_at, updated_at,"+
-			" COALESCE((SELECT tokens_in FROM session_messages WHERE session_id = id ORDER BY id DESC LIMIT 1), 0) AS context_size",
+			" COALESCE((SELECT tokens_in FROM session_messages WHERE session_id = id AND archived = 0 ORDER BY id DESC LIMIT 1), 0) AS context_size",
 		alias)
 }
 
@@ -138,10 +138,12 @@ CREATE TABLE IF NOT EXISTS session_messages (
   tokens_out INTEGER DEFAULT 0,
   model TEXT DEFAULT '',
   task_id TEXT DEFAULT '',
+  archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_session_messages_session ON session_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_session_messages_active ON session_messages(session_id, archived);
 `
 	if err := db.Exec(dbPath, sql); err != nil {
 		return fmt.Errorf("init session db: %w", err)
@@ -164,6 +166,14 @@ CREATE INDEX IF NOT EXISTS idx_session_messages_created ON session_messages(crea
 		}
 	}
 	db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_sessions_channel_key ON sessions(channel_key);`)
+
+	// soft-delete support: compact archives instead of DELETE (2026-04-20)
+	if err := db.Exec(dbPath, `ALTER TABLE session_messages ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			slog.Warn("session migration failed", "column", "archived", "error", err)
+		}
+	}
+	db.Exec(dbPath, `CREATE INDEX IF NOT EXISTS idx_session_messages_active ON session_messages(session_id, archived);`)
 
 	ensureSystemLogSession(dbPath)
 
@@ -497,6 +507,55 @@ func QuerySessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
 	for _, row := range rows {
 		msgs = append(msgs, SessionMessageFromRow(row))
 	}
+
+	return msgs, nil
+}
+
+// SearchSessionHistory searches archived + active messages for a session by
+// content substring. Used by the tetora_search_history MCP tool so agents can
+// recall details that were archived during compaction.
+func SearchSessionHistory(dbPath, sessionID, query string, limit int) ([]SessionMessage, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	where := fmt.Sprintf("session_id = '%s'", db.Escape(sessionID))
+	if q := strings.TrimSpace(query); q != "" {
+		where += fmt.Sprintf(" AND content LIKE '%%%s%%'", db.Escape(q))
+	}
+	sql := fmt.Sprintf(
+		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
+		 FROM session_messages WHERE %s ORDER BY id DESC LIMIT %d`,
+		where, limit)
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+	var msgs []SessionMessage
+	for _, row := range rows {
+		msgs = append(msgs, SessionMessageFromRow(row))
+	}
+	return msgs, nil
+}
+
+// QueryActiveSessionMessages returns only non-archived messages — used for
+// building live conversation context (messaging bots, compact target selection).
+// Compact archives old messages via UPDATE archived=1 rather than DELETE, so
+// this filter keeps the active window tight while preserving history.
+func QueryActiveSessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
+	sql := fmt.Sprintf(
+		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
+		 FROM session_messages WHERE session_id = '%s' AND archived = 0 ORDER BY id ASC`,
+		db.Escape(sessionID))
+	rows, err := db.Query(dbPath, sql)
+	if err != nil {
+		return nil, err
+	}
+
+	var msgs []SessionMessage
+	for _, row := range rows {
+		msgs = append(msgs, SessionMessageFromRow(row))
+	}
+
 	return msgs, nil
 }
 
@@ -823,7 +882,7 @@ func BuildSessionContext(dbPath, sessionID string, maxMessages int) string {
 	if dbPath == "" || sessionID == "" {
 		return ""
 	}
-	msgs, err := QuerySessionMessages(dbPath, sessionID)
+	msgs, err := QueryActiveSessionMessages(dbPath, sessionID)
 	if err != nil || len(msgs) == 0 {
 		return ""
 	}
