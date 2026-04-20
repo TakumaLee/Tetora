@@ -6906,9 +6906,154 @@ var dangerousOpsPatterns = []struct {
 // running process; tests override it to simulate a daemon PID.
 var daemonPIDForGuard = os.Getpid
 
+// pidRegexpCache stores compiled kill-<pid> regexps keyed by PID to avoid
+// recompilation on every guard call. The daemon PID is immutable over the
+// process lifetime.
+var pidRegexpCache sync.Map // key: int, value: *regexp.Regexp
+
+// daemonPIDRegexp returns a cached regexp that matches "kill … <pid>".
+func daemonPIDRegexp(pid int) *regexp.Regexp {
+	if v, ok := pidRegexpCache.Load(pid); ok {
+		return v.(*regexp.Regexp)
+	}
+	re := regexp.MustCompile(`(?i)\bkill\b[^|&;\n]*\b` + strconv.Itoa(pid) + `\b`)
+	pidRegexpCache.Store(pid, re)
+	return re
+}
+
+// heredocStartRe matches a heredoc opening marker and captures the delimiter.
+var heredocStartRe = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
+
+// stripHeredocBodies removes heredoc body lines from command, leaving only
+// the redirect markers, so payload text cannot trigger pattern matching.
+func stripHeredocBodies(command string) string {
+	lines := strings.Split(command, "\n")
+	out := make([]string, 0, len(lines))
+	i := 0
+	for i < len(lines) {
+		m := heredocStartRe.FindStringSubmatch(lines[i])
+		if m != nil {
+			delim := m[1]
+			out = append(out, lines[i])
+			i++
+			for i < len(lines) {
+				if strings.TrimLeft(lines[i], "\t") == delim {
+					i++ // skip closing delimiter line
+					break
+				}
+				i++ // skip body line
+			}
+			continue
+		}
+		out = append(out, lines[i])
+		i++
+	}
+	return strings.Join(out, "\n")
+}
+
+// shellTokenize splits s into shell-like tokens, handling single-quoted,
+// double-quoted, and backslash-escaped text. Not a full POSIX parser.
+func shellTokenize(s string) []string {
+	var tokens []string
+	var buf strings.Builder
+	i := 0
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+			i++
+		case '\'':
+			i++
+			for i < len(s) && s[i] != '\'' {
+				buf.WriteByte(s[i])
+				i++
+			}
+			if i < len(s) {
+				i++
+			}
+		case '"':
+			i++
+			for i < len(s) && s[i] != '"' {
+				if s[i] == '\\' && i+1 < len(s) {
+					i++
+					buf.WriteByte(s[i])
+				} else {
+					buf.WriteByte(s[i])
+				}
+				i++
+			}
+			if i < len(s) {
+				i++
+			}
+		case '\\':
+			if i+1 < len(s) {
+				i++
+				buf.WriteByte(s[i])
+			}
+			i++
+		default:
+			buf.WriteByte(s[i])
+			i++
+		}
+	}
+	if buf.Len() > 0 {
+		tokens = append(tokens, buf.String())
+	}
+	return tokens
+}
+
+// payloadFlags lists CLI flags whose next token is user-supplied data payload.
+// Values after these flags are excluded from self-preservation scanning so that
+// commit messages, PR review bodies, and curl --data arguments cannot trigger
+// false positives in the Layer 2 guard.
+var payloadFlags = map[string]bool{
+	"--data": true, "-d": true, "--data-raw": true,
+	"--data-binary": true, "--data-urlencode": true,
+	"-m": true, "--message": true,
+	"-b": true, "--body": true,
+}
+
+// bashScannableView returns the portion of a Bash command that should be
+// checked for self-preservation patterns. It strips heredoc bodies and the
+// values of data/message/body flags so that payload text cannot trigger
+// false positives in the Layer 2 guard.
+func bashScannableView(command string) string {
+	command = stripHeredocBodies(command)
+	tokens := shellTokenize(command)
+	out := make([]string, 0, len(tokens))
+	skipNext := false
+	for _, tok := range tokens {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		// --flag=value form: strip value, keep flag name only.
+		for flag := range payloadFlags {
+			if strings.HasPrefix(tok, flag+"=") {
+				tok = flag
+				break
+			}
+		}
+		if payloadFlags[tok] {
+			out = append(out, tok)
+			skipNext = true
+			continue
+		}
+		out = append(out, tok)
+	}
+	return strings.Join(out, " ")
+}
+
 // selfPreservationPatternNames is the subset of dangerousOpsPatterns whose job
 // is to stop Tetora from killing itself. Used by the PreToolUse:Bash hook so
 // that only these (plus the dynamic PID guard) deny a Bash command at runtime.
+//
+// SYNC OBLIGATION: any new entry added to dangerousOpsPatterns that targets
+// daemon self-preservation MUST also be listed here; otherwise Layer 2
+// (checkSelfPreservation / PreToolUse:Bash hook) will silently miss it.
 var selfPreservationPatternNames = map[string]bool{
 	"tetora stop":              true,
 	"tetora drain":             true,
@@ -6926,17 +7071,17 @@ var selfPreservationPatternNames = map[string]bool{
 // Returns (blocked, patternName). Safe to call outside of dispatch — no config
 // lookup, no whitelist. Intended for the PreToolUse:Bash guard hook.
 func checkSelfPreservation(command string) (bool, string) {
+	view := bashScannableView(command)
 	for _, p := range dangerousOpsPatterns {
 		if !selfPreservationPatternNames[p.name] {
 			continue
 		}
-		if p.pattern.MatchString(command) {
+		if p.pattern.MatchString(view) {
 			return true, p.name
 		}
 	}
 	if pid := daemonPIDForGuard(); pid > 0 {
-		re := regexp.MustCompile(`(?i)\bkill\b[^|&;\n]*\b` + strconv.Itoa(pid) + `\b`)
-		if re.MatchString(command) {
+		if daemonPIDRegexp(pid).MatchString(view) {
 			return true, "kill daemon PID"
 		}
 	}
@@ -6971,8 +7116,7 @@ func checkDangerousOps(cfg *Config, prompt string, agentName string) (bool, stri
 	// daemon, even when the command does not mention "tetora".
 	if pid := daemonPIDForGuard(); pid > 0 {
 		const name = "kill daemon PID"
-		re := regexp.MustCompile(`(?i)\bkill\b[^|&;\n]*\b` + strconv.Itoa(pid) + `\b`)
-		if re.MatchString(prompt) && !stringSliceContains(whitelist, name) {
+		if daemonPIDRegexp(pid).MatchString(prompt) && !stringSliceContains(whitelist, name) {
 			return true, name
 		}
 	}
