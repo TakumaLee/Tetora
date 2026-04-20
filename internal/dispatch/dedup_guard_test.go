@@ -91,6 +91,21 @@ func TestExtractRootCauseKey_DisabledCause(t *testing.T) {
 	}
 }
 
+// --- getOrCreateGuard ---
+
+func TestGetOrCreateGuard_SamePointer(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config", "dedup-guard.json")
+	dbPath := filepath.Join(dir, "runtime", "dedup_guard.db")
+
+	g1 := getOrCreateGuard(configPath, dbPath)
+	g2 := getOrCreateGuard(configPath, dbPath)
+
+	if g1 != g2 {
+		t.Errorf("cache miss: got different *Guard pointers %p vs %p", g1, g2)
+	}
+}
+
 // --- RunDedupGuard ---
 
 func TestRunDedupGuard_Disabled(t *testing.T) {
