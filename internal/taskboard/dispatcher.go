@@ -599,7 +599,7 @@ func (d *Dispatcher) TriageStuckPartialDone() {
 	}
 
 	for _, row := range rows {
-		id := fmt.Sprintf("%v", row["id"])
+		id := fmt.Sprintf("%v", row["id"]) // SQLite returns ids as strings in this codebase; safe for future UUID migration
 		title := fmt.Sprintf("%v", row["title"])
 
 		comment := fmt.Sprintf(
@@ -612,11 +612,15 @@ func (d *Dispatcher) TriageStuckPartialDone() {
 		}
 
 		// Touch updated_at so this task is not re-flagged until another 48h have elapsed.
-		db.Exec(d.engine.dbPath, fmt.Sprintf(
+		// Must succeed before notifying — prevents duplicate Discord pings on transient DB errors.
+		if err := db.Exec(d.engine.dbPath, fmt.Sprintf(
 			`UPDATE tasks SET updated_at = '%s' WHERE id = '%s' AND status = 'partial-done'`,
 			db.Escape(time.Now().UTC().Format(time.RFC3339)),
 			db.Escape(id),
-		))
+		)); err != nil {
+			log.Warn("taskboard dispatch: failed to advance updated_at for partial-done triage, skipping notify", "id", id, "error", err)
+			continue
+		}
 
 		log.Warn("taskboard dispatch: partial-done task needs triage", "id", id, "title", title)
 		d.notifyPartialDoneTriage(id, title)

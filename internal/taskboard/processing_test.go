@@ -1812,3 +1812,88 @@ func TestIsTimeoutError_Patterns(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// TriageStuckPartialDone tests
+// =============================================================================
+
+// backdateTask sets a task's updated_at to the given time via raw SQL.
+func backdateTask(t *testing.T, d *Dispatcher, taskID string, ts time.Time) {
+	t.Helper()
+	if err := db.Exec(d.engine.dbPath, fmt.Sprintf(
+		"UPDATE tasks SET updated_at = '%s' WHERE id = '%s'",
+		db.Escape(ts.UTC().Format(time.RFC3339)), db.Escape(taskID),
+	)); err != nil {
+		t.Fatalf("backdateTask: %v", err)
+	}
+}
+
+// TestTriageStuckPartialDone_HappyPath verifies that when a partial-done task has
+// been stuck for >48h, the UPDATE succeeds and Discord is notified exactly once.
+func TestTriageStuckPartialDone_HappyPath(t *testing.T) {
+	disc := &mockDiscordSender{}
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Discord:                disc,
+		DiscordNotifyChannelID: "chan-triage",
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:  "stuck partial-done task",
+		Status: "partial-done",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	backdateTask(t, d, task.ID, time.Now().Add(-49*time.Hour))
+
+	d.TriageStuckPartialDone()
+
+	if disc.embedCount() != 1 {
+		t.Errorf("expected 1 Discord embed (notify once), got %d", disc.embedCount())
+	}
+
+	// Verify updated_at was advanced so the next sweep won't re-flag this task.
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	updatedAt, _ := time.Parse(time.RFC3339, updated.UpdatedAt)
+	if time.Since(updatedAt) > time.Minute {
+		t.Errorf("updated_at was not advanced; still old: %s", updated.UpdatedAt)
+	}
+}
+
+// TestTriageStuckPartialDone_UpdateFailure_NoNotify verifies that when the
+// updated_at UPDATE fails (e.g. DB locked), notifyPartialDoneTriage is NOT
+// invoked — preventing repeated Discord pings on every sweep cycle.
+func TestTriageStuckPartialDone_UpdateFailure_NoNotify(t *testing.T) {
+	disc := &mockDiscordSender{}
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Discord:                disc,
+		DiscordNotifyChannelID: "chan-triage",
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:  "stuck partial-done task update-fail",
+		Status: "partial-done",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	backdateTask(t, d, task.ID, time.Now().Add(-49*time.Hour))
+
+	// Install a BEFORE UPDATE trigger that makes all UPDATE on tasks fail.
+	// AddComment (INSERT to task_comments) is unaffected, so only the
+	// updated_at UPDATE is blocked — isolating the code path under test.
+	if err := db.Exec(d.engine.dbPath,
+		"CREATE TRIGGER block_tasks_update BEFORE UPDATE ON tasks BEGIN SELECT RAISE(FAIL, 'db-locked-for-test'); END;",
+	); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	d.TriageStuckPartialDone()
+
+	if disc.embedCount() != 0 {
+		t.Errorf("expected 0 Discord embeds when UPDATE fails, got %d (duplicate notification risk)", disc.embedCount())
+	}
+}
