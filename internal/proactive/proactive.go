@@ -15,6 +15,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/cron"
 	"tetora/internal/db"
+	"tetora/internal/dedupguard"
 	"tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/log"
@@ -58,6 +59,7 @@ type Engine struct {
 	wg        sync.WaitGroup
 	sem       chan struct{} // shared semaphore for top-level tasks
 	childSem  chan struct{} // shared semaphore for child tasks
+	guard     *dedupguard.Guard
 }
 
 // RuleInfo is the public view of a rule (for API).
@@ -83,6 +85,10 @@ func New(cfg *config.Config, broker *dispatch.Broker, sem, childSem chan struct{
 		stopCh:    make(chan struct{}),
 		sem:       sem,
 		childSem:  childSem,
+		guard: dedupguard.New(
+			"~/.tetora/workspace/config/dedup-guard.json",
+			"~/.tetora/runtime/dedup_guard.db",
+		),
 	}
 }
 
@@ -563,6 +569,16 @@ func (e *Engine) executeAction(ctx context.Context, rule config.ProactiveRule) e
 			if interval, err := time.ParseDuration(rule.Trigger.Interval); err == nil {
 				e.SetCooldown(rule.Name, interval)
 			}
+		}
+	}
+
+	// Dedup Guard: suppress repeated alerts for the same root cause.
+	if e.guard != nil {
+		if suppressed, err := e.guard.Check(rule.Name); err != nil {
+			log.Warn("dedupguard check failed", "rule", rule.Name, "error", err)
+		} else if suppressed {
+			log.Info("dedupguard: suppressed repeated diagnosis", "rule", rule.Name)
+			return nil
 		}
 	}
 
