@@ -105,6 +105,7 @@ func IsTransientError(errMsg string) bool {
 		"http 5", "status 5",
 		"temporarily unavailable", "service unavailable",
 		"too many requests", "rate limit",
+		"hit your limit", // Claude CLI quota exhaustion
 	}
 	for _, t := range transient {
 		if strings.Contains(lower, t) {
