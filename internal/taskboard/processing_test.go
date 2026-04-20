@@ -1470,6 +1470,44 @@ func TestDispatchTask_PromptContainsTaskIDTitle(t *testing.T) {
 	}
 }
 
+// taskCapturingExecutor records the full dispatch.Task passed to RunTask.
+type taskCapturingExecutor struct {
+	capturedTask dispatch.Task
+	result       dispatch.TaskResult
+}
+
+func (c *taskCapturingExecutor) RunTask(_ context.Context, task dispatch.Task, _ string) dispatch.TaskResult {
+	c.capturedTask = task
+	return c.result
+}
+
+// TestDispatchTask_ScopeBoundaryFlowsToTask verifies that ScopeBoundary set on a
+// TaskBoard is propagated to the dispatch.Task received by the executor.
+func TestDispatchTask_ScopeBoundaryFlowsToTask(t *testing.T) {
+	ex := &taskCapturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "scope boundary test",
+		Status:        "todo",
+		Assignee:      "kokuyou",
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if ex.capturedTask.ScopeBoundary != "diagnostic_only" {
+		t.Errorf("expected ScopeBoundary %q, got %q", "diagnostic_only", ex.capturedTask.ScopeBoundary)
+	}
+}
+
 // =============================================================================
 // Context cancellation → retryable (reset to todo) tests
 // =============================================================================

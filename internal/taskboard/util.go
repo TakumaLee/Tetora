@@ -73,6 +73,11 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		nextRetryAt = ""
 	}
 
+	scopeBoundary := fmt.Sprintf("%v", row["scope_boundary"])
+	if scopeBoundary == "<nil>" {
+		scopeBoundary = ""
+	}
+
 	return TaskBoard{
 		ID:            fmt.Sprintf("%v", row["id"]),
 		Project:       fmt.Sprintf("%v", row["project"]),
@@ -100,6 +105,7 @@ func parseTaskRow(row map[string]any) TaskBoard {
 		AllowDangerous: getFloat64(row, "allow_dangerous") != 0,
 		RetryPolicy:    retryPolicy,
 		NextRetryAt:    nextRetryAt,
+		ScopeBoundary:  scopeBoundary,
 	}
 }
 
@@ -147,6 +153,8 @@ func toSnakeCase(s string) string {
 		return "execution_count"
 	case "retryPolicy":
 		return "retry_policy"
+	case "scopeBoundary":
+		return "scope_boundary"
 	default:
 		return s
 	}

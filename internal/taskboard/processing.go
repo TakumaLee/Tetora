@@ -272,6 +272,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		Agent:          t.Assignee,
 		Source:         "taskboard",
 		AllowDangerous: t.AllowDangerous,
+		ScopeBoundary:  t.ScopeBoundary,
 		OnStart: func() {
 			// Status already set to 'doing' by scan() CAS claim.
 			// Touch updated_at to refresh stuck-detection timestamp.

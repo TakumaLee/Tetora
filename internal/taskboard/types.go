@@ -48,6 +48,7 @@ type TaskBoard struct {
 	AllowDangerous bool     `json:"allowDangerous"` // bypass dangerous-ops check when dispatching
 	RetryPolicy    string   `json:"retryPolicy"`    // JSON-encoded RetryPolicyDef; empty = use global
 	NextRetryAt    string   `json:"nextRetryAt,omitempty"`    // earliest time this task may be retried
+	ScopeBoundary  string   `json:"scopeBoundary,omitempty"` // diagnostic_only | implement_allowed | test_only | review_only
 }
 
 // TaskComment is a comment on a task.
