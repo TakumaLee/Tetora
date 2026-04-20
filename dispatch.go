@@ -597,6 +597,15 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 		task.Model = budgetResult.DowngradeModel
 	}
 
+	// Dedup guard: suppress repeated alerts for the same root cause within the rolling window.
+	if dr := dtypes.RunDedupGuard(ctx, cfg.BaseDir, task.Name); dr.Suppressed {
+		log.WarnCtx(ctx, "dedup guard suppressed task", "taskId", task.ID[:8], "name", task.Name, "reason", dr.Message)
+		return TaskResult{
+			ID: task.ID, Name: task.Name, Status: "suppressed",
+			Error: dr.Message, Model: task.Model, SessionID: task.SessionID,
+		}
+	}
+
 	providerName := resolveProviderName(cfg, task, agentName)
 
 	log.DebugCtx(ctx, "task start",
