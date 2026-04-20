@@ -3306,6 +3306,22 @@ func mcpBridgeTools() []mcpBridgeTool {
 			}`),
 		},
 		{
+			Name:        "tetora_search_history",
+			Description: "Search archived + active messages for a session. Use after compact to recall details that were archived.",
+			Method:      "GET",
+			Path:        "/sessions/{session_id}/history",
+			PathParams:  []string{"session_id"},
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"session_id": {"type": "string", "description": "Session ID to search within"},
+					"q":          {"type": "string", "description": "Optional content substring filter"},
+					"limit":      {"type": "integer", "description": "Max results (default 20, max 100)"}
+				},
+				"required": ["session_id"]
+			}`),
+		},
+		{
 			Name:        "tetora_notify",
 			Description: "Send a notification to the user via Discord/Telegram.",
 			Method:      "POST",
@@ -10587,10 +10603,10 @@ Conversation (%d messages):
 
 	lastOldID := oldMsgs[len(oldMsgs)-1].ID
 	delSQL := fmt.Sprintf(
-		`DELETE FROM session_messages WHERE session_id = '%s' AND id <= %d`,
+		`UPDATE session_messages SET archived = 1 WHERE session_id = '%s' AND id <= %d AND archived = 0`,
 		db.Escape(sessionID), lastOldID)
 	if err := db.Exec(dbPath, delSQL); err != nil {
-		return fmt.Errorf("delete old messages: %w", err)
+		return fmt.Errorf("archive old messages: %w", err)
 	}
 
 	now := time.Now().Format(time.RFC3339)
@@ -11148,7 +11164,7 @@ func countSessionMessages(cfg *Config, sessionID string) int {
 		return 0
 	}
 
-	sql := fmt.Sprintf("SELECT COUNT(*) as count FROM session_messages WHERE session_id = '%s'",
+	sql := fmt.Sprintf("SELECT COUNT(*) as count FROM session_messages WHERE session_id = '%s' AND archived = 0",
 		db.Escape(sessionID))
 	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
@@ -11171,7 +11187,7 @@ func getOldestMessages(cfg *Config, sessionID string, limit int) []sessionMessag
 		return nil
 	}
 
-	sql := fmt.Sprintf("SELECT id, session_id, role, content, created_at FROM session_messages WHERE session_id = '%s' ORDER BY id ASC LIMIT %d",
+	sql := fmt.Sprintf("SELECT id, session_id, role, content, created_at FROM session_messages WHERE session_id = '%s' AND archived = 0 ORDER BY id ASC LIMIT %d",
 		db.Escape(sessionID), limit)
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
@@ -11271,31 +11287,41 @@ func buildCompactionPrompt(messages []sessionMessage) string {
 	return sb.String()
 }
 
-// replaceWithSummary deletes old messages and inserts a compacted summary.
+// replaceWithSummary archives old messages and inserts a compacted summary.
 func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMessage, summary string) error {
 	dbPath := cfg.HistoryDB
 	if dbPath == "" {
 		return fmt.Errorf("historyDB not configured")
 	}
 
-	// Delete old messages (by ID range).
+	// Archive old messages (by ID range) — soft-delete keeps them for tetora_search_history.
 	if len(oldMessages) > 0 {
 		firstID := oldMessages[0].ID
 		lastID := oldMessages[len(oldMessages)-1].ID
 
-		deleteSQL := fmt.Sprintf("DELETE FROM session_messages WHERE session_id = '%s' AND id >= %d AND id <= %d",
+		archiveSQL := fmt.Sprintf("UPDATE session_messages SET archived = 1 WHERE session_id = '%s' AND id >= %d AND id <= %d AND archived = 0",
 			db.Escape(sessionID), firstID, lastID)
-		db.Query(dbPath, deleteSQL)
+		if err := db.Exec(dbPath, archiveSQL); err != nil {
+			log.Warn("replaceWithSummary: archive failed",
+				"sessionId", sessionID, "firstId", firstID, "lastId", lastID, "count", len(oldMessages), "error", err)
+			return fmt.Errorf("archive old messages: %w", err)
+		}
 
-		log.Debug("deleted old messages for session %s (id range %d-%d, count %d)", sessionID, firstID, lastID, len(oldMessages))
+		log.Debug("archived old messages",
+			"sessionId", sessionID, "firstId", firstID, "lastId", lastID, "count", len(oldMessages))
 	}
 
 	// Insert compacted message as 'system' role.
 	insertSQL := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'system', '[COMPACTED] %s', datetime('now'))",
 		db.Escape(sessionID), db.Escape(summary))
-	db.Query(dbPath, insertSQL)
+	if err := db.Exec(dbPath, insertSQL); err != nil {
+		log.Warn("replaceWithSummary: summary insert failed",
+			"sessionId", sessionID, "summaryLen", len(summary), "error", err)
+		return fmt.Errorf("insert compacted summary: %w", err)
+	}
 
-	log.Debug("inserted compacted summary for session %s (length %d)", sessionID, len(summary))
+	log.Debug("inserted compacted summary",
+		"sessionId", sessionID, "summaryLen", len(summary))
 
 	return nil
 }
@@ -11363,10 +11389,11 @@ func compactAllSessions(cfg *Config) {
 		os.Exit(1)
 	}
 
-	// Get all sessions with message count > threshold.
+	// Get all sessions with active (non-archived) message count > threshold.
 	sql := fmt.Sprintf(`
 		SELECT session_id, COUNT(*) as count
 		FROM session_messages
+		WHERE archived = 0
 		GROUP BY session_id
 		HAVING count > %d
 	`, compactionMaxMessages(cfg.Session.Compaction))

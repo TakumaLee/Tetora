@@ -67,7 +67,7 @@ func QueryLastAssistantMessage(dbPath, sessionID string) string {
 	}
 	sql := fmt.Sprintf(
 		`SELECT content FROM session_messages
-		 WHERE session_id = '%s' AND role = 'assistant'
+		 WHERE session_id = '%s' AND role = 'assistant' AND archived = 0
 		 ORDER BY id DESC LIMIT 1`,
 		db.Escape(sessionID))
 	rows, err := db.Query(dbPath, sql)
