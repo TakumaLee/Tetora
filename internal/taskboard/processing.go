@@ -1459,6 +1459,15 @@ Reply with ONLY a JSON object:
 // Returns empty string when no confident inference can be made.
 func inferScopeBoundary(text string) string {
 	lower := strings.ToLower(text)
+	// Implementation keywords take precedence: a task that also creates/fixes/implements
+	// should not be silently downgraded to diagnostic_only.
+	for _, kw := range []string{
+		"implement", "fix", "create", "add", "write", "develop", "migrate", "refactor",
+	} {
+		if strings.Contains(lower, kw) {
+			return ""
+		}
+	}
 	for _, kw := range []string{
 		"confirm", "check", "diagnose", "investigate",
 		"audit", "review", "scan", "verify", "inspect", "analyze",

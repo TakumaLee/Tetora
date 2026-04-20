@@ -175,3 +175,115 @@ func TestPreflightHeaderInjection_ClaudeCodeProvider(t *testing.T) {
 	}
 }
 
+// TestScopeBoundary_DiagnosticOnly verifies the SCOPE HEADER is prepended to
+// task.Prompt with the ⛔ marker for diagnostic_only tasks.
+func TestScopeBoundary_DiagnosticOnly(t *testing.T) {
+	cfg := minimalCfg()
+	task := &dispatch.Task{Prompt: "audit the db", ScopeBoundary: "diagnostic_only"}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+
+	if !strings.HasPrefix(task.Prompt, "⛔ SCOPE: diagnostic_only") {
+		t.Errorf("expected scope header at top of task.Prompt; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+	if !strings.Contains(task.Prompt, "禁止：Edit、Write、git commit") {
+		t.Error("diagnostic_only scope must list forbidden tools")
+	}
+}
+
+// TestScopeBoundary_ClaudeCodeProvider verifies scope injection works for
+// claude-code (which returns early from BuildTieredPrompt).
+func TestScopeBoundary_ClaudeCodeProvider(t *testing.T) {
+	cfg := minimalCfg()
+	task := &dispatch.Task{Prompt: "verify config", ScopeBoundary: "review_only"}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("claude-code"))
+
+	if !strings.HasPrefix(task.Prompt, "🔍 SCOPE: review_only") {
+		t.Errorf("claude-code: expected scope header; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+}
+
+// TestScopeBoundary_ImplementAllowed verifies the ⚠️ SCOPE header for implement_allowed.
+func TestScopeBoundary_ImplementAllowed(t *testing.T) {
+	cfg := minimalCfg()
+	task := &dispatch.Task{Prompt: "fix the bug", ScopeBoundary: "implement_allowed"}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+
+	if !strings.HasPrefix(task.Prompt, "⚠️ SCOPE: implement_allowed") {
+		t.Errorf("expected implement_allowed scope header at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+	if !strings.Contains(task.Prompt, "critical_files") {
+		t.Error("implement_allowed scope must mention critical_files constraint")
+	}
+	if task.ScopeBoundary != "implement_allowed" {
+		t.Errorf("BuildTieredPrompt must not mutate task.ScopeBoundary; got %q", task.ScopeBoundary)
+	}
+}
+
+// TestScopeBoundary_TestOnly verifies the ⚠️ SCOPE header for test_only.
+func TestScopeBoundary_TestOnly(t *testing.T) {
+	cfg := minimalCfg()
+	task := &dispatch.Task{Prompt: "write tests", ScopeBoundary: "test_only"}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+
+	if !strings.HasPrefix(task.Prompt, "⚠️ SCOPE: test_only") {
+		t.Errorf("expected test_only scope header at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+	if !strings.Contains(task.Prompt, "*.test.*") {
+		t.Error("test_only scope must mention allowed test file patterns")
+	}
+	if task.ScopeBoundary != "test_only" {
+		t.Errorf("BuildTieredPrompt must not mutate task.ScopeBoundary; got %q", task.ScopeBoundary)
+	}
+}
+
+// TestScopeBoundary_Empty verifies that an empty ScopeBoundary is a no-op.
+func TestScopeBoundary_Empty(t *testing.T) {
+	cfg := minimalCfg()
+	original := "do the thing"
+	task := &dispatch.Task{Prompt: original, ScopeBoundary: ""}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+
+	if strings.Contains(task.Prompt, "SCOPE:") {
+		t.Errorf("empty ScopeBoundary must not inject SCOPE header; got: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+}
+
+// TestScopeBoundary_Unknown verifies unknown values are downgraded to empty (no-op + warning).
+func TestScopeBoundary_Unknown(t *testing.T) {
+	cfg := minimalCfg()
+	task := &dispatch.Task{Prompt: "do the thing", ScopeBoundary: "wildly_unsafe"}
+	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+
+	if strings.Contains(task.Prompt, "SCOPE:") {
+		t.Error("unknown ScopeBoundary must not inject any SCOPE header")
+	}
+	if task.ScopeBoundary != "wildly_unsafe" {
+		t.Errorf("BuildTieredPrompt must not mutate task.ScopeBoundary; got %q", task.ScopeBoundary)
+	}
+}
+
+// TestScopeBoundary_PrependedAfterPreflight verifies the SCOPE HEADER ends up
+// at the very top of task.Prompt, overriding the preflight-header injection.
+func TestScopeBoundary_PrependedAfterPreflight(t *testing.T) {
+	dir := t.TempDir()
+	agentName := "tekkou"
+	if err := os.MkdirAll(filepath.Join(dir, "agents", agentName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preflight := "⛔ PRE-FLIGHT CHECK"
+	if err := os.WriteFile(filepath.Join(dir, "agents", agentName, "preflight-header.md"), []byte(preflight), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{BaseDir: dir}
+	task := &dispatch.Task{Prompt: "run health check", ScopeBoundary: "diagnostic_only"}
+	BuildTieredPrompt(cfg, task, agentName, classify.Standard, minimalDeps("claude-code"))
+
+	if !strings.HasPrefix(task.Prompt, "⛔ SCOPE: diagnostic_only") {
+		t.Errorf("SCOPE header must be at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
+	}
+	if !strings.Contains(task.Prompt, preflight) {
+		t.Error("preflight content must still be present in prompt")
+	}
+}
+

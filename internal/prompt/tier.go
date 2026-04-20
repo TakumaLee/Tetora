@@ -10,7 +10,17 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
 	"tetora/internal/knowledge"
+	"tetora/internal/log"
 )
+
+// validScopeBoundaries enumerates the allowed values for task.ScopeBoundary.
+// Empty is treated as "unset" (warning emitted, no injection).
+var validScopeBoundaries = map[string]bool{
+	"diagnostic_only":   true,
+	"implement_allowed": true,
+	"test_only":         true,
+	"review_only":       true,
+}
 
 // skillExtractionSection is injected into every dispatched agent prompt.
 // It mirrors workspace CLAUDE.md "Post-Task Skill Extraction" (authoritative source).
@@ -36,6 +46,43 @@ type Deps struct {
 	EstimateDirSize            func(dir string) int
 }
 
+// BuildScopeBlock returns the SCOPE HEADER text for a given scope_boundary value.
+// Empty string = no scope declared; returns "" so caller can no-op.
+// The header is designed to be prepended to the user prompt so it applies to all
+// providers (claude-code, codex-cli, API-based) uniformly, since those providers
+// differ in whether system prompt is honored.
+func BuildScopeBlock(scope string) string {
+	switch scope {
+	case "diagnostic_only":
+		return "⛔ SCOPE: diagnostic_only\n" +
+			"本任務禁止任何 production 檔案寫入。\n" +
+			"允許：Read、Grep、Glob、Bash（唯讀指令）、DB 查詢。\n" +
+			"禁止：Edit、Write、git commit、git push、任何 production 檔案修改。\n" +
+			"若發現可改善之處 → 記錄至 task comment，開新票，不在本任務實作。\n" +
+			"違反此範疇會被標記為 DONE_WITH_CONCERNS。\n"
+	case "test_only":
+		return "⚠️ SCOPE: test_only\n" +
+			"本任務僅允許測試檔案寫入。\n" +
+			"允許：寫測試檔案（*.test.*、*.spec.*、tests/、__tests__/）、執行測試、更新 test fixtures。\n" +
+			"禁止：修改 production 程式碼（非測試檔案）。\n" +
+			"違反此範疇會被標記為 DONE_WITH_CONCERNS。\n"
+	case "review_only":
+		return "🔍 SCOPE: review_only\n" +
+			"本任務僅允許讀取與審閱。\n" +
+			"允許：Read、Grep、Glob、產出 review 報告至 task comment。\n" +
+			"禁止：任何寫入操作（Edit、Write、git commit 等）。\n" +
+			"輸出：純文字 review report，附建議開票的 action items。\n" +
+			"違反此範疇會被標記為 DONE_WITH_CONCERNS。\n"
+	case "implement_allowed":
+		return "⚠️ SCOPE: implement_allowed\n" +
+			"本任務允許實作，但限於 spec 中 critical_files 指定範圍。\n" +
+			"允許：Edit、Write、git commit（限 critical_files）。\n" +
+			"禁止：超出 critical_files 範圍的大規模重構、非必要的週邊修改。\n" +
+			"仍需遵守 OUT OF SCOPE 清單。\n"
+	}
+	return ""
+}
+
 // BuildTieredPrompt constructs a system prompt based on request complexity.
 // It replaces the inline assembly in runTask() and runSingleTask().
 //
@@ -45,6 +92,18 @@ type Deps struct {
 //	Standard: full soul + 1 reflection + citation + rules index + knowledge index
 //	Complex:  full soul + 3 reflections + citation + writing style + full rules + full knowledge
 func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string, complexity classify.Complexity, deps Deps) {
+	// --- Scope Boundary validation (warn-only; never fail) ---
+	// Empty value is tolerated for backward compatibility with pre-existing jobs,
+	// but emits a warning so operators can see unconfigured tasks. Unknown values
+	// are also warned and treated as empty (no injection).
+	effectiveScope := task.ScopeBoundary
+	if effectiveScope == "" {
+		log.Debug("task missing scope_boundary", "taskId", task.ID, "name", task.Name, "agent", agentName, "source", task.Source)
+	} else if !validScopeBoundaries[effectiveScope] {
+		log.Warn("task has unknown scope_boundary", "taskId", task.ID, "name", task.Name, "scope", effectiveScope)
+		effectiveScope = ""
+	}
+
 	// --- Provider type check ---
 	// If the provider is "claude-code", only inject soul prompt and skip everything else.
 	// Claude Code reads project files (CLAUDE.md, workspace) natively — double injection causes confusion.
@@ -145,6 +204,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// These providers read project files (CLAUDE.md, workspace) natively; system prompt is not used.
 	if providerType == "claude-code" || providerType == "codex-cli" {
 		task.Prompt += skillExtractionSection
+		prependScopeBoundary(task, effectiveScope)
 		return
 	}
 
@@ -262,6 +322,24 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	totalMax := cfg.PromptBudget.TotalMaxOrDefault()
 	if len(task.SystemPrompt) > totalMax {
 		task.SystemPrompt = TruncateToChars(task.SystemPrompt, totalMax)
+	}
+
+	// --- 13. Scope Boundary (last, highest priority) ---
+	// Injected last so the SCOPE HEADER ends up at the top of both user prompt
+	// and system prompt, overriding any earlier guidance.
+	prependScopeBoundary(task, effectiveScope)
+}
+
+// prependScopeBoundary places the SCOPE HEADER at the top of both task.Prompt
+// and task.SystemPrompt. No-op if scope is empty or unrecognized.
+func prependScopeBoundary(task *dispatch.Task, scope string) {
+	block := BuildScopeBlock(scope)
+	if block == "" {
+		return
+	}
+	task.Prompt = block + "\n" + task.Prompt
+	if task.SystemPrompt != "" {
+		task.SystemPrompt = block + "\n" + task.SystemPrompt
 	}
 }
 
