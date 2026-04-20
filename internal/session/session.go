@@ -71,6 +71,7 @@ type SessionMessage struct {
 	TokensOut int     `json:"tokensOut"`
 	Model     string  `json:"model"`
 	TaskID    string  `json:"taskId"`
+	Archived  bool    `json:"archived"`
 	CreatedAt string  `json:"createdAt"`
 }
 
@@ -493,9 +494,11 @@ func QuerySessionsByPrefix(dbPath, prefix string) ([]Session, error) {
 	return sessions, nil
 }
 
+// QuerySessionMessages returns ALL messages for a session, including archived ones.
+// Use QueryActiveSessionMessages for the active-only view that context-building expects.
 func QuerySessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
+		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, archived, created_at
 		 FROM session_messages WHERE session_id = '%s' ORDER BY id ASC`,
 		db.Escape(sessionID))
 	rows, err := db.Query(dbPath, sql)
@@ -520,10 +523,16 @@ func SearchSessionHistory(dbPath, sessionID, query string, limit int) ([]Session
 	}
 	where := fmt.Sprintf("session_id = '%s'", db.Escape(sessionID))
 	if q := strings.TrimSpace(query); q != "" {
-		where += fmt.Sprintf(" AND content LIKE '%%%s%%'", db.Escape(q))
+		// Escape SQL quotes first, then LIKE wildcards (% and _) so a literal
+		// "50%" query doesn't turn into a full-table scan.
+		safe := db.Escape(q)
+		safe = strings.ReplaceAll(safe, `\`, `\\`)
+		safe = strings.ReplaceAll(safe, "%", `\%`)
+		safe = strings.ReplaceAll(safe, "_", `\_`)
+		where += fmt.Sprintf(" AND content LIKE '%%%s%%' ESCAPE '\\'", safe)
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
+		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, archived, created_at
 		 FROM session_messages WHERE %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 	rows, err := db.Query(dbPath, sql)
@@ -543,7 +552,7 @@ func SearchSessionHistory(dbPath, sessionID, query string, limit int) ([]Session
 // this filter keeps the active window tight while preserving history.
 func QueryActiveSessionMessages(dbPath, sessionID string) ([]SessionMessage, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, created_at
+		`SELECT id, session_id, role, content, cost_usd, tokens_in, tokens_out, model, task_id, archived, created_at
 		 FROM session_messages WHERE session_id = '%s' AND archived = 0 ORDER BY id ASC`,
 		db.Escape(sessionID))
 	rows, err := db.Query(dbPath, sql)
@@ -785,6 +794,7 @@ func SessionMessageFromRow(row map[string]any) SessionMessage {
 		TokensOut: db.Int(row["tokens_out"]),
 		Model:     db.Str(row["model"]),
 		TaskID:    db.Str(row["task_id"]),
+		Archived:  db.Int(row["archived"]) == 1,
 		CreatedAt: db.Str(row["created_at"]),
 	}
 }

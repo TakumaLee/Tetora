@@ -11091,7 +11091,7 @@ func buildCompactionPrompt(messages []sessionMessage) string {
 	return sb.String()
 }
 
-// replaceWithSummary deletes old messages and inserts a compacted summary.
+// replaceWithSummary archives old messages and inserts a compacted summary.
 func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMessage, summary string) error {
 	dbPath := cfg.HistoryDB
 	if dbPath == "" {
@@ -11105,17 +11105,27 @@ func replaceWithSummary(cfg *Config, sessionID string, oldMessages []sessionMess
 
 		archiveSQL := fmt.Sprintf("UPDATE session_messages SET archived = 1 WHERE session_id = '%s' AND id >= %d AND id <= %d AND archived = 0",
 			db.Escape(sessionID), firstID, lastID)
-		db.Query(dbPath, archiveSQL)
+		if err := db.Exec(dbPath, archiveSQL); err != nil {
+			log.Warn("replaceWithSummary: archive failed",
+				"sessionId", sessionID, "firstId", firstID, "lastId", lastID, "count", len(oldMessages), "error", err)
+			return fmt.Errorf("archive old messages: %w", err)
+		}
 
-		log.Debug("archived old messages for session %s (id range %d-%d, count %d)", sessionID, firstID, lastID, len(oldMessages))
+		log.Debug("archived old messages",
+			"sessionId", sessionID, "firstId", firstID, "lastId", lastID, "count", len(oldMessages))
 	}
 
 	// Insert compacted message as 'system' role.
 	insertSQL := fmt.Sprintf("INSERT INTO session_messages (session_id, role, content, created_at) VALUES ('%s', 'system', '[COMPACTED] %s', datetime('now'))",
 		db.Escape(sessionID), db.Escape(summary))
-	db.Query(dbPath, insertSQL)
+	if err := db.Exec(dbPath, insertSQL); err != nil {
+		log.Warn("replaceWithSummary: summary insert failed",
+			"sessionId", sessionID, "summaryLen", len(summary), "error", err)
+		return fmt.Errorf("insert compacted summary: %w", err)
+	}
 
-	log.Debug("inserted compacted summary for session %s (length %d)", sessionID, len(summary))
+	log.Debug("inserted compacted summary",
+		"sessionId", sessionID, "summaryLen", len(summary))
 
 	return nil
 }

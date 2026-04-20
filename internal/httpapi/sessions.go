@@ -263,7 +263,8 @@ func RegisterSessionRoutes(mux *http.ServeMux, d SessionDeps) {
 			}
 			msgs, err := d.SearchHistory(sessionID, q, limit)
 			if err != nil {
-				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
+				b, _ := json.Marshal(map[string]string{"error": err.Error()})
+				http.Error(w, string(b), http.StatusInternalServerError)
 				return
 			}
 			if msgs == nil {
