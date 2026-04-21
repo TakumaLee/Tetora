@@ -29,6 +29,7 @@ type Task struct {
 	ParentID       string   `json:"parentId,omitempty"`       // parent task ID
 	AllowDangerous bool     `json:"allowDangerous,omitempty"` // skip dangerous ops check
 	AllowedTools   []string `json:"allowedTools,omitempty"`   // CLI --allowedTools (skill-derived + explicit)
+	ScopeBoundary  string   `json:"scopeBoundary,omitempty"`  // diagnostic_only | implement_allowed | test_only | review_only
 
 	// Runtime fields (not serialized).
 	ChannelNotifier ChannelNotifier    `json:"-"` // messaging channel notifier

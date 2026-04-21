@@ -245,6 +245,16 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 	prompt += fmt.Sprintf("- Before starting: identify what is OUT OF SCOPE and note it in your %s. Prevent scope creep.\n", todoFile)
 	prompt += "- Use precise language in all outputs. Forbidden: 'should work', 'probably', 'might need', 'I think', 'seems to'. State facts or unknowns explicitly.\n"
 	prompt += "- Before marking task complete: verify that a reviewer can understand your changes without asking clarifying questions. If not, add missing context.\n"
+
+	// Scope boundary todos injection: resolve effective scope and require it in todos header.
+	effectiveTodosScope := t.ScopeBoundary
+	if effectiveTodosScope == "" {
+		effectiveTodosScope = inferScopeBoundary(t.Title + " " + t.Description)
+	}
+	if effectiveTodosScope != "" {
+		prompt += fmt.Sprintf("- Your %s MUST begin with a `## Scope Boundary` section declaring `**Type**: %s`.\n", todoFile, effectiveTodosScope)
+	}
+
 	prompt += fmt.Sprintf("\n## ⚠️ Git Commit Message — Hard Requirement\n\nYour commit message MUST be **exactly** the following string (copy verbatim, no changes):\n\n```\n[%s] %s\n```\n\nDo NOT paraphrase. Do NOT translate. Do NOT convert between Traditional/Simplified Chinese or any other script. The characters above are the only acceptable commit message. Any deviation will be rejected in review.\n", t.ID, t.Title)
 
 	// Inject per-task todo for retry awareness.
@@ -255,6 +265,15 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		todoPath := filepath.Join(todoDir, t.ID+".md")
 		if err := os.MkdirAll(todoDir, 0755); err != nil {
 			log.Warn("taskboard dispatch: failed to create todos dir", "task", t.ID, "error", err)
+		}
+		// Pre-seed todos file with scope boundary on first dispatch (before agent creates it).
+		if effectiveTodosScope != "" {
+			if _, statErr := os.Stat(todoPath); os.IsNotExist(statErr) {
+				seedContent := buildTodosSeedContent(t.Title, effectiveTodosScope)
+				if writeErr := os.WriteFile(todoPath, []byte(seedContent), 0644); writeErr != nil {
+					log.Warn("taskboard dispatch: failed to seed todos with scope boundary", "task", t.ID, "error", writeErr)
+				}
+			}
 		}
 		if todoContent, err := os.ReadFile(todoPath); err == nil && len(bytes.TrimSpace(todoContent)) > 0 {
 			prompt += fmt.Sprintf("\n\n## Your Previous Progress (%s)\n", todoFile)
@@ -272,6 +291,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		Agent:          t.Assignee,
 		Source:         "taskboard",
 		AllowDangerous: t.AllowDangerous,
+		ScopeBoundary:  t.ScopeBoundary,
 		OnStart: func() {
 			// Status already set to 'doing' by scan() CAS claim.
 			// Touch updated_at to refresh stuck-detection timestamp.
@@ -1428,4 +1448,60 @@ Reply with ONLY a JSON object:
 	}
 
 	return reviewResult{Verdict: reviewApprove, Comment: "review parse error", CostUSD: result.CostUSD}
+}
+
+// =============================================================================
+// Section: scope_boundary todos injection helpers
+// =============================================================================
+
+// inferScopeBoundary returns a scope_boundary value inferred from task text when
+// none is explicitly set. Matches keyword patterns in the title/description.
+// Returns empty string when no confident inference can be made.
+//
+// Inference is intentionally limited to diagnostic_only (the most conservative
+// scope). test_only / review_only / implement_allowed require explicit opt-in
+// to avoid silently constraining tasks that share vocabulary.
+func inferScopeBoundary(text string) string {
+	lower := strings.ToLower(text)
+	// Implementation keywords take precedence: a task that also creates/fixes/implements
+	// should not be silently downgraded to diagnostic_only.
+	for _, kw := range []string{
+		"implement", "fix", "create", "add", "write", "develop", "migrate", "refactor",
+	} {
+		if strings.Contains(lower, kw) {
+			return ""
+		}
+	}
+	for _, kw := range []string{
+		"confirm", "check", "diagnose", "investigate",
+		"audit", "review", "scan", "verify", "inspect", "analyze",
+	} {
+		if strings.Contains(lower, kw) {
+			return "diagnostic_only"
+		}
+	}
+	return ""
+}
+
+// buildTodosSeedContent generates the initial Markdown content for a todos file
+// pre-seeded with a scope boundary declaration.
+func buildTodosSeedContent(title, scope string) string {
+	rule := scopeBoundaryShortRule(scope)
+	return fmt.Sprintf("# Task: %s\n\n## Scope Boundary\n**Type**: %s\n**Rule**: %s\n\n## Execution Plan\n- [ ] (add execution plan items here)\n",
+		title, scope, rule)
+}
+
+// scopeBoundaryShortRule returns a one-line rule summary for a scope value.
+func scopeBoundaryShortRule(scope string) string {
+	switch scope {
+	case "diagnostic_only":
+		return "Read & analyze only. No writes to production files. Findings → task comment → new ticket."
+	case "implement_allowed":
+		return "Diagnosis + code changes + commits allowed within critical_files."
+	case "test_only":
+		return "May write test files only. No production code modifications."
+	case "review_only":
+		return "No writes. Output goes to comment only."
+	}
+	return ""
 }

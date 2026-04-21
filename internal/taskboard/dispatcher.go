@@ -581,6 +581,80 @@ func (d *Dispatcher) ResetStuckDoing() {
 	}
 }
 
+const partialDoneTriageThreshold = 48 * time.Hour
+
+// TriageStuckPartialDone flags partial-done tasks older than 48h for manual triage.
+// partial-done tasks require human review (work may be partially complete) so we
+// never auto-reset them — we only add a comment and notify once per 48h cycle.
+func (d *Dispatcher) TriageStuckPartialDone() {
+	cutoff := time.Now().Add(-partialDoneTriageThreshold).UTC().Format(time.RFC3339)
+
+	rows, err := db.Query(d.engine.dbPath, fmt.Sprintf(
+		`SELECT id, title FROM tasks WHERE status = 'partial-done' AND updated_at < '%s'`,
+		db.Escape(cutoff),
+	))
+	if err != nil {
+		log.Warn("taskboard dispatch: triageStuckPartialDone query failed", "error", err)
+		return
+	}
+
+	for _, row := range rows {
+		id := fmt.Sprintf("%v", row["id"]) // SQLite returns ids as strings in this codebase; safe for future UUID migration
+		title := fmt.Sprintf("%v", row["title"])
+
+		comment := fmt.Sprintf(
+			"[auto-triage] Stuck in 'partial-done' for >%s. Manual triage required: confirm work done → mark done/closed, or reopen if incomplete.",
+			partialDoneTriageThreshold,
+		)
+		if _, err := d.engine.AddComment(id, "system", comment); err != nil {
+			log.Warn("taskboard dispatch: failed to add partial-done triage comment", "id", id, "error", err)
+			continue
+		}
+
+		// Touch updated_at so this task is not re-flagged until another 48h have elapsed.
+		// Must succeed before notifying — prevents duplicate Discord pings on transient DB errors.
+		if err := db.Exec(d.engine.dbPath, fmt.Sprintf(
+			`UPDATE tasks SET updated_at = '%s' WHERE id = '%s' AND status = 'partial-done'`,
+			db.Escape(time.Now().UTC().Format(time.RFC3339)),
+			db.Escape(id),
+		)); err != nil {
+			log.Warn("taskboard dispatch: failed to advance updated_at for partial-done triage, skipping notify", "id", id, "error", err)
+			continue
+		}
+
+		log.Warn("taskboard dispatch: partial-done task needs triage", "id", id, "title", title)
+		d.notifyPartialDoneTriage(id, title)
+	}
+}
+
+func (d *Dispatcher) notifyPartialDoneTriage(taskID, title string) {
+	if d.deps.Discord == nil {
+		return
+	}
+	ch := d.deps.DiscordNotifyChannelID
+	if ch == "" {
+		return
+	}
+
+	shortID := taskID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+
+	embed := discord.Embed{
+		Title: "⚠️ Partial-Done Task Needs Triage",
+		Description: fmt.Sprintf(
+			"Task **%s** (`%s`) has been in `partial-done` for >%s.\n"+
+				"Manual triage required: confirm work is done or reopen.",
+			title, shortID, partialDoneTriageThreshold,
+		),
+		Color:     0xFFA500, // orange
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Footer:    &discord.EmbedFooter{Text: "tetora taskboard"},
+	}
+	d.deps.Discord.SendEmbed(ch, embed)
+}
+
 func (d *Dispatcher) notifyStaleReset(taskID, title string, threshold time.Duration) {
 	if d.deps.Discord == nil {
 		return
@@ -641,6 +715,7 @@ func (d *Dispatcher) notifyStalled(taskID, title string, tokensIn int, errMsg st
 
 func (d *Dispatcher) scan() {
 	d.ResetStuckDoing()
+	d.TriageStuckPartialDone()
 	d.scanReviews()
 	d.healthCheck()
 

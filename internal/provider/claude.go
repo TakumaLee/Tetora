@@ -361,6 +361,14 @@ func buildResultFromStream(resultMsg *claudeStreamMsg, stderr []byte, exitCode i
 		if pr.Error == "" || pr.Error == "success" {
 			pr.Error = "error_during_execution"
 		}
+		// Surface Claude quota exhaustion text so IsTransientError can match it.
+		if pr.Error == "error_during_execution" && strings.Contains(strings.ToLower(resultMsg.Result), "hit your limit") {
+			msg := strings.TrimSpace(resultMsg.Result)
+			if len(msg) > 300 {
+				msg = msg[:300]
+			}
+			pr.Error = msg
+		}
 	}
 	if !pr.IsError && pr.TokensIn == 0 && pr.TokensOut == 0 && pr.CostUSD == 0 && strings.TrimSpace(pr.Output) == "" {
 		pr.IsError = true
@@ -562,6 +570,14 @@ func buildResultFromParsed(co claudeOutput) *Result {
 		// Normalise to avoid surfacing "success" as the error message.
 		if r.Error == "" || r.Error == "success" {
 			r.Error = "error_during_execution"
+		}
+		// Surface Claude quota exhaustion text so IsTransientError can match it.
+		if r.Error == "error_during_execution" && strings.Contains(strings.ToLower(co.Result), "hit your limit") {
+			msg := strings.TrimSpace(co.Result)
+			if len(msg) > 300 {
+				msg = msg[:300]
+			}
+			r.Error = msg
 		}
 	} else if r.TokensIn == 0 && r.TokensOut == 0 && co.CostUSD == 0 && strings.TrimSpace(co.Result) == "" {
 		r.IsError = true

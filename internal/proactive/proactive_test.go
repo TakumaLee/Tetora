@@ -314,3 +314,105 @@ func TestGet30DayDailyCosts_ColumnByName(t *testing.T) {
 		}
 	}
 }
+
+// TestGetSkippedConcurrentToday verifies that only skipped_concurrent_limit
+// records are counted, and error/timeout/success are excluded.
+func TestGetSkippedConcurrentToday(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "test.db")
+	schema := `CREATE TABLE IF NOT EXISTS job_runs (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  job_id TEXT NOT NULL DEFAULT '',
+	  name TEXT NOT NULL DEFAULT '',
+	  source TEXT NOT NULL DEFAULT '',
+	  started_at TEXT NOT NULL,
+	  finished_at TEXT NOT NULL DEFAULT '',
+	  status TEXT NOT NULL DEFAULT '',
+	  cost_usd REAL DEFAULT 0,
+	  tokens_in INTEGER DEFAULT 0
+	);`
+	if err := db.Exec(dbPath, schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	insert := func(status string) {
+		sql := fmt.Sprintf(
+			`INSERT INTO job_runs (job_id, name, source, started_at, status) VALUES ('j','n','s','%sT10:00:00Z','%s')`,
+			today, status,
+		)
+		if err := db.Exec(dbPath, sql); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	insert("skipped_concurrent_limit")
+	insert("skipped_concurrent_limit")
+	insert("skipped_concurrent_limit")
+	insert("error")
+	insert("timeout")
+	insert("success")
+
+	e := newEngineWithRules(nil, Deps{})
+	e.cfg.HistoryDB = dbPath
+
+	n, err := e.getSkippedConcurrentToday()
+	if err != nil {
+		t.Fatalf("getSkippedConcurrentToday: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("got %v, want 3", n)
+	}
+}
+
+// TestResolveTemplate_SkippedToday verifies that {{.SkippedToday}} is
+// substituted with the skipped_concurrent_limit count and does not appear
+// in the failure count ({{.FailedTasksToday}}).
+func TestResolveTemplate_SkippedToday(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "test.db")
+	schema := `CREATE TABLE IF NOT EXISTS job_runs (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  job_id TEXT NOT NULL DEFAULT '',
+	  name TEXT NOT NULL DEFAULT '',
+	  source TEXT NOT NULL DEFAULT '',
+	  started_at TEXT NOT NULL,
+	  finished_at TEXT NOT NULL DEFAULT '',
+	  status TEXT NOT NULL DEFAULT '',
+	  cost_usd REAL DEFAULT 0,
+	  tokens_in INTEGER DEFAULT 0
+	);`
+	if err := db.Exec(dbPath, schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	insert := func(status string) {
+		sql := fmt.Sprintf(
+			`INSERT INTO job_runs (job_id, name, source, started_at, status) VALUES ('j','n','s','%sT10:00:00Z','%s')`,
+			today, status,
+		)
+		if err := db.Exec(dbPath, sql); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	// 5 real failures, 45 skipped (task requirements: success criteria)
+	for range 5 {
+		insert("error")
+	}
+	for range 45 {
+		insert("skipped_concurrent_limit")
+	}
+
+	e := newEngineWithRules(nil, Deps{})
+	e.cfg.HistoryDB = dbPath
+
+	rule := config.ProactiveRule{Name: "failed-task-alert"}
+	result := e.ResolveTemplate("失敗：{{.FailedTasksToday}} 件｜排程衝突：{{.SkippedToday}} 件", rule)
+
+	if !strings.Contains(result, "失敗：5 件") {
+		t.Errorf("FailedTasksToday wrong in %q", result)
+	}
+	if !strings.Contains(result, "排程衝突：45 件") {
+		t.Errorf("SkippedToday wrong in %q", result)
+	}
+}

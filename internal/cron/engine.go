@@ -67,6 +67,7 @@ type TaskConfig struct {
 	PermissionMode string   `json:"permissionMode,omitempty"`
 	MCP            string   `json:"mcp,omitempty"`
 	AddDirs        []string `json:"addDirs,omitempty"`
+	ScopeBoundary  string   `json:"scopeBoundary,omitempty"` // diagnostic_only | implement_allowed | test_only | review_only
 }
 
 // --- Runtime Job State ---
@@ -950,6 +951,7 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 		PermissionMode: j.Task.PermissionMode,
 		MCP:            j.Task.MCP,
 		AddDirs:        j.Task.AddDirs,
+		ScopeBoundary:  j.Task.ScopeBoundary,
 		Source:         jobSource,
 	}
 	if ce.env.FillDefaults != nil {

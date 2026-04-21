@@ -46,6 +46,7 @@ type TaskConfig struct {
 	PermissionMode string   `json:"permissionMode,omitempty"`
 	MCP            []string `json:"mcp,omitempty"`
 	AddDirs        []string `json:"addDirs,omitempty"`
+	ScopeBoundary  string   `json:"scopeBoundary,omitempty"` // diagnostic_only | implement_allowed | test_only | review_only
 }
 
 // JobStatus mirrors CronJobInfo (API response from /cron).

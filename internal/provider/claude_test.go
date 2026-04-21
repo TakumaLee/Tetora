@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +89,58 @@ func TestParseClaudeOutput_IsErrorWithSuccessSubtype(t *testing.T) {
 	}
 	if r.Error == "success" {
 		t.Errorf("error message must not be 'success', got %q", r.Error)
+	}
+}
+
+func TestBuildResultFromStream_QuotaExhaustion_ErrorSurfaced(t *testing.T) {
+	// Claude CLI returns is_error=true with subtype="error_during_execution" and
+	// the quota message in result. The message must be surfaced to Error so the
+	// dispatch layer can detect it via IsTransientError.
+	msg := &claudeStreamMsg{
+		Type:    "result",
+		Subtype: "error_during_execution",
+		IsError: true,
+		Result:  "You've hit your limit. Resets at 2026-04-20T12:00:00Z.",
+	}
+	r := buildResultFromStream(msg, nil, 0)
+	if !r.IsError {
+		t.Fatal("expected IsError=true")
+	}
+	if !strings.Contains(strings.ToLower(r.Error), "hit your limit") {
+		t.Errorf("expected quota message surfaced in Error, got %q", r.Error)
+	}
+	if r.Error == "error_during_execution" {
+		t.Error("quota message must replace the generic sentinel")
+	}
+}
+
+func TestBuildResultFromParsed_QuotaExhaustion_ErrorSurfaced(t *testing.T) {
+	co := claudeOutput{
+		Type:    "result",
+		Subtype: "error_during_execution",
+		IsError: true,
+		Result:  "You've hit your limit. Resets at 2026-04-20T12:00:00Z.",
+	}
+	r := buildResultFromParsed(co)
+	if !r.IsError {
+		t.Fatal("expected IsError=true")
+	}
+	if !strings.Contains(strings.ToLower(r.Error), "hit your limit") {
+		t.Errorf("expected quota message surfaced in Error, got %q", r.Error)
+	}
+	if r.Error == "error_during_execution" {
+		t.Error("quota message must replace the generic sentinel")
+	}
+}
+
+func TestIsTransientError_QuotaMessage(t *testing.T) {
+	if !IsTransientError("You've hit your limit. Resets at 2026-04-20T12:00:00Z.") {
+		t.Error("quota exhaustion message must be classified as transient")
+	}
+}
+
+func TestIsTransientError_ErrorDuringExecutionNonTransient(t *testing.T) {
+	if IsTransientError("error_during_execution") {
+		t.Error("bare 'error_during_execution' sentinel must not be transient (no retry signal)")
 	}
 }

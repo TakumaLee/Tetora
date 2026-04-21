@@ -15,6 +15,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/cron"
 	"tetora/internal/db"
+	"tetora/internal/dedupguard"
 	"tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/log"
@@ -58,6 +59,7 @@ type Engine struct {
 	wg        sync.WaitGroup
 	sem       chan struct{} // shared semaphore for top-level tasks
 	childSem  chan struct{} // shared semaphore for child tasks
+	guard     *dedupguard.Guard
 }
 
 // RuleInfo is the public view of a rule (for API).
@@ -83,6 +85,10 @@ func New(cfg *config.Config, broker *dispatch.Broker, sem, childSem chan struct{
 		stopCh:    make(chan struct{}),
 		sem:       sem,
 		childSem:  childSem,
+		guard: dedupguard.New(
+			filepath.Join(cfg.BaseDir, "workspace", "config", "dedup-guard.json"),
+			filepath.Join(cfg.BaseDir, "runtime", "dedup_guard.db"),
+		),
 	}
 }
 
@@ -516,6 +522,34 @@ func (e *Engine) getFailedTasksToday() (float64, error) {
 	return 0, nil
 }
 
+// getSkippedConcurrentToday returns the number of skipped_concurrent_limit runs today.
+func (e *Engine) getSkippedConcurrentToday() (float64, error) {
+	if e.cfg.HistoryDB == "" {
+		return 0, fmt.Errorf("historyDB not configured")
+	}
+
+	today := time.Now().Format("2006-01-02")
+	sql := fmt.Sprintf("SELECT COUNT(*) FROM job_runs WHERE started_at LIKE '%s%%' AND status = '%s'", db.Escape(today), history.StatusSkippedConcurrentLimit)
+
+	rows, err := db.Query(e.cfg.HistoryDB, sql)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	for _, v := range rows[0] {
+		switch val := v.(type) {
+		case int64:
+			return float64(val), nil
+		case float64:
+			return val, nil
+		}
+	}
+	return 0, nil
+}
+
 // --- Action Execution ---
 
 // executeAction performs the action defined in a rule.
@@ -535,6 +569,16 @@ func (e *Engine) executeAction(ctx context.Context, rule config.ProactiveRule) e
 			if interval, err := time.ParseDuration(rule.Trigger.Interval); err == nil {
 				e.SetCooldown(rule.Name, interval)
 			}
+		}
+	}
+
+	// Dedup Guard: suppress repeated alerts for the same root cause.
+	if e.guard != nil {
+		if suppressed, err := e.guard.Check(rule.Name); err != nil {
+			log.Warn("dedupguard check failed", "rule", rule.Name, "error", err)
+		} else if suppressed {
+			log.Info("dedupguard: suppressed repeated diagnosis", "rule", rule.Name)
+			return nil
 		}
 	}
 
@@ -868,6 +912,9 @@ func (e *Engine) ResolveTemplate(tmpl string, rule config.ProactiveRule) string 
 	}
 	if failedTasks, err := e.getFailedTasksToday(); err == nil {
 		vars["FailedTasksToday"] = fmt.Sprintf("%.0f", failedTasks)
+	}
+	if skipped, err := e.getSkippedConcurrentToday(); err == nil {
+		vars["SkippedToday"] = fmt.Sprintf("%.0f", skipped)
 	}
 
 	// Add trigger-specific variables.

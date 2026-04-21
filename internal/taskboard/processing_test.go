@@ -1470,6 +1470,44 @@ func TestDispatchTask_PromptContainsTaskIDTitle(t *testing.T) {
 	}
 }
 
+// taskCapturingExecutor records the full dispatch.Task passed to RunTask.
+type taskCapturingExecutor struct {
+	capturedTask dispatch.Task
+	result       dispatch.TaskResult
+}
+
+func (c *taskCapturingExecutor) RunTask(_ context.Context, task dispatch.Task, _ string) dispatch.TaskResult {
+	c.capturedTask = task
+	return c.result
+}
+
+// TestDispatchTask_ScopeBoundaryFlowsToTask verifies that ScopeBoundary set on a
+// TaskBoard is propagated to the dispatch.Task received by the executor.
+func TestDispatchTask_ScopeBoundaryFlowsToTask(t *testing.T) {
+	ex := &taskCapturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "scope boundary test",
+		Status:        "todo",
+		Assignee:      "kokuyou",
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if ex.capturedTask.ScopeBoundary != "diagnostic_only" {
+		t.Errorf("expected ScopeBoundary %q, got %q", "diagnostic_only", ex.capturedTask.ScopeBoundary)
+	}
+}
+
 // =============================================================================
 // Context cancellation → retryable (reset to todo) tests
 // =============================================================================
@@ -1785,6 +1823,247 @@ func TestDispatchTask_ZeroTokensNoTimeout_NotStalled(t *testing.T) {
 }
 
 // =============================================================================
+// inferScopeBoundary unit tests
+// =============================================================================
+
+func TestInferScopeBoundary_DiagnosticKeywords(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"confirm the API response format", "diagnostic_only"},
+		{"check if migration applied", "diagnostic_only"},
+		{"diagnose slow query in production", "diagnostic_only"},
+		{"investigate memory leak", "diagnostic_only"},
+		{"audit permission model", "diagnostic_only"},
+		{"review current architecture", "diagnostic_only"},
+		{"scan for unused imports", "diagnostic_only"},
+		{"verify build passes on CI", "diagnostic_only"},
+		{"inspect network request headers", "diagnostic_only"},
+		{"analyze performance bottleneck", "diagnostic_only"},
+		// case-insensitive
+		{"CONFIRM deployment succeeded", "diagnostic_only"},
+		{"Check disk usage", "diagnostic_only"},
+	}
+	for _, c := range cases {
+		got := inferScopeBoundary(c.input)
+		if got != c.want {
+			t.Errorf("inferScopeBoundary(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
+func TestInferScopeBoundary_NoMatch(t *testing.T) {
+	cases := []string{
+		"implement new feature",
+		"add unit tests for auth module",
+		"refactor database layer",
+		"fix pagination bug",
+		"",
+	}
+	for _, input := range cases {
+		got := inferScopeBoundary(input)
+		if got != "" {
+			t.Errorf("inferScopeBoundary(%q) = %q, want empty", input, got)
+		}
+	}
+}
+
+// =============================================================================
+// scope_boundary todos injection tests
+// =============================================================================
+
+// TestDispatchTask_ExplicitScope_SeedsTodosFile verifies that when a task has
+// scope_boundary set, dispatchTask pre-creates the todos file at AgentsDir with
+// a ## Scope Boundary section.
+func TestDispatchTask_ExplicitScope_SeedsTodosFile(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentName := "kokuyou"
+
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	cfg := &config.Config{AgentsDir: agentsDir}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "diagnose slow endpoint",
+		Status:        "todo",
+		Assignee:      agentName,
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	// Verify todos file was created at AgentsDir path.
+	todoPath := filepath.Join(agentsDir, agentName, "todos", task.ID+".md")
+	content, err := os.ReadFile(todoPath)
+	if err != nil {
+		t.Fatalf("expected todos file at %s, got error: %v", todoPath, err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "## Scope Boundary") {
+		t.Errorf("todos file missing ## Scope Boundary section; got:\n%s", contentStr)
+	}
+	if !strings.Contains(contentStr, "**Type**: diagnostic_only") {
+		t.Errorf("todos file missing Type declaration; got:\n%s", contentStr)
+	}
+}
+
+// TestDispatchTask_InferredScope_SeedsTodosFile verifies that when scope_boundary
+// is empty but the title contains a diagnostic keyword, the inferred scope is
+// used to pre-seed the todos file.
+func TestDispatchTask_InferredScope_SeedsTodosFile(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentName := "kokuyou"
+
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	cfg := &config.Config{AgentsDir: agentsDir}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "check if service is healthy",
+		Status:   "todo",
+		Assignee: agentName,
+		// ScopeBoundary intentionally empty — should be inferred from title
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	todoPath := filepath.Join(agentsDir, agentName, "todos", task.ID+".md")
+	content, err := os.ReadFile(todoPath)
+	if err != nil {
+		t.Fatalf("expected todos file at %s (inferred scope), got error: %v", todoPath, err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "**Type**: diagnostic_only") {
+		t.Errorf("todos file missing inferred scope Type; got:\n%s", contentStr)
+	}
+}
+
+// TestDispatchTask_NoScope_NoTodosSeeding verifies that when scope_boundary is
+// empty and the title contains no diagnostic keywords, no todos file is created.
+func TestDispatchTask_NoScope_NoTodosSeeding(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentName := "kokuyou"
+
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	cfg := &config.Config{AgentsDir: agentsDir}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:    "implement new payment flow",
+		Status:   "todo",
+		Assignee: agentName,
+		// ScopeBoundary empty, no diagnostic keyword in title
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	todoPath := filepath.Join(agentsDir, agentName, "todos", task.ID+".md")
+	if _, err := os.Stat(todoPath); err == nil {
+		content, _ := os.ReadFile(todoPath)
+		t.Errorf("expected no todos pre-seed when scope unknown; file exists with content:\n%s", string(content))
+	}
+}
+
+// TestDispatchTask_ScopeInPromptInstruction verifies that when scope_boundary is
+// set, the prompt includes an instruction to declare scope in the todos header.
+func TestDispatchTask_ScopeInPromptInstruction(t *testing.T) {
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "add tests for auth flow",
+		Status:        "todo",
+		Assignee:      "kokuyou",
+		ScopeBoundary: "test_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	if !strings.Contains(ex.capturedPrompt, "## Scope Boundary") {
+		t.Errorf("prompt does not contain scope boundary instruction; prompt:\n%s", ex.capturedPrompt)
+	}
+	if !strings.Contains(ex.capturedPrompt, "test_only") {
+		t.Errorf("prompt does not mention test_only scope; prompt:\n%s", ex.capturedPrompt)
+	}
+}
+
+// TestDispatchTask_ExistingTodosNotOverwritten verifies that on retry (todos file
+// already exists with agent progress), the pre-seed logic does NOT overwrite the file.
+func TestDispatchTask_ExistingTodosNotOverwritten(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentName := "kokuyou"
+
+	// Pre-create todos file simulating agent progress from a previous run.
+	todoDir := filepath.Join(agentsDir, agentName, "todos")
+	if err := os.MkdirAll(todoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	cfg := &config.Config{AgentsDir: agentsDir}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "diagnose cache miss",
+		Status:        "todo",
+		Assignee:      agentName,
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	// Write existing agent progress BEFORE dispatch.
+	existingContent := "# Task: diagnose cache miss\n\n## Execution Plan\n- [x] Step 1 done\n- [ ] Step 2 pending\n"
+	todoPath := filepath.Join(todoDir, task.ID+".md")
+	if err := os.WriteFile(todoPath, []byte(existingContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d.dispatchTask(task)
+
+	// File should still contain the original agent progress, not be overwritten.
+	content, err := os.ReadFile(todoPath)
+	if err != nil {
+		t.Fatalf("read todos file: %v", err)
+	}
+	if string(content) != existingContent {
+		t.Errorf("existing todos file was overwritten; got:\n%s\nwant:\n%s", string(content), existingContent)
+	}
+}
+
+// =============================================================================
 // isTimeoutError unit tests
 // =============================================================================
 
@@ -1810,5 +2089,90 @@ func TestIsTimeoutError_Patterns(t *testing.T) {
 		if got != c.want {
 			t.Errorf("isTimeoutError(%q, %d) = %v, want %v", c.err, c.exitCode, got, c.want)
 		}
+	}
+}
+
+// =============================================================================
+// TriageStuckPartialDone tests
+// =============================================================================
+
+// backdateTask sets a task's updated_at to the given time via raw SQL.
+func backdateTask(t *testing.T, d *Dispatcher, taskID string, ts time.Time) {
+	t.Helper()
+	if err := db.Exec(d.engine.dbPath, fmt.Sprintf(
+		"UPDATE tasks SET updated_at = '%s' WHERE id = '%s'",
+		db.Escape(ts.UTC().Format(time.RFC3339)), db.Escape(taskID),
+	)); err != nil {
+		t.Fatalf("backdateTask: %v", err)
+	}
+}
+
+// TestTriageStuckPartialDone_HappyPath verifies that when a partial-done task has
+// been stuck for >48h, the UPDATE succeeds and Discord is notified exactly once.
+func TestTriageStuckPartialDone_HappyPath(t *testing.T) {
+	disc := &mockDiscordSender{}
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Discord:                disc,
+		DiscordNotifyChannelID: "chan-triage",
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:  "stuck partial-done task",
+		Status: "partial-done",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	backdateTask(t, d, task.ID, time.Now().Add(-49*time.Hour))
+
+	d.TriageStuckPartialDone()
+
+	if disc.embedCount() != 1 {
+		t.Errorf("expected 1 Discord embed (notify once), got %d", disc.embedCount())
+	}
+
+	// Verify updated_at was advanced so the next sweep won't re-flag this task.
+	updated, err := d.engine.GetTask(task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	updatedAt, _ := time.Parse(time.RFC3339, updated.UpdatedAt)
+	if time.Since(updatedAt) > time.Minute {
+		t.Errorf("updated_at was not advanced; still old: %s", updated.UpdatedAt)
+	}
+}
+
+// TestTriageStuckPartialDone_UpdateFailure_NoNotify verifies that when the
+// updated_at UPDATE fails (e.g. DB locked), notifyPartialDoneTriage is NOT
+// invoked — preventing repeated Discord pings on every sweep cycle.
+func TestTriageStuckPartialDone_UpdateFailure_NoNotify(t *testing.T) {
+	disc := &mockDiscordSender{}
+	d := newTestDispatcher(t, config.TaskBoardConfig{}, DispatcherDeps{
+		Discord:                disc,
+		DiscordNotifyChannelID: "chan-triage",
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:  "stuck partial-done task update-fail",
+		Status: "partial-done",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	backdateTask(t, d, task.ID, time.Now().Add(-49*time.Hour))
+
+	// Install a BEFORE UPDATE trigger that makes all UPDATE on tasks fail.
+	// AddComment (INSERT to task_comments) is unaffected, so only the
+	// updated_at UPDATE is blocked — isolating the code path under test.
+	if err := db.Exec(d.engine.dbPath,
+		"CREATE TRIGGER block_tasks_update BEFORE UPDATE ON tasks BEGIN SELECT RAISE(FAIL, 'db-locked-for-test'); END;",
+	); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	d.TriageStuckPartialDone()
+
+	if disc.embedCount() != 0 {
+		t.Errorf("expected 0 Discord embeds when UPDATE fails, got %d (duplicate notification risk)", disc.embedCount())
 	}
 }
