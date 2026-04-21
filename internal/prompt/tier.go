@@ -25,11 +25,12 @@ var validScopeBoundaries = map[string]bool{
 // skillExtractionSection is injected into every dispatched agent prompt.
 // It mirrors workspace CLAUDE.md "Post-Task Skill Extraction" (authoritative source).
 // Conditions mirror ShouldExtractSkill in internal/skill/skill.go.
-const skillExtractionSection = "\n\n## Post-Task Skill Extraction\n" +
+const skillExtractionSection = "\n\n<!-- Post-Task Skill Extraction\n" +
 	"完成任務後，符合以下任一條件時，提取 skill 到 `skills/learned/{name}/`：\n" +
 	"- 5+ tool calls、error recovery、無既有 skill 的新 workflow、user 糾正過\n" +
 	"- 格式：SKILL.md + metadata.json，寫到 `skills/learned/{name}/`\n" +
-	"- 一次性操作或已有類似 skill → 不提取"
+	"- 一次性操作或已有類似 skill → 不提取\n" +
+	"-->"
 
 // Deps holds root-level function callbacks required by BuildTieredPrompt.
 // All fields are required; BuildTieredPrompt panics if any are nil.
