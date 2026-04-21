@@ -19199,6 +19199,35 @@ func TestReplaceWithSummary(t *testing.T) {
 	}
 }
 
+// TestReplaceWithSummary_PropagatesArchiveError exercises the soft-delete
+// write path: when the target DB has no session_messages table, the UPDATE
+// inside replaceWithSummary must return an error rather than swallowing it.
+func TestReplaceWithSummary_PropagatesArchiveError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "missing-schema.db")
+	// Deliberately do NOT call initSessionDB — session_messages does not exist.
+
+	cfg := &Config{HistoryDB: dbPath}
+	sessionID := "test-session-err"
+
+	oldMessages := []sessionMessage{{ID: 1}, {ID: 5}}
+	if err := replaceWithSummary(cfg, sessionID, oldMessages, "summary"); err == nil {
+		t.Fatal("expected error from replaceWithSummary when table is missing, got nil")
+	}
+}
+
+// TestReplaceWithSummary_PropagatesInsertError covers the path where archive
+// succeeds (no oldMessages) but the summary INSERT hits a DB error.
+func TestReplaceWithSummary_PropagatesInsertError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "missing-schema.db")
+
+	cfg := &Config{HistoryDB: dbPath}
+	if err := replaceWithSummary(cfg, "test-session-err", nil, "summary"); err == nil {
+		t.Fatal("expected error from replaceWithSummary when insert target table is missing, got nil")
+	}
+}
+
 func TestSessionExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
