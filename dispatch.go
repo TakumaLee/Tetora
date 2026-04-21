@@ -1045,6 +1045,9 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		close(eventCh)
 	}
 
+	// Last-line defense: strip echoed prompt headers before any downstream surface (history, webhooks, Discord, HTTP) sees the output.
+	result.Output = stripPostTaskSections(result.Output)
+
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
 		if !isQueueFull(historyDBForTask(cfg, task), cfg.OfflineQueue.MaxItemsOrDefault()) {
@@ -4803,6 +4806,23 @@ func parseCompletionStatus(output string) (CompletionStatus, string, string) {
 	}
 
 	return status, concerns, blockedReason
+}
+
+// stripPostTaskSections strips server-side prompt headers that some models echo back despite silence instructions.
+func stripPostTaskSections(output string) string {
+	markers := []string{
+		"## Post-Task Skill Extraction",
+		"## 反省",
+		"## Self-Evaluation",
+	}
+	for _, m := range markers {
+		if idx := strings.Index(output, "\n"+m); idx != -1 {
+			output = strings.TrimRight(output[:idx], " \t\n\r")
+		} else if strings.HasPrefix(output, m) {
+			return ""
+		}
+	}
+	return output
 }
 
 // appConfigToSkillCfg projects the dispatch Config onto the subset
