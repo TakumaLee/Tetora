@@ -1,7 +1,10 @@
 package skill
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -273,5 +276,96 @@ exec(e)
 	}
 	if decoded.Score != 100 {
 		t.Errorf("decoded score: expected 100, got %d", decoded.Score)
+	}
+}
+
+func TestToolSkillLoad_Success(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "tdd")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	doc := "---\nname: tdd\n---\n\nRed green refactor.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := &AppConfig{WorkspaceDir: dir}
+	input := json.RawMessage(`{"name":"tdd"}`)
+	out, err := ToolSkillLoad(context.Background(), cfg, input)
+	if err != nil {
+		t.Fatalf("ToolSkillLoad: %v", err)
+	}
+	var result struct {
+		Name    string `json:"name"`
+		Path    string `json:"path"`
+		Content string `json:"content"`
+		Bytes   int    `json:"bytes"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if result.Name != "tdd" {
+		t.Errorf("name = %q, want tdd", result.Name)
+	}
+	if !strings.Contains(result.Content, "Red green refactor.") {
+		t.Errorf("content missing expected body; got %q", result.Content)
+	}
+	if result.Bytes != len(doc) {
+		t.Errorf("bytes = %d, want %d", result.Bytes, len(doc))
+	}
+}
+
+func TestToolSkillLoad_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &AppConfig{WorkspaceDir: dir}
+	input := json.RawMessage(`{"name":"nonexistent"}`)
+	_, err := ToolSkillLoad(context.Background(), cfg, input)
+	if err == nil {
+		t.Fatal("expected error for missing skill, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found'; got %v", err)
+	}
+}
+
+func TestToolSkillLoad_LearnedPath(t *testing.T) {
+	dir := t.TempDir()
+	learnedDir := filepath.Join(dir, "skills", "learned", "ephemeral")
+	if err := os.MkdirAll(learnedDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	doc := "---\nname: ephemeral\n---\n\nlearned body\n"
+	if err := os.WriteFile(filepath.Join(learnedDir, "SKILL.md"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg := &AppConfig{WorkspaceDir: dir}
+	input := json.RawMessage(`{"name":"ephemeral"}`)
+	out, err := ToolSkillLoad(context.Background(), cfg, input)
+	if err != nil {
+		t.Fatalf("ToolSkillLoad: %v", err)
+	}
+	if !strings.Contains(out, "learned body") {
+		t.Errorf("should find learned skill; got %q", out)
+	}
+}
+
+func TestToolSkillLoad_InvalidName(t *testing.T) {
+	cfg := &AppConfig{WorkspaceDir: t.TempDir()}
+	// Path traversal attempt must be rejected before filesystem access.
+	input := json.RawMessage(`{"name":"../etc/passwd"}`)
+	_, err := ToolSkillLoad(context.Background(), cfg, input)
+	if err == nil {
+		t.Fatal("expected error for path-traversal name")
+	}
+}
+
+func TestToolSkillLoad_MissingName(t *testing.T) {
+	cfg := &AppConfig{WorkspaceDir: t.TempDir()}
+	input := json.RawMessage(`{}`)
+	_, err := ToolSkillLoad(context.Background(), cfg, input)
+	if err == nil {
+		t.Fatal("expected error when name is empty")
 	}
 }

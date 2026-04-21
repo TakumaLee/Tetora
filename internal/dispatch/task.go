@@ -30,6 +30,7 @@ type Task struct {
 	AllowDangerous bool     `json:"allowDangerous,omitempty"` // skip dangerous ops check
 	AllowedTools   []string `json:"allowedTools,omitempty"`   // CLI --allowedTools (skill-derived + explicit)
 	ScopeBoundary  string   `json:"scopeBoundary,omitempty"`  // diagnostic_only | implement_allowed | test_only | review_only
+	ComplexityHint string   `json:"complexityHint,omitempty"` // simple|standard|complex; empty = auto-classify
 
 	// Runtime fields (not serialized).
 	ChannelNotifier ChannelNotifier    `json:"-"` // messaging channel notifier
@@ -62,7 +63,8 @@ type TaskResult struct {
 	CostUSD    float64 `json:"costUsd"`
 	Model      string  `json:"model"`
 	SessionID  string  `json:"sessionId"`
-	OutputFile string  `json:"outputFile,omitempty"`
+	OutputFile         string `json:"outputFile,omitempty"`
+	PromptManifestFile string `json:"promptManifestFile,omitempty"`
 	// Observability metrics.
 	TokensIn   int    `json:"tokensIn,omitempty"`
 	TokensOut  int    `json:"tokensOut,omitempty"`

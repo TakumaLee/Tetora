@@ -537,6 +537,38 @@ type GroupChatRateLimitConfig struct {
 
 // --- PromptBudget ---
 
+// PromptCaptureConfig controls per-task prompt manifest capture.
+// When enabled, BuildTieredPrompt produces a JSON manifest saved alongside
+// the task output for post-hoc debugging. Default is enabled.
+type PromptCaptureConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// EnabledOrDefault returns true when Enabled is unset (default) or explicitly true.
+func (c PromptCaptureConfig) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// SkillsOnDemandConfig gates the skill-injection policy that:
+//   - drops catalog + matched summaries for Simple tier (except mandatory skills)
+//   - drops Tier 2 SKILL.md inlining for Standard tier (agents pull via skill_load tool)
+//   - keeps Complex tier behaviour unchanged
+// Default is enabled; set {"enabled": false} to roll back to always-inject.
+type SkillsOnDemandConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// EnabledOrDefault returns true when Enabled is unset (default) or explicitly true.
+func (c SkillsOnDemandConfig) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
 type PromptBudgetConfig struct {
 	SoulMax          int `json:"soulMax,omitempty"`
 	RulesMax         int `json:"rulesMax,omitempty"`

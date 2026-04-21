@@ -27,6 +27,7 @@ import (
 	"tetora/internal/history"
 	"tetora/internal/hooks"
 	"tetora/internal/log"
+	"tetora/internal/prompt"
 	"tetora/internal/provider"
 	"tetora/internal/sandbox"
 	"tetora/internal/skill"
@@ -506,6 +507,51 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 	return dr
 }
 
+// resolveTaskComplexity returns the complexity tier for task assembly.
+// If task.ComplexityHint is a valid value (simple|standard|complex), it's used
+// directly and classify.Classify is skipped. Returns hintUsed so caller can
+// record mismatch observations. Invalid hint falls back to auto-classify.
+func resolveTaskComplexity(task Task) (classify.Complexity, bool) {
+	switch strings.ToLower(task.ComplexityHint) {
+	case "simple":
+		return classify.Simple, true
+	case "standard":
+		return classify.Standard, true
+	case "complex":
+		return classify.Complex, true
+	case "":
+		return classify.Classify(task.Prompt, task.Source), false
+	default:
+		log.Warn("invalid complexityHint; falling back to auto-classify",
+			"hint", task.ComplexityHint, "taskID", task.ID)
+		return classify.Classify(task.Prompt, task.Source), false
+	}
+}
+
+// logComplexityHintMismatch logs a debug line when a parent-provided hint
+// disagrees with what classify.Classify would have chosen. Only runs the
+// sanity classify in debug mode to avoid perf regression.
+func logComplexityHintMismatch(cfg *Config, task Task, hinted classify.Complexity, hintUsed bool) {
+	if !hintUsed || cfg.Logging.Level != "debug" {
+		return
+	}
+	if auto := classify.Classify(task.Prompt, task.Source); auto != hinted {
+		log.Debug("complexity hint accepted despite classify disagree",
+			"hint", hinted, "classify", auto, "taskID", task.ID)
+	}
+}
+
+// annotateManifestWithHint records hint-used + would-be classify result on the
+// manifest so `tetora task show --prompt` and offline analysis can see when a
+// parent agent's hint was trusted and how it compared to auto-classification.
+func annotateManifestWithHint(m *prompt.Manifest, task Task, hintUsed bool) {
+	if m == nil || !hintUsed {
+		return
+	}
+	m.ComplexityHintUsed = true
+	m.ClassifyResult = classify.Classify(task.Prompt, task.Source).String()
+}
+
 // runSingleTask runs one task using the shared semaphore. Used by cron engine.
 func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem chan struct{}, agentName string) TaskResult {
 	// Register worker origin (if not already registered by cron layer).
@@ -538,9 +584,12 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	}
 
 	// Classify request complexity and build tiered system prompt.
-	complexity := classify.Classify(task.Prompt, task.Source)
+	complexity, hintUsed := resolveTaskComplexity(task)
+	logComplexityHintMismatch(cfg, task, complexity, hintUsed)
+	var promptManifest *prompt.Manifest
 	if task.Source != "route-classify" {
-		buildTieredPrompt(cfg, &task, agentName, complexity)
+		promptManifest = buildTieredPrompt(cfg, &task, agentName, complexity)
+		annotateManifestWithHint(promptManifest, task, hintUsed)
 	} else {
 		// For routing classification, only set up workspace dir and baseDir.
 		if agentName != "" {
@@ -765,6 +814,7 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	if pr.Output != "" {
 		result.OutputFile = saveTaskOutput(cfg.OutputsDirFor(task.ClientID), task.ID, []byte(pr.Output))
 	}
+	result.PromptManifestFile = saveTaskManifest(cfg, &task, promptManifest)
 
 	// SSE streaming: publish completed/error event.
 	if task.SSEBroker != nil && result.Status != "queued" {
@@ -829,8 +879,10 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	// Classify request complexity and build tiered system prompt.
-	complexity := classify.Classify(task.Prompt, task.Source)
-	buildTieredPrompt(cfg, &task, agentName, complexity)
+	complexity, hintUsed := resolveTaskComplexity(task)
+	logComplexityHintMismatch(cfg, task, complexity, hintUsed)
+	promptManifest := buildTieredPrompt(cfg, &task, agentName, complexity)
+	annotateManifestWithHint(promptManifest, task, hintUsed)
 
 	// Apply trust level (may override permissionMode for observe mode).
 	trustLevel, _ := applyTrustToTask(cfg, &task, agentName)
@@ -1115,6 +1167,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	if pr.Output != "" {
 		result.OutputFile = saveTaskOutput(cfg.OutputsDirFor(task.ClientID), task.ID, []byte(pr.Output))
 	}
+	result.PromptManifestFile = saveTaskManifest(cfg, &task, promptManifest)
 
 	// Record to history DB (per-tenant aware).
 	taskDB := historyDBForTask(cfg, task)
@@ -1563,6 +1616,151 @@ func validateDirs(cfg *Config, task Task, agentName string) error {
 
 // --- Output Storage ---
 
+// printPromptManifest loads and renders the prompt manifest for a task.
+// Looks up by taskboard ticket ID (board:ID) or direct job_id match in history.
+// Writes output to stdout; exits non-zero on error.
+func printPromptManifest(cfg *Config, taskID string) {
+	// Find the history DB — use default cfg.HistoryDB (per-tenant lookup not
+	// yet supported from CLI; operators on non-default clients can set
+	// TETORA_HISTORY_DB if needed).
+	dbPath := cfg.HistoryDB
+	if dbPath == "" {
+		fmt.Fprintln(os.Stderr, "Error: history DB path not configured")
+		os.Exit(1)
+	}
+	// Trigger migrations — ensures the prompt_manifest_file column exists on DBs
+	// that predate this feature. Safe to call: it uses CREATE TABLE IF NOT EXISTS
+	// and tolerates duplicate-column errors.
+	_ = history.InitDB(dbPath)
+	// Lookup strategy: taskboard tickets store name = "board:TICKET_ID" and
+	// receive a UUID job_id at dispatch time. Direct dispatches (Discord /
+	// agent_dispatch) pass the job_id itself.
+	var run *history.JobRun
+	if r := history.QueryLastRunByName(dbPath, "board:"+taskID); r != nil {
+		run = r
+	}
+	if run == nil {
+		if r := history.QueryLastRun(dbPath, taskID); r != nil {
+			run = r
+		}
+	}
+	if run == nil {
+		if r := history.QueryLastRunByName(dbPath, taskID); r != nil {
+			run = r
+		}
+	}
+	if run == nil {
+		fmt.Fprintf(os.Stderr, "Error: no history entry found for %q\n", taskID)
+		os.Exit(1)
+	}
+	if run.PromptManifestFile == "" {
+		fmt.Fprintf(os.Stderr, "No prompt manifest captured for task %s (job_id=%s).\n", taskID, run.JobID)
+		fmt.Fprintln(os.Stderr, "Prompt capture may have been disabled or the task predates this feature.")
+		os.Exit(1)
+	}
+	manifestPath := filepath.Join(cfg.BaseDir, "outputs", run.PromptManifestFile)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading manifest file %s: %v\n", manifestPath, err)
+		os.Exit(1)
+	}
+	var m prompt.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing manifest: %v\n", err)
+		os.Exit(1)
+	}
+	renderPromptManifest(&m, run)
+}
+
+// renderPromptManifest prints a human-readable breakdown of a manifest to stdout.
+func renderPromptManifest(m *prompt.Manifest, run *history.JobRun) {
+	fmt.Printf("Prompt Manifest for %s\n", m.TaskID)
+	if m.TaskName != "" {
+		fmt.Printf("  name:     %s\n", m.TaskName)
+	}
+	if run != nil {
+		fmt.Printf("  job_id:   %s\n", run.JobID)
+	}
+	fmt.Printf("  tier:     %s\n", m.Tier)
+	fmt.Printf("  provider: %s", m.Provider)
+	if m.ProviderType != "" && m.ProviderType != m.Provider {
+		fmt.Printf(" (%s)", m.ProviderType)
+	}
+	fmt.Println()
+	if m.Agent != "" {
+		fmt.Printf("  agent:    %s\n", m.Agent)
+	}
+	if m.Source != "" {
+		fmt.Printf("  source:   %s\n", m.Source)
+	}
+	if m.ComplexityHintUsed {
+		if m.ClassifyResult != "" && m.ClassifyResult != m.Tier {
+			fmt.Printf("  tier hint: %s used (classify would have chosen %s)\n", m.Tier, m.ClassifyResult)
+		} else {
+			fmt.Printf("  tier hint: %s used (agrees with classify)\n", m.Tier)
+		}
+	}
+	if m.ScopeBoundary != "" {
+		fmt.Printf("  scope:    %s\n", m.ScopeBoundary)
+	}
+	fmt.Printf("  generated: %s\n", m.GeneratedAt)
+
+	total := m.Totals.SystemPromptBytes + m.Totals.UserPromptBytes
+	fmt.Println()
+	fmt.Println("─────────────────────────────────────────────────────────────")
+	fmt.Printf("%-22s %-15s %10s %7s  %s\n", "Section", "Target", "Bytes", "%", "Detail")
+	fmt.Println("─────────────────────────────────────────────────────────────")
+	for _, s := range m.Sections {
+		pct := 0.0
+		if total > 0 {
+			pct = float64(s.Bytes) * 100 / float64(total)
+		}
+		detail := ""
+		if len(s.Items) > 0 {
+			detail = "[" + strings.Join(s.Items, ", ") + "]"
+		} else if s.ItemCount > 0 {
+			detail = fmt.Sprintf("items=%d", s.ItemCount)
+		} else if s.MsgCount > 0 {
+			detail = fmt.Sprintf("msgs=%d", s.MsgCount)
+		} else if s.Path != "" {
+			detail = s.Path
+		}
+		if s.Truncated {
+			if detail != "" {
+				detail += " [truncated]"
+			} else {
+				detail = "[truncated]"
+			}
+		}
+		fmt.Printf("%-22s %-15s %10d %6.1f%%  %s\n", s.Name, s.Target, s.Bytes, pct, detail)
+	}
+	fmt.Println("─────────────────────────────────────────────────────────────")
+	fmt.Printf("Total: system=%d  user=%d  tools=%d  add_dirs=%d\n",
+		m.Totals.SystemPromptBytes, m.Totals.UserPromptBytes,
+		m.Totals.AllowedToolsCount, m.Totals.AddDirsCount)
+}
+
+// saveTaskManifest persists a prompt manifest file alongside task outputs.
+// Returns the filename (not full path) for storage in the history DB; "" on disable/error.
+func saveTaskManifest(cfg *Config, task *Task, m *prompt.Manifest) string {
+	if m == nil {
+		return ""
+	}
+	if !cfg.PromptCapture.EnabledOrDefault() {
+		return ""
+	}
+	baseDir := cfg.OutputsDirFor(task.ClientID)
+	if baseDir == "" {
+		return ""
+	}
+	filename, err := m.Save(baseDir)
+	if err != nil {
+		log.Warn("save prompt manifest failed", "error", err, "taskId", task.ID)
+		return ""
+	}
+	return filename
+}
+
 // saveTaskOutput saves the raw claude output to a file in the outputs directory.
 // Returns the filename (not full path) for storage in the history DB.
 func saveTaskOutput(baseDir string, jobID string, stdout []byte) string {
@@ -1724,8 +1922,9 @@ func recordHistory(dbPath string, jobID, name, source, role string, task Task, r
 		Model:         result.Model,
 		Provider:      result.Provider,
 		SessionID:     result.SessionID,
-		OutputFile:    outputFile,
-		TokensIn:      result.TokensIn,
+		OutputFile:         outputFile,
+		PromptManifestFile: result.PromptManifestFile,
+		TokensIn:           result.TokensIn,
 		TokensOut:     result.TokensOut,
 		Agent:         role,
 		ParentID:      task.ParentID,
@@ -1758,8 +1957,9 @@ func recordHistoryCtx(ctx context.Context, dbPath string, jobID, name, source, r
 		Model:         result.Model,
 		Provider:      result.Provider,
 		SessionID:     result.SessionID,
-		OutputFile:    outputFile,
-		TokensIn:      result.TokensIn,
+		OutputFile:         outputFile,
+		PromptManifestFile: result.PromptManifestFile,
+		TokensIn:           result.TokensIn,
 		TokensOut:     result.TokensOut,
 		Agent:         role,
 		ParentID:      task.ParentID,
@@ -2514,7 +2714,8 @@ func executeWithProviderAndTools(ctx context.Context, cfg *Config, task Task, ag
 		allowed = resolveAllowedTools(cfg, task.Agent)
 	}
 	// Apply complexity-based tool filtering.
-	complexity := classify.Classify(task.Prompt, task.Source)
+	complexity, hintUsed := resolveTaskComplexity(task)
+	logComplexityHintMismatch(cfg, task, complexity, hintUsed)
 	complexityProfile := ToolsForComplexity(complexity)
 	if complexityProfile != "full" && complexityProfile != "none" {
 		profileAllowed := ToolsForProfile(complexityProfile)
@@ -3039,7 +3240,7 @@ func cmdTask(args []string) {
 		fmt.Println("\nCommands:")
 		fmt.Println("  list [--status=STATUS] [--assignee=AGENT] [--project=PROJECT]")
 		fmt.Println("  create --title=TITLE [--description=DESC] [--priority=PRIORITY] [--assignee=AGENT] [--type=TYPE] [--depends-on=ID]... [--workdirs=DIR]... [--retry-policy=JSON]")
-		fmt.Println("  show TASK_ID [--full]")
+		fmt.Println("  show TASK_ID [--full] [--prompt]")
 		fmt.Println("  update TASK_ID [--title=TITLE] [--description=DESC] [--priority=PRIORITY] [--retry-policy=JSON]")
 		fmt.Println("  move TASK_ID --status=STATUS")
 		fmt.Println("  assign TASK_ID --assignee=AGENT")
@@ -3178,16 +3379,25 @@ func cmdTask(args []string) {
 
 	case "show":
 		if len(args) < 1 {
-			fmt.Println("Usage: tetora task show TASK_ID [--full]")
+			fmt.Println("Usage: tetora task show TASK_ID [--full] [--prompt]")
 			os.Exit(1)
 		}
 
 		taskID := args[0]
 		full := false
+		showPrompt := false
 		for _, arg := range args[1:] {
 			if arg == "--full" {
 				full = true
 			}
+			if arg == "--prompt" {
+				showPrompt = true
+			}
+		}
+
+		if showPrompt {
+			printPromptManifest(cfg, taskID)
+			return
 		}
 
 		task, err := tb.GetTask(taskID)

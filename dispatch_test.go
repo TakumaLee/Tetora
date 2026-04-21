@@ -2595,3 +2595,52 @@ func TestParseCompletionStatus_WhitespaceVariants(t *testing.T) {
 		t.Errorf("unexpected concerns: %q", concerns)
 	}
 }
+
+// --- resolveTaskComplexity tests ---
+
+func TestResolveTaskComplexity_NoHint_FallsBackToClassify(t *testing.T) {
+	task := Task{Prompt: "short hello", Source: "discord-dm"}
+	got, hintUsed := resolveTaskComplexity(task)
+	if hintUsed {
+		t.Errorf("expected hintUsed=false when ComplexityHint is empty")
+	}
+	want := classify.Classify(task.Prompt, task.Source)
+	if got != want {
+		t.Errorf("no-hint result mismatch: got %v want %v (auto-classify)", got, want)
+	}
+}
+
+func TestResolveTaskComplexity_ValidHints(t *testing.T) {
+	cases := []struct {
+		hint string
+		want classify.Complexity
+	}{
+		{"simple", classify.Simple},
+		{"standard", classify.Standard},
+		{"complex", classify.Complex},
+		{"SIMPLE", classify.Simple},   // case-insensitive
+		{"Complex", classify.Complex}, // case-insensitive
+	}
+	for _, tc := range cases {
+		task := Task{Prompt: "x", ComplexityHint: tc.hint}
+		got, hintUsed := resolveTaskComplexity(task)
+		if !hintUsed {
+			t.Errorf("hint %q: expected hintUsed=true", tc.hint)
+		}
+		if got != tc.want {
+			t.Errorf("hint %q: got %v want %v", tc.hint, got, tc.want)
+		}
+	}
+}
+
+func TestResolveTaskComplexity_InvalidHint_FallsBackAndWarns(t *testing.T) {
+	task := Task{Prompt: "x", Source: "cli", ComplexityHint: "gigantic"}
+	got, hintUsed := resolveTaskComplexity(task)
+	if hintUsed {
+		t.Errorf("invalid hint should not be marked as used")
+	}
+	want := classify.Classify(task.Prompt, task.Source)
+	if got != want {
+		t.Errorf("invalid hint fallback mismatch: got %v want %v", got, want)
+	}
+}

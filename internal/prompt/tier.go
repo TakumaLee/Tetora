@@ -41,6 +41,9 @@ type Deps struct {
 	BuildReflectionContext func(dbPath, role string, limit int) string
 	LoadWritingStyle       func(cfg *config.Config) string
 	BuildSkillsPrompt          func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) string
+	// BuildSkillsPromptWithMeta is optional. If non-nil, used instead of BuildSkillsPrompt
+	// so the manifest can record matched skill names.
+	BuildSkillsPromptWithMeta func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) (string, []string)
 	CollectSkillAllowedTools   func(cfg *config.Config, task dispatch.Task) []string
 	InjectWorkspaceContent     func(cfg *config.Config, task *dispatch.Task, agentName string)
 	EstimateDirSize            func(dir string) int
@@ -91,7 +94,10 @@ func BuildScopeBlock(scope string) string {
 //	Simple:   soul (truncated 4KB) only — no reflection, style, citation, rules, knowledge
 //	Standard: full soul + 1 reflection + citation + rules index + knowledge index
 //	Complex:  full soul + 3 reflections + citation + writing style + full rules + full knowledge
-func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string, complexity classify.Complexity, deps Deps) {
+//
+// Returns a Manifest describing the sections that were injected, for post-hoc
+// debugging and token accounting. The returned manifest is never nil.
+func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string, complexity classify.Complexity, deps Deps) *Manifest {
 	// --- Scope Boundary validation (warn-only; never fail) ---
 	// Empty value is tolerated for backward compatibility with pre-existing jobs,
 	// but emits a warning so operators can see unconfigured tasks. Unknown values
@@ -120,21 +126,34 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		providerType = "codex-cli"
 	}
 
+	manifest := NewManifest(task, complexity.String(), pName, providerType, agentName)
+
 	// --- 1. Soul/Agent prompt (always loaded) ---
 	if agentName != "" {
 		soulPrompt := deps.LoadSoulFile(cfg, agentName)
+		soulPath := ""
+		if soulPrompt != "" {
+			soulPath = filepath.Join(cfg.BaseDir, "agents", agentName, "SOUL.md")
+		}
 		if soulPrompt == "" {
 			if sp, err := deps.LoadAgentPrompt(cfg, agentName); err == nil {
 				soulPrompt = sp
 			}
 		}
 		if soulPrompt != "" {
+			var injected string
 			switch complexity {
 			case classify.Simple:
-				task.SystemPrompt = TruncateToChars(soulPrompt, 4000)
+				injected = TruncateToChars(soulPrompt, 4000)
 			default:
-				task.SystemPrompt = TruncateToChars(soulPrompt, cfg.PromptBudget.SoulMaxOrDefault())
+				injected = TruncateToChars(soulPrompt, cfg.PromptBudget.SoulMaxOrDefault())
 			}
+			task.SystemPrompt = injected
+			manifest.Record("soul", "system_prompt", len(injected),
+				Path(soulPath),
+				Truncated(len(injected) < len(soulPrompt)),
+				HashOf(injected),
+			)
 		}
 	}
 
@@ -177,15 +196,23 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		lessonsPath := filepath.Join(cfg.BaseDir, "agents", agentName, "lessons.md")
 		if providerType == "claude-code" || providerType == "codex-cli" {
 			if _, err := os.Stat(lessonsPath); err == nil {
+				preLen := len(task.Prompt)
 				task.Prompt = fmt.Sprintf("⚠️ 任務開始前請先讀取 agents/%s/lessons.md，確認過去的經驗教訓。\n\n%s", agentName, task.Prompt)
+				manifest.Record("lessons", "user_prompt", len(task.Prompt)-preLen, Path(lessonsPath))
 			}
 		} else {
 			if content, err := os.ReadFile(lessonsPath); err == nil && len(content) > 0 {
 				lessons := string(content)
+				origLen := len(lessons)
 				if len(lessons) > 4096 {
 					lessons = TruncateLessonsToRecent(lessons, 10)
 				}
-				task.SystemPrompt += "\n\n## 經驗教訓 (lessons.md)\n" + lessons
+				block := "\n\n## 經驗教訓 (lessons.md)\n" + lessons
+				task.SystemPrompt += block
+				manifest.Record("lessons", "system_prompt", len(block),
+					Path(lessonsPath),
+					Truncated(len(lessons) < origLen),
+				)
 			}
 		}
 	}
@@ -196,16 +223,21 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	if agentName != "" {
 		preflightPath := filepath.Join(cfg.BaseDir, "agents", agentName, "preflight-header.md")
 		if content, err := os.ReadFile(preflightPath); err == nil && len(content) > 0 {
+			preLen := len(task.Prompt)
 			task.Prompt = string(content) + "\n\n" + task.Prompt
+			manifest.Record("preflight", "user_prompt", len(task.Prompt)-preLen, Path(preflightPath))
 		}
 	}
 
 	// If provider is claude-code or codex-cli, append skill extraction hint to user prompt and return.
 	// These providers read project files (CLAUDE.md, workspace) natively; system prompt is not used.
 	if providerType == "claude-code" || providerType == "codex-cli" {
+		preLen := len(task.Prompt)
 		task.Prompt += skillExtractionSection
-		prependScopeBoundary(task, effectiveScope)
-		return
+		manifest.Record("skill_extraction", "user_prompt", len(task.Prompt)-preLen)
+		recordScopeBoundary(task, effectiveScope, manifest)
+		manifest.Finalize(task)
+		return manifest
 	}
 
 	// --- 5. Knowledge dir ---
@@ -213,6 +245,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	if complexity != classify.Simple {
 		if cfg.KnowledgeDir != "" && knowledge.HasFiles(cfg.KnowledgeDir) && deps.EstimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
 			task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
+			manifest.Record("knowledge_dir", "add_dirs", deps.EstimateDirSize(cfg.KnowledgeDir), Path(cfg.KnowledgeDir))
 		}
 	}
 
@@ -224,7 +257,14 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			limit = 3
 		}
 		if refCtx := deps.BuildReflectionContext(cfg.HistoryDB, agentName, limit); refCtx != "" {
-			task.SystemPrompt += "\n\n" + refCtx
+			block := "\n\n" + refCtx
+			task.SystemPrompt += block
+			// Estimate number of entries from "## " headings (coarse but avoids a schema change).
+			itemCount := strings.Count(refCtx, "\n## ")
+			if itemCount == 0 && strings.HasPrefix(refCtx, "## ") {
+				itemCount = 1
+			}
+			manifest.Record("reflection", "system_prompt", len(block), ItemCount(itemCount))
 		}
 	}
 
@@ -233,7 +273,9 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	if complexity == classify.Complex && cfg.WritingStyle.Enabled {
 		style := deps.LoadWritingStyle(cfg)
 		if style != "" {
-			task.SystemPrompt += "\n\n## Writing Style\n\n" + style
+			block := "\n\n## Writing Style\n\n" + style
+			task.SystemPrompt += block
+			manifest.Record("writing_style", "system_prompt", len(block))
 		}
 	}
 
@@ -256,12 +298,22 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			citationRule = "When using information from knowledge_search, note_search, or web_search results, " +
 				"cite the source at the end of your response. Format: [source_name]"
 		}
-		task.SystemPrompt += "\n\n## Citation Rules\n" + citationRule
+		block := "\n\n## Citation Rules\n" + citationRule
+		task.SystemPrompt += block
+		manifest.Record("citation", "system_prompt", len(block))
 	}
 
 	// --- 8.5. Skills injection (with doc tier) ---
-	if skillsPrompt := deps.BuildSkillsPrompt(cfg, *task, complexity); skillsPrompt != "" {
+	var skillsPrompt string
+	var matchedSkills []string
+	if deps.BuildSkillsPromptWithMeta != nil {
+		skillsPrompt, matchedSkills = deps.BuildSkillsPromptWithMeta(cfg, *task, complexity)
+	} else if deps.BuildSkillsPrompt != nil {
+		skillsPrompt = deps.BuildSkillsPrompt(cfg, *task, complexity)
+	}
+	if skillsPrompt != "" {
 		task.SystemPrompt += skillsPrompt
+		manifest.Record("skills", "system_prompt", len(skillsPrompt), Items(matchedSkills))
 	}
 
 	// --- 8.6. Skill extraction instruction (Standard/Complex only) ---
@@ -269,6 +321,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// Conditions align with ShouldExtractSkill in internal/skill/skill.go.
 	if complexity != classify.Simple {
 		task.SystemPrompt += skillExtractionSection
+		manifest.Record("skill_extraction", "system_prompt", len(skillExtractionSection))
 	}
 
 	// --- 8.7. Skill-derived AllowedTools ---
@@ -281,7 +334,17 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call InjectWorkspaceContent.
 	if complexity != classify.Simple {
+		preLenSys := len(task.SystemPrompt)
+		preLenUser := len(task.Prompt)
 		deps.InjectWorkspaceContent(cfg, task, agentName)
+		sysDelta := len(task.SystemPrompt) - preLenSys
+		userDelta := len(task.Prompt) - preLenUser
+		if sysDelta > 0 {
+			manifest.Record("workspace_content", "system_prompt", sysDelta)
+		}
+		if userDelta > 0 {
+			manifest.Record("workspace_content", "user_prompt", userDelta)
+		}
 	}
 
 	// --- 10. AddDirs control ---
@@ -327,11 +390,39 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// --- 13. Scope Boundary (last, highest priority) ---
 	// Injected last so the SCOPE HEADER ends up at the top of both user prompt
 	// and system prompt, overriding any earlier guidance.
-	prependScopeBoundary(task, effectiveScope)
+	recordScopeBoundary(task, effectiveScope, manifest)
+
+	manifest.Finalize(task)
+	return manifest
+}
+
+// recordScopeBoundary prepends the SCOPE HEADER and records it in the manifest.
+func recordScopeBoundary(task *dispatch.Task, scope string, manifest *Manifest) {
+	block := BuildScopeBlock(scope)
+	if block == "" {
+		return
+	}
+	userDelta := 0
+	sysDelta := 0
+	preLenUser := len(task.Prompt)
+	preLenSys := len(task.SystemPrompt)
+	task.Prompt = block + "\n" + task.Prompt
+	userDelta = len(task.Prompt) - preLenUser
+	if task.SystemPrompt != "" {
+		task.SystemPrompt = block + "\n" + task.SystemPrompt
+		sysDelta = len(task.SystemPrompt) - preLenSys
+	}
+	if userDelta > 0 {
+		manifest.Record("scope_boundary", "user_prompt", userDelta, Items([]string{scope}))
+	}
+	if sysDelta > 0 {
+		manifest.Record("scope_boundary", "system_prompt", sysDelta, Items([]string{scope}))
+	}
 }
 
 // prependScopeBoundary places the SCOPE HEADER at the top of both task.Prompt
 // and task.SystemPrompt. No-op if scope is empty or unrecognized.
+// Retained for backward compatibility with any external callers.
 func prependScopeBoundary(task *dispatch.Task, scope string) {
 	block := BuildScopeBlock(scope)
 	if block == "" {
