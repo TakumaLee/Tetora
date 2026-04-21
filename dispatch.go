@@ -1645,20 +1645,20 @@ func printPromptManifest(cfg *Config, taskID string) {
 		}
 	}
 	if run == nil {
-		if r := history.QueryLastRunByName(dbPath, taskID); r != nil {
-			run = r
-		}
-	}
-	if run == nil {
 		fmt.Fprintf(os.Stderr, "Error: no history entry found for %q\n", taskID)
 		os.Exit(1)
 	}
 	if run.PromptManifestFile == "" {
 		fmt.Fprintf(os.Stderr, "No prompt manifest captured for task %s (job_id=%s).\n", taskID, run.JobID)
-		fmt.Fprintln(os.Stderr, "Prompt capture may have been disabled or the task predates this feature.")
+		fmt.Fprintln(os.Stderr, "Prompt capture may have been disabled, the task predates this feature,")
+		fmt.Fprintln(os.Stderr, "or the task was executed via a provider path that reuses a pre-built prompt (e.g. agent_dispatch sub-tasks).")
 		os.Exit(1)
 	}
-	manifestPath := filepath.Join(cfg.BaseDir, "outputs", run.PromptManifestFile)
+	manifestPath := locatePromptManifest(cfg, run.PromptManifestFile)
+	if manifestPath == "" {
+		fmt.Fprintf(os.Stderr, "Error: manifest file %s not found under outputs/ directories\n", run.PromptManifestFile)
+		os.Exit(1)
+	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading manifest file %s: %v\n", manifestPath, err)
@@ -1738,6 +1738,37 @@ func renderPromptManifest(m *prompt.Manifest, run *history.JobRun) {
 	fmt.Printf("Total: system=%d  user=%d  tools=%d  add_dirs=%d\n",
 		m.Totals.SystemPromptBytes, m.Totals.UserPromptBytes,
 		m.Totals.AllowedToolsCount, m.Totals.AddDirsCount)
+}
+
+// locatePromptManifest resolves a manifest filename to an on-disk path by searching
+// the same outputs dirs that saveTaskManifest writes to: default BaseDir first, then
+// every per-client dir under ClientsDir. Returns "" if no match is found.
+// The history row doesn't store ClientID, so a small cross-tenant scan is unavoidable.
+func locatePromptManifest(cfg *Config, filename string) string {
+	if filename == "" {
+		return ""
+	}
+	candidate := filepath.Join(cfg.BaseDir, "outputs", filename)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate
+	}
+	if cfg.ClientsDir == "" {
+		return ""
+	}
+	entries, err := os.ReadDir(cfg.ClientsDir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(cfg.ClientsDir, e.Name(), "outputs", filename)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // saveTaskManifest persists a prompt manifest file alongside task outputs.

@@ -420,20 +420,6 @@ func recordScopeBoundary(task *dispatch.Task, scope string, manifest *Manifest) 
 	}
 }
 
-// prependScopeBoundary places the SCOPE HEADER at the top of both task.Prompt
-// and task.SystemPrompt. No-op if scope is empty or unrecognized.
-// Retained for backward compatibility with any external callers.
-func prependScopeBoundary(task *dispatch.Task, scope string) {
-	block := BuildScopeBlock(scope)
-	if block == "" {
-		return
-	}
-	task.Prompt = block + "\n" + task.Prompt
-	if task.SystemPrompt != "" {
-		task.SystemPrompt = block + "\n" + task.SystemPrompt
-	}
-}
-
 // TruncateLessonsToRecent keeps only the last N entries from a lessons.md file.
 // Entries are separated by "---" or "##" headings.
 func TruncateLessonsToRecent(content string, n int) string {

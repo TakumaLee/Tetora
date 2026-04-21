@@ -161,7 +161,9 @@ func (m *Manifest) Save(baseDir string) (string, error) {
 	if shortID == "" {
 		shortID = "unknown"
 	}
-	ts := time.Now().Format("20060102-150405")
+	// Nanosecond precision prevents filename collisions when the same task is
+	// saved twice within one second (e.g. retries).
+	ts := time.Now().Format("20060102-150405.000000000")
 	filename := fmt.Sprintf("%s_%s.prompt-manifest.json", shortID, ts)
 	filePath := filepath.Join(outputDir, filename)
 
