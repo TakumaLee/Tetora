@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
 	"tetora/internal/log"
@@ -148,7 +149,7 @@ func (d *Dispatcher) postTaskGit(t TaskBoard) {
 	log.Info("postTaskGit: committed", "task", t.ID, "branch", branch)
 	d.engine.AddComment(t.ID, "system", fmt.Sprintf("[post-task-git] Committed to branch %s", branch))
 
-	baseBranch := DetectDefaultBranch(workdir)
+	baseBranch := ResolveBaseBranch(d.engine.config.GitWorkflow, workdir)
 	diffOut, _ := exec.Command("git", "-C", workdir, "diff", baseBranch+"..."+branch).Output()
 	if diff := string(diffOut); diff != "" {
 		if len(diff) > 100000 {
@@ -257,7 +258,7 @@ func (d *Dispatcher) captureTaskDiff(t TaskBoard, repoDir, wtDir string) string 
 	}
 	taskID := filepath.Base(wtDir)
 	branch := "task/" + taskID
-	baseBranch := DetectDefaultBranch(repoDir)
+	baseBranch := ResolveBaseBranch(d.engine.config.GitWorkflow, repoDir)
 
 	mergeBase, err := exec.Command("git", "-C", wtDir, "merge-base", baseBranch, branch).Output()
 	if err != nil {
@@ -318,7 +319,7 @@ func (d *Dispatcher) postTaskGitPR(t TaskBoard, workdir, branch string) {
 }
 
 func (d *Dispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch string) {
-	baseBranch := DetectDefaultBranch(workdir)
+	baseBranch := ResolveBaseBranch(d.engine.config.GitWorkflow, workdir)
 
 	prViewCmd := exec.Command("gh", "pr", "view", branch, "--json", "url", "-q", ".url")
 	prViewCmd.Dir = workdir
@@ -360,7 +361,7 @@ func (d *Dispatcher) postTaskGitHubPR(t TaskBoard, workdir, branch string) {
 }
 
 func (d *Dispatcher) postTaskGitLabMR(t TaskBoard, workdir, branch string) {
-	baseBranch := DetectDefaultBranch(workdir)
+	baseBranch := ResolveBaseBranch(d.engine.config.GitWorkflow, workdir)
 
 	mrViewCmd := exec.Command("glab", "mr", "view", branch)
 	mrViewCmd.Dir = workdir
@@ -523,6 +524,15 @@ func DetectDefaultBranch(workdir string) string {
 		return "main"
 	}
 	return "master"
+}
+
+// ResolveBaseBranch returns the configured Git workflow base branch when set,
+// otherwise it falls back to the repository default branch.
+func ResolveBaseBranch(cfg config.GitWorkflowConfig, workdir string) string {
+	if branch := strings.TrimSpace(cfg.BaseBranch); branch != "" {
+		return branch
+	}
+	return DetectDefaultBranch(workdir)
 }
 
 // cleanStaleLock removes stale .git/index.lock files that are older than 30 seconds.

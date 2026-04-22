@@ -1220,6 +1220,7 @@ type WorkflowRoutingRule struct {
 
 type GitWorkflowConfig struct {
 	BranchConvention string   `json:"branchConvention,omitempty"`
+	BaseBranch       string   `json:"baseBranch,omitempty"`
 	Types            []string `json:"types,omitempty"`
 	DefaultType      string   `json:"defaultType,omitempty"`
 	AutoMerge        bool     `json:"autoMerge,omitempty"`
