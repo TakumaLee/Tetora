@@ -2176,3 +2176,81 @@ func TestTriageStuckPartialDone_UpdateFailure_NoNotify(t *testing.T) {
 		t.Errorf("expected 0 Discord embeds when UPDATE fails, got %d (duplicate notification risk)", disc.embedCount())
 	}
 }
+
+// =============================================================================
+// shouldRunTriage guard tests
+// =============================================================================
+
+// TestShouldTriage_FalseWhenRetryCountNonZero pins the guard that prevents
+// triage from re-running on retried tasks.  Regression protection for
+// processing.go shouldRunTriage — the commander already decided on attempt 0.
+func TestShouldTriage_FalseWhenRetryCountNonZero(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{} // non-nil executor
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 1, // non-zero — this is a retry
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true for RetryCount=1; retried tasks must skip triage")
+	}
+}
+
+// TestShouldTriage_TrueOnFirstAttempt confirms the guard fires on attempt 0.
+func TestShouldTriage_TrueOnFirstAttempt(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if !shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned false for RetryCount=0 with triage enabled; expected true")
+	}
+}
+
+// TestShouldTriage_FalseWhenDisabled ensures TriageEnabled=false short-circuits.
+func TestShouldTriage_FalseWhenDisabled(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: false,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when TriageEnabled=false")
+	}
+}
+
+// TestShouldTriage_FalseWhenAssigneeNotTriageAgent ensures non-commander assignees skip triage.
+func TestShouldTriage_FalseWhenAssigneeNotTriageAgent(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "kokuyou",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when assignee is not the triage agent")
+	}
+}
