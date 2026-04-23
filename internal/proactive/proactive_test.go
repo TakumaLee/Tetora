@@ -335,7 +335,7 @@ func TestGetSkippedConcurrentToday(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	today := time.Now().UTC().Format("2006-01-02")
+	today := time.Now().Format("2006-01-02")
 	insert := func(status string) {
 		sql := fmt.Sprintf(
 			`INSERT INTO job_runs (job_id, name, source, started_at, status) VALUES ('j','n','s','%sT10:00:00Z','%s')`,
@@ -385,7 +385,7 @@ func TestResolveTemplate_SkippedToday(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	today := time.Now().UTC().Format("2006-01-02")
+	today := time.Now().Format("2006-01-02")
 	insert := func(status string) {
 		sql := fmt.Sprintf(
 			`INSERT INTO job_runs (job_id, name, source, started_at, status) VALUES ('j','n','s','%sT10:00:00Z','%s')`,
