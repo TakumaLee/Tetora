@@ -61,6 +61,65 @@ func (wm *WorktreeManager) pathLock(path string) *sync.Mutex {
 // branchMetaFile is the filename written inside each worktree to record the branch name.
 const branchMetaFile = ".tetora-branch"
 
+// unsafeMarkerFile is dropped into a worktree directory that a prior Create()
+// attempt could not fully initialize (e.g., master ref was corrupt, git worktree
+// add failed mid-way). On the next attempt, Create() sees the marker, wipes the
+// stale dir, and retries from scratch. The file contents carry a human-readable
+// reason for diagnostics.
+const unsafeMarkerFile = ".tetora-unsafe"
+
+// MarkUnsafe writes an unsafe marker into a worktree directory. Best-effort —
+// if the directory doesn't exist the caller likely failed even earlier, and
+// there is nothing useful to mark. Errors are logged, not returned.
+func MarkUnsafe(wtDir, reason string) {
+	if err := os.MkdirAll(wtDir, 0o755); err != nil {
+		log.Debug("worktree: MarkUnsafe mkdir failed", "path", wtDir, "error", err)
+		return
+	}
+	payload := fmt.Sprintf("%s\n%s\n", time.Now().UTC().Format(time.RFC3339), reason)
+	if err := os.WriteFile(filepath.Join(wtDir, unsafeMarkerFile), []byte(payload), 0o644); err != nil {
+		log.Debug("worktree: MarkUnsafe write failed", "path", wtDir, "error", err)
+	}
+}
+
+// IsUnsafe reports whether a worktree directory carries the unsafe marker.
+func IsUnsafe(wtDir string) bool {
+	_, err := os.Stat(filepath.Join(wtDir, unsafeMarkerFile))
+	return err == nil
+}
+
+// repairMasterRef attempts to fix a corrupted default-branch ref by re-fetching
+// from origin and pruning stale worktree metadata. Safe to call even when the
+// ref is healthy — the fetch/prune operations are idempotent and do not touch
+// the working tree. All sub-command failures are non-fatal and logged at Debug.
+func repairMasterRef(repoDir string) {
+	if out, err := exec.Command("git", "-C", repoDir, "worktree", "prune").CombinedOutput(); err != nil {
+		log.Debug("worktree: prune during master-ref repair failed (non-fatal)",
+			"error", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "fetch", "--prune", "origin").CombinedOutput(); err != nil {
+		// No origin remote, offline, etc. — not fatal; the retry still gets a shot.
+		log.Debug("worktree: fetch --prune during master-ref repair failed (non-fatal)",
+			"error", strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "prune", "origin").CombinedOutput(); err != nil {
+		log.Debug("worktree: remote prune during master-ref repair failed (non-fatal)",
+			"error", strings.TrimSpace(string(out)))
+	}
+}
+
+// isMasterRefError matches the error signatures git emits when the default
+// branch ref is missing or unreadable — the symptom we're trying to repair.
+func isMasterRefError(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "invalid reference") ||
+		strings.Contains(lower, "not a valid object name") ||
+		strings.Contains(lower, "unknown revision") ||
+		strings.Contains(lower, "bad revision") ||
+		strings.Contains(lower, "cannot update ref") ||
+		strings.Contains(lower, "could not read")
+}
+
 // sessionLockFile aliases taskboard.SessionLockFile for use within this package.
 const sessionLockFile = taskboard.SessionLockFile
 
@@ -199,27 +258,40 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 
 	// Remove stale worktree if directory already exists.
 	if _, err := os.Stat(wtDir); err == nil {
-		// Guard: wait for any active session to finish before removing the stale
-		// worktree. Deleting a worktree while a Claude session has its CWD inside
-		// it causes permanent Bash tool failure for that session.
-		if isSessionActive(wtDir) {
-			log.Warn("worktree: stale worktree has active session — waiting before removal",
-				"path", wtDir, "maxWait", sessionWaitMaxDuration)
-			deadline := time.Now().Add(sessionWaitMaxDuration)
-			for time.Now().Before(deadline) {
-				time.Sleep(sessionWaitPollInterval)
-				if !isSessionActive(wtDir) {
-					break
-				}
+		// If a prior attempt marked this worktree unsafe, log the reason and
+		// force removal without waiting for a session — the session concept
+		// does not apply to a half-initialized worktree.
+		if IsUnsafe(wtDir) {
+			if data, readErr := os.ReadFile(filepath.Join(wtDir, unsafeMarkerFile)); readErr == nil {
+				log.Warn("worktree: unsafe marker present, forcing cleanup",
+					"path", wtDir, "marker", strings.TrimSpace(string(data)))
+			} else {
+				log.Warn("worktree: unsafe marker present, forcing cleanup", "path", wtDir)
 			}
+			wm.forceRemove(repoDir, wtDir, resolveBranch(wtDir))
+		} else {
+			// Guard: wait for any active session to finish before removing the stale
+			// worktree. Deleting a worktree while a Claude session has its CWD inside
+			// it causes permanent Bash tool failure for that session.
 			if isSessionActive(wtDir) {
-				return "", fmt.Errorf("worktree: active session still running in %s after %v; refusing to remove", wtDir, sessionWaitMaxDuration)
+				log.Warn("worktree: stale worktree has active session — waiting before removal",
+					"path", wtDir, "maxWait", sessionWaitMaxDuration)
+				deadline := time.Now().Add(sessionWaitMaxDuration)
+				for time.Now().Before(deadline) {
+					time.Sleep(sessionWaitPollInterval)
+					if !isSessionActive(wtDir) {
+						break
+					}
+				}
+				if isSessionActive(wtDir) {
+					return "", fmt.Errorf("worktree: active session still running in %s after %v; refusing to remove", wtDir, sessionWaitMaxDuration)
+				}
+				log.Info("worktree: stale session finished, proceeding with worktree removal", "path", wtDir)
 			}
-			log.Info("worktree: stale session finished, proceeding with worktree removal", "path", wtDir)
+			log.Warn("worktree: removing stale worktree", "path", wtDir)
+			oldBranch := resolveBranch(wtDir)
+			wm.forceRemove(repoDir, wtDir, oldBranch)
 		}
-		log.Warn("worktree: removing stale worktree", "path", wtDir)
-		oldBranch := resolveBranch(wtDir)
-		wm.forceRemove(repoDir, wtDir, oldBranch)
 	}
 
 	// Detect base branch to branch from.
@@ -240,8 +312,8 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 			lastCreateErr = nil
 			break
 		}
-		lastCreateErr = fmt.Errorf("worktree: git worktree add failed: %s: %w",
-			strings.TrimSpace(string(out)), err)
+		errMsg := strings.TrimSpace(string(out))
+		lastCreateErr = fmt.Errorf("worktree: git worktree add failed: %s: %w", errMsg, err)
 
 		// Capture diagnostics on failure.
 		gitVerOut, _ := exec.Command("git", "version").Output()
@@ -249,15 +321,28 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 		log.Warn("worktree: git worktree add failed, capturing diagnostics",
 			"attempt", attempt,
 			"maxAttempts", maxCreateAttempts,
-			"error", strings.TrimSpace(string(out)),
+			"error", errMsg,
 			"gitVersion", strings.TrimSpace(string(gitVerOut)),
 			"repoStatus", strings.TrimSpace(string(repoStatusOut)),
 			"repoDir", repoDir,
 			"wtDir", wtDir,
 			"branch", branch,
 		)
+
+		// If the failure looks like a corrupt/stale master ref (e.g. packed-refs
+		// inconsistency after a crashed fetch), try a best-effort repair before
+		// the next attempt.
+		if isMasterRefError(errMsg) {
+			log.Warn("worktree: master-ref error detected, attempting repair",
+				"repoDir", repoDir, "error", errMsg)
+			repairMasterRef(repoDir)
+		}
 	}
 	if lastCreateErr != nil {
+		// Mark the worktree dir as unsafe so the next Create() for this taskID
+		// force-cleans instead of waiting on a phantom session or re-using a
+		// half-initialized directory.
+		MarkUnsafe(wtDir, lastCreateErr.Error())
 		return "", lastCreateErr
 	}
 
