@@ -34,11 +34,12 @@ type JobRun struct {
 	Model         string  `json:"model"`
 	Provider      string  `json:"provider,omitempty"`
 	SessionID     string  `json:"sessionId"`
-	OutputFile    string  `json:"outputFile,omitempty"`
-	TokensIn      int     `json:"tokensIn,omitempty"`
-	TokensOut     int     `json:"tokensOut,omitempty"`
-	Agent         string  `json:"agent,omitempty"`
-	ParentID      string  `json:"parentId,omitempty"`
+	OutputFile         string `json:"outputFile,omitempty"`
+	PromptManifestFile string `json:"promptManifestFile,omitempty"`
+	TokensIn           int    `json:"tokensIn,omitempty"`
+	TokensOut          int    `json:"tokensOut,omitempty"`
+	Agent              string `json:"agent,omitempty"`
+	ParentID           string `json:"parentId,omitempty"`
 }
 
 type CostStats struct {
@@ -143,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_started ON job_runs(started_at);
 		`ALTER TABLE job_runs ADD COLUMN agent TEXT DEFAULT '';`,
 		`ALTER TABLE job_runs ADD COLUMN parent_id TEXT DEFAULT '';`,
 		`ALTER TABLE job_runs ADD COLUMN provider TEXT DEFAULT '';`,
+		`ALTER TABLE job_runs ADD COLUMN prompt_manifest_file TEXT DEFAULT '';`,
 	} {
 		if err := db.Exec(dbPath, col); err != nil {
 			if !strings.Contains(err.Error(), "duplicate column") {
@@ -231,8 +233,8 @@ func JobRunExistsNear(dbPath, jobID string, near time.Time) bool {
 
 func InsertRun(dbPath string, run JobRun) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
-		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, prompt_manifest_file, tokens_in, tokens_out, agent, parent_id)
+		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
 		db.Escape(run.JobID),
 		db.Escape(run.Name),
 		db.Escape(run.Source),
@@ -247,6 +249,7 @@ func InsertRun(dbPath string, run JobRun) error {
 		db.Escape(run.Provider),
 		db.Escape(run.SessionID),
 		db.Escape(run.OutputFile),
+		db.Escape(run.PromptManifestFile),
 		run.TokensIn,
 		run.TokensOut,
 		db.Escape(run.Agent),
@@ -258,8 +261,8 @@ func InsertRun(dbPath string, run JobRun) error {
 // InsertRunCtx is like InsertRun but respects context cancellation.
 func InsertRunCtx(ctx context.Context, dbPath string, run JobRun) error {
 	sql := fmt.Sprintf(
-		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, tokens_in, tokens_out, agent, parent_id)
-		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
+		`INSERT INTO job_runs (job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, provider, session_id, output_file, prompt_manifest_file, tokens_in, tokens_out, agent, parent_id)
+		 VALUES ('%s','%s','%s','%s','%s','%s',%d,%f,'%s','%s','%s','%s','%s','%s','%s',%d,%d,'%s','%s')`,
 		db.Escape(run.JobID),
 		db.Escape(run.Name),
 		db.Escape(run.Source),
@@ -274,6 +277,7 @@ func InsertRunCtx(ctx context.Context, dbPath string, run JobRun) error {
 		db.Escape(run.Provider),
 		db.Escape(run.SessionID),
 		db.Escape(run.OutputFile),
+		db.Escape(run.PromptManifestFile),
 		run.TokensIn,
 		run.TokensOut,
 		db.Escape(run.Agent),
@@ -295,7 +299,7 @@ func Query(dbPath, jobID string, limit int) ([]JobRun, error) {
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -314,7 +318,7 @@ func Query(dbPath, jobID string, limit int) ([]JobRun, error) {
 // QueryByID returns a single job run by its ID.
 func QueryByID(dbPath string, id int) (*JobRun, error) {
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE id = %d`, id)
 	rows, err := db.Query(dbPath, sql)
 	if err != nil {
@@ -347,8 +351,9 @@ func runFromRow(row map[string]any) JobRun {
 		Model:         db.Str(row["model"]),
 		Provider:      db.Str(row["provider"]),
 		SessionID:     db.Str(row["session_id"]),
-		OutputFile:    db.Str(row["output_file"]),
-		TokensIn:      db.Int(row["tokens_in"]),
+		OutputFile:         db.Str(row["output_file"]),
+		PromptManifestFile: db.Str(row["prompt_manifest_file"]),
+		TokensIn:           db.Int(row["tokens_in"]),
 		TokensOut:     db.Int(row["tokens_out"]),
 		Agent:         db.Str(row["agent"]),
 		ParentID:      db.Str(row["parent_id"]),
@@ -430,7 +435,7 @@ func QueryFiltered(dbPath string, q HistoryQuery) ([]JobRun, int, error) {
 
 	// Query page.
 	dataSQL := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d OFFSET %d`,
 		where, q.Limit, q.Offset)
 
@@ -502,9 +507,27 @@ func QueryLastRun(dbPath, jobID string) *JobRun {
 		return nil
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT 1`,
 		db.Escape(jobID))
+
+	rows, err := db.Query(dbPath, sql)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	run := runFromRow(rows[0])
+	return &run
+}
+
+// QueryLastRunByName returns the most recent job run matching a name (e.g. "board:task-…").
+func QueryLastRunByName(dbPath, name string) *JobRun {
+	if dbPath == "" || name == "" {
+		return nil
+	}
+	sql := fmt.Sprintf(
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		 FROM job_runs WHERE name = '%s' ORDER BY id DESC LIMIT 1`,
+		db.Escape(name))
 
 	rows, err := db.Query(dbPath, sql)
 	if err != nil || len(rows) == 0 {
@@ -605,7 +628,7 @@ func QueryDigestStats(dbPath, from, to string) (total, success, fail int, cost f
 	// Failed runs details.
 	if fail > 0 {
 		failSQL := fmt.Sprintf(
-			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+			`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 			 FROM job_runs
 			 WHERE started_at >= '%s' AND started_at < '%s' AND status NOT IN ('success', '%s')
 			 ORDER BY id DESC LIMIT 10`,
@@ -649,7 +672,7 @@ func QueryRecentFails(dbPath string, q FailQuery) ([]JobRun, error) {
 
 	where := "WHERE " + strings.Join(conditions, " AND ")
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs %s ORDER BY id DESC LIMIT %d`,
 		where, limit)
 
@@ -743,7 +766,7 @@ func QueryJobTrace(dbPath, jobID string, limit int) ([]JobRun, error) {
 		limit = 10
 	}
 	sql := fmt.Sprintf(
-		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
+		`SELECT id, job_id, name, source, started_at, finished_at, status, exit_code, cost_usd, output_summary, error, model, COALESCE(provider,'') as provider, session_id, COALESCE(output_file,'') as output_file, COALESCE(prompt_manifest_file,'') as prompt_manifest_file, COALESCE(tokens_in,0) as tokens_in, COALESCE(tokens_out,0) as tokens_out, COALESCE(agent,'') as agent, COALESCE(parent_id,'') as parent_id
 		 FROM job_runs WHERE job_id = '%s' ORDER BY id DESC LIMIT %d`,
 		db.Escape(jobID), limit)
 

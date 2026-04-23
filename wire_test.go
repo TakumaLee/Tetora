@@ -3182,6 +3182,23 @@ func TestAgentDispatch_EmptyPrompt(t *testing.T) {
 	}
 }
 
+// TestAgentDispatch_AcceptsComplexityHint verifies the tool parses and accepts
+// the complexityHint JSON field. We use an unknown agent to stop before the
+// HTTP POST; reaching the "not found" check proves the JSON unmarshal+validation
+// ran successfully with the hint field present.
+func TestAgentDispatch_AcceptsComplexityHint(t *testing.T) {
+	cfg := &Config{
+		Agents: map[string]AgentConfig{},
+	}
+	for _, hint := range []string{"simple", "standard", "complex"} {
+		payload := fmt.Sprintf(`{"agent":"unknown","prompt":"test","complexityHint":%q}`, hint)
+		_, err := toolAgentDispatch(context.Background(), cfg, json.RawMessage(payload))
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("hint %q: expected 'not found' after JSON parse, got: %v", hint, err)
+		}
+	}
+}
+
 func TestAgentMessage_Store(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
@@ -15605,7 +15622,8 @@ CREATE TABLE IF NOT EXISTS job_runs (
   session_id TEXT DEFAULT '', output_file TEXT DEFAULT '',
   tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
   agent TEXT DEFAULT '', parent_id TEXT DEFAULT '',
-  provider TEXT DEFAULT ''
+  provider TEXT DEFAULT '',
+  prompt_manifest_file TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

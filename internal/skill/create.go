@@ -42,6 +42,7 @@ type SkillMetadata struct {
 	AllowedTools []string          `json:"allowedTools,omitempty"`
 	CreatedBy    string            `json:"createdBy,omitempty"`
 	Approved    bool              `json:"approved"`
+	Mandatory   bool              `json:"mandatory,omitempty"` // bypass tier gate and matcher — always inject
 	Sandbox     bool              `json:"sandbox,omitempty"`
 	CreatedAt   string            `json:"createdAt"`
 	UsageCount  int               `json:"usageCount,omitempty"`
@@ -207,6 +208,7 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 				Example:      meta.Example,
 				AllowedTools: meta.AllowedTools,
 				Workdir:      skillDir,
+				Mandatory:    meta.Mandatory,
 			}
 			// Detect SKILL.md for Tier 2 doc injection.
 			skillMDPath := filepath.Join(skillDir, "SKILL.md")
@@ -223,6 +225,13 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 			if sc.DocPath != "" && len(sc.AllowedTools) == 0 {
 				if tools := parseAllowedToolsFromFrontmatter(sc.DocPath); len(tools) > 0 {
 					sc.AllowedTools = tools
+				}
+			}
+			// Fallback: honor `mandatory: true` in SKILL.md frontmatter even if
+			// metadata.json omits it. Frontmatter is the primary authoring surface.
+			if !sc.Mandatory && sc.DocPath != "" {
+				if parseMandatoryFromFrontmatter(sc.DocPath) {
+					sc.Mandatory = true
 				}
 			}
 			skills = append(skills, sc)
@@ -267,6 +276,9 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 			// captures triggers, allowed-tools, etc.); fall back to metadata.json.
 			if sc := loadSkillFromFrontmatter(skillDir); sc != nil {
 				sc.Learned = true
+				if meta.Mandatory {
+					sc.Mandatory = true
+				}
 				skills = append(skills, *sc)
 				continue
 			}
@@ -280,6 +292,7 @@ func LoadFileSkills(cfg *AppConfig) []SkillConfig {
 				Example:     meta.Example,
 				Workdir:     skillDir,
 				Learned:     true,
+				Mandatory:   meta.Mandatory,
 			}
 			skillMDPath := filepath.Join(skillDir, "SKILL.md")
 			if info, err := os.Stat(skillMDPath); err == nil {
@@ -358,13 +371,16 @@ func loadSkillFromFrontmatter(skillDir string) *SkillConfig {
 		return nil
 	}
 
+	mandatory := strings.EqualFold(strings.TrimSpace(parsed["mandatory"]), "true")
+
 	return &SkillConfig{
 		Name:        name,
 		Description: description,
 		Matcher:     matcher,
 		// No Command — doc-only skill; agent reads SKILL.md directly.
-		DocPath: skillMDPath,
-		DocSize: int(info.Size()),
+		DocPath:   skillMDPath,
+		DocSize:   int(info.Size()),
+		Mandatory: mandatory,
 	}
 }
 
@@ -468,6 +484,38 @@ func parseAllowedToolsFromFrontmatter(path string) []string {
 		}
 	}
 	return tools
+}
+
+// parseMandatoryFromFrontmatter returns true when SKILL.md's YAML frontmatter
+// contains `mandatory: true` as a top-level key. Only checks the bounded
+// frontmatter block; the body is ignored.
+func parseMandatoryFromFrontmatter(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	text := string(data)
+	if !strings.HasPrefix(text, "---") {
+		return false
+	}
+	parts := strings.SplitN(text, "---", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	for _, line := range strings.Split(parts[1], "\n") {
+		stripped := strings.TrimSpace(line)
+		idx := strings.Index(stripped, ":")
+		if idx <= 0 {
+			continue
+		}
+		if strings.TrimSpace(stripped[:idx]) != "mandatory" {
+			continue
+		}
+		val := strings.TrimSpace(stripped[idx+1:])
+		val = strings.Trim(val, `"'`)
+		return strings.EqualFold(val, "true")
+	}
+	return false
 }
 
 // LoadAllFileSkillMetas scans the skills directory and returns all metadata (including unapproved).

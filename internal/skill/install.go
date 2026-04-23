@@ -443,3 +443,42 @@ func ToolSkillSearch(ctx context.Context, cfg *AppConfig, input json.RawMessage)
 	}
 	return string(b), nil
 }
+
+// ToolSkillLoad is the handler for the skill_load built-in tool. Given a skill
+// name, it returns the SKILL.md contents so an agent can pull full procedure
+// text on demand (used when BuildSkillsPromptWithMeta skips Tier 2 injection).
+func ToolSkillLoad(ctx context.Context, cfg *AppConfig, input json.RawMessage) (string, error) {
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	name := strings.TrimSpace(args.Name)
+	if name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	if !IsValidSkillName(name) {
+		return "", fmt.Errorf("invalid skill name %q", name)
+	}
+
+	// Search both top-level and learned/ subdirectory.
+	candidates := []string{
+		filepath.Join(SkillsDir(cfg), name, "SKILL.md"),
+		filepath.Join(SkillsDir(cfg), "learned", name, "SKILL.md"),
+	}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			result := map[string]any{
+				"name":    name,
+				"path":    path,
+				"content": string(data),
+				"bytes":   len(data),
+			}
+			b, _ := json.Marshal(result)
+			return string(b), nil
+		}
+	}
+	return "", fmt.Errorf("skill %q not found", name)
+}

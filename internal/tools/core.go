@@ -241,7 +241,8 @@ func RegisterCoreTools(r *Registry, cfg *config.Config, enabled func(string) boo
 					"agent": {"type": "string", "description": "Target agent name"},
 					"role": {"type": "string", "description": "Deprecated alias for agent"},
 					"prompt": {"type": "string", "description": "Task prompt to send"},
-					"timeout": {"type": "number", "description": "Timeout in seconds (default 300)"}
+					"timeout": {"type": "number", "description": "Timeout in seconds (default 300)"},
+					"complexityHint": {"type": "string", "enum": ["simple", "standard", "complex"], "description": "Sub-task complexity tier. Skips auto-classification — use when you know the sub-task's scope better than prompt analysis can detect."}
 				},
 				"required": ["prompt"]
 			}`),

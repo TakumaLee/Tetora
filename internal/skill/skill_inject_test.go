@@ -333,3 +333,200 @@ func skillFindSubstr(s, substr string) bool {
 	}
 	return false
 }
+
+// --- A1: tier-aware skill injection (SkillsOnDemand) ---
+
+// writeSkillWithDoc creates a skill dir with metadata.json + SKILL.md under cfg.WorkspaceDir.
+func writeSkillWithDoc(t *testing.T, dir, name, desc, doc string, mandatory bool) {
+	t.Helper()
+	skillDir := filepath.Join(dir, "skills", name)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	meta := SkillMetadata{
+		Name:        name,
+		Description: desc,
+		Command:     "./run.sh",
+		Approved:    true,
+		Mandatory:   mandatory,
+	}
+	b, _ := json.Marshal(meta)
+	if err := os.WriteFile(filepath.Join(skillDir, "metadata.json"), b, 0o644); err != nil {
+		t.Fatalf("write meta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(doc), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+}
+
+func TestBuildSkillsPromptWithMeta_Simple_OnDemandOff(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithDoc(t, dir, "legacy-skill", "Legacy skill", "# legacy body", false)
+	InvalidateSkillsCache(&AppConfig{WorkspaceDir: dir})
+
+	cfg := &AppConfig{
+		WorkspaceDir:          dir,
+		SkillsOnDemandEnabled: false,
+	}
+	task := TaskContext{Prompt: "legacy-skill usage"}
+
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	if !skillStringContains(prompt, "legacy-skill") {
+		t.Error("OnDemand off should keep Tier 1 summary on Simple tier")
+	}
+	if skillStringContains(prompt, "<skill-doc") {
+		t.Error("Simple tier should never inline Tier 2 docs")
+	}
+	if len(matched) == 0 {
+		t.Error("matched names should be non-empty when skill is injected")
+	}
+}
+
+func TestBuildSkillsPromptWithMeta_Simple_OnDemandOn_NoMandatory_ReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithDoc(t, dir, "some-skill", "Some skill", "# body", false)
+	InvalidateSkillsCache(&AppConfig{WorkspaceDir: dir})
+
+	cfg := &AppConfig{
+		WorkspaceDir:          dir,
+		SkillsOnDemandEnabled: true,
+	}
+	task := TaskContext{Prompt: "some-skill relevant"}
+
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	if prompt != "" {
+		t.Errorf("Simple+OnDemand with no mandatory skills should return empty; got %q", prompt)
+	}
+	if len(matched) != 0 {
+		t.Errorf("matched names should be empty; got %v", matched)
+	}
+}
+
+func TestBuildSkillsPromptWithMeta_Simple_OnDemandOn_Mandatory_AlwaysInjected(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithDoc(t, dir, "guard-skill", "Identity guard", "# guard body\n\nfollow the rules.", true)
+	writeSkillWithDoc(t, dir, "regular-skill", "Regular skill", "# regular body", false)
+	InvalidateSkillsCache(&AppConfig{WorkspaceDir: dir})
+
+	cfg := &AppConfig{
+		WorkspaceDir:          dir,
+		SkillsOnDemandEnabled: true,
+	}
+	// Prompt has no keyword match for either skill — mandatory must bypass matcher.
+	task := TaskContext{Prompt: "unrelated chatter"}
+
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	if !skillStringContains(prompt, "guard-skill") {
+		t.Error("mandatory skill must be injected on Simple tier")
+	}
+	if skillStringContains(prompt, "regular-skill") {
+		t.Error("non-mandatory skill must be dropped on Simple+OnDemand")
+	}
+	if !skillStringContains(prompt, "## Active Skills (mandatory)") {
+		t.Error("Simple+OnDemand output should use the mandatory-only header")
+	}
+	// Mandatory skill doc is inlined (small + identity guard).
+	if !skillStringContains(prompt, "follow the rules.") {
+		t.Error("mandatory skill doc should be inlined when under budget")
+	}
+	if len(matched) != 1 || matched[0] != "guard-skill" {
+		t.Errorf("matched names should be [guard-skill]; got %v", matched)
+	}
+}
+
+func TestBuildSkillsPromptWithMeta_Standard_OnDemand_SkipsTier2(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithDoc(t, dir, "doc-skill", "Doc skill", "# body\n\nprocedure details here.", false)
+	InvalidateSkillsCache(&AppConfig{WorkspaceDir: dir})
+
+	cfg := &AppConfig{
+		WorkspaceDir:          dir,
+		SkillsOnDemandEnabled: true,
+	}
+	task := TaskContext{Prompt: "doc-skill related"}
+
+	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, classify.Standard)
+	if !skillStringContains(prompt, "doc-skill") {
+		t.Error("Standard tier should still list matched skills")
+	}
+	if skillStringContains(prompt, "<skill-doc") {
+		t.Error("Standard + OnDemand should NOT inline Tier 2 skill-doc")
+	}
+	if !skillStringContains(prompt, "skill_load") {
+		t.Error("prompt should mention skill_load tool for on-demand loading")
+	}
+}
+
+func TestBuildSkillsPromptWithMeta_Complex_OnDemand_KeepsTier2(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithDoc(t, dir, "doc-skill", "Doc skill", "# body\n\nfull procedure.", false)
+	InvalidateSkillsCache(&AppConfig{WorkspaceDir: dir})
+
+	cfg := &AppConfig{
+		WorkspaceDir:          dir,
+		SkillsOnDemandEnabled: true,
+	}
+	task := TaskContext{Prompt: "doc-skill related"}
+
+	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, classify.Complex)
+	if !skillStringContains(prompt, "<skill-doc name=\"doc-skill\">") {
+		t.Error("Complex tier should still inline Tier 2 docs even with OnDemand on")
+	}
+	if !skillStringContains(prompt, "full procedure.") {
+		t.Error("Complex tier should inline the SKILL.md body")
+	}
+}
+
+func TestShouldInjectSkill_MandatoryBypassesMatcher(t *testing.T) {
+	// Matcher says "only agent=hisui" — but Mandatory overrides.
+	s := SkillConfig{
+		Name:      "guard",
+		Mandatory: true,
+		Matcher:   &SkillMatcher{Agents: []string{"hisui"}},
+	}
+	task := TaskContext{Agent: "琉璃", Prompt: "unrelated"}
+	if !ShouldInjectSkill(s, task) {
+		t.Error("Mandatory=true must bypass matcher and inject unconditionally")
+	}
+}
+
+func TestLoadSkillFromFrontmatter_ParsesMandatory(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skill-a")
+	os.MkdirAll(skillDir, 0o755)
+	frontmatter := "---\nname: skill-a\ndescription: test\nmandatory: true\n---\n\nbody\n"
+	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(frontmatter), 0o644)
+
+	sc := loadSkillFromFrontmatter(skillDir)
+	if sc == nil {
+		t.Fatal("loadSkillFromFrontmatter returned nil")
+	}
+	if !sc.Mandatory {
+		t.Error("Mandatory should be true when frontmatter says mandatory: true")
+	}
+}
+
+func TestParseMandatoryFromFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"true", "---\nname: x\nmandatory: true\n---\nbody\n", true},
+		{"false", "---\nname: x\nmandatory: false\n---\nbody\n", false},
+		{"missing", "---\nname: x\n---\nbody\n", false},
+		{"no-frontmatter", "just body\n", false},
+		{"quoted-true", "---\nname: x\nmandatory: \"true\"\n---\nbody\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, tc.name+".md")
+			os.WriteFile(path, []byte(tc.content), 0o644)
+			got := parseMandatoryFromFrontmatter(path)
+			if got != tc.want {
+				t.Errorf("parseMandatoryFromFrontmatter() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
