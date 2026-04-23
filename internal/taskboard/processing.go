@@ -1251,8 +1251,16 @@ Reply with ONLY a JSON object:
 
 	tr, parseErr := parseTriage(result.Output)
 
-	// Step 2: If parse failed or confidence is low, escalate to sonnet once.
-	if parseErr != nil || (tr != nil && tr.Confidence == "low") {
+	// Step 2: If parse failed or confidence is low, escalate to sonnet once —
+	// unless the operator has killed the escalation path via config.
+	shouldEscalate := parseErr != nil || (tr != nil && tr.Confidence == "low")
+	escalateEnabled := d.engine.config.AutoDispatch.TriageEscalateToSonnetOrDefault()
+	escalationFailed := false
+	if shouldEscalate && !escalateEnabled {
+		log.Warn("triage: haiku uncertain but escalation disabled by config",
+			"task", t.ID, "haikuCost", result.CostUSD, "parseErr", parseErr)
+	}
+	if shouldEscalate && escalateEnabled {
 		reason := "low confidence"
 		if parseErr != nil {
 			reason = "parse error: " + parseErr.Error()
@@ -1260,13 +1268,32 @@ Reply with ONLY a JSON object:
 		log.Info("triage: haiku result uncertain, escalating to sonnet", "task", t.ID, "reason", reason)
 		task.Model = "sonnet"
 		result2 := d.deps.Executor.RunTask(ctx, task, triageAgent)
+		combinedCost := result.CostUSD + result2.CostUSD
 		if result2.Status == "success" {
 			if tr2, err2 := parseTriage(result2.Output); err2 == nil {
 				tr = tr2
-				tr.CostUSD = result.CostUSD + result2.CostUSD
+				tr.CostUSD = combinedCost
+			} else if tr != nil {
+				// Sonnet ran but its output didn't parse either. Keep the haiku
+				// result (if any) but charge for both API calls so cost audit
+				// stays accurate.
+				tr.CostUSD = combinedCost
+				escalationFailed = true
+			} else {
+				escalationFailed = true
 			}
+		} else {
+			escalationFailed = true
 		}
-		// If escalation also fails, fall through with the haiku result (or nil).
+		// Emit a summary line grep-able for weekly escalation-rate monitoring.
+		log.Info("triage: escalation summary",
+			"task", t.ID,
+			"reason", reason,
+			"escalated", true,
+			"sonnetCost", result2.CostUSD,
+			"totalCost", combinedCost,
+			"sonnetOK", !escalationFailed,
+		)
 	}
 
 	if tr == nil {

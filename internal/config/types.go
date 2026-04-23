@@ -1236,6 +1236,10 @@ type TaskBoardDispatchConfig struct {
 	ReviewLoop            bool                  `json:"reviewLoop,omitempty"`
 	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
 	TriageBudget          float64               `json:"triageBudget,omitempty"`
+	// TriageEscalateToSonnet controls whether haiku triage may retry with sonnet
+	// on parse failure or low confidence. Default true. Set to false as a cost
+	// killswitch if escalation rates climb (watch "triage: escalation" logs).
+	TriageEscalateToSonnet *bool                 `json:"triageEscalateToSonnet,omitempty"`
 	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
 	// MaxRSSMB is the RSS hard-limit for subprocess (MB). Exceeding it cancels the context → SIGKILL.
 	// 0 = disabled. Default 2048 (2 GB).
@@ -1254,6 +1258,15 @@ func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
 		return c.TriageBudget
 	}
 	return 0.05
+}
+
+// TriageEscalateToSonnetOrDefault reports whether haiku triage should
+// escalate to sonnet on parse fail / low confidence. Default true.
+func (c TaskBoardDispatchConfig) TriageEscalateToSonnetOrDefault() bool {
+	if c.TriageEscalateToSonnet == nil {
+		return true
+	}
+	return *c.TriageEscalateToSonnet
 }
 
 func (c TaskBoardDispatchConfig) MaxRSSMBOrDefault() int {
