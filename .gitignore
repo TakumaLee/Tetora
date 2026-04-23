@@ -40,6 +40,8 @@ outputs/
 uploads/
 knowledge/
 backups/
+.worktrees/
+internal/taskboard/kokuyou/
 
 # IDE
 .idea/
