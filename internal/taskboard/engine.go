@@ -600,8 +600,12 @@ func (tb *Engine) AutoRetryFailed() error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Fetch failed tasks whose backoff window has elapsed (or was never set).
+	// cost_usd and duration_ms are used to detect slot-timeout failures where
+	// the agent never actually ran (zero cost, zero duration + deadline-exceeded
+	// error signature) — those must not auto-retry since the retry would also
+	// hit the same slot exhaustion.
 	sql := fmt.Sprintf(`
-		SELECT id, retry_count, retry_policy, next_retry_at FROM tasks WHERE status = 'failed'
+		SELECT id, retry_count, retry_policy, next_retry_at, cost_usd, duration_ms FROM tasks WHERE status = 'failed'
 		  AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= '%s')
 	`, db.Escape(now))
 	rows, err := db.Query(tb.dbPath, sql)
@@ -659,6 +663,28 @@ func (tb *Engine) AutoRetryFailed() error {
 		}
 		if skip {
 			log.Info("auto retry: skipping cancelled/stalled task", "id", id)
+			continue
+		}
+
+		// Safety-net: detect slot-timeout failures that dispatchTask's stalled
+		// check missed (e.g., daemon crashed between failure and comment write).
+		// Signature: zero cost AND zero duration AND a failure comment mentioning
+		// "context deadline exceeded". Retrying would hit the same slot exhaustion.
+		costUSD := getFloat64(row, "cost_usd")
+		durationMs := int64(getFloat64(row, "duration_ms"))
+		if costUSD == 0 && durationMs == 0 {
+			for _, c := range comments {
+				content := strings.ToLower(c.Content)
+				if strings.Contains(content, "task failed") && strings.Contains(content, "context deadline exceeded") {
+					tb.AddComment(id, "system",
+						"[auto-flag] Task is stalled (slot-timeout signature: zero cost/duration + deadline exceeded). Auto-retry disabled.")
+					log.Info("auto retry: skipping slot-timeout task", "id", id, "cost", costUSD, "durationMs", durationMs)
+					skip = true
+					break
+				}
+			}
+		}
+		if skip {
 			continue
 		}
 
