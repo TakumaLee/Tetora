@@ -54,6 +54,7 @@ type triageResult struct {
 	TargetAgent string  `json:"targetAgent"`
 	Workflow    string  `json:"workflow,omitempty"`
 	Instruction string  `json:"instruction"`
+	Confidence  string  `json:"confidence,omitempty"`
 	CostUSD     float64 `json:"-"`
 }
 
@@ -421,10 +422,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		triageAgent = "ruri"
 	}
 
-	shouldTriage := d.engine.config.AutoDispatch.TriageEnabled &&
-		d.deps.Executor != nil &&
-		t.Assignee == triageAgent &&
-		t.RetryCount == 0
+	shouldTriage := shouldRunTriage(d.engine.config.AutoDispatch, d.deps.Executor, t)
 
 	if shouldTriage {
 		tr := d.triageTask(ctx, t, prompt)
@@ -1161,6 +1159,19 @@ func (d *Dispatcher) reviewTaskOutput(ctx context.Context, originalPrompt, outpu
 // Section: Triage (commander delegation)
 // =============================================================================
 
+// shouldRunTriage reports whether the task should be triaged by the commander.
+// Retried tasks skip triage: the commander already decided on the first attempt.
+func shouldRunTriage(cfg config.TaskBoardDispatchConfig, executor interface{}, t TaskBoard) bool {
+	triageAgent := cfg.DefaultAgent
+	if triageAgent == "" {
+		triageAgent = "ruri"
+	}
+	return cfg.TriageEnabled &&
+		executor != nil &&
+		t.Assignee == triageAgent &&
+		t.RetryCount == 0
+}
+
 // triageTask runs a lightweight LLM call to decide which agent should execute the task.
 func (d *Dispatcher) triageTask(ctx context.Context, t TaskBoard, prompt string) *triageResult {
 	truncate := func(s string, n int) string {
@@ -1192,11 +1203,12 @@ Project: %s
 ## Available Agents
 %s
 Reply with ONLY a JSON object:
-{"targetAgent":"agent_name","workflow":"","instruction":"Refined instructions for the executor..."}
+{"targetAgent":"agent_name","workflow":"","instruction":"Refined instructions for the executor...","confidence":"high|medium|low"}
 
 - targetAgent: which agent should execute (must be from the list above)
 - workflow: optional workflow override (empty = use default routing)
-- instruction: briefing for the executor — clarify approach, priorities, gotchas`,
+- instruction: briefing for the executor — clarify approach, priorities, gotchas
+- confidence: your confidence in the delegation decision (high/medium/low)`,
 		t.Title,
 		truncate(t.Description, 2000),
 		t.Type,
@@ -1215,37 +1227,85 @@ Reply with ONLY a JSON object:
 	if d.deps.FillDefaults != nil {
 		d.deps.FillDefaults(d.cfg, &task)
 	}
-	task.Model = "sonnet"
+	// Triage is structured JSON routing; haiku handles the vast majority of cases.
+	// SOUL is intentionally omitted — the prompt above is self-contained.
+	task.Model = "haiku"
 	task.PermissionMode = "plan"
 
-	// Load commander SOUL.
 	triageAgent := d.engine.config.AutoDispatch.DefaultAgent
 	if triageAgent == "" {
 		triageAgent = "ruri"
 	}
-	if d.deps.LoadAgentPrompt != nil {
-		if soulPrompt, err := d.deps.LoadAgentPrompt(d.cfg, triageAgent); err == nil && soulPrompt != "" {
-			task.SystemPrompt = soulPrompt
+
+	parseTriage := func(output string) (*triageResult, error) {
+		start := strings.Index(output, "{")
+		end := strings.LastIndex(output, "}")
+		if start < 0 || end <= start {
+			return nil, fmt.Errorf("no JSON in output")
 		}
+		var tr triageResult
+		if err := json.Unmarshal([]byte(output[start:end+1]), &tr); err != nil {
+			return nil, err
+		}
+		return &tr, nil
 	}
 
+	// Step 1: Try with haiku for cost efficiency.
 	result := d.deps.Executor.RunTask(ctx, task, triageAgent)
 	if result.Status != "success" {
 		log.Warn("triage: execution failed, falling back to direct dispatch", "task", t.ID, "error", result.Output)
 		return nil
 	}
 
-	// Parse JSON from output.
-	start := strings.Index(result.Output, "{")
-	end := strings.LastIndex(result.Output, "}")
-	if start < 0 || end <= start {
-		log.Warn("triage: no JSON in output, falling back", "task", t.ID)
-		return nil
+	tr, parseErr := parseTriage(result.Output)
+
+	// Step 2: If parse failed or confidence is low, escalate to sonnet once —
+	// unless the operator has killed the escalation path via config.
+	shouldEscalate := parseErr != nil || (tr != nil && tr.Confidence == "low")
+	escalateEnabled := d.engine.config.AutoDispatch.TriageEscalateToSonnetOrDefault()
+	escalationFailed := false
+	if shouldEscalate && !escalateEnabled {
+		log.Warn("triage: haiku uncertain but escalation disabled by config",
+			"task", t.ID, "haikuCost", result.CostUSD, "parseErr", parseErr)
+	}
+	if shouldEscalate && escalateEnabled {
+		reason := "low confidence"
+		if parseErr != nil {
+			reason = "parse error: " + parseErr.Error()
+		}
+		log.Info("triage: haiku result uncertain, escalating to sonnet", "task", t.ID, "reason", reason)
+		task.Model = "sonnet"
+		result2 := d.deps.Executor.RunTask(ctx, task, triageAgent)
+		combinedCost := result.CostUSD + result2.CostUSD
+		if result2.Status == "success" {
+			if tr2, err2 := parseTriage(result2.Output); err2 == nil {
+				tr = tr2
+				tr.CostUSD = combinedCost
+			} else if tr != nil {
+				// Sonnet ran but its output didn't parse either. Keep the haiku
+				// result (if any) but charge for both API calls so cost audit
+				// stays accurate.
+				tr.CostUSD = combinedCost
+				escalationFailed = true
+			} else {
+				escalationFailed = true
+			}
+		} else {
+			escalationFailed = true
+		}
+		// Emit a summary line grep-able for weekly escalation-rate monitoring.
+		log.Info("triage: escalation summary",
+			"task", t.ID,
+			"reason", reason,
+			"escalated", true,
+			"sonnetCost", result2.CostUSD,
+			"totalCost", combinedCost,
+			"sonnetOK", !escalationFailed,
+		)
 	}
 
-	var tr triageResult
-	if err := json.Unmarshal([]byte(result.Output[start:end+1]), &tr); err != nil {
-		log.Warn("triage: JSON parse failed, falling back", "task", t.ID, "error", err)
+	if tr == nil {
+		log.Warn("triage: JSON parse failed after escalation, falling back", "task", t.ID)
 		return nil
 	}
 
@@ -1255,8 +1315,10 @@ Reply with ONLY a JSON object:
 		return nil
 	}
 
-	tr.CostUSD = result.CostUSD
-	return &tr
+	if tr.CostUSD == 0 {
+		tr.CostUSD = result.CostUSD
+	}
+	return tr
 }
 
 // recordTriageHandoff writes the handoff record and agent message for a triage delegation.

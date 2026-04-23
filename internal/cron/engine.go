@@ -43,6 +43,7 @@ type JobConfig struct {
 	NotifyChannel   string     `json:"notifyChannel,omitempty"`   // Discord channel name, e.g. "stock"
 	MaxRetries      int        `json:"maxRetries,omitempty"`      // 0 = no retry (default)
 	RetryDelay      string     `json:"retryDelay,omitempty"`      // e.g. "1m", "5m"; default "1m"
+	MinRetryInterval string    `json:"minRetryInterval,omitempty"` // e.g. "10m", "1h"; min gap between runs, skips if last run too recent
 	OnSuccess       []string   `json:"onSuccess,omitempty"`       // job IDs to trigger on success
 	OnFailure       []string   `json:"onFailure,omitempty"`       // job IDs to trigger on failure
 	RequireApproval bool       `json:"requireApproval,omitempty"` // true = wait for human approval before running
@@ -912,6 +913,38 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 		ce.mu.Unlock()
 	}()
 
+	// Min-retry-interval guard: skip if the last run (success or failure) was
+	// too recent. Protects against runaway loops when a job misbehaves and the
+	// cron schedule fires more frequently than is safe. lastRun is in-memory;
+	// after daemon restart the guard is inactive for one cycle, which is an
+	// accepted trade-off vs. the complexity of persisting it.
+	if j.MinRetryInterval != "" {
+		if minInterval, err := time.ParseDuration(j.MinRetryInterval); err == nil && minInterval > 0 {
+			ce.mu.RLock()
+			lastRun := j.lastRun
+			ce.mu.RUnlock()
+			if sinceLastRun := time.Since(lastRun); !lastRun.IsZero() && sinceLastRun < minInterval {
+				log.InfoCtx(ctx, "cron job skipped: min-retry-interval not elapsed",
+					"jobId", j.ID, "name", j.Name,
+					"since", sinceLastRun.Round(time.Second),
+					"minInterval", minInterval)
+				if ce.cfg.HistoryDB != "" {
+					nowTS := time.Now().UTC().Format(time.RFC3339)
+					_ = history.InsertRun(ce.cfg.HistoryDB, history.JobRun{
+						JobID:      j.ID,
+						Name:       j.Name,
+						Source:     "cron",
+						StartedAt:  nowTS,
+						FinishedAt: nowTS,
+						Status:     "skipped_min_retry_interval",
+						Error:      fmt.Sprintf("last run %s ago, min interval %s", sinceLastRun.Round(time.Second), minInterval),
+					})
+				}
+				return
+			}
+		}
+	}
+
 	// Disk block check.
 	if diskStatus, diskFreeGB := ce.checkDisk(); diskStatus == "critical" {
 		log.ErrorCtx(ctx, "cron job skipped: disk full", "jobId", j.ID, "name", j.Name, "freeGB", fmt.Sprintf("%.2f", diskFreeGB), "blockMB", ce.diskBlockThresholdMB())
@@ -1164,6 +1197,12 @@ func (ce *Engine) runJob(ctx context.Context, j *cronJob) {
 		if j.errors >= 3 {
 			j.Enabled = false
 			log.Warn("cron job auto-disabled", "jobId", j.ID, "consecutiveErrors", j.errors)
+			// Persist so the auto-disable survives daemon restart. Without this,
+			// a daemon crash/restart re-reads jobs.json with Enabled=true and the
+			// failing job starts firing again.
+			if err := ce.saveToFileLocked(); err != nil {
+				log.Warn("cron auto-disable persistence failed", "jobId", j.ID, "error", err)
+			}
 			if ce.notifyFn != nil {
 				ce.notifyFn(fmt.Sprintf("Cron job %q auto-disabled after %d errors.\nLast error: %s",
 					j.Name, j.errors, truncate(j.lastErr, 200)))

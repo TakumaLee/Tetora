@@ -2215,3 +2215,187 @@ func TestTriageStuckPartialDone_UpdateFailure_NoNotify(t *testing.T) {
 		t.Errorf("expected 0 Discord embeds when UPDATE fails, got %d (duplicate notification risk)", disc.embedCount())
 	}
 }
+
+// =============================================================================
+// shouldRunTriage guard tests
+// =============================================================================
+
+// TestShouldTriage_FalseWhenRetryCountNonZero pins the guard that prevents
+// triage from re-running on retried tasks.  Regression protection for
+// processing.go shouldRunTriage — the commander already decided on attempt 0.
+func TestShouldTriage_FalseWhenRetryCountNonZero(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{} // non-nil executor
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 1, // non-zero — this is a retry
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true for RetryCount=1; retried tasks must skip triage")
+	}
+}
+
+// TestShouldTriage_TrueOnFirstAttempt confirms the guard fires on attempt 0.
+func TestShouldTriage_TrueOnFirstAttempt(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if !shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned false for RetryCount=0 with triage enabled; expected true")
+	}
+}
+
+// TestShouldTriage_FalseWhenDisabled ensures TriageEnabled=false short-circuits.
+func TestShouldTriage_FalseWhenDisabled(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: false,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when TriageEnabled=false")
+	}
+}
+
+// TestShouldTriage_FalseWhenAssigneeNotTriageAgent ensures non-commander assignees skip triage.
+func TestShouldTriage_FalseWhenAssigneeNotTriageAgent(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "kokuyou",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when assignee is not the triage agent")
+	}
+}
+
+// --- Escalation cost tracking tests (PR #100 review: MEDIUM#3) ---
+
+// validTriageJSON returns a minimally valid triage JSON for an agent name.
+func validTriageJSON(targetAgent, confidence string) string {
+	b, _ := json.Marshal(map[string]string{
+		"targetAgent": targetAgent,
+		"instruction": "do the thing",
+		"confidence":  confidence,
+	})
+	return string(b)
+}
+
+func newTriageTestDispatcher(t *testing.T, results []dispatch.TaskResult, escalate *bool) (*Dispatcher, *mockExecutor) {
+	t.Helper()
+	ex := &mockExecutor{results: results}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"kokuyou": {Model: "sonnet"},
+			"ruri":    {Model: "sonnet"},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			TriageEnabled:          true,
+			DefaultAgent:           "ruri",
+			TriageBudget:           0.05,
+			TriageEscalateToSonnet: escalate,
+		},
+	}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+	return d, ex
+}
+
+// TestTriage_EscalationBothSuccess verifies that when haiku returns
+// confidence:low and sonnet succeeds with valid JSON, the combined cost
+// reflects haiku + sonnet spend.
+func TestTriage_EscalationBothSuccess(t *testing.T) {
+	d, ex := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		{Status: "success", Output: validTriageJSON("kokuyou", "high"), CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr == nil {
+		t.Fatal("expected non-nil triageResult")
+	}
+	if ex.calls.Load() != 2 {
+		t.Fatalf("expected 2 executor calls (haiku + sonnet), got %d", ex.calls.Load())
+	}
+	wantCost := 0.002 + 0.020
+	if tr.CostUSD != wantCost {
+		t.Fatalf("CostUSD = %v, want %v (haiku + sonnet)", tr.CostUSD, wantCost)
+	}
+}
+
+// TestTriage_EscalationSonnetParseFail ensures that even when sonnet's
+// output fails to parse, the cost of the sonnet call is still attributed.
+// Regression protection: previously result2.CostUSD was silently dropped
+// when JSON parse failed, under-reporting spend.
+func TestTriage_EscalationSonnetParseFail(t *testing.T) {
+	d, _ := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		{Status: "success", Output: "not-json", CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr == nil {
+		t.Fatal("expected haiku result preserved, got nil")
+	}
+	wantCost := 0.002 + 0.020
+	if tr.CostUSD != wantCost {
+		t.Fatalf("CostUSD = %v, want %v (haiku + sonnet even on parse fail)", tr.CostUSD, wantCost)
+	}
+}
+
+// TestTriage_EscalationDisabled confirms that when
+// TriageEscalateToSonnet=false, sonnet is not invoked even on low confidence.
+func TestTriage_EscalationDisabled(t *testing.T) {
+	disable := false
+	d, ex := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		// If escalation wrongly runs, it would consume this slot; assertion
+		// on call count below catches that.
+		{Status: "success", Output: validTriageJSON("kokuyou", "high"), CostUSD: 0.020},
+	}, &disable)
+
+	_ = d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if ex.calls.Load() != 1 {
+		t.Fatalf("expected 1 executor call (escalation disabled), got %d", ex.calls.Load())
+	}
+}
+
+// TestTriage_BothParseFailReturnsNil verifies graceful fallback when both
+// haiku and sonnet produce unparseable output.
+func TestTriage_BothParseFailReturnsNil(t *testing.T) {
+	d, _ := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: "not-json", CostUSD: 0.002},
+		{Status: "success", Output: "also-not-json", CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr != nil {
+		t.Fatalf("expected nil when both parses fail, got %+v", tr)
+	}
+}
