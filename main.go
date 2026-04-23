@@ -107,6 +107,9 @@ func main() {
 		case "dispatch":
 			cli.CmdDispatch(os.Args[2:])
 			return
+		case "review":
+			cli.CmdReview(os.Args[2:])
+			return
 		case "route":
 			cli.CmdRouteDispatch(os.Args[2:])
 			return
