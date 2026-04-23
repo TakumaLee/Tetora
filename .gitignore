@@ -40,8 +40,6 @@ outputs/
 uploads/
 knowledge/
 backups/
-.worktrees/
-internal/taskboard/kokuyou/
 /com.tetora.daemon.plist
 
 # IDE
