@@ -668,17 +668,16 @@ func (tb *Engine) AutoRetryFailed() error {
 
 		// Safety-net: detect slot-timeout failures that dispatchTask's stalled
 		// check missed (e.g., daemon crashed between failure and comment write).
-		// Signature: zero cost AND zero duration AND a failure comment mentioning
-		// "context deadline exceeded". Retrying would hit the same slot exhaustion.
+		// Retrying would hit the same slot exhaustion.
 		costUSD := getFloat64(row, "cost_usd")
 		durationMs := int64(getFloat64(row, "duration_ms"))
 		if costUSD == 0 && durationMs == 0 {
 			for _, c := range comments {
-				content := strings.ToLower(c.Content)
-				if strings.Contains(content, "task failed") && strings.Contains(content, "context deadline exceeded") {
+				if matched, signature := matchSlotTimeoutSignature(c.Content); matched {
 					tb.AddComment(id, "system",
-						"[auto-flag] Task is stalled (slot-timeout signature: zero cost/duration + deadline exceeded). Auto-retry disabled.")
-					log.Info("auto retry: skipping slot-timeout task", "id", id, "cost", costUSD, "durationMs", durationMs)
+						"[auto-flag] Task is stalled (slot-timeout signature: "+signature+" + zero cost/duration). Auto-retry disabled.")
+					log.Info("auto retry: skipping slot-timeout task",
+						"id", id, "cost", costUSD, "durationMs", durationMs, "signature", signature)
 					skip = true
 					break
 				}
@@ -938,4 +937,39 @@ func (tb *Engine) fireWebhook(event string, payload any) {
 // FireWebhook is an exported wrapper to allow the dispatcher to fire webhooks.
 func (tb *Engine) FireWebhook(event string, payload any) {
 	tb.fireWebhook(event, payload)
+}
+
+// matchSlotTimeoutSignature inspects a comment body for phrases that indicate
+// a task failed because of slot/timeout exhaustion rather than work progress.
+// Returns (true, signature) if a known fingerprint matches. Called from
+// AutoRetryFailed to avoid rerunning doomed tasks.
+//
+// Signatures are phrase-pairs (must both appear) or standalone markers. Add
+// new fingerprints here rather than inlining string matches at call sites so
+// the detection surface stays discoverable and testable.
+func matchSlotTimeoutSignature(content string) (bool, string) {
+	c := strings.ToLower(content)
+	type sig struct {
+		name   string
+		needle []string
+	}
+	sigs := []sig{
+		{"deadline-exceeded", []string{"task failed", "context deadline exceeded"}},
+		{"slot-acquisition-cancelled", []string{"slot acquisition cancelled"}},
+		{"request-timeout-cron", []string{"request_timeout_cron"}},
+		{"slot-pressure-timeout", []string{"slot pressure", "timeout"}},
+	}
+	for _, s := range sigs {
+		ok := true
+		for _, n := range s.needle {
+			if !strings.Contains(c, n) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true, s.name
+		}
+	}
+	return false, ""
 }
