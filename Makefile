@@ -10,7 +10,7 @@ PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
 DASH_PARTS := dashboard/head.html dashboard/style.css dashboard/body.html \
 	dashboard/core.js dashboard/views.js dashboard/workers.js \
-	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
+	dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js dashboard/review.js \
 	dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js \
 	dashboard/foot.html
 
@@ -25,7 +25,7 @@ dashboard: $(DASH_PARTS)
 		cat dashboard/body.html; \
 		echo '<script>'; \
 		cat dashboard/core.js dashboard/views.js dashboard/workers.js \
-		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js \
+		    dashboard/modals.js dashboard/tasks.js dashboard/dispatch.js dashboard/review.js \
 		    dashboard/agents.js dashboard/charts.js dashboard/workflow-editor.js dashboard/capabilities.js dashboard/team-builder.js dashboard/store.js dashboard/office.js dashboard/docs.js dashboard/pwa.js dashboard/war-room.js; \
 		echo '</script>'; \
 		cat dashboard/foot.html; \
