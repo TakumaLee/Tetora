@@ -66,6 +66,7 @@ type CLIConfig struct {
 	EncryptionKey         string                     `json:"encryptionKey,omitempty"`
 	ClientsDir            string                     `json:"clientsDir,omitempty"`
 	DefaultClientID       string                     `json:"defaultClientID,omitempty"`
+	Review                ReviewInfo                 `json:"review,omitempty"`
 
 	// Resolved paths (not from JSON).
 	BaseDir    string `json:"-"`

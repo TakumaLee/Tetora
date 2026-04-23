@@ -1192,6 +1192,34 @@ func (c TaskBoardConfig) MaxExecutionsOrDefault() int {
 	return 3
 }
 
+type ReviewConfig struct {
+	Queues       map[string][]string `json:"queues,omitempty"`
+	DefaultAgent string              `json:"defaultAgent,omitempty"`
+	MaxDiffLines int                 `json:"maxDiffLines,omitempty"`
+	Model        string              `json:"model,omitempty"`
+}
+
+func (c ReviewConfig) DefaultAgentOrFallback() string {
+	if c.DefaultAgent != "" {
+		return c.DefaultAgent
+	}
+	return "kokuyou"
+}
+
+func (c ReviewConfig) MaxDiffLinesOrDefault() int {
+	if c.MaxDiffLines > 0 {
+		return c.MaxDiffLines
+	}
+	return 3000
+}
+
+func (c ReviewConfig) ModelOrDefault() string {
+	if c.Model != "" {
+		return c.Model
+	}
+	return "haiku"
+}
+
 type TaskBoardDispatchConfig struct {
 	Enabled               bool                  `json:"enabled"`
 	Interval              string                `json:"interval,omitempty"`
