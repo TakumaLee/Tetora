@@ -2063,6 +2063,45 @@ func TestDispatchTask_ExistingTodosNotOverwritten(t *testing.T) {
 	}
 }
 
+// TestDispatchTask_RelativeAgentsDir_SkipsTodos pins the guard at processing.go
+// that refuses to create todos files when AgentsDir is empty or relative. Without
+// this guard, filepath.Join resolves against the caller's cwd and strays appear
+// at e.g. internal/taskboard/kokuyou/todos/*.md.
+func TestDispatchTask_RelativeAgentsDir_SkipsTodos(t *testing.T) {
+	cwd := t.TempDir()
+	origCwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(origCwd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	agentName := "kokuyou"
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	// AgentsDir deliberately empty — simulates misconfigured Dispatcher.
+	cfg := &config.Config{AgentsDir: ""}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "should not leak to cwd",
+		Status:        "todo",
+		Assignee:      agentName,
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	strayPath := filepath.Join(cwd, agentName, "todos", task.ID+".md")
+	if _, err := os.Stat(strayPath); err == nil {
+		t.Errorf("guard failed: stray todos file written at %s (AgentsDir was relative/empty)", strayPath)
+	}
+}
+
 // =============================================================================
 // isTimeoutError unit tests
 // =============================================================================

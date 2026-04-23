@@ -39,7 +39,7 @@ func TestSkillExtractionInSystemPrompt_Standard(t *testing.T) {
 	task := &dispatch.Task{Prompt: "do the thing"}
 	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
 
-	if !strings.Contains(task.SystemPrompt, "## Post-Task Skill Extraction") {
+	if !strings.Contains(task.SystemPrompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("standard dispatch: system prompt missing Post-Task Skill Extraction section")
 	}
 	if !strings.Contains(task.SystemPrompt, "5+ tool calls") {
@@ -57,7 +57,7 @@ func TestSkillExtractionInSystemPrompt_Complex(t *testing.T) {
 	task := &dispatch.Task{Prompt: "do the complex thing"}
 	BuildTieredPrompt(cfg, task, "", classify.Complex, minimalDeps("openai"))
 
-	if !strings.Contains(task.SystemPrompt, "## Post-Task Skill Extraction") {
+	if !strings.Contains(task.SystemPrompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("complex dispatch: system prompt missing Post-Task Skill Extraction section")
 	}
 }
@@ -81,7 +81,7 @@ func TestSkillExtractionInUserPrompt_ClaudeCode(t *testing.T) {
 	task := &dispatch.Task{Prompt: original}
 	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("claude-code"))
 
-	if !strings.Contains(task.Prompt, "## Post-Task Skill Extraction") {
+	if !strings.Contains(task.Prompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("claude-code dispatch: task.Prompt missing Post-Task Skill Extraction section")
 	}
 	if !strings.HasPrefix(task.Prompt, original) {
@@ -101,7 +101,7 @@ func TestSkillExtractionInUserPrompt_CodexCLI(t *testing.T) {
 	task := &dispatch.Task{Prompt: original}
 	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("codex"))
 
-	if !strings.Contains(task.Prompt, "## Post-Task Skill Extraction") {
+	if !strings.Contains(task.Prompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("codex-cli dispatch: task.Prompt missing Post-Task Skill Extraction section")
 	}
 	if !strings.HasPrefix(task.Prompt, original) {
@@ -284,6 +284,81 @@ func TestScopeBoundary_PrependedAfterPreflight(t *testing.T) {
 	}
 	if !strings.Contains(task.Prompt, preflight) {
 		t.Error("preflight content must still be present in prompt")
+	}
+}
+
+// TestSkillExtractionSection_UsesHTMLComment guards the HTML-comment wrapping of
+// skillExtractionSection. The wrapper is the filter mechanism: agents read and
+// obey the instructions but must not echo "## Post-Task Skill Extraction" as a
+// visible markdown header in their output (see workspace CLAUDE.md HTML Comment
+// Rule + LRN-20260419-001). Regression: this test fails if the constant reverts
+// to a markdown-header format.
+func TestSkillExtractionSection_UsesHTMLComment(t *testing.T) {
+	if strings.Contains(skillExtractionSection, "## Post-Task Skill Extraction") {
+		t.Error("skillExtractionSection must not use markdown-header format '## Post-Task Skill Extraction'; use HTML comment to prevent agents echoing the section header")
+	}
+	if !strings.Contains(skillExtractionSection, "<!-- Post-Task Skill Extraction") {
+		t.Error("skillExtractionSection must use HTML comment format '<!-- Post-Task Skill Extraction ... -->' so the instruction is hidden from rendered agent output")
+	}
+	if !strings.Contains(skillExtractionSection, "-->") {
+		t.Error("skillExtractionSection must terminate the HTML comment with '-->' to avoid unbounded comment leaking into downstream prompt content")
+	}
+}
+
+// TestBuildTieredPrompt_NoMarkdownSectionHeader exercises the dispatch paths
+// that inject skillExtractionSection and asserts none of them produce a visible
+// '## Post-Task Skill Extraction' markdown header in the final prompt surfaces.
+// Covers: openai provider Standard (system prompt), claude-code provider
+// Standard (user prompt), openai provider Complex (system prompt).
+func TestBuildTieredPrompt_NoMarkdownSectionHeader(t *testing.T) {
+	cases := []struct {
+		name       string
+		provider   string
+		complexity classify.Complexity
+		field      func(*dispatch.Task) string
+	}{
+		{
+			name:       "openai+Standard injects into SystemPrompt without markdown header",
+			provider:   "openai",
+			complexity: classify.Standard,
+			field:      func(task *dispatch.Task) string { return task.SystemPrompt },
+		},
+		{
+			name:       "claude-code+Standard injects into Prompt without markdown header",
+			provider:   "claude-code",
+			complexity: classify.Standard,
+			field:      func(task *dispatch.Task) string { return task.Prompt },
+		},
+		{
+			name:       "openai+Complex injects into SystemPrompt without markdown header",
+			provider:   "openai",
+			complexity: classify.Complex,
+			field:      func(task *dispatch.Task) string { return task.SystemPrompt },
+		},
+		{
+			name:       "codex+Standard injects into Prompt without markdown header",
+			provider:   "codex",
+			complexity: classify.Standard,
+			field:      func(task *dispatch.Task) string { return task.Prompt },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := minimalCfg()
+			task := &dispatch.Task{Prompt: "do the thing"}
+			BuildTieredPrompt(cfg, task, "", tc.complexity, minimalDeps(tc.provider))
+
+			target := tc.field(task)
+			// Sanity: the extraction section should actually be present in the expected
+			// target surface, otherwise the negative assertion below is vacuous.
+			if !strings.Contains(target, "<!-- Post-Task Skill Extraction") {
+				t.Fatalf("precondition: target surface missing skill-extraction block; got: %q", target)
+			}
+			if strings.Contains(target, "## Post-Task Skill Extraction") {
+				t.Errorf("target surface must not contain markdown-header form '## Post-Task Skill Extraction' (regression: skillExtractionSection reverted to markdown-header format)")
+			}
+		})
 	}
 }
 
