@@ -5095,13 +5095,24 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
+		// Atomically check-and-claim to prevent TOCTOU: two concurrent POSTs
+		// must not both pass the busy check and then race into dispatch().
+		// We own active=true until the deferred release below; dispatch() is
+		// called with skipActive=true so it doesn't re-enter this state.
 		cState.mu.Lock()
-		busy := cState.active
-		cState.mu.Unlock()
-		if busy {
+		if cState.active {
+			cState.mu.Unlock()
 			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
 			return
 		}
+		cState.active = true
+		cState.startAt = time.Now()
+		cState.mu.Unlock()
+		defer func() {
+			cState.mu.Lock()
+			cState.active = false
+			cState.mu.Unlock()
+		}()
 
 		agent := req.Agent
 		if agent == "" {
@@ -5152,7 +5163,8 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
-		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem)
+		// skipActive=true: we already claimed cState.active above under lock.
+		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
 			"status":     "ok",
