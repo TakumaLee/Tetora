@@ -151,6 +151,7 @@ type Config struct {
 	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"`
 	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"`
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"`
+	Review                ReviewConfig                     `json:"review,omitempty"`
 	Security              SecurityConfig                   `json:"security,omitempty"`
 	DailyNotes            DailyNotesConfig                 `json:"dailyNotes,omitempty"`
 	WarRoomAutoUpdate     WarRoomAutoUpdateConfig          `json:"warRoomAutoUpdate,omitempty"`
