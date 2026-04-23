@@ -269,6 +269,12 @@ func (wm *WorktreeManager) Create(repoDir, taskID, branch string) (string, error
 				log.Warn("worktree: unsafe marker present, forcing cleanup", "path", wtDir)
 			}
 			wm.forceRemove(repoDir, wtDir, resolveBranch(wtDir))
+			// Verify cleanup actually removed the path; if not, fail fast so we
+			// don't feed a half-cleaned directory to `git worktree add` and
+			// produce an opaque error.
+			if _, err := os.Stat(wtDir); err == nil {
+				return "", fmt.Errorf("worktree: unsafe cleanup failed — %s still exists, refusing to proceed", wtDir)
+			}
 		} else {
 			// Guard: wait for any active session to finish before removing the stale
 			// worktree. Deleting a worktree while a Claude session has its CWD inside
