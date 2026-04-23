@@ -1097,6 +1097,9 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		close(eventCh)
 	}
 
+	// Last-line defense: strip echoed prompt headers before any downstream surface (history, webhooks, Discord, HTTP) sees the output.
+	result.Output = stripPostTaskSections(result.Output)
+
 	// Offline queue: if all providers are unavailable, enqueue for later retry.
 	if result.Status == "error" && isAllProvidersUnavailable(result.Error) && cfg.OfflineQueue.Enabled {
 		if !isQueueFull(historyDBForTask(cfg, task), cfg.OfflineQueue.MaxItemsOrDefault()) {
@@ -5044,6 +5047,32 @@ func parseCompletionStatus(output string) (CompletionStatus, string, string) {
 	}
 
 	return status, concerns, blockedReason
+}
+
+// stripPostTaskSections strips server-side prompt headers that some models echo back despite silence instructions.
+// Truncates at the earliest marker regardless of markers slice order, so adding
+// or reordering markers can never change the cut point semantically.
+func stripPostTaskSections(output string) string {
+	markers := []string{
+		"## Post-Task Skill Extraction",
+		"## 反省",
+		"## Self-Evaluation",
+	}
+	earliest := -1
+	for _, m := range markers {
+		if strings.HasPrefix(output, m) {
+			return ""
+		}
+		if idx := strings.Index(output, "\n"+m); idx != -1 {
+			if earliest == -1 || idx < earliest {
+				earliest = idx
+			}
+		}
+	}
+	if earliest == -1 {
+		return output
+	}
+	return strings.TrimRight(output[:earliest], " \t\n\r")
 }
 
 // appConfigToSkillCfg projects the dispatch Config onto the subset
