@@ -4809,20 +4809,29 @@ func parseCompletionStatus(output string) (CompletionStatus, string, string) {
 }
 
 // stripPostTaskSections strips server-side prompt headers that some models echo back despite silence instructions.
+// Truncates at the earliest marker regardless of markers slice order, so adding
+// or reordering markers can never change the cut point semantically.
 func stripPostTaskSections(output string) string {
 	markers := []string{
 		"## Post-Task Skill Extraction",
 		"## 反省",
 		"## Self-Evaluation",
 	}
+	earliest := -1
 	for _, m := range markers {
-		if idx := strings.Index(output, "\n"+m); idx != -1 {
-			output = strings.TrimRight(output[:idx], " \t\n\r")
-		} else if strings.HasPrefix(output, m) {
+		if strings.HasPrefix(output, m) {
 			return ""
 		}
+		if idx := strings.Index(output, "\n"+m); idx != -1 {
+			if earliest == -1 || idx < earliest {
+				earliest = idx
+			}
+		}
 	}
-	return output
+	if earliest == -1 {
+		return output
+	}
+	return strings.TrimRight(output[:earliest], " \t\n\r")
 }
 
 // appConfigToSkillCfg projects the dispatch Config onto the subset
