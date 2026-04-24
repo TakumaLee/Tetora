@@ -826,6 +826,67 @@ func TestSpawnReviewSubtasks_DefaultAssigneeAndPriority(t *testing.T) {
 	t.Errorf("child task not found")
 }
 
+func TestIsReviewTask(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"Review GitHub PR #305 (lookr-android-remake)", true},
+		{"Review PR #123", true},
+		{"review foo bar", true},
+		{"  Review with leading spaces", true},
+		{"REVIEW shouty", true},
+		{"Reviewing X", false}, // no space → not a review meta-task
+		{"Re-review X", false},
+		{"Implement review mode", false},
+		{"", false},
+		{"review", false}, // no trailing space → no subject
+	}
+	for _, c := range cases {
+		got := isReviewTask(TaskBoard{Title: c.title})
+		if got != c.want {
+			t.Errorf("isReviewTask(%q) = %v, want %v", c.title, got, c.want)
+		}
+	}
+}
+
+func TestSpawnReviewSubtasks_SkipsForReviewParent(t *testing.T) {
+	tbCfg := config.TaskBoardConfig{}
+	d := newTestDispatcher(t, tbCfg, DispatcherDeps{
+		Executor:     &mockExecutor{},
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	parent := TaskBoard{
+		Title:   "Review GitHub PR #305 (lookr-android-remake)",
+		Project: "lookr",
+		Status:  "done",
+	}
+	parent, err := d.engine.CreateTask(parent)
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	items := []reviewActionableItem{
+		{Action: "simplify resolveLayoutBlock", Type: "fix", Priority: "low", Adopt: true, Assignee: "kokuyou"},
+		{Action: "document compose path", Type: "chore", Priority: "low", Adopt: true, Assignee: "kokuyou"},
+	}
+
+	d.spawnReviewSubtasks(parent, items, "ruri")
+
+	children, _ := d.engine.ListTasks("todo", "", "")
+	for _, c := range children {
+		if c.ParentID == parent.ID {
+			t.Errorf("unexpected child task created under review parent: %s", c.Title)
+		}
+	}
+
+	comments := taskComments(t, d, parent.ID)
+	if !hasComment(comments, "Skipped 2 actionable") {
+		t.Errorf("expected skip comment on parent, got: %+v", comments)
+	}
+}
+
 // =============================================================================
 // Worktree gate tests
 // =============================================================================

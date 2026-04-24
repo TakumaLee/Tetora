@@ -1351,9 +1351,26 @@ func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAg
 	return id
 }
 
+// isReviewTask reports whether a task is a code-review meta-task. Its deliverable
+// is the review comment itself, not any code change — so followup actionable
+// items from such tasks must not auto-spawn child tasks.
+func isReviewTask(t TaskBoard) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(t.Title)), "review ")
+}
+
 // spawnReviewSubtasks creates follow-up tasks from adopted review suggestions
 // and logs rejected ones as comments on the parent task.
 func (d *Dispatcher) spawnReviewSubtasks(parentTask TaskBoard, items []reviewActionableItem, reviewer string) {
+	if isReviewTask(parentTask) {
+		if len(items) > 0 {
+			d.engine.AddComment(parentTask.ID, reviewer,
+				fmt.Sprintf("[review-followup] Skipped %d actionable item(s): review tasks do not auto-spawn followup tasks (deliverable is the review comment itself).",
+					len(items)))
+			log.Info("spawnReviewSubtasks: skipped for review parent",
+				"parent", parentTask.ID, "title", parentTask.Title, "items", len(items))
+		}
+		return
+	}
 	for _, item := range items {
 		if !item.Adopt {
 			d.engine.AddComment(parentTask.ID, "system",
