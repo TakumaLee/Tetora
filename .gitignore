@@ -63,3 +63,6 @@ tasks/todo.md
 
 # Qwen Code (local config)
 .qwen/
+
+# Gemini Code (local config)
+.gemini/
