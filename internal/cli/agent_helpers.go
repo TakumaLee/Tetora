@@ -31,6 +31,12 @@ func LoadAgentPrompt(cfg *CLIConfig, agentName string) (string, error) {
 		}
 	}
 
+	// Fallback: agents/{agent}/SOUL.local.md (per-machine override, not committed)
+	agentSoulLocalPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.local.md")
+	if data, err := os.ReadFile(agentSoulLocalPath); err == nil {
+		return string(data), nil
+	}
+
 	// Fallback: agents/{agent}/SOUL.md
 	agentSoulPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.md")
 	if data, err := os.ReadFile(agentSoulPath); err == nil {
