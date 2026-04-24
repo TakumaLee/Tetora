@@ -90,23 +90,26 @@ func TestActiveProviderStore_ConcurrentAccess(t *testing.T) {
 	storePath := filepath.Join(tmpDir, "active-provider.json")
 	store := NewActiveProviderStore(storePath)
 
-	// Simulate concurrent reads/writes.
-	done := make(chan bool)
+	type result struct{ err string }
+	results := make(chan result, 10)
+
 	for i := 0; i < 10; i++ {
 		go func(n int) {
-			provider := "provider" + string(rune('0'+n))
-			store.Set(provider, "auto", "concurrent-test")
+			p := "provider" + string(rune('0'+n))
+			store.Set(p, "auto", "concurrent-test")
 			state := store.Get()
 			if state.ProviderName == "" {
-				t.Error("expected non-empty provider name")
+				results <- result{"expected non-empty provider name"}
+			} else {
+				results <- result{}
 			}
-			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines.
 	for i := 0; i < 10; i++ {
-		<-done
+		if r := <-results; r.err != "" {
+			t.Error(r.err)
+		}
 	}
 }
 

@@ -83,12 +83,12 @@ tetora provider list
 Provider resolution now follows this priority:
 
 ```
-0. Active Provider Override (CLI/API setting) ← NEW
-1. Task-level Provider (task-level override)
-2. Agent-level Provider (agent config)
+1. Task-level Provider (task-level override) ← highest priority
+2. Active Provider Override (CLI/API setting)
+3. Agent-level Provider (agent config)
    - Supports "auto" mode, follows global setting
-3. Global Default Provider
-4. Legacy Fallback
+4. Global Default Provider
+5. Legacy Fallback
 ```
 
 ### Automatic Parameter Optimization
@@ -286,10 +286,10 @@ A: System automatically applies preset parameters. To customize, edit the corres
 2. **Provider Resolution Priority**
    ```go
    func resolveProviderName(cfg *Config, task Task, agentName string) string {
-       // 0. Active Provider Override
-       // 1. Task-level
-       // 2. Agent-level (supports "auto")
-       // 3. Global default
+       // 1. Task-level (highest)
+       // 2. Active Provider Override
+       // 3. Agent-level (supports "auto")
+       // 4. Global default
    }
    ```
 

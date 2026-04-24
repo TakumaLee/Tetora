@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"tetora/internal/config"
 	"tetora/internal/provider"
@@ -248,6 +247,8 @@ func isKnownPreset(name string) bool {
 }
 
 // loadConfig loads the full Tetora configuration.
+// Applies the same BaseDir/RuntimeDir defaulting as the main daemon so that
+// getActiveProviderPath resolves to the same file the daemon uses.
 func loadConfig() (*config.Config, error) {
 	configPath := getConfigPath()
 
@@ -263,6 +264,17 @@ func loadConfig() (*config.Config, error) {
 
 	cfg.BaseDir = filepath.Dir(configPath)
 	config.ResolveSecrets(&cfg)
+
+	// Mirror the RuntimeDir defaulting from tryLoadConfig so that
+	// getActiveProviderPath returns ~/.tetora/runtime/active-provider.json
+	// rather than ~/.tetora/active-provider.json.
+	if cfg.RuntimeDir == "" {
+		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, "runtime")
+	}
+	if !filepath.IsAbs(cfg.RuntimeDir) {
+		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, cfg.RuntimeDir)
+	}
+
 	return &cfg, nil
 }
 
@@ -289,10 +301,3 @@ func getConfigPath() string {
 	return "config.json"
 }
 
-// ActiveProviderStateInfo is a JSON-serializable version of ActiveProviderState.
-type ActiveProviderStateInfo struct {
-	ProviderName string    `json:"providerName"`
-	Model        string    `json:"model,omitempty"`
-	SetAt        time.Time `json:"setAt"`
-	SetBy        string    `json:"setBy,omitempty"`
-}
