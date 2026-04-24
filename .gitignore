@@ -11,6 +11,8 @@ dist/
 *.db-shm
 config.json
 config.local.json
+agents/**/SOUL.local.md
+agents/SOUL.local.md
 jobs.json
 logs/
 *.log
