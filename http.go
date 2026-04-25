@@ -5123,15 +5123,24 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
 
+		prTitle, prBody, _ := fetchPRMeta(req.PRURL)
+
 		var promptBuf strings.Builder
 		fmt.Fprintf(&promptBuf, "You are reviewing this %s.\nURL: %s\n", kind, req.PRURL)
+		if prTitle != "" {
+			fmt.Fprintf(&promptBuf, "Title: %s\n", prTitle)
+		}
+		if prBody != "" {
+			fmt.Fprintf(&promptBuf, "Description:\n%s\n", prBody)
+		}
 		if truncatedCount > 0 {
 			fmt.Fprintf(&promptBuf, "[diff truncated at %d lines]\n", maxLines)
 		}
 		promptBuf.WriteString("---\n")
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
-		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.")
+		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
+			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
 		if req.PostComment {
 			var commentCmd string
 			if kind == "PR" {
@@ -7434,6 +7443,57 @@ func opDelete(summary, tag, description string, params []map[string]any, respons
 		op["parameters"] = params
 	}
 	return op
+}
+
+// fetchPRMeta fetches the title and description of a PR/MR for language detection.
+// Returns empty strings on failure (non-fatal — diff can still proceed).
+func fetchPRMeta(prURL string) (title, body string, err error) {
+	u, parseErr := url.Parse(prURL)
+	if parseErr != nil {
+		return "", "", parseErr
+	}
+	host := strings.ToLower(u.Host)
+	switch {
+	case strings.Contains(host, "github"):
+		out, cmdErr := exec.Command("gh", "pr", "view", prURL, "--json", "title,body").CombinedOutput()
+		if cmdErr != nil {
+			return "", "", nil
+		}
+		var meta struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		}
+		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
+			return "", "", nil
+		}
+		return meta.Title, meta.Body, nil
+	case strings.Contains(host, "gitlab"):
+		path := strings.TrimPrefix(u.Path, "/")
+		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		if !ok {
+			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+		}
+		if !ok || mrIID == "" || projectPath == "" {
+			return "", "", nil
+		}
+		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+			mrIID = mrIID[:i]
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s", url.PathEscape(projectPath), mrIID)
+		out, cmdErr := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
+		if cmdErr != nil {
+			return "", "", nil
+		}
+		var meta struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
+			return "", "", nil
+		}
+		return meta.Title, meta.Description, nil
+	}
+	return "", "", nil
 }
 
 // fetchReviewDiff fetches the diff of a PR/MR URL using gh or glab.
