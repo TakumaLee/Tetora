@@ -30,52 +30,70 @@ function closeReviewModal() {
 async function submitReview(e) {
   e.preventDefault();
 
-  const url = document.getElementById('rf-url').value.trim();
-  if (!url) return false;
+  const raw = document.getElementById('rf-url').value;
+  const urls = raw.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!urls.length) return false;
 
-  const payload = { pr_url: normalizeReviewURL(url) };
   const agent = document.getElementById('rf-agent').value.trim();
   const model = document.getElementById('rf-model').value.trim();
-  if (agent) payload.agent = agent;
-  if (model) payload.model = model;
+  const postComment = document.getElementById('rf-post-comment').checked;
 
   document.getElementById('rf-actions').style.display = 'none';
   document.getElementById('rf-loading').style.display = '';
-  const startTime = Date.now();
-  reviewTimer = setInterval(() => {
-    const elapsed = Math.floor((Date.now() - startTime) / 1000);
-    const m = Math.floor(elapsed / 60);
-    const s = elapsed % 60;
-    document.getElementById('rf-elapsed').textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
-  }, 1000);
 
-  try {
-    const result = await fetchJSON('/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+  const results = [];
+  let totalCost = 0;
 
-    if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
-    closeReviewModal();
+  for (let i = 0; i < urls.length; i++) {
+    const prUrl = normalizeReviewURL(urls[i]);
+    document.getElementById('rf-progress').textContent =
+      urls.length > 1 ? `(${i + 1}/${urls.length}) Reviewing ${prUrl}…` : `Reviewing…`;
 
-    const cost = (result.costUsd || 0).toFixed(4);
-    const secs = Math.round((result.durationMs || 0) / 1000);
-    if (result.status === 'ok') {
-      alert(`Review complete ($${cost}, ${secs}s)\n\n${result.output || '(no output)'}`);
-    } else {
-      alert(`Review failed: ${result.error || 'unknown error'}`);
-    }
-  } catch (err) {
-    if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
-    closeReviewModal();
-    const msg = (err && err.message) ? err.message : String(err);
-    if (msg.includes('409') || msg.includes('dispatch already running')) {
-      alert('Another dispatch is already running. Please retry after it finishes.');
-    } else {
-      alert('Review failed: ' + msg);
+    const startTime = Date.now();
+    if (reviewTimer) clearInterval(reviewTimer);
+    reviewTimer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      document.getElementById('rf-elapsed').textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }, 1000);
+
+    try {
+      const payload = { pr_url: prUrl, post_comment: postComment };
+      if (agent) payload.agent = agent;
+      if (model) payload.model = model;
+
+      const result = await fetchJSON('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      clearInterval(reviewTimer); reviewTimer = null;
+      totalCost += result.costUsd || 0;
+      const secs = Math.round((result.durationMs || 0) / 1000);
+      if (result.status === 'ok') {
+        const commentTag = result.commented
+          ? ' [commented]'
+          : result.comment_error ? ` [comment failed: ${result.comment_error}]` : '';
+        results.push(`✓ ${prUrl} ($${(result.costUsd||0).toFixed(4)}, ${secs}s)${commentTag}\n${result.output || ''}`);
+      } else {
+        results.push(`✗ ${prUrl}: ${result.error || 'unknown error'}`);
+      }
+    } catch (err) {
+      if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
+      const msg = (err && err.message) ? err.message : String(err);
+      if (msg.includes('409') || msg.includes('dispatch already running')) {
+        results.push(`✗ ${prUrl}: another dispatch is running — aborted`);
+        break;
+      }
+      results.push(`✗ ${prUrl}: ${msg}`);
     }
   }
+
+  closeReviewModal();
+  const summary = urls.length > 1 ? `${urls.length} reviews done (total $${totalCost.toFixed(4)})\n\n` : '';
+  alert(summary + results.join('\n\n---\n\n'));
   return false;
 }
 

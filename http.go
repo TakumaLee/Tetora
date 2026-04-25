@@ -5078,9 +5078,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cfg := s.Cfg()
 
 		var req struct {
-			PRURL string `json:"pr_url"`
-			Agent string `json:"agent,omitempty"`
-			Model string `json:"model,omitempty"`
+			PRURL       string `json:"pr_url"`
+			Agent       string `json:"agent,omitempty"`
+			Model       string `json:"model,omitempty"`
+			PostComment bool   `json:"post_comment,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -5095,32 +5096,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Own the cancel func so /cancel can cut review dispatches. dispatch()
-		// is called with skipActive=true below, so it won't wire state.cancel
-		// itself — we must do it here, atomically with the active claim.
+		// Reviews are independent and can run concurrently — skip the cState.active
+		// gate used by /dispatch. Actual concurrency is capped by cSem (MaxConcurrent).
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
-
-		// Atomically check-and-claim to prevent TOCTOU: two concurrent POSTs
-		// must not both pass the busy check and then race into dispatch().
-		cState.mu.Lock()
-		if cState.active {
-			cState.mu.Unlock()
-			cancel()
-			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
-			return
-		}
-		cState.active = true
-		cState.startAt = time.Now()
-		cState.cancel = cancel
-		cState.mu.Unlock()
-		defer func() {
-			cState.mu.Lock()
-			cState.active = false
-			cState.cancel = nil
-			cState.mu.Unlock()
-			cancel()
-		}()
+		defer cancel()
 
 		agent := req.Agent
 		if agent == "" {
@@ -5164,6 +5144,17 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
 		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.")
+		if req.PostComment {
+			var commentCmd string
+			if kind == "PR" {
+				commentCmd = fmt.Sprintf("gh pr comment %q --body \"<your complete review text>\"", req.PRURL)
+			} else {
+				commentCmd = fmt.Sprintf("glab mr note %q --message \"<your complete review text>\"", req.PRURL)
+			}
+			fmt.Fprintf(&promptBuf,
+				"\n\nAfter writing the review, post it as a comment on this %s by running:\n  %s\nReplace `<your complete review text>` with the full review you wrote above.",
+				kind, commentCmd)
+		}
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -5176,7 +5167,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		task.ClientID = clientID
 
 		log.Info("review: received", "agent", agent, "model", model,
-			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt))
+			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt), "post_comment", req.PostComment)
 
 		auditDB := s.resolveHistoryDB(cfg, clientID)
 		audit.Log(auditDB, "review", "http",
@@ -5200,6 +5191,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			if tr.Error != "" {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
+			} else if req.PostComment {
+				// Comment posting is handled by the agent via the prompt instruction.
+				resp["commented"] = true
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -7470,11 +7464,29 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		}
 		return string(out), "PR", nil
 	case strings.Contains(host, "gitlab"):
-		out, err := exec.Command("glab", "mr", "diff", prURL).CombinedOutput()
-		if err != nil {
-			return "", "MR", fmt.Errorf("glab mr diff: %s", strings.TrimSpace(string(out)))
+		// glab mr diff requires a local git repo context; use the REST API instead.
+		path := strings.TrimPrefix(u.Path, "/")
+		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		if !ok {
+			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
 		}
-		return string(out), "MR", nil
+		if !ok || mrIID == "" || projectPath == "" {
+			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+			mrIID = mrIID[:i]
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
+		if err != nil {
+			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(string(out)))
+		}
+		diff, parseErr := glabDiffsToUnified(out)
+		if parseErr != nil {
+			return "", "MR", fmt.Errorf("parse mr diffs: %w", parseErr)
+		}
+		return diff, "MR", nil
 	default:
 		return "", "", fmt.Errorf("unsupported host %q (expected github/gitlab)", host)
 	}
@@ -7564,6 +7576,24 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		}
 	}
 	return sb.String()
+}
+
+// glabDiffsToUnified converts GitLab /diffs API JSON into a unified diff string.
+func glabDiffsToUnified(data []byte) (string, error) {
+	var diffs []struct {
+		Diff    string `json:"diff"`
+		NewPath string `json:"new_path"`
+		OldPath string `json:"old_path"`
+	}
+	if err := json.Unmarshal(data, &diffs); err != nil {
+		return "", err
+	}
+	var buf strings.Builder
+	for _, d := range diffs {
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", d.OldPath, d.NewPath)
+		buf.WriteString(d.Diff)
+	}
+	return buf.String(), nil
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.
