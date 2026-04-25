@@ -5145,17 +5145,6 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		promptBuf.WriteString("\n---\n")
 		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
 			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
-		if req.PostComment {
-			var commentCmd string
-			if kind == "PR" {
-				commentCmd = fmt.Sprintf("gh pr comment %q --body \"<your complete review text>\"", req.PRURL)
-			} else {
-				commentCmd = fmt.Sprintf("glab mr note %q --message \"<your complete review text>\"", req.PRURL)
-			}
-			fmt.Fprintf(&promptBuf,
-				"\n\nAfter writing the review, post it as a comment on this %s by running:\n  %s\nReplace `<your complete review text>` with the full review you wrote above.",
-				kind, commentCmd)
-		}
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -5192,9 +5181,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			if tr.Error != "" {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
-			} else if req.PostComment {
-				// Comment posting is handled by the agent via the prompt instruction.
-				resp["commented"] = true
+			} else if req.PostComment && tr.Output != "" {
+				if commentErr := postReviewComment(req.PRURL, kind, tr.Output); commentErr != nil {
+					resp["comment_error"] = commentErr.Error()
+				} else {
+					resp["commented"] = true
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
