@@ -338,7 +338,8 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 		*addDirs = append(*addDirs, dir)
 	}
 
-	// Inject lore first — world-building context is foundational, must precede rules.
+	// Inject lore before rules so rules always win via recency bias.
+	// The LORE tags signal to the LLM that this block is background context only.
 	loreDir := filepath.Join(cfg.WorkspaceDir, "lore")
 	if entries, err := os.ReadDir(loreDir); err == nil {
 		var loreBlock strings.Builder
@@ -353,7 +354,8 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 			}
 		}
 		if loreBlock.Len() > 0 {
-			*systemPrompt = strings.TrimSpace(loreBlock.String()) + "\n\n" + *systemPrompt
+			loreWrapped := "<!-- LORE: world context only -->\n\n" + strings.TrimSpace(loreBlock.String()) + "\n\n<!-- /LORE -->"
+			*systemPrompt = loreWrapped + "\n\n" + *systemPrompt
 		}
 	}
 
