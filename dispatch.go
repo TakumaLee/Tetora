@@ -92,6 +92,7 @@ type dispatchState struct {
 	active      bool
 	draining    bool             // graceful shutdown: stop accepting new tasks
 	cancel      context.CancelFunc
+	cancelPtr   *context.CancelFunc // identity token: points to the local var of the owning goroutine
 	broker      *sseBroker       // SSE event broker for streaming progress
 	sandboxMgr        *sandbox.SandboxManager       // --- P13.2: Sandbox Plugin ---
 	discordBot        *DiscordBot                  // --- P14.1: Discord Components v2 ---

@@ -5078,9 +5078,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cfg := s.Cfg()
 
 		var req struct {
-			PRURL string `json:"pr_url"`
-			Agent string `json:"agent,omitempty"`
-			Model string `json:"model,omitempty"`
+			PRURL       string `json:"pr_url"`
+			Agent       string `json:"agent,omitempty"`
+			Model       string `json:"model,omitempty"`
+			PostComment bool   `json:"post_comment,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -5095,29 +5096,23 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Own the cancel func so /cancel can cut review dispatches. dispatch()
-		// is called with skipActive=true below, so it won't wire state.cancel
-		// itself — we must do it here, atomically with the active claim.
+		// Reviews skip the cState.active gate (multiple reviews can run concurrently,
+		// capped by cSem). cState.cancel is still wired so /cancel can abort the most
+		// recently started review; earlier concurrent reviews are not cancellable via
+		// the per-client cancel signal.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
-
-		// Atomically check-and-claim to prevent TOCTOU: two concurrent POSTs
-		// must not both pass the busy check and then race into dispatch().
 		cState.mu.Lock()
-		if cState.active {
-			cState.mu.Unlock()
-			cancel()
-			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
-			return
-		}
-		cState.active = true
-		cState.startAt = time.Now()
 		cState.cancel = cancel
+		cState.cancelPtr = &cancel
 		cState.mu.Unlock()
 		defer func() {
 			cState.mu.Lock()
-			cState.active = false
-			cState.cancel = nil
+			// Clear only if no newer review has overwritten cState.cancel.
+			if cState.cancelPtr == &cancel {
+				cState.cancel = nil
+				cState.cancelPtr = nil
+			}
 			cState.mu.Unlock()
 			cancel()
 		}()
@@ -5143,15 +5138,24 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
 
+		prTitle, prBody, _ := fetchPRMeta(req.PRURL)
+
 		var promptBuf strings.Builder
 		fmt.Fprintf(&promptBuf, "You are reviewing this %s.\nURL: %s\n", kind, req.PRURL)
+		if prTitle != "" {
+			fmt.Fprintf(&promptBuf, "Title: %s\n", prTitle)
+		}
+		if prBody != "" {
+			fmt.Fprintf(&promptBuf, "Description:\n%s\n", prBody)
+		}
 		if truncatedCount > 0 {
 			fmt.Fprintf(&promptBuf, "[diff truncated at %d lines]\n", maxLines)
 		}
 		promptBuf.WriteString("---\n")
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
-		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.")
+		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
+			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -5164,7 +5168,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		task.ClientID = clientID
 
 		log.Info("review: received", "agent", agent, "model", model,
-			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt))
+			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt), "post_comment", req.PostComment)
 
 		auditDB := s.resolveHistoryDB(cfg, clientID)
 		audit.Log(auditDB, "review", "http",
@@ -5188,6 +5192,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			if tr.Error != "" {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
+			} else if req.PostComment && tr.Output != "" {
+				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+					resp["comment_error"] = commentErr.Error()
+				} else {
+					resp["commented"] = true
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -7442,6 +7452,68 @@ func opDelete(summary, tag, description string, params []map[string]any, respons
 	return op
 }
 
+// parseGitLabMRPath extracts (projectPath, mrIID) from a parsed GitLab MR URL.
+// Handles both /-/merge_requests/ and /merge_requests/ path formats.
+// Returns ok=false if the URL does not match either expected format.
+func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
+	path := strings.TrimPrefix(u.Path, "/")
+	projectPath, mrIID, ok = strings.Cut(path, "/-/merge_requests/")
+	if !ok {
+		projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+	}
+	if !ok || mrIID == "" || projectPath == "" {
+		return "", "", false
+	}
+	if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+		mrIID = mrIID[:i]
+	}
+	return projectPath, mrIID, true
+}
+
+// fetchPRMeta fetches the title and description of a PR/MR for language detection.
+// Returns empty strings on failure (non-fatal — diff can still proceed).
+func fetchPRMeta(prURL string) (title, body string, err error) {
+	u, parseErr := url.Parse(prURL)
+	if parseErr != nil {
+		return "", "", parseErr
+	}
+	host := strings.ToLower(u.Host)
+	switch {
+	case strings.Contains(host, "github"):
+		out, cmdErr := exec.Command("gh", "pr", "view", prURL, "--json", "title,body").CombinedOutput()
+		if cmdErr != nil {
+			return "", "", nil
+		}
+		var meta struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
+		}
+		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
+			return "", "", nil
+		}
+		return meta.Title, meta.Body, nil
+	case strings.Contains(host, "gitlab"):
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
+		if !ok {
+			return "", "", nil
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s", url.PathEscape(projectPath), mrIID)
+		out, cmdErr := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
+		if cmdErr != nil {
+			return "", "", nil
+		}
+		var meta struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
+			return "", "", nil
+		}
+		return meta.Title, meta.Description, nil
+	}
+	return "", "", nil
+}
+
 // fetchReviewDiff fetches the diff of a PR/MR URL using gh or glab.
 // Returns (diff, kind, err) where kind is "PR" or "MR".
 func fetchReviewDiff(prURL string) (string, string, error) {
@@ -7458,13 +7530,73 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		}
 		return string(out), "PR", nil
 	case strings.Contains(host, "gitlab"):
-		out, err := exec.Command("glab", "mr", "diff", prURL).CombinedOutput()
-		if err != nil {
-			return "", "MR", fmt.Errorf("glab mr diff: %s", strings.TrimSpace(string(out)))
+		// glab mr diff requires a local git repo context; use the REST API instead.
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
+		if !ok {
+			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
-		return string(out), "MR", nil
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
+		if err != nil {
+			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(string(out)))
+		}
+		diff, parseErr := glabDiffsToUnified(out)
+		if parseErr != nil {
+			return "", "MR", fmt.Errorf("parse mr diffs: %w", parseErr)
+		}
+		return diff, "MR", nil
 	default:
 		return "", "", fmt.Errorf("unsupported host %q (expected github/gitlab)", host)
+	}
+}
+
+// glabDiffsToUnified converts GitLab /diffs API JSON into a unified diff string.
+func glabDiffsToUnified(data []byte) (string, error) {
+	var diffs []struct {
+		Diff    string `json:"diff"`
+		NewPath string `json:"new_path"`
+		OldPath string `json:"old_path"`
+	}
+	if err := json.Unmarshal(data, &diffs); err != nil {
+		return "", err
+	}
+	var buf strings.Builder
+	for _, d := range diffs {
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", d.OldPath, d.NewPath)
+		buf.WriteString(d.Diff)
+	}
+	return buf.String(), nil
+}
+
+// postReviewComment posts review output as a comment on the PR/MR.
+func postReviewComment(prURL, body string) error {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	host := strings.ToLower(u.Host)
+	switch {
+	case strings.Contains(host, "github"):
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body", body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	case strings.Contains(host, "gitlab"):
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
+		if !ok {
+			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported host %q for comment posting", host)
 	}
 }
 

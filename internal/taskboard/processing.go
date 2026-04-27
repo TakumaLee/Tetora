@@ -1354,6 +1354,9 @@ func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAg
 // isReviewTask reports whether a task is a code-review meta-task. Its deliverable
 // is the review comment itself, not any code change — so followup actionable
 // items from such tasks must not auto-spawn child tasks.
+// Invariant: review task titles MUST start with "Review " (capital R, trailing space)
+// for this guard to fire. The /review HTTP handler names tasks "review:<url>"; the
+// taskboard prefix-matches on the lowercase form.
 func isReviewTask(t TaskBoard) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(t.Title)), "review ")
 }
