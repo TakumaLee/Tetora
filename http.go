@@ -5182,7 +5182,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
-				if commentErr := postReviewComment(req.PRURL, kind, tr.Output); commentErr != nil {
+				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
@@ -7638,6 +7638,44 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		buf.WriteString(d.Diff)
 	}
 	return buf.String(), nil
+}
+
+// postReviewComment posts review output as a comment on the PR/MR.
+func postReviewComment(prURL, body string) error {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	host := strings.ToLower(u.Host)
+	switch {
+	case strings.Contains(host, "github"):
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body", body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	case strings.Contains(host, "gitlab"):
+		path := strings.TrimPrefix(u.Path, "/")
+		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		if !ok {
+			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+		}
+		if !ok || mrIID == "" || projectPath == "" {
+			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+			mrIID = mrIID[:i]
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported host %q for comment posting", host)
+	}
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.
