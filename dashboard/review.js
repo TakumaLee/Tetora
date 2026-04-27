@@ -47,7 +47,7 @@ async function submitReview(e) {
   for (let i = 0; i < urls.length; i++) {
     const prUrl = normalizeReviewURL(urls[i]);
     document.getElementById('rf-progress').textContent =
-      urls.length > 1 ? `(${i + 1}/${urls.length}) Reviewing ${prUrl}…` : `Reviewing…`;
+      urls.length > 1 ? `(${i + 1}/${urls.length}) Reviewing ${prUrl}… (sequential, ~30–90s each)` : `Reviewing…`;
 
     const startTime = Date.now();
     if (reviewTimer) clearInterval(reviewTimer);
