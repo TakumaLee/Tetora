@@ -5096,11 +5096,26 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Reviews are independent and can run concurrently — skip the cState.active
-		// gate used by /dispatch. Actual concurrency is capped by cSem (MaxConcurrent).
+		// Reviews skip the cState.active gate (multiple reviews can run concurrently,
+		// capped by cSem). cState.cancel is still wired so /cancel can abort the most
+		// recently started review; earlier concurrent reviews are not cancellable via
+		// the per-client cancel signal.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
-		defer cancel()
+		cState.mu.Lock()
+		cState.cancel = cancel
+		cState.cancelPtr = &cancel
+		cState.mu.Unlock()
+		defer func() {
+			cState.mu.Lock()
+			// Clear only if no newer review has overwritten cState.cancel.
+			if cState.cancelPtr == &cancel {
+				cState.cancel = nil
+				cState.cancelPtr = nil
+			}
+			cState.mu.Unlock()
+			cancel()
+		}()
 
 		agent := req.Agent
 		if agent == "" {
@@ -7441,6 +7456,24 @@ func opDelete(summary, tag, description string, params []map[string]any, respons
 	return op
 }
 
+// parseGitLabMRPath extracts (projectPath, mrIID) from a parsed GitLab MR URL.
+// Handles both /-/merge_requests/ and /merge_requests/ path formats.
+// Returns ok=false if the URL does not match either expected format.
+func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
+	path := strings.TrimPrefix(u.Path, "/")
+	projectPath, mrIID, ok = strings.Cut(path, "/-/merge_requests/")
+	if !ok {
+		projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+	}
+	if !ok || mrIID == "" || projectPath == "" {
+		return "", "", false
+	}
+	if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+		mrIID = mrIID[:i]
+	}
+	return projectPath, mrIID, true
+}
+
 // fetchPRMeta fetches the title and description of a PR/MR for language detection.
 // Returns empty strings on failure (non-fatal — diff can still proceed).
 func fetchPRMeta(prURL string) (title, body string, err error) {
@@ -7464,16 +7497,9 @@ func fetchPRMeta(prURL string) (title, body string, err error) {
 		}
 		return meta.Title, meta.Body, nil
 	case strings.Contains(host, "gitlab"):
-		path := strings.TrimPrefix(u.Path, "/")
-		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
 		if !ok {
-			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
-		}
-		if !ok || mrIID == "" || projectPath == "" {
 			return "", "", nil
-		}
-		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
-			mrIID = mrIID[:i]
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s", url.PathEscape(projectPath), mrIID)
 		out, cmdErr := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
@@ -7509,16 +7535,9 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		return string(out), "PR", nil
 	case strings.Contains(host, "gitlab"):
 		// glab mr diff requires a local git repo context; use the REST API instead.
-		path := strings.TrimPrefix(u.Path, "/")
-		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
 		if !ok {
-			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
-		}
-		if !ok || mrIID == "" || projectPath == "" {
 			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
-		}
-		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
-			mrIID = mrIID[:i]
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
 			url.PathEscape(projectPath), mrIID)
@@ -7655,16 +7674,9 @@ func postReviewComment(prURL, body string) error {
 		}
 		return nil
 	case strings.Contains(host, "gitlab"):
-		path := strings.TrimPrefix(u.Path, "/")
-		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
 		if !ok {
-			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
-		}
-		if !ok || mrIID == "" || projectPath == "" {
 			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
-		}
-		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
-			mrIID = mrIID[:i]
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
