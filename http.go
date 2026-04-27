@@ -7565,9 +7565,24 @@ func postReviewComment(prURL, kind, body string) error {
 		}
 		return nil
 	case strings.Contains(host, "gitlab"):
-		out, err := exec.Command("glab", "mr", "note", prURL, "--message", body).CombinedOutput()
+		path := strings.TrimPrefix(u.Path, "/")
+		var projectPath, mrIID string
+		var ok bool
+		projectPath, mrIID, ok = strings.Cut(path, "/-/merge_requests/")
+		if !ok {
+			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+		}
+		if !ok || mrIID == "" || projectPath == "" {
+			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+			mrIID = mrIID[:i]
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("glab mr note: %s", strings.TrimSpace(string(out)))
+			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
 		return nil
 	default:
