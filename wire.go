@@ -11915,9 +11915,9 @@ func resolveProviderName(cfg *Config, task Task, agentName string) string {
 	}
 
 	// Priority 2: Active provider override (CLI/API session-level override)
-	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
-		activeState := cfg.ActiveProviderStore.Get()
-		if activeState.ProviderName != "" {
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.ProviderName != "" {
 			return activeState.ProviderName
 		}
 	}
@@ -11949,14 +11949,17 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 	candidates := []string{primary}
 
 	// If active provider override is set, only use global fallback providers
-	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
-		for _, fb := range cfg.FallbackProviders {
-			if !seen[fb] {
-				seen[fb] = true
-				candidates = append(candidates, fb)
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.ProviderName != "" {
+			for _, fb := range cfg.FallbackProviders {
+				if !seen[fb] {
+					seen[fb] = true
+					candidates = append(candidates, fb)
+				}
 			}
+			return candidates
 		}
-		return candidates
 	}
 
 	// Normal flow: use agent-level and global fallback providers
@@ -11987,9 +11990,9 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 	model := task.Model
 
 	// If active provider has an explicit model override (not "auto"), use it.
-	if cfg.ActiveProviderStore != nil && cfg.ActiveProviderStore.HasActiveOverride() {
-		activeState := cfg.ActiveProviderStore.Get()
-		if activeState.Model != "" && activeState.Model != "auto" {
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.Model != "" && activeState.Model != "auto" {
 			model = activeState.Model
 		}
 	}
@@ -12000,11 +12003,6 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 			model = pc.Model
 		} else if cfg.DefaultModel != "" && cfg.DefaultModel != "auto" {
 			model = cfg.DefaultModel
-		}
-	}
-	if model == "" {
-		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
-			model = pc.Model
 		}
 	}
 

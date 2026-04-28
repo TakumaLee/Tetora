@@ -20,12 +20,11 @@ func TestActiveProviderStore_SaveAndLoad(t *testing.T) {
 	}
 
 	// Test loading.
-	err = store.Load()
+	state, err := store.Load()
 	if err != nil {
 		t.Fatalf("failed to load: %v", err)
 	}
 
-	state := store.Get()
 	if state.ProviderName != "qwen" {
 		t.Errorf("expected provider 'qwen', got '%s'", state.ProviderName)
 	}
@@ -55,7 +54,7 @@ func TestActiveProviderStore_Clear(t *testing.T) {
 	}
 
 	// Load and verify.
-	store.Load()
+	_, _ = store.Load()
 	state := store.Get()
 	if state.ProviderName != "" {
 		t.Errorf("expected empty providerName, got '%s'", state.ProviderName)
@@ -126,12 +125,11 @@ func TestActiveProviderStore_Persistence(t *testing.T) {
 
 	// Create a new store instance (simulates restart).
 	store2 := NewActiveProviderStore(storePath)
-	err = store2.Load()
+	state, err := store2.Load()
 	if err != nil {
 		t.Fatalf("failed to load in new instance: %v", err)
 	}
 
-	state := store2.Get()
 	if state.ProviderName != "google" {
 		t.Errorf("expected provider 'google', got '%s'", state.ProviderName)
 	}
@@ -147,7 +145,7 @@ func TestActiveProviderStore_NonExistentFile(t *testing.T) {
 	store := NewActiveProviderStore(storePath)
 
 	// Loading non-existent file should not error.
-	err := store.Load()
+	_, err := store.Load()
 	if err != nil {
 		t.Fatalf("expected no error for non-existent file, got: %v", err)
 	}
@@ -171,7 +169,7 @@ func TestActiveProviderStore_StateTime(t *testing.T) {
 		t.Fatalf("failed to set: %v", err)
 	}
 
-	store.Load()
+	_, _ = store.Load()
 	state := store.Get()
 
 	if state.SetAt.Before(before) || state.SetAt.After(after) {
