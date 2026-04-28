@@ -30,16 +30,19 @@ type AgentConfig struct {
 	CloudModel            string          `json:"cloudModel,omitempty"`            // preserved cloud model when switching to local
 	LocalModel            string          `json:"localModel,omitempty"`            // preferred local model for this agent
 	PinMode               string          `json:"pinMode,omitempty"`               // "cloud" | "local" | "" (follows global)
+	OutputOnly            bool            `json:"outputOnly,omitempty"`            // if true, use AgentOutputBase as workdir (for doc/report agents)
 }
 
 type ProviderConfig struct {
-	Type              string `json:"type"`
-	Path              string `json:"path,omitempty"`
-	BaseURL           string `json:"baseUrl,omitempty"`
-	APIKey            string `json:"apiKey,omitempty"`
-	Model             string `json:"model,omitempty"`
-	MaxTokens         int    `json:"maxTokens,omitempty"`
-	FirstTokenTimeout string `json:"firstTokenTimeout,omitempty"`
+	Type              string  `json:"type"`
+	Path              string  `json:"path,omitempty"`
+	BaseURL           string  `json:"baseUrl,omitempty"`
+	APIKey            string  `json:"apiKey,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	MaxTokens         int     `json:"maxTokens,omitempty"`
+	FirstTokenTimeout string  `json:"firstTokenTimeout,omitempty"`
+	Temperature       float64 `json:"temperature,omitempty"`
+	TopP              float64 `json:"topP,omitempty"`
 }
 
 type CostAlertConfig struct {
@@ -1292,6 +1295,7 @@ type WorkflowRoutingRule struct {
 
 type GitWorkflowConfig struct {
 	BranchConvention string   `json:"branchConvention,omitempty"`
+	BaseBranch       string   `json:"baseBranch,omitempty"`
 	Types            []string `json:"types,omitempty"`
 	DefaultType      string   `json:"defaultType,omitempty"`
 	AutoMerge        bool     `json:"autoMerge,omitempty"`

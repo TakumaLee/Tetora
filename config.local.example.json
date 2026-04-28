@@ -1,18 +1,185 @@
 {
-  "_comment": "個人設定，不要 commit。複製此檔為 config.local.json 後填入。",
-  "claudePath": "/Users/yourname/.claude/local/claude",
-  "apiToken": "your-api-token",
-  "listenAddr": "127.0.0.1:51184",
-  "telegram": {
-    "botToken": "your-bot-token",
-    "chatID": 0
-  },
-  "discord": {
-    "botToken": "your-discord-token"
-  },
-  "agents": {
-    "tyrion": {
-      "model": "opus"
+  "//": "============================================================",
+  "//": "Tetora Local Configuration Template",
+  "//": "============================================================",
+  "//": "This file contains ALL local configuration options.",
+  "//": "Copy the fields you need to config.local.json",
+  "//": "DO NOT commit config.local.json to git.",
+  "//": "============================================================",
+
+  "//": "=== Basic Configuration ===",
+  "apiToken": "your-api-token-here",
+  "encryptionKey": "your-encryption-key-here",
+  "claudePath": "/opt/homebrew/bin/claude",
+  "listenAddr": "localhost:8080",
+  "historyDB": "~/.tetora/history.db",
+  "jobsFile": "~/.tetora/jobs.json",
+  "knowledgeDir": "~/.tetora/knowledge",
+  "workspaceDir": "~/.tetora/workspace",
+  "runtimeDir": "~/.tetora/runtime",
+  "vaultDir": "~/.tetora/vault",
+
+  "//": "=== Allowed Directories ===",
+  "allowedDirs": [
+    "~/.tetora/workspace",
+    "~/projects",
+    "~/Documents"
+  ],
+
+  "//": "=== Default Settings ===",
+  "defaultProvider": "qwen",
+  "defaultModel": "auto",
+  "defaultAgent": "coder",
+  "defaultBudget": 10.0,
+  "defaultTimeout": "2h",
+  "defaultWorkdir": "~/.tetora/workspace",
+  "defaultAddDirs": ["~/.tetora/workspace"],
+
+  "//": "=== Provider Configuration ===",
+  "//": "Only override fields that differ from config.json defaults",
+  "providers": {
+    "qwen": {
+      "apiKey": "your-qwen-api-key",
+      "path": "",
+      "baseUrl": ""
+    },
+    "google": {
+      "apiKey": "your-google-api-key"
+    },
+    "claude-code": {
+      "path": "/opt/homebrew/bin/claude"
     }
-  }
+  },
+
+  "//": "=== Agent Configuration ===",
+  "//": "Override agent-specific settings",
+  "agents": {
+    "coder": {
+      "provider": "qwen",
+      "model": "auto",
+      "allowedDirs": ["~/projects"],
+      "localModel": "qwen3.6-plus",
+      "cloudModel": "claude-sonnet-4",
+      "pinMode": ""
+    },
+    "writer": {
+      "provider": "google",
+      "model": "gemini-2.5-pro"
+    }
+  },
+
+  "//": "=== Telegram Configuration ===",
+  "telegram": {
+    "botToken": "your-telegram-bot-token",
+    "chatID": 123456789
+  },
+
+  "//": "=== Discord Configuration ===",
+  "discord": {
+    "botToken": "your-discord-bot-token",
+    "publicKey": "your-discord-public-key",
+    "guildID": "your-guild-id",
+    "channelIDs": {
+      "general": "channel-id-1",
+      "dev": "channel-id-2"
+    },
+    "claudePath": "/opt/homebrew/bin/claude",
+    "terminal": {
+      "claudePath": "/opt/homebrew/bin/claude"
+    }
+  },
+
+  "//": "=== OAuth Configuration ===",
+  "oauth": {
+    "encryptionKey": "your-oauth-encryption-key",
+    "services": {
+      "google": {
+        "clientId": "your-google-client-id",
+        "clientSecret": "your-google-client-secret"
+      },
+      "spotify": {
+        "clientId": "your-spotify-client-id",
+        "clientSecret": "your-spotify-client-secret"
+      }
+    }
+  },
+
+  "//": "=== Dashboard Authentication ===",
+  "dashboardAuth": {
+    "username": "admin",
+    "password": "your-dashboard-password",
+    "token": "your-dashboard-token"
+  },
+
+  "//": "=== Budget and Cost Control ===",
+  "costAlert": {
+    "dailyLimit": 50.0,
+    "weeklyLimit": 200.0
+  },
+  "budgets": {
+    "global": {
+      "daily": 50.0,
+      "weekly": 200.0,
+      "monthly": 500.0
+    }
+  },
+
+  "//": "=== Notifications ===",
+  "notifications": [
+    {
+      "type": "webhook",
+      "webhookUrl": "https://your-webhook-url.com/notify"
+    }
+  ],
+
+  "//": "=== Push Notifications ===",
+  "push": {
+    "vapidPublicKey": "your-vapid-public-key",
+    "vapidPrivateKey": "your-vapid-private-key"
+  },
+
+  "//": "=== Multi-Client Configuration ===",
+  "defaultClientID": "default",
+  "clientsDir": "~/.tetora/clients",
+
+  "//": "=== Other Messaging Platforms ===",
+  "whatsapp": {},
+  "signal": {},
+  "line": {},
+  "teams": {},
+  "matrix": {},
+  "googleChat": {},
+  "imessage": {},
+  "slack": {},
+
+  "//": "=== Integrations ===",
+  "todoist": {
+    "apiKey": "your-todoist-api-key"
+  },
+  "notion": {
+    "apiKey": "your-notion-api-key"
+  },
+  "browserRelay": {
+    "token": "your-browser-relay-token"
+  },
+
+  "//": "=== Webhooks ===",
+  "webhooks": [
+    {
+      "url": "https://your-webhook-url.com",
+      "headers": {
+        "Authorization": "Bearer your-webhook-token"
+      }
+    }
+  ],
+
+  "//": "=== TLS Configuration ===",
+  "tls": {
+    "certFile": "/path/to/cert.pem",
+    "keyFile": "/path/to/key.pem"
+  },
+
+  "//": "============================================================",
+  "//": "End of Template",
+  "//": "============================================================"
 }

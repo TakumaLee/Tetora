@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>翔耀×中衛合作計畫 — 周瑜戰略分析報告</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #1a1a2e;
+    background: #fff;
+    padding: 40px 50px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .report-header {
+    border-bottom: 3px solid #2c3e7a;
+    padding-bottom: 18px;
+    margin-bottom: 28px;
+  }
+  .report-header .badge {
+    display: inline-block;
+    background: #2c3e7a;
+    color: #fff;
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  .report-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #2c3e7a;
+    margin-bottom: 4px;
+  }
+  .report-header .subtitle {
+    font-size: 12px;
+    color: #666;
+  }
+
+  /* Section */
+  h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #2c3e7a;
+    margin: 28px 0 12px;
+    padding-left: 10px;
+    border-left: 4px solid #2c3e7a;
+  }
+  h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #444;
+    margin: 16px 0 8px;
+  }
+
+  p { margin-bottom: 10px; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 18px;
+    font-size: 12px;
+  }
+  th {
+    background: #2c3e7a;
+    color: #fff;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e8ecf0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f5f7fb; }
+
+  /* Verdict boxes */
+  .verdict {
+    background: #f0f4ff;
+    border-left: 4px solid #2c3e7a;
+    padding: 12px 16px;
+    margin: 14px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+  }
+  .verdict strong { color: #2c3e7a; }
+
+  /* Cashflow table coloring */
+  .red   { color: #c0392b; font-weight: 700; }
+  .yellow { color: #d68910; font-weight: 700; }
+  .green  { color: #1e8449; font-weight: 700; }
+  .blue   { color: #1a5276; font-weight: 700; }
+
+  /* Summary scorecard */
+  .scorecard {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 14px 0 20px;
+  }
+  .score-item {
+    background: #f5f7fb;
+    border: 1px solid #dde3ef;
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .score-item .label { font-size: 11px; color: #666; margin-bottom: 4px; }
+  .score-item .value { font-size: 15px; font-weight: 700; color: #2c3e7a; }
+  .score-item .stars { color: #f0a500; font-size: 13px; }
+
+  /* Footer */
+  .report-footer {
+    margin-top: 36px;
+    padding-top: 14px;
+    border-top: 1px solid #dde3ef;
+    font-size: 11px;
+    color: #999;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  ul {
+    padding-left: 20px;
+    margin-bottom: 10px;
+  }
+  ul li { margin-bottom: 4px; }
+
+  .tag-ok   { color: #1e8449; font-weight: 700; }
+  .tag-warn { color: #d68910; font-weight: 700; }
+  .tag-risk { color: #c0392b; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="report-header">
+  <div class="badge">機密 · 戰略分析</div>
+  <h1>翔耀 × 中衛合作計畫 — 周瑜戰略分析報告</h1>
+  <div class="subtitle">分析日期：2026-04-10 &nbsp;|&nbsp; 分析官：周瑜（Tetora 戰略參謀）&nbsp;|&nbsp; 版本：v1.0</div>
+</div>
+
+<!-- Section 1 -->
+<h2>一、商業模式優劣勢分析</h2>
+
+<h3>✅ 優勢</h3>
+<table>
+  <thead><tr><th>面向</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td>變現路徑清晰</td><td>從輔導→產品→整合→訂閱，四階段層層遞進，LTV 可預期增長</td></tr>
+    <tr><td>輕資產起步</td><td>初期以 agent 輔導為主，不需重資本投入產品開發</td></tr>
+    <tr><td>收入結構多元</td><td>輔導費、產品授權、導入服務、整合銷售、訂閱，分散單一來源風險</td></tr>
+    <tr><td>SOP 可複製</td><td>初期建立的產品模組與 SOP，後續可邊際成本遞減</td></tr>
+  </tbody>
+</table>
+
+<h3>⚠️ 劣勢</h3>
+<table>
+  <thead><tr><th>面向</th><th>說明</th></tr></thead>
+  <tbody>
+    <tr><td>高度依賴中衛案源</td><td>若中衛無法穩定提供 case，整個模式將中斷</td></tr>
+    <tr><td>實報實銷限制</td><td>無法季初預付，現金流無法提前入帳</td></tr>
+    <tr><td>前期投入大</td><td>Q1 負 330 萬，若案量不如預期，虧損將擴大</td></tr>
+    <tr><td>轉換門檻高</td><td>從 agent 輔導到 iRAG/iFlow 產品，技術和人才要求跳躍式增長</td></tr>
+  </tbody>
+</table>
+
+<!-- Section 2 -->
+<h2>二、四階段路線圖：風險與機會</h2>
+
+<table>
+  <thead><tr><th>階段</th><th>機會</th><th>風險</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>初期（Agent 輔導）</strong><br>20 case × 15萬</td>
+      <td>門檻最低，快速建立合作信任與 SOP</td>
+      <td>中衛案源不足時，300 萬目標將嚴重落後</td>
+    </tr>
+    <tr>
+      <td><strong>第二階段（iRAG）</strong><br>20萬/套 + 10萬/導入</td>
+      <td>產品化後毛利提升，整合銷售 40 萬/件放大客單價</td>
+      <td>硬體整合涉及供應鏈管理，非純軟體能力</td>
+    </tr>
+    <tr>
+      <td><strong>第三階段（iFlow）</strong><br>20萬/套 + 10萬/導入</td>
+      <td>與 iRAG 形成產品矩陣，交叉銷售</td>
+      <td>同價位兩產品，市場是否買單需驗證</td>
+    </tr>
+    <tr>
+      <td><strong>第四階段（訂閱制）</strong><br>20萬/年</td>
+      <td>ARR 模型估值倍數最高，經常性收入穩定</td>
+      <td>定價是否過低？「至少兩模組」可能阻礙轉換</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="verdict">
+  <strong>⚠️ 核心風險：</strong>路線圖缺乏明確「觸發條件」——什麼指標達成才進下一階段？案量？收入？產品成熟度？若無明確 gate，可能陷入「一直做階段一」的困境。
+</div>
+
+<!-- Section 3 -->
+<h2>三、MSA + SOW 合約架構評估</h2>
+
+<p><span class="tag-ok">方向正確</span>，但需補強以下條款：</p>
+
+<table>
+  <thead><tr><th>問題點</th><th>建議修正</th></tr></thead>
+  <tbody>
+    <tr><td>中衛核銷特性未反映</td><td>MSA 中明訂付款時程，不受中衛內部核銷流程影響</td></tr>
+    <tr><td>缺少最低案量承諾</td><td>要求中衛承諾季度最低 case 數，翔耀保留閒置成本索賠權</td></tr>
+    <tr><td>視同驗收 7 日過短</td><td>B2B 客戶通常需要 14-30 日，建議改為 <strong>14 日</strong></td></tr>
+    <tr><td>暫停授權條款不明確</td><td>需界定「暫停」範圍（全面停用 vs 僅限新功能），避免法律爭議</td></tr>
+  </tbody>
+</table>
+
+<!-- Section 4 -->
+<h2>四、現金流管理建議</h2>
+
+<table>
+  <thead><tr><th>季度</th><th>案量預估</th><th>現金流入</th><th>現金流出</th><th>淨現金流</th><th>累計</th></tr></thead>
+  <tbody>
+    <tr><td>Q1</td><td>20 案輔導 + 10 家簽約</td><td>120 萬</td><td>450 萬</td><td class="red">-330 萬</td><td class="red">-330 萬</td></tr>
+    <tr><td>Q2</td><td>50 家簽約</td><td>600 萬</td><td>500 萬</td><td class="yellow">+100 萬</td><td class="red">-230 萬</td></tr>
+    <tr><td>Q3</td><td>100 家簽約</td><td>1,200 萬</td><td>600 萬</td><td class="green">+600 萬</td><td class="green">+370 萬</td></tr>
+    <tr><td>Q4</td><td>120 家簽約 + 續約</td><td>1,500 萬</td><td>650 萬</td><td class="blue">+850 萬</td><td class="blue">+1,220 萬</td></tr>
+  </tbody>
+</table>
+
+<h3>戰略建議</h3>
+<ul>
+  <li><strong>付款條件調整</strong>：建議改為 <strong>50% SOW生效 + 40% 交付 + 10% 驗收</strong>，提高前期收款比例，降低 Q1 壓力</li>
+  <li><strong>直銷是解方</strong>：直銷 70 家若一半成交 → 70 × 40萬 × 50% = <strong>1,400 萬預收款</strong>，一舉解決週轉問題</li>
+  <li><strong>保護條款</strong>：MSA 中加入「連續兩季未達案量，翔耀有權補償或終止」</li>
+  <li><strong>週轉金來源</strong>：股東借款、政府 AI/數位轉型補助、或策略投資人，三管齊下</li>
+</ul>
+
+<!-- Section 5 -->
+<h2>五、總體戰略判斷</h2>
+
+<div class="scorecard">
+  <div class="score-item">
+    <div class="label">商業模式可行性</div>
+    <div class="stars">★★★★☆</div>
+    <div class="value">邏輯通順</div>
+  </div>
+  <div class="score-item">
+    <div class="label">現金流健康度</div>
+    <div class="stars">★★★☆☆</div>
+    <div class="value">Q1-Q2 壓力大</div>
+  </div>
+  <div class="score-item">
+    <div class="label">合約架構</div>
+    <div class="stars">★★★★☆</div>
+    <div class="value">MSA+SOW 正確</div>
+  </div>
+  <div class="score-item">
+    <div class="label">成長潛力</div>
+    <div class="stars">★★★★★</div>
+    <div class="value">ARR 估值倍數高</div>
+  </div>
+</div>
+
+<h3>主公應關注的三大關鍵</h3>
+<table>
+  <thead><tr><th>#</th><th>關鍵問題</th><th>行動</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>中衛的承諾是否白紙黑字？</td><td>MSA 中明訂最低案量、付款時程、違約條款</td></tr>
+    <tr><td>2</td><td>產品開發能力是否到位？</td><td>確認技術團隊具備 iRAG/iFlow 開發能力</td></tr>
+    <tr><td>3</td><td>直銷 70 家是生死線</td><td>直銷成功則現金流無憂；否則 Q1-Q2 將非常痛苦</td></tr>
+  </tbody>
+</table>
+
+<div class="verdict">
+  <strong>周瑜最終建議：「先談條件，再談理想。」</strong><br><br>
+  簽 MSA 之前，要求中衛提供：①書面案量承諾（Q1-Q2 各至少 10 case）②明確付款時程（不受內部核銷影響）③未達標補償機制。<br><br>
+  同時，翔耀應備妥 <strong>600 萬週轉金</strong>或等額融資方案，確保 Q1-Q2 存活。<br><br>
+  若以上條件具備，此計畫 <span class="tag-ok">值得推進</span>；否則建議 <span class="tag-warn">縮小規模、先試點 5-10 case 再擴張</span>。
+</div>
+
+<div class="report-footer">
+  <span>翔耀 × 中衛合作計畫戰略分析 — 機密文件</span>
+  <span>周瑜 / Tetora 戰略參謀 &nbsp;|&nbsp; 2026-04-10</span>
+</div>
+
+</body>
+</html>

@@ -1,4 +1,5 @@
 package main
+
 import (
 	"context"
 	"encoding/json"
@@ -35,6 +36,7 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/messaging/gchat"
 	"tetora/internal/messaging/groupchat"
+	imessagebot "tetora/internal/messaging/imessage"
 	linebot "tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
 	signalbot "tetora/internal/messaging/signal"
@@ -54,7 +56,6 @@ import (
 	"tetora/internal/trace"
 	"tetora/internal/upload"
 	"tetora/internal/version"
-	imessagebot "tetora/internal/messaging/imessage"
 )
 
 // --- from main.go ---
@@ -181,6 +182,9 @@ func main() {
 			return
 		case "access":
 			cli.CmdAccess(os.Args[2:])
+			return
+		case "provider":
+			cli.CmdProvider(os.Args[2:])
 			return
 		case "lessons":
 			cli.CmdLessons(os.Args[2:])
@@ -349,6 +353,14 @@ func main() {
 	// Services are initialized into app fields below, then SyncToGlobals()
 	// backfills global vars for callers that haven't migrated yet.
 	app := &App{Cfg: cfg}
+	globalApp = app
+
+	// Search Infrastructure
+	if s, err := newSearchService(cfg); err == nil {
+		app.Search = s
+	} else {
+		log.Error("failed to initialize search service", "error", err)
+	}
 
 	// Initialize hooks event receiver.
 	hookRecv := newHookReceiver(state.broker, cfg)
@@ -646,13 +658,13 @@ func main() {
 		}
 		if cfg.Ops.BackupSchedule != "" && cfg.HistoryDB != "" {
 			bsched := scheduling.NewBackupScheduler(scheduling.BackupConfig{
-			DBPath:     cfg.HistoryDB,
-			BackupDir:  cfg.Ops.BackupDirResolved(cfg.BaseDir),
-			RetainDays: cfg.Ops.BackupRetainOrDefault(),
-			EscapeSQL:  db.Escape,
-			LogInfo:    log.Info,
-			LogWarn:    log.Warn,
-		})
+				DBPath:     cfg.HistoryDB,
+				BackupDir:  cfg.Ops.BackupDirResolved(cfg.BaseDir),
+				RetainDays: cfg.Ops.BackupRetainOrDefault(),
+				EscapeSQL:  db.Escape,
+				LogInfo:    log.Info,
+				LogWarn:    log.Warn,
+			})
 			bsched.Start(ctx)
 			log.Info("backup scheduler started", "schedule", cfg.Ops.BackupSchedule, "retain", cfg.Ops.BackupRetainOrDefault())
 		}
@@ -1596,11 +1608,12 @@ type App struct {
 	TimeTracking *TimeTrackingService
 
 	// Infrastructure
-	SpawnTracker        *spawnTracker
-	JudgeCache          *judgeCache
-	ImageGenLimiter     *tools.ImageGenLimiter
-	Presence            *presenceManager
-	Reminder            *ReminderEngine
+	SpawnTracker    *spawnTracker
+	JudgeCache      *judgeCache
+	ImageGenLimiter *tools.ImageGenLimiter
+	Presence        *presenceManager
+	Reminder        *ReminderEngine
+	Search          *SearchService
 }
 
 // SyncToGlobals sets all global singletons from App fields.
@@ -1964,7 +1977,60 @@ func loadConfig(path string) *Config {
 		log.Error("config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Apply environment variable overrides for provider.
+	// This allows automatic provider switching without modifying config files.
+	applyEnvProviderOverride(cfg)
+
 	return cfg
+}
+
+// applyEnvProviderOverride checks TETORA_PROVIDER and TETORA_MODEL environment
+// variables and applies them as active provider overrides if set.
+// This enables automatic preset loading without CLI commands.
+func applyEnvProviderOverride(cfg *Config) {
+	providerName := os.Getenv("TETORA_PROVIDER")
+	if providerName == "" {
+		return
+	}
+
+	model := os.Getenv("TETORA_MODEL")
+	if model == "" {
+		model = "auto"
+	}
+
+	// Initialize active provider store if not present.
+	if cfg.ActiveProviderStore == nil {
+		storePath := filepath.Join(cfg.RuntimeDir, "active-provider.json")
+		if cfg.RuntimeDir == "" {
+			storePath = filepath.Join(filepath.Dir(configPathOrDefault()), "active-provider.json")
+		}
+		cfg.ActiveProviderStore = config.NewActiveProviderStore(storePath)
+	}
+
+	if err := cfg.ActiveProviderStore.Set(providerName, model, "env"); err != nil {
+		log.Warn("failed to set active provider from environment",
+			"provider", providerName,
+			"model", model,
+			"error", err)
+		return
+	}
+
+	log.Info("applied provider override from environment",
+		"provider", providerName,
+		"model", model)
+}
+
+// configPathOrDefault returns the config file path or a sensible default.
+func configPathOrDefault() string {
+	if p := os.Getenv("TETORA_CONFIG"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "config.json"
+	}
+	return filepath.Join(home, ".tetora", "config.json")
 }
 
 // tryLoadConfig loads and validates the config file, returning an error instead
@@ -2027,7 +2093,7 @@ func tryLoadConfig(path string) (*Config, error) {
 		cfg.DefaultTimeout = "1h"
 	}
 	if cfg.DefaultPermissionMode == "" {
-		cfg.DefaultPermissionMode = "acceptEdits"
+		cfg.DefaultPermissionMode = "bypassPermissions"
 	}
 	if cfg.Telegram.PollTimeout <= 0 {
 		cfg.Telegram.PollTimeout = 30
@@ -2137,6 +2203,11 @@ func tryLoadConfig(path string) (*Config, error) {
 	if !filepath.IsAbs(cfg.RuntimeDir) {
 		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, cfg.RuntimeDir)
 	}
+
+	// Initialize ActiveProviderStore so dynamic provider switching works in the daemon.
+	cfg.ActiveProviderStore = config.NewActiveProviderStore(
+		filepath.Join(cfg.RuntimeDir, "active-provider.json"))
+	_, _ = cfg.ActiveProviderStore.Load() // tolerate missing file on first boot
 
 	// Vault dir default.
 	if cfg.VaultDir == "" {
@@ -2316,7 +2387,6 @@ func validateConfig(cfg *Config) {
 	}
 }
 
-
 // configFileMu serializes all read-modify-write operations on the config file
 // so concurrent HTTP handlers cannot interleave their reads and writes.
 var configFileMu sync.Mutex
@@ -2370,7 +2440,6 @@ func updateConfigMCPs(configPath, mcpName string, mcpConfig json.RawMessage) err
 	return nil
 }
 
-
 // modelChangeResult holds the old and new model/provider for display.
 type modelChangeResult struct {
 	OldModel    string
@@ -2398,7 +2467,6 @@ func updateAgentModel(cfg *Config, agentName, model, providerName string) (model
 	}
 	return res, cli.UpdateConfigAgents(configPath, agentName, agentJSON)
 }
-
 
 // --- from cli.go ---
 
@@ -3320,19 +3388,19 @@ func getSystemHealth(cfg *Config) map[string]any {
 
 	// Active integrations.
 	integrations := map[string]bool{
-		"telegram":  cfg.Telegram.Enabled,
-		"slack":     cfg.Slack.Enabled,
-		"discord":   cfg.Discord.Enabled,
-		"whatsapp":  cfg.WhatsApp.Enabled,
-		"line":      cfg.LINE.Enabled,
-		"matrix":    cfg.Matrix.Enabled,
-		"teams":     cfg.Teams.Enabled,
-		"signal":    cfg.Signal.Enabled,
-		"gchat":     cfg.GoogleChat.Enabled,
-		"gmail":     cfg.Gmail.Enabled,
-		"calendar":  cfg.Calendar.Enabled,
-		"twitter":   cfg.Twitter.Enabled,
-		"imessage":  cfg.IMessage.Enabled,
+		"telegram":      cfg.Telegram.Enabled,
+		"slack":         cfg.Slack.Enabled,
+		"discord":       cfg.Discord.Enabled,
+		"whatsapp":      cfg.WhatsApp.Enabled,
+		"line":          cfg.LINE.Enabled,
+		"matrix":        cfg.Matrix.Enabled,
+		"teams":         cfg.Teams.Enabled,
+		"signal":        cfg.Signal.Enabled,
+		"gchat":         cfg.GoogleChat.Enabled,
+		"gmail":         cfg.Gmail.Enabled,
+		"calendar":      cfg.Calendar.Enabled,
+		"twitter":       cfg.Twitter.Enabled,
+		"imessage":      cfg.IMessage.Enabled,
 		"homeassistant": cfg.HomeAssistant.Enabled,
 	}
 	health["integrations"] = integrations
