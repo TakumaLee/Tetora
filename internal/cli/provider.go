@@ -129,7 +129,7 @@ func providerStatusCmd() {
 	storePath := getActiveProviderPath(cfg)
 	store := config.NewActiveProviderStore(storePath)
 
-	if err := store.Load(); err != nil {
+	if _, err := store.Load(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading provider state: %v\n", err)
 		os.Exit(1)
 	}
@@ -194,7 +194,7 @@ func providerListCmd() {
 	// Check if active override is set.
 	storePath := getActiveProviderPath(cfg)
 	store := config.NewActiveProviderStore(storePath)
-	_ = store.Load()
+	_, _ = store.Load()
 	activeState := store.Get()
 
 	for name, pCfg := range cfg.Providers {
@@ -264,16 +264,7 @@ func loadConfig() (*config.Config, error) {
 
 	cfg.BaseDir = filepath.Dir(configPath)
 	config.ResolveSecrets(&cfg)
-
-	// Mirror the RuntimeDir defaulting from tryLoadConfig so that
-	// getActiveProviderPath returns ~/.tetora/runtime/active-provider.json
-	// rather than ~/.tetora/active-provider.json.
-	if cfg.RuntimeDir == "" {
-		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, "runtime")
-	}
-	if !filepath.IsAbs(cfg.RuntimeDir) {
-		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, cfg.RuntimeDir)
-	}
+	cfg.NormalizePaths()
 
 	return &cfg, nil
 }

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package config
 
 import (
@@ -38,34 +40,59 @@ func NewActiveProviderStore(filePath string) *ActiveProviderStore {
 
 // Load reads the active provider state from disk.
 // Uses shared lock for concurrent read safety.
-func (s *ActiveProviderStore) Load() error {
+func (s *ActiveProviderStore) Load() (*ActiveProviderState, error) {
 	f, err := os.Open(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			s.mu.Lock()
 			s.state = &ActiveProviderState{}
 			s.mu.Unlock()
-			return nil
+			return &ActiveProviderState{}, nil
 		}
-		return err
+		return nil, err
 	}
 	defer f.Close()
 
 	// Acquire shared read lock.
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
-		return err
+		return nil, err
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 
 	var state ActiveProviderState
 	if err := json.NewDecoder(f).Decode(&state); err != nil {
-		return err
+		return nil, err
 	}
 
 	s.mu.Lock()
 	s.state = &state
 	s.mu.Unlock()
-	return nil
+	return &state, nil
+}
+
+// LoadFromFile reads the active provider state from disk without caching.
+// Unlike Load(), this does not update the in-memory state, allowing callers
+// to see fresh disk state (e.g., changes made by CLI while daemon is running).
+func (s *ActiveProviderStore) LoadFromFile() (*ActiveProviderState, error) {
+	f, err := os.Open(s.filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &ActiveProviderState{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
+		return nil, err
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	var state ActiveProviderState
+	if err := json.NewDecoder(f).Decode(&state); err != nil {
+		return nil, err
+	}
+	return &state, nil
 }
 
 // Save persists the active provider state to disk.

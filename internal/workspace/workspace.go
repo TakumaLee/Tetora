@@ -343,15 +343,21 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 	loreDir := filepath.Join(cfg.WorkspaceDir, "lore")
 	if entries, err := os.ReadDir(loreDir); err == nil {
 		var loreBlock strings.Builder
+		var loreSize int
+		const loreSoftLimit = 16 * 1024 // 16KB soft limit
 		for _, e := range entries {
 			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 				continue
 			}
 			data, _ := os.ReadFile(filepath.Join(loreDir, e.Name()))
 			if len(data) > 0 {
+				loreSize += len(data) + 2 // +2 for "\n\n"
 				loreBlock.Write(data)
 				loreBlock.WriteString("\n\n")
 			}
+		}
+		if loreSize > loreSoftLimit {
+			fmt.Fprintf(os.Stderr, "[warn] lore/ directory total size %d bytes exceeds %d byte soft limit; excess context will consume LLM token budget\n", loreSize, loreSoftLimit)
 		}
 		if loreBlock.Len() > 0 {
 			loreWrapped := "<!-- LORE: world context only -->\n\n" + strings.TrimSpace(loreBlock.String()) + "\n\n<!-- /LORE -->"

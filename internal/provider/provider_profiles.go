@@ -18,15 +18,17 @@ type ProviderProfile struct {
 	DefaultModel      string
 	MaxTokens         int
 	Temperature       float64
+	TemperatureSet    bool // true when Temperature is intentionally set (even to 0.0)
 	TopP              float64
+	TopPSet           bool // same for TopP
 	FirstTokenTimeout string
 	ContextWindow     int // Maximum context window in tokens
-	
+
 	// Capabilities
 	SupportsTools     bool
 	SupportsStreaming bool
 	SupportsVision    bool
-	
+
 	// Characteristics
 	Strengths         []string // What this provider is good at
 	BestFor           []string // Recommended use cases
@@ -34,7 +36,7 @@ type ProviderProfile struct {
 
 // ProviderProfiles returns a map of all known provider profiles.
 func ProviderProfiles() map[string]ProviderProfile {
-	return map[string]ProviderProfile{
+	result := map[string]ProviderProfile{
 		// --- Anthropic Claude ---
 		"claude-code": {
 			Name:              "Claude Code",
@@ -117,23 +119,7 @@ func ProviderProfiles() map[string]ProviderProfile {
 			Strengths:         []string{"massive-context", "multimodal", "reasoning"},
 			BestFor:           []string{"large-codebase-analysis", "documentation", "research"},
 		},
-		"gemini": {
-			Name:              "Google Gemini",
-			Type:              "openai-compatible",
-			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai",
-			DefaultModel:      "gemini-2.5-pro",
-			MaxTokens:         65536,
-			Temperature:       0.6,
-			TopP:              0.95,
-			FirstTokenTimeout: "45s",
-			ContextWindow:     1000000,
-			SupportsTools:     true,
-			SupportsStreaming: true,
-			SupportsVision:    true,
-			Strengths:         []string{"massive-context", "multimodal", "reasoning"},
-			BestFor:           []string{"large-codebase-analysis", "documentation", "research"},
-		},
-		
+
 		// --- OpenAI ---
 		"openai": {
 			Name:              "OpenAI",
@@ -205,6 +191,11 @@ func ProviderProfiles() map[string]ProviderProfile {
 			BestFor:           []string{"local-development", "privacy-sensitive", "testing"},
 		},
 	}
+
+	// "gemini" is an alias for "google" — same profile, different key.
+	result["gemini"] = result["google"]
+
+	return result
 }
 
 // GetProviderProfile returns the profile for a given provider name.
@@ -239,10 +230,10 @@ func ApplyProfileToConfig(profile *ProviderProfile, cfg *config.ProviderConfig) 
 	if profile.FirstTokenTimeout != "" && cfg.FirstTokenTimeout == "" {
 		cfg.FirstTokenTimeout = profile.FirstTokenTimeout
 	}
-	if profile.Temperature > 0 && cfg.Temperature == 0 {
+	if profile.TemperatureSet && cfg.Temperature == 0 {
 		cfg.Temperature = profile.Temperature
 	}
-	if profile.TopP > 0 && cfg.TopP == 0 {
+	if profile.TopPSet && cfg.TopP == 0 {
 		cfg.TopP = profile.TopP
 	}
 }

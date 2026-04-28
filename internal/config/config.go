@@ -292,3 +292,17 @@ func (c *Config) OutputsDirFor(clientID string) string {
 	}
 	return c.ClientDir(clientID)
 }
+
+// NormalizePaths applies path-related defaults that depend on BaseDir.
+// This is shared between CLI and daemon config loading so they resolve
+// the same file paths (e.g., active-provider.json in RuntimeDir).
+// Must be called after BaseDir is set from the config file location.
+func (c *Config) NormalizePaths() {
+	// RuntimeDir defaulting.
+	if c.RuntimeDir == "" {
+		c.RuntimeDir = filepath.Join(c.BaseDir, "runtime")
+	}
+	if !filepath.IsAbs(c.RuntimeDir) {
+		c.RuntimeDir = filepath.Join(c.BaseDir, c.RuntimeDir)
+	}
+}
