@@ -5143,7 +5143,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
 
-		prCtx := fetchPRContext(req.PRURL) // best-effort; errors logged internally
+		prCtx := fetchPRContext(r.Context(), req.PRURL) // best-effort; errors logged internally
 
 		var promptBuf strings.Builder
 		fmt.Fprintf(&promptBuf, "You are reviewing this %s.\nURL: %s\n", kind, req.PRURL)
@@ -7484,7 +7484,8 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 // from GitHub. Returns a formatted string for inclusion in the review prompt,
 // so the agent is aware of already-discussed issues.
 // Best-effort: errors are logged internally; returns empty string on failure.
-func fetchPRContext(prURL string) string {
+func fetchPRContext(ctx context.Context, prURL string) string {
+	// ~1 LLM "page" of tokens; keeps prompt delta predictable.
 	const maxTotalBytes = 4000
 
 	u, err := url.Parse(prURL)
@@ -7510,9 +7511,11 @@ func fetchPRContext(prURL string) string {
 		} `json:"reviews"`
 	}
 
-	out, err := exec.Command("gh", "pr", "view", prURL, "--json", "title,body,comments,reviews").CombinedOutput()
+	tCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(tCtx, "gh", "pr", "view", prURL, "--json", "title,body,comments,reviews").Output()
 	if err != nil {
-		log.Warn("fetchPRContext: gh pr view", "error", strings.TrimSpace(string(out)))
+		log.Warn("fetchPRContext: gh pr view", "error", err)
 		return ""
 	}
 
@@ -7525,6 +7528,7 @@ func fetchPRContext(prURL string) string {
 	var sb strings.Builder
 	add := func(s string) bool {
 		if sb.Len()+len(s) > maxTotalBytes {
+			log.Debug("fetchPRContext: context cap reached, truncating", "dropped_bytes", len(s))
 			return false
 		}
 		sb.WriteString(s)
@@ -7534,7 +7538,10 @@ func fetchPRContext(prURL string) string {
 		add(fmt.Sprintf("Title: %s\n", view.Title))
 	}
 	if view.Body != "" {
-		add(fmt.Sprintf("Description:\n%s\n\n", truncate(view.Body, 2000)))
+		if !add(fmt.Sprintf("Description:\n%s\n\n", truncate(view.Body, 2000))) {
+			log.Debug("fetchPRContext: body dropped due to cap")
+			return sb.String()
+		}
 	}
 	for _, r := range view.Reviews {
 		if r.Body == "" {
@@ -7542,7 +7549,7 @@ func fetchPRContext(prURL string) string {
 		}
 		label := r.State
 		if strings.EqualFold(r.State, "DISMISSED") {
-			label = "DISMISSED — maintainer overruled this review"
+			label = "DISMISSED"
 		}
 		if !add(fmt.Sprintf("Review [%s] by %s:\n%s\n\n", label, r.Author.Login, truncate(r.Body, 1000))) {
 			break
