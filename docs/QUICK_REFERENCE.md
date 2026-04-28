@@ -16,25 +16,6 @@ tetora provider list                        # All configured providers
 tetora provider clear                       # Return to agent config
 ```
 
-## 🌍 Environment Variables (Auto-Load)
-
-Set these in your shell profile (`~/.bashrc`, `~/.zshrc`) or Docker environment:
-
-```bash
-# Automatically switch provider on startup
-export TETORA_PROVIDER=qwen
-export TETORA_MODEL=auto          # Optional: specific model or "auto"
-
-# Examples
-export TETORA_PROVIDER=google
-export TETORA_MODEL=gemini-2.5-pro
-
-export TETORA_PROVIDER=claude
-export TETORA_MODEL=claude-sonnet-4-20250514
-```
-
-**Priority**: CLI command > Environment variable > Config file
-
 ## 📊 Priority Chain
 
 ```
@@ -60,7 +41,7 @@ Task Provider → Active Provider → Agent Provider → Global Default → Fall
 
 | Provider | Default Model | MaxTokens | Temperature |
 |----------|---------------|-----------|-------------|
-| qwen | qwen3.6-plus | 8192 | 0.7 |
+| qwen | qwen-plus | 8192 | 0.7 |
 | google | gemini-2.5-pro | 65536 | 0.6 |
 | claude | claude-sonnet-4 | 8192 | 0.7 |
 | groq | llama-3.3-70b | 8192 | 0.7 |

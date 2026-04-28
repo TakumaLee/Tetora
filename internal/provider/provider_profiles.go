@@ -71,8 +71,8 @@ func ProviderProfiles() map[string]ProviderProfile {
 		"qwen": {
 			Name:              "Qwen (通义千问)",
 			Type:              "openai-compatible",
-			BaseURL:           "https://dashscope.aliyuncs.com/compatible-mode/v1",
-			DefaultModel:      "qwen3.6-plus",
+			BaseURL:           "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			DefaultModel:      "qwen-plus",
 			MaxTokens:         8192,
 			Temperature:       0.7,
 			TopP:              0.8,
@@ -87,7 +87,7 @@ func ProviderProfiles() map[string]ProviderProfile {
 		"qwen-cli": {
 			Name:              "Qwen CLI (Terminal)",
 			Type:              "terminal-qwen",
-			DefaultModel:      "qwen3.6-plus",
+			DefaultModel:      "qwen-plus",
 			MaxTokens:         8192,
 			Temperature:       0.7,
 			TopP:              0.8,
@@ -238,6 +238,12 @@ func ApplyProfileToConfig(profile *ProviderProfile, cfg *config.ProviderConfig) 
 	}
 	if profile.FirstTokenTimeout != "" && cfg.FirstTokenTimeout == "" {
 		cfg.FirstTokenTimeout = profile.FirstTokenTimeout
+	}
+	if profile.Temperature > 0 && cfg.Temperature == 0 {
+		cfg.Temperature = profile.Temperature
+	}
+	if profile.TopP > 0 && cfg.TopP == 0 {
+		cfg.TopP = profile.TopP
 	}
 }
 

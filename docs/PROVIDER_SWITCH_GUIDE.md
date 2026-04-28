@@ -19,33 +19,14 @@ Implemented **session-level dynamic provider switching**, enabling users to:
 
 ## Quick Start
 
-### 1. Auto-Load via Environment Variables (Recommended)
-
-Set these in your shell profile (`~/.bashrc`, `~/.zshrc`) or Docker environment:
-
-```bash
-# Automatically switch provider on startup
-export TETORA_PROVIDER=qwen
-export TETORA_MODEL=auto          # Optional: specific model or "auto"
-
-# Other examples
-export TETORA_PROVIDER=google
-export TETORA_MODEL=gemini-2.5-pro
-
-export TETORA_PROVIDER=claude
-export TETORA_MODEL=claude-sonnet-4-20250514
-```
-
-**Priority**: CLI command > Environment variable > Config file
-
-### 2. Manual Switch via CLI Commands
+### 1. Switch to Qwen
 
 ```bash
 # Use Qwen default model
 tetora provider set qwen
 
 # Use specific model
-tetora provider set qwen qwen3.6-plus
+tetora provider set qwen qwen-plus
 
 # Auto-select model
 tetora provider set qwen auto
@@ -102,12 +83,12 @@ tetora provider list
 Provider resolution now follows this priority:
 
 ```
-0. Active Provider Override (CLI/API setting) ← NEW
-1. Task-level Provider (task-level override)
-2. Agent-level Provider (agent config)
+1. Task-level Provider (task-level override) ← highest priority
+2. Active Provider Override (CLI/API setting)
+3. Agent-level Provider (agent config)
    - Supports "auto" mode, follows global setting
-3. Global Default Provider
-4. Legacy Fallback
+4. Global Default Provider
+5. Legacy Fallback
 ```
 
 ### Automatic Parameter Optimization
@@ -116,7 +97,7 @@ Each provider has pre-configured optimal parameters:
 
 | Provider | Default Model | MaxTokens | Temperature | Context Window |
 |----------|---------------|-----------|-------------|----------------|
-| Qwen | qwen3.6-plus | 8192 | 0.7 | 131K |
+| Qwen | qwen-plus | 8192 | 0.7 | 131K |
 | Gemini | gemini-2.5-pro | 65536 | 0.6 | 1M |
 | Claude | claude-sonnet-4 | 8192 | 0.7 | 200K |
 | Groq | llama-3.3-70b | 8192 | 0.7 | 131K |
@@ -305,10 +286,10 @@ A: System automatically applies preset parameters. To customize, edit the corres
 2. **Provider Resolution Priority**
    ```go
    func resolveProviderName(cfg *Config, task Task, agentName string) string {
-       // 0. Active Provider Override
-       // 1. Task-level
-       // 2. Agent-level (supports "auto")
-       // 3. Global default
+       // 1. Task-level (highest)
+       // 2. Active Provider Override
+       // 3. Agent-level (supports "auto")
+       // 4. Global default
    }
    ```
 

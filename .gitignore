@@ -11,6 +11,8 @@ dist/
 *.db-shm
 config.json
 config.local.json
+agents/**/SOUL.local.md
+agents/SOUL.local.md
 jobs.json
 logs/
 *.log
@@ -72,6 +74,9 @@ tasks/todo.md
 
 # Qwen Code (local config)
 .qwen/
+
+# Gemini Code (local config)
+.gemini/
 
 # Local workflow docs (not for upstream)
 GIT_WORKFLOW.md

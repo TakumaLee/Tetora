@@ -135,7 +135,7 @@ Predefines optimal parameters for each provider:
 
 | Provider | Default Model | MaxTokens | Temperature | Context | Strengths |
 |----------|---------------|-----------|-------------|---------|-----------|
-| Qwen | qwen3.6-plus | 8192 | 0.7 | 131K | Chinese, code, cost-effective |
+| Qwen | qwen-plus | 8192 | 0.7 | 131K | Chinese, code, cost-effective |
 | Gemini | gemini-2.5-pro | 65536 | 0.6 | 1M | Massive context, multimodal |
 | Claude | claude-sonnet-4 | 8192 | 0.7 | 200K | Code understanding, complex reasoning |
 | Groq | llama-3.3-70b | 8192 | 0.7 | 131K | Speed, low latency |
