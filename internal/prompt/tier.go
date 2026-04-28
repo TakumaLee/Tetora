@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"tetora/internal/classify"
@@ -20,6 +21,20 @@ var validScopeBoundaries = map[string]bool{
 	"implement_allowed": true,
 	"test_only":         true,
 	"review_only":       true,
+}
+
+// validAgentName matches only safe identifier characters to prevent prompt injection
+// via newlines, markdown headings, or other special chars in agent names.
+var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+
+// sanitizeAgentName returns the agent name if it matches [a-zA-Z0-9_-], otherwise "unknown".
+// This prevents prompt injection via malicious agent names.
+func sanitizeAgentName(name string) string {
+	if validAgentName.MatchString(name) {
+		return name
+	}
+	log.Warn("agent name contains invalid characters, sanitized to 'unknown'", "name", name)
+	return "unknown"
 }
 
 // skillExtractionSection is injected into every dispatched agent prompt.
@@ -527,7 +542,8 @@ func buildWorkspaceRule(cfg *config.Config, agentName string) string {
 		return ""
 	}
 
-	outputDir := filepath.Join(cfg.AgentOutputBase, agentName, dispatch.AgentOutputSubdir)
+	safeName := sanitizeAgentName(agentName)
+	outputDir := filepath.Join(cfg.AgentOutputBase, safeName, dispatch.AgentOutputSubdir)
 
 	return fmt.Sprintf(`## Working Directory Rules
 1. **Code Edits**: Modify files in-place within the project structure.

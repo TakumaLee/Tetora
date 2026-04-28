@@ -43,14 +43,43 @@ func FillDefaults(cfg *config.Config, t *Task) {
 		t.PermissionMode = cfg.DefaultPermissionMode
 	}
 	if t.Workdir == "" {
-		// Priority: agent's output dir (output-only agents only) > workspace dir > default workdir
-		if t.Agent != "" && cfg.AgentOutputBase != "" {
-			if rc, ok := cfg.Agents[t.Agent]; ok && rc.OutputOnly {
-				agentName := filepath.Clean(t.Agent)
-				if strings.Contains(agentName, "..") {
-					agentName = "unknown"
+		// Resolve workdir based on workdirMode.
+		if t.Agent != "" {
+			if rc, ok := cfg.Agents[t.Agent]; ok {
+				// WorkdirMode takes precedence; fall back to OutputOnly for backward compat.
+				effectiveMode := rc.WorkdirMode
+				if effectiveMode == "" && rc.OutputOnly {
+					effectiveMode = "output_only"
 				}
-				t.Workdir = filepath.Join(cfg.AgentOutputBase, agentName, AgentOutputSubdir)
+
+				switch effectiveMode {
+				case "output_only":
+					if cfg.AgentOutputBase != "" {
+						agentName := filepath.Clean(t.Agent)
+						if strings.Contains(agentName, "..") || filepath.IsAbs(agentName) {
+							agentName = "unknown"
+						}
+						targetPath := filepath.Join(cfg.AgentOutputBase, agentName, AgentOutputSubdir)
+						if !strings.HasPrefix(targetPath, filepath.Clean(cfg.AgentOutputBase)+string(filepath.Separator)) {
+							targetPath = filepath.Join(cfg.AgentOutputBase, "unknown", AgentOutputSubdir)
+						}
+						t.Workdir = targetPath
+						break
+					}
+					fallthrough
+				case "workspace":
+					if cfg.WorkspaceDir != "" {
+						t.Workdir = cfg.WorkspaceDir
+						break
+					}
+					fallthrough
+				default:
+					if cfg.WorkspaceDir != "" {
+						t.Workdir = cfg.WorkspaceDir
+					} else {
+						t.Workdir = cfg.DefaultWorkdir
+					}
+				}
 			} else if cfg.WorkspaceDir != "" {
 				t.Workdir = cfg.WorkspaceDir
 			} else {

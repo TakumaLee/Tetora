@@ -67,6 +67,7 @@ func TestFillDefaults_WorkdirResolution(t *testing.T) {
 		name            string
 		agent           string
 		outputOnly      bool
+		workdirMode     string
 		agentOutputBase string
 		workspaceDir    string
 		defaultWorkdir  string
@@ -115,13 +116,53 @@ func TestFillDefaults_WorkdirResolution(t *testing.T) {
 			defaultWorkdir:  defaultDir,
 			wantWorkdir:     defaultDir,
 		},
+		{
+			name:            "path traversal in agent name is blocked",
+			agent:           "../etc",
+			outputOnly:      true,
+			agentOutputBase: base,
+			workspaceDir:    workspace,
+			defaultWorkdir:  defaultDir,
+			wantWorkdir:     base + "/unknown/" + AgentOutputSubdir,
+		},
+		{
+			name:            "absolute path in agent name is blocked",
+			agent:           "/etc/passwd",
+			outputOnly:      true,
+			agentOutputBase: base,
+			workspaceDir:    workspace,
+			defaultWorkdir:  defaultDir,
+			wantWorkdir:     base + "/unknown/" + AgentOutputSubdir,
+		},
+		{
+			name:            "workdir_mode=output_only takes precedence",
+			agent:           "reporter",
+			workdirMode:     "output_only",
+			agentOutputBase: base,
+			workspaceDir:    workspace,
+			defaultWorkdir:  defaultDir,
+			wantWorkdir:     base + "/reporter/" + AgentOutputSubdir,
+		},
+		{
+			name:            "workdir_mode=workspace forces workspace even if output_only set",
+			agent:           "reporter",
+			workdirMode:     "workspace",
+			outputOnly:      true,
+			agentOutputBase: base,
+			workspaceDir:    workspace,
+			defaultWorkdir:  defaultDir,
+			wantWorkdir:     workspace,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			agents := map[string]config.AgentConfig{}
 			if tc.agent != "" {
-				agents[tc.agent] = config.AgentConfig{OutputOnly: tc.outputOnly}
+				agents[tc.agent] = config.AgentConfig{
+					OutputOnly:  tc.outputOnly,
+					WorkdirMode: tc.workdirMode,
+				}
 			}
 			cfg := &config.Config{
 				DefaultModel:    DefaultFallbackModel,
