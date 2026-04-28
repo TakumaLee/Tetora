@@ -5143,8 +5143,15 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
 
+		prCtx, _ := fetchPRContext(req.PRURL) // best-effort; ignore errors
+
 		var promptBuf strings.Builder
 		fmt.Fprintf(&promptBuf, "You are reviewing this %s.\nURL: %s\n", kind, req.PRURL)
+		if prCtx != "" {
+			promptBuf.WriteString("\n## PR Context (title, description, existing comments)\n")
+			promptBuf.WriteString(prCtx)
+			promptBuf.WriteString("\nWhen writing your review, do not re-raise issues that are already raised or resolved in the comments above.\n\n")
+		}
 		if truncatedCount > 0 {
 			fmt.Fprintf(&promptBuf, "[diff truncated at %d lines]\n", maxLines)
 		}
@@ -7466,6 +7473,65 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("unsupported host %q (expected github/gitlab)", host)
 	}
+}
+
+// fetchPRContext fetches PR title, description, and existing comments/reviews
+// from GitHub. Returns a formatted string for inclusion in the review prompt,
+// so the agent avoids re-flagging already-discussed issues.
+// Best-effort: callers should ignore errors.
+func fetchPRContext(prURL string) (string, error) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(strings.ToLower(u.Host), "github") {
+		return "", nil
+	}
+
+	type prView struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		Comments []struct {
+			Author struct{ Login string } `json:"author"`
+			Body   string                 `json:"body"`
+		} `json:"comments"`
+		Reviews []struct {
+			Author struct{ Login string } `json:"author"`
+			Body   string                 `json:"body"`
+			State  string                 `json:"state"`
+		} `json:"reviews"`
+	}
+
+	out, err := exec.Command("gh", "pr", "view", prURL, "--json", "title,body,comments,reviews").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("gh pr view: %s", strings.TrimSpace(string(out)))
+	}
+
+	var view prView
+	if err := json.Unmarshal(out, &view); err != nil {
+		return "", fmt.Errorf("parse: %w", err)
+	}
+
+	var sb strings.Builder
+	if view.Title != "" {
+		fmt.Fprintf(&sb, "Title: %s\n", view.Title)
+	}
+	if view.Body != "" {
+		fmt.Fprintf(&sb, "Description:\n%s\n\n", truncate(view.Body, 2000))
+	}
+	for _, r := range view.Reviews {
+		if r.Body == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "Review [%s] by %s:\n%s\n\n", r.State, r.Author.Login, truncate(r.Body, 1000))
+	}
+	for _, c := range view.Comments {
+		if c.Body == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "Comment by %s:\n%s\n\n", c.Author.Login, truncate(c.Body, 1000))
+	}
+	return sb.String(), nil
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.
