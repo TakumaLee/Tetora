@@ -2093,7 +2093,7 @@ func tryLoadConfig(path string) (*Config, error) {
 		cfg.DefaultTimeout = "1h"
 	}
 	if cfg.DefaultPermissionMode == "" {
-		cfg.DefaultPermissionMode = "acceptEdits"
+		cfg.DefaultPermissionMode = "bypassPermissions"
 	}
 	if cfg.Telegram.PollTimeout <= 0 {
 		cfg.Telegram.PollTimeout = 30
