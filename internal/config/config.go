@@ -152,10 +152,12 @@ type Config struct {
 	Plugins               map[string]PluginConfig          `json:"plugins,omitempty"`
 	Sandbox               SandboxConfig                    `json:"sandbox,omitempty"`
 	TaskBoard             TaskBoardConfig                  `json:"taskBoard,omitempty"`
+	Review                ReviewConfig                     `json:"review,omitempty"`
 	Security              SecurityConfig                   `json:"security,omitempty"`
 	DailyNotes            DailyNotesConfig                 `json:"dailyNotes,omitempty"`
 	WarRoomAutoUpdate     WarRoomAutoUpdateConfig          `json:"warRoomAutoUpdate,omitempty"`
 	SkillStore            SkillStoreConfig                 `json:"skillStore,omitempty"`
+	SkillsOnDemand        SkillsOnDemandConfig             `json:"skillsOnDemand,omitempty"`
 	Usage                 UsageConfig                      `json:"usage,omitempty"`
 	WorkflowTriggers      []WorkflowTriggerConfig          `json:"workflowTriggers,omitempty"`
 	OAuth                 OAuthConfig                      `json:"oauth,omitempty"`
@@ -191,6 +193,7 @@ type Config struct {
 	TimeTracking          TimeTrackingConfig               `json:"timeTracking,omitempty"`
 	Lifecycle             LifecycleConfig                  `json:"lifecycle,omitempty"`
 	PromptBudget          PromptBudgetConfig               `json:"promptBudget,omitempty"`
+	PromptCapture         PromptCaptureConfig              `json:"promptCapture,omitempty"`
 	CronNotify            *bool                            `json:"cronNotify,omitempty"`
 	CronReplayHours       int                              `json:"cronReplayHours,omitempty"`
 	Heartbeat             HeartbeatConfig                  `json:"heartbeat,omitempty"`

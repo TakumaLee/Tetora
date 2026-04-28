@@ -48,6 +48,10 @@ func SelectSkills(cfg *AppConfig, task TaskContext) []SkillConfig {
 
 // ShouldInjectSkill determines if a skill should be injected for this task.
 func ShouldInjectSkill(skill SkillConfig, task TaskContext) bool {
+	// Mandatory skills bypass matcher + tier gate — always inject.
+	if skill.Mandatory {
+		return true
+	}
 	// If no matcher is defined, always inject (backward compatible).
 	if skill.Matcher == nil {
 		return true
@@ -248,7 +252,22 @@ func BuildSkillCatalog(cfg *AppConfig) string {
 // Tier 1 (matched): one-line summaries for context-matched skills.
 // Tier 2 (Standard/Complex only): SKILL.md doc injection when available.
 func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Complexity) string {
-	catalog := BuildSkillCatalog(cfg)
+	out, _ := BuildSkillsPromptWithMeta(cfg, task, complexity)
+	return out
+}
+
+// BuildSkillsPromptWithMeta is the same as BuildSkillsPrompt but also returns
+// the names of the matched (Active) skills, for observability/manifest capture.
+//
+// On-demand policy (cfg.SkillsOnDemandEnabled, default true):
+//   - Simple tier:   drop catalog + matched summaries; only mandatory skills
+//                    survive (language-compliance, legal-compliance, etc.)
+//   - Standard tier: keep catalog + matched summaries; skip Tier 2 SKILL.md
+//                    inlining — agents pull via the `skill_load` tool
+//   - Complex tier:  unchanged (catalog + matched + Tier 2 docs)
+// When disabled, falls back to the legacy always-inject behaviour across tiers.
+func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity classify.Complexity) (string, []string) {
+	onDemand := cfg.SkillsOnDemandEnabled
 
 	skills := SelectSkills(cfg, task)
 
@@ -259,9 +278,71 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 		skills = skills[:maxN]
 	}
 
+	// Simple tier + on-demand: strip everything except mandatory skills.
+	// Mandatory skills keep their doc (they're the identity guards and are small).
+	if onDemand && complexity == classify.Simple {
+		var mandatoryOnly []SkillConfig
+		for _, s := range skills {
+			if s.Mandatory {
+				mandatoryOnly = append(mandatoryOnly, s)
+			}
+		}
+		if len(mandatoryOnly) == 0 {
+			return "", nil
+		}
+		matchedNames := make([]string, 0, len(mandatoryOnly))
+		for _, s := range mandatoryOnly {
+			matchedNames = append(matchedNames, s.Name)
+			RecordSkillEventEx(cfg.HistoryDB, s.Name, "injected", task.Prompt, task.Agent, SkillEventOpts{
+				SessionID: task.SessionID,
+			})
+		}
+
+		var sb strings.Builder
+		sb.WriteString("\n\n## Active Skills (mandatory)\n\n")
+		for _, skill := range mandatoryOnly {
+			sb.WriteString("- **")
+			sb.WriteString(skill.Name)
+			sb.WriteString("**")
+			if skill.Description != "" {
+				sb.WriteString(": ")
+				sb.WriteString(skill.Description)
+			}
+			sb.WriteString("\n")
+		}
+		// Inline mandatory skill docs when small enough — these are identity
+		// guards (language-compliance, legal-compliance) and must be present
+		// even on Simple tier.
+		docBudget := cfg.skillsMaxOrDefault()
+		docUsed := 0
+		for _, skill := range mandatoryOnly {
+			if skill.DocPath == "" || skill.DocSize > 4096 {
+				continue
+			}
+			if docUsed+skill.DocSize > docBudget {
+				continue
+			}
+			doc, err := os.ReadFile(skill.DocPath)
+			if err != nil {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("\n<skill-doc name=\"%s\">\n%s\n</skill-doc>\n",
+				skill.Name, strings.TrimSpace(string(doc))))
+			docUsed += len(doc)
+		}
+		return sb.String(), matchedNames
+	}
+
+	catalog := BuildSkillCatalog(cfg)
+
 	// If there's nothing at all, return empty.
 	if catalog == "" && len(skills) == 0 {
-		return ""
+		return "", nil
+	}
+
+	matchedNames := make([]string, 0, len(skills))
+	for _, s := range skills {
+		matchedNames = append(matchedNames, s.Name)
 	}
 
 	// Track which skills were injected for this task.
@@ -311,10 +392,13 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 			}
 		}
 
-		sb.WriteString("\nEach skill above is exposed as a first-class tool under its sanitized name (hyphens and spaces become underscores). Call it directly like any other tool.\n")
+		sb.WriteString("\nTo load a skill's full SKILL.md on demand, use the `skill_load` tool. Each skill above is exposed as a first-class tool under its sanitized name (hyphens and spaces become underscores). Call it directly like any other tool.\n")
 
-		// --- Tier 2: Skill documentation (Standard/Complex only) ---
-		if complexity != classify.Simple {
+		// --- Tier 2: Skill documentation (Complex only when on-demand enabled;
+		// Standard+Complex when on-demand disabled; never Simple). ---
+		injectTier2 := complexity == classify.Complex ||
+			(!onDemand && complexity == classify.Standard)
+		if injectTier2 {
 			docBudget := cfg.skillsMaxOrDefault()
 			docUsed := 0
 			for _, skill := range skills {
@@ -356,7 +440,7 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 		}
 	}
 
-	return sb.String()
+	return sb.String(), matchedNames
 }
 
 // SkillMatchesContext is a helper for testing skill selection logic.

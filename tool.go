@@ -282,6 +282,21 @@ func registerAdminTools(r *ToolRegistry, cfg *Config, enabled func(string) bool)
 			Builtin: true,
 		})
 	}
+	if enabled("skill_load") {
+		r.Register(&ToolDef{
+			Name:        "skill_load",
+			Description: "Load a skill's full SKILL.md content by name. Use when the skill catalog surfaces a relevant skill and you want the complete procedure before deciding whether to invoke it.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Skill name (e.g. \"tdd\")"}
+				},
+				"required": ["name"]
+			}`),
+			Handler: toolSkillLoad,
+			Builtin: true,
+		})
+	}
 }
 
 // --- Memory Tool Compatibility Wrappers (merged from tool_memory.go) ---

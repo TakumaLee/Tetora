@@ -253,3 +253,29 @@ func TestSetRetryBackoff_CapsAt80Minutes(t *testing.T) {
 		t.Errorf("retryCount=10 next_retry_at %v should also be ~80min, not higher", parsed2)
 	}
 }
+
+func TestMatchSlotTimeoutSignature(t *testing.T) {
+	cases := []struct {
+		name     string
+		content  string
+		wantOK   bool
+		wantName string
+	}{
+		{"deadline", "Task failed: context deadline exceeded while waiting", true, "deadline-exceeded"},
+		{"slot-cancel", "slot acquisition cancelled: context canceled", true, "slot-acquisition-cancelled"},
+		{"cron-timeout", "triggered REQUEST_TIMEOUT_CRON after 10m", true, "request-timeout-cron"},
+		{"slot-pressure", "slot pressure detected, timeout exceeded", true, "slot-pressure-timeout"},
+		{"unrelated", "task failed: exit code 2", false, ""},
+		{"partial-deadline", "context deadline exceeded", false, ""},
+		{"case-insensitive", "Slot Acquisition Cancelled due to shutdown", true, "slot-acquisition-cancelled"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, name := matchSlotTimeoutSignature(tc.content)
+			if ok != tc.wantOK || name != tc.wantName {
+				t.Errorf("matchSlotTimeoutSignature(%q) = (%v, %q), want (%v, %q)",
+					tc.content, ok, name, tc.wantOK, tc.wantName)
+			}
+		})
+	}
+}

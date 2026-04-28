@@ -46,6 +46,7 @@ outputs/
 uploads/
 knowledge/
 backups/
+/com.tetora.daemon.plist
 
 # Agent workspace (absolute path outside repo - git will never track it)
 # NOTE: ~/.tetora/workspace/ is an absolute path, no .gitignore entry needed.

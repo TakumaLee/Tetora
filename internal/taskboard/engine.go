@@ -600,8 +600,12 @@ func (tb *Engine) AutoRetryFailed() error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Fetch failed tasks whose backoff window has elapsed (or was never set).
+	// cost_usd and duration_ms are used to detect slot-timeout failures where
+	// the agent never actually ran (zero cost, zero duration + deadline-exceeded
+	// error signature) — those must not auto-retry since the retry would also
+	// hit the same slot exhaustion.
 	sql := fmt.Sprintf(`
-		SELECT id, retry_count, retry_policy, next_retry_at FROM tasks WHERE status = 'failed'
+		SELECT id, retry_count, retry_policy, next_retry_at, cost_usd, duration_ms FROM tasks WHERE status = 'failed'
 		  AND (next_retry_at IS NULL OR next_retry_at = '' OR next_retry_at <= '%s')
 	`, db.Escape(now))
 	rows, err := db.Query(tb.dbPath, sql)
@@ -659,6 +663,27 @@ func (tb *Engine) AutoRetryFailed() error {
 		}
 		if skip {
 			log.Info("auto retry: skipping cancelled/stalled task", "id", id)
+			continue
+		}
+
+		// Safety-net: detect slot-timeout failures that dispatchTask's stalled
+		// check missed (e.g., daemon crashed between failure and comment write).
+		// Retrying would hit the same slot exhaustion.
+		costUSD := getFloat64(row, "cost_usd")
+		durationMs := int64(getFloat64(row, "duration_ms"))
+		if costUSD == 0 && durationMs == 0 {
+			for _, c := range comments {
+				if matched, signature := matchSlotTimeoutSignature(c.Content); matched {
+					tb.AddComment(id, "system",
+						"[auto-flag] Task is stalled (slot-timeout signature: "+signature+" + zero cost/duration). Auto-retry disabled.")
+					log.Info("auto retry: skipping slot-timeout task",
+						"id", id, "cost", costUSD, "durationMs", durationMs, "signature", signature)
+					skip = true
+					break
+				}
+			}
+		}
+		if skip {
 			continue
 		}
 
@@ -912,4 +937,39 @@ func (tb *Engine) fireWebhook(event string, payload any) {
 // FireWebhook is an exported wrapper to allow the dispatcher to fire webhooks.
 func (tb *Engine) FireWebhook(event string, payload any) {
 	tb.fireWebhook(event, payload)
+}
+
+// matchSlotTimeoutSignature inspects a comment body for phrases that indicate
+// a task failed because of slot/timeout exhaustion rather than work progress.
+// Returns (true, signature) if a known fingerprint matches. Called from
+// AutoRetryFailed to avoid rerunning doomed tasks.
+//
+// Signatures are phrase-pairs (must both appear) or standalone markers. Add
+// new fingerprints here rather than inlining string matches at call sites so
+// the detection surface stays discoverable and testable.
+func matchSlotTimeoutSignature(content string) (bool, string) {
+	c := strings.ToLower(content)
+	type sig struct {
+		name   string
+		needle []string
+	}
+	sigs := []sig{
+		{"deadline-exceeded", []string{"task failed", "context deadline exceeded"}},
+		{"slot-acquisition-cancelled", []string{"slot acquisition cancelled"}},
+		{"request-timeout-cron", []string{"request_timeout_cron"}},
+		{"slot-pressure-timeout", []string{"slot pressure", "timeout"}},
+	}
+	for _, s := range sigs {
+		ok := true
+		for _, n := range s.needle {
+			if !strings.Contains(c, n) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true, s.name
+		}
+	}
+	return false, ""
 }

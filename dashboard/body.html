@@ -24,6 +24,7 @@
       </div>
       <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
       <button class="btn btn-run" onclick="openDispatchModal()" style="padding:6px 14px;font-size:12px">Quick Dispatch</button>
+      <button class="btn" onclick="openReviewModal()" style="padding:6px 14px;font-size:12px" title="Direct PR/MR review (bypasses ruri triage)">Review PR</button>
       <div class="notif-bell" onclick="toggleNotifDropdown()" id="notif-bell-container">&#x1F514;<span class="notif-badge-count" id="notif-badge" style="display:none">0</span><div class="notif-dropdown" id="notif-dropdown"><div class="notif-empty">No notifications</div></div></div>
       <span class="updated" id="updated"></span>
       <span class="badge badge-ok" id="conn-badge">Connected</span>
@@ -2958,6 +2959,42 @@
       <div class="spinner"></div>
       <div>Running task...</div>
       <div style="font-size:11px;margin-top:4px" id="df-elapsed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Review PR Modal -->
+<div class="modal-overlay" id="review-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+    <h3>Review PR/MR</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Direct kokuyou review — bypasses ruri triage for cost savings.</div>
+    <form id="review-form" onsubmit="return submitReview(event)">
+      <div class="form-row">
+        <label>PR/MR URL</label>
+        <input type="text" id="rf-url" required placeholder="https://github.com/owner/repo/pull/123 or TakumaLee/tetora#99">
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Agent</label>
+          <select id="rf-agent">
+            <option value="">— default —</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="rf-model" placeholder="haiku">
+        </div>
+      </div>
+      <div class="form-actions" id="rf-actions">
+        <button type="button" class="btn" onclick="closeReviewModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="rf-submit">Review</button>
+      </div>
+    </form>
+    <div class="dispatch-loading" id="rf-loading" style="display:none">
+      <div class="spinner"></div>
+      <div>Fetching diff + reviewing...</div>
+      <div style="font-size:11px;margin-top:4px" id="rf-elapsed"></div>
     </div>
   </div>
 </div>

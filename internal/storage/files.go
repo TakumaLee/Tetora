@@ -89,7 +89,8 @@ func InitDB(dbPath string) error {
 	CREATE INDEX IF NOT EXISTS idx_managed_files_hash ON managed_files(content_hash);
 	CREATE INDEX IF NOT EXISTS idx_managed_files_category ON managed_files(category);
 	CREATE INDEX IF NOT EXISTS idx_managed_files_user ON managed_files(user_id);`
-	cmd := exec.Command("sqlite3", dbPath, ddl)
+	cmd := exec.Command("sqlite3", dbPath)
+	cmd.Stdin = strings.NewReader(ddl)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("init managed_files table: %s: %w", strings.TrimSpace(string(out)), err)
 	}

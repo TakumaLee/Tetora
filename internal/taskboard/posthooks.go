@@ -99,6 +99,20 @@ func (d *Dispatcher) postTaskGit(t TaskBoard) {
 		return
 	}
 
+	// Defense in depth: children of review tasks must never auto-commit/push.
+	// Review deliverable is the PR comment; any code changes downstream would
+	// silently land in whichever repo the parent's project workdir points at
+	// (including external repos). spawnReviewSubtasks already blocks this at
+	// creation time; this guard catches manually-created children too.
+	if t.ParentID != "" {
+		if parent, err := d.engine.GetTask(t.ParentID); err == nil && isReviewTask(parent) {
+			log.Info("postTaskGit: skipped — parent is a review task", "task", t.ID, "parent", t.ParentID)
+			d.engine.AddComment(t.ID, "system",
+				"[post-task-git] Skipped auto-commit: parent is a review task (children of reviews must not auto-modify repos).")
+			return
+		}
+	}
+
 	p := d.deps.GetProject(d.cfg.HistoryDB, t.Project)
 	if p == nil || p.Workdir == "" {
 		return

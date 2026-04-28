@@ -7,15 +7,16 @@ import (
 
 // AppConfig holds configuration fields that skill functions need.
 type AppConfig struct {
-	Skills           []SkillConfig
-	SkillStore       SkillStoreConfig
-	WorkspaceDir     string
-	HistoryDB        string
-	BaseDir          string
-	MaxSkillsPerTask int
-	SkillsMax        int
-	Browser          BrowserRelay
-	NotifyFn         func(string) // optional: called after scan if findings warrant notification
+	Skills               []SkillConfig
+	SkillStore           SkillStoreConfig
+	WorkspaceDir         string
+	HistoryDB            string
+	BaseDir              string
+	MaxSkillsPerTask     int
+	SkillsMax            int
+	SkillsOnDemandEnabled bool // if true, BuildSkillsPromptWithMeta trims injection by tier (Simple: mandatory-only; Standard: no Tier 2 docs)
+	Browser              BrowserRelay
+	NotifyFn             func(string) // optional: called after scan if findings warrant notification
 }
 
 func (c *AppConfig) maxSkillsPerTaskOrDefault() int {

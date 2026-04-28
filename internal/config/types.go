@@ -538,6 +538,38 @@ type GroupChatRateLimitConfig struct {
 
 // --- PromptBudget ---
 
+// PromptCaptureConfig controls per-task prompt manifest capture.
+// When enabled, BuildTieredPrompt produces a JSON manifest saved alongside
+// the task output for post-hoc debugging. Default is enabled.
+type PromptCaptureConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// EnabledOrDefault returns true when Enabled is unset (default) or explicitly true.
+func (c PromptCaptureConfig) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// SkillsOnDemandConfig gates the skill-injection policy that:
+//   - drops catalog + matched summaries for Simple tier (except mandatory skills)
+//   - drops Tier 2 SKILL.md inlining for Standard tier (agents pull via skill_load tool)
+//   - keeps Complex tier behaviour unchanged
+// Default is enabled; set {"enabled": false} to roll back to always-inject.
+type SkillsOnDemandConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// EnabledOrDefault returns true when Enabled is unset (default) or explicitly true.
+func (c SkillsOnDemandConfig) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
 type PromptBudgetConfig struct {
 	SoulMax          int `json:"soulMax,omitempty"`
 	RulesMax         int `json:"rulesMax,omitempty"`
@@ -1161,6 +1193,34 @@ func (c TaskBoardConfig) MaxExecutionsOrDefault() int {
 	return 3
 }
 
+type ReviewConfig struct {
+	Queues       map[string][]string `json:"queues,omitempty"`
+	DefaultAgent string              `json:"defaultAgent,omitempty"`
+	MaxDiffLines int                 `json:"maxDiffLines,omitempty"`
+	Model        string              `json:"model,omitempty"`
+}
+
+func (c ReviewConfig) DefaultAgentOrFallback() string {
+	if c.DefaultAgent != "" {
+		return c.DefaultAgent
+	}
+	return "kokuyou"
+}
+
+func (c ReviewConfig) MaxDiffLinesOrDefault() int {
+	if c.MaxDiffLines > 0 {
+		return c.MaxDiffLines
+	}
+	return 3000
+}
+
+func (c ReviewConfig) ModelOrDefault() string {
+	if c.Model != "" {
+		return c.Model
+	}
+	return "haiku"
+}
+
 type TaskBoardDispatchConfig struct {
 	Enabled               bool                  `json:"enabled"`
 	Interval              string                `json:"interval,omitempty"`
@@ -1177,6 +1237,10 @@ type TaskBoardDispatchConfig struct {
 	ReviewLoop            bool                  `json:"reviewLoop,omitempty"`
 	TriageEnabled         bool                  `json:"triageEnabled,omitempty"`
 	TriageBudget          float64               `json:"triageBudget,omitempty"`
+	// TriageEscalateToSonnet controls whether haiku triage may retry with sonnet
+	// on parse failure or low confidence. Default true. Set to false as a cost
+	// killswitch if escalation rates climb (watch "triage: escalation" logs).
+	TriageEscalateToSonnet *bool                 `json:"triageEscalateToSonnet,omitempty"`
 	WorkflowRouting       WorkflowRoutingConfig `json:"workflowRouting,omitempty"`
 	// MaxRSSMB is the RSS hard-limit for subprocess (MB). Exceeding it cancels the context → SIGKILL.
 	// 0 = disabled. Default 2048 (2 GB).
@@ -1195,6 +1259,15 @@ func (c TaskBoardDispatchConfig) TriageBudgetOrDefault() float64 {
 		return c.TriageBudget
 	}
 	return 0.05
+}
+
+// TriageEscalateToSonnetOrDefault reports whether haiku triage should
+// escalate to sonnet on parse fail / low confidence. Default true.
+func (c TaskBoardDispatchConfig) TriageEscalateToSonnetOrDefault() bool {
+	if c.TriageEscalateToSonnet == nil {
+		return true
+	}
+	return *c.TriageEscalateToSonnet
 }
 
 func (c TaskBoardDispatchConfig) MaxRSSMBOrDefault() int {

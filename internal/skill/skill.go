@@ -25,6 +25,7 @@ type SkillConfig struct {
 	DocPath          string            `json:"-"`                      // runtime: SKILL.md full path (not serialized)
 	DocSize          int               `json:"-"`                      // runtime: SKILL.md byte size (not serialized)
 	Learned          bool              `json:"-"`                      // runtime: true if loaded from skills/learned/
+	Mandatory        bool              `json:"-"`                      // runtime: bypass tier gate + matcher, always inject (from SKILL.md frontmatter)
 	ValidationScript string            `json:"-"`                      // runtime: scripts/validate.* path (not serialized)
 }
 

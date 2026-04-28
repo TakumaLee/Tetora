@@ -4550,15 +4550,16 @@ func isInteractiveSource(source string) bool { return dtypes.IsInteractiveSource
 
 // --- Prompt Tier (from prompt_tier.go) ---
 
-func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity classify.Complexity) {
-	prompt.BuildTieredPrompt(cfg, task, agentName, complexity, prompt.Deps{
+func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity classify.Complexity) *prompt.Manifest {
+	return prompt.BuildTieredPrompt(cfg, task, agentName, complexity, prompt.Deps{
 		ResolveProviderName:    resolveProviderName,
 		LoadSoulFile:           loadSoulFile,
 		LoadAgentPrompt:        loadAgentPrompt,
 		ResolveWorkspace:       resolveWorkspace,
 		BuildReflectionContext: buildReflectionContext,
 		LoadWritingStyle:       loadWritingStyle,
-		BuildSkillsPrompt:        buildSkillsPrompt,
+		BuildSkillsPrompt:          buildSkillsPrompt,
+		BuildSkillsPromptWithMeta:  buildSkillsPromptWithMeta,
 		CollectSkillAllowedTools: collectSkillAllowedTools,
 		InjectWorkspaceContent:   injectWorkspaceContent,
 		EstimateDirSize:        estimateDirSize,
@@ -4878,12 +4879,13 @@ func getAgentMessages(dbPath, role string, markAsRead bool) ([]map[string]any, e
 
 func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	var args struct {
-		Agent    string  `json:"agent"`
-		Role     string  `json:"role"`
-		Prompt   string  `json:"prompt"`
-		Timeout  float64 `json:"timeout"`
-		Depth    int     `json:"depth"`
-		ParentID string  `json:"parentId"`
+		Agent          string  `json:"agent"`
+		Role           string  `json:"role"`
+		Prompt         string  `json:"prompt"`
+		Timeout        float64 `json:"timeout"`
+		Depth          int     `json:"depth"`
+		ParentID       string  `json:"parentId"`
+		ComplexityHint string  `json:"complexityHint"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
@@ -4934,12 +4936,13 @@ func toolAgentDispatch(ctx context.Context, cfg *Config, input json.RawMessage) 
 	}
 
 	task := Task{
-		Prompt:   args.Prompt,
-		Agent:    args.Agent,
-		Timeout:  fmt.Sprintf("%.0fs", args.Timeout),
-		Source:   "agent_dispatch",
-		Depth:    childDepth,
-		ParentID: args.ParentID,
+		Prompt:         args.Prompt,
+		Agent:          args.Agent,
+		Timeout:        fmt.Sprintf("%.0fs", args.Timeout),
+		Source:         "agent_dispatch",
+		Depth:          childDepth,
+		ParentID:       args.ParentID,
+		ComplexityHint: args.ComplexityHint,
 	}
 	fillDefaults(cfg, &task)
 
@@ -9023,15 +9026,16 @@ func toSkillAppConfig(cfg *Config) *skill.AppConfig {
 		skillsMax = 4000
 	}
 	return &skill.AppConfig{
-		Skills:           cfg.Skills,
-		SkillStore:       cfg.SkillStore,
-		WorkspaceDir:     cfg.WorkspaceDir,
-		HistoryDB:        cfg.HistoryDB,
-		BaseDir:          cfg.BaseDir,
-		MaxSkillsPerTask: maxSkills,
-		SkillsMax:        skillsMax,
-		Browser:          globalBrowserRelay,
-		NotifyFn:         cfg.RuntimeNotifyFn,
+		Skills:                cfg.Skills,
+		SkillStore:            cfg.SkillStore,
+		WorkspaceDir:          cfg.WorkspaceDir,
+		HistoryDB:             cfg.HistoryDB,
+		BaseDir:               cfg.BaseDir,
+		MaxSkillsPerTask:      maxSkills,
+		SkillsMax:             skillsMax,
+		SkillsOnDemandEnabled: cfg.SkillsOnDemand.EnabledOrDefault(),
+		Browser:               globalBrowserRelay,
+		NotifyFn:              cfg.RuntimeNotifyFn,
 	}
 }
 
@@ -9194,6 +9198,10 @@ func buildSkillsPrompt(cfg *Config, task Task, complexity classify.Complexity) s
 	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), complexity)
 }
 
+func buildSkillsPromptWithMeta(cfg *Config, task Task, complexity classify.Complexity) (string, []string) {
+	return skill.BuildSkillsPromptWithMeta(toSkillAppConfig(cfg), toSkillTask(task), complexity)
+}
+
 func collectSkillAllowedTools(cfg *Config, task Task) []string {
 	return skill.CollectSkillAllowedTools(toSkillAppConfig(cfg), toSkillTask(task))
 }
@@ -9272,6 +9280,10 @@ func toolSkillInstall(ctx context.Context, cfg *Config, input json.RawMessage) (
 
 func toolSkillSearch(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
 	return skill.ToolSkillSearch(ctx, toSkillAppConfig(cfg), input)
+}
+
+func toolSkillLoad(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+	return skill.ToolSkillLoad(ctx, toSkillAppConfig(cfg), input)
 }
 
 // --- NotebookLM ---

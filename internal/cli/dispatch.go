@@ -64,6 +64,7 @@ func CmdDispatch(args []string) {
 	permission := ""
 	role := ""
 	clientID := ""
+	complexityHint := ""
 	notify := false
 	estimate_ := false
 	decompose := false
@@ -119,6 +120,13 @@ func CmdDispatch(args []string) {
 		case "--client":
 			if i+1 < len(args) {
 				clientID = args[i+1]
+				i += 2
+			} else {
+				i++
+			}
+		case "--complexity":
+			if i+1 < len(args) {
+				complexityHint = args[i+1]
 				i += 2
 			} else {
 				i++
@@ -209,6 +217,9 @@ func CmdDispatch(args []string) {
 	}
 	if allowDangerous {
 		task["allowDangerous"] = true
+	}
+	if complexityHint != "" {
+		task["complexityHint"] = complexityHint
 	}
 
 	// If agent specified, fetch soul content and inject.
@@ -368,6 +379,7 @@ Options:
   --permission      Permission mode (acceptEdits, bypassPermissions, plan)
   --role, -r        Agent name (injects soul prompt + agent model)
   --client          Client ID for tenant isolation (format: cli_<name>, e.g. cli_myapp)
+  --complexity      Complexity hint: simple | standard | complex (skips auto-classify)
   --notify          Send Telegram notification on completion
   --estimate, -e    Show cost estimate without executing (dry-run)
   --review          Enable Dev↔QA review loop (max 3 retries, auto-escalate)

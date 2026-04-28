@@ -826,6 +826,67 @@ func TestSpawnReviewSubtasks_DefaultAssigneeAndPriority(t *testing.T) {
 	t.Errorf("child task not found")
 }
 
+func TestIsReviewTask(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"Review GitHub PR #305 (lookr-android-remake)", true},
+		{"Review PR #123", true},
+		{"review foo bar", true},
+		{"  Review with leading spaces", true},
+		{"REVIEW shouty", true},
+		{"Reviewing X", false}, // no space → not a review meta-task
+		{"Re-review X", false},
+		{"Implement review mode", false},
+		{"", false},
+		{"review", false}, // no trailing space → no subject
+	}
+	for _, c := range cases {
+		got := isReviewTask(TaskBoard{Title: c.title})
+		if got != c.want {
+			t.Errorf("isReviewTask(%q) = %v, want %v", c.title, got, c.want)
+		}
+	}
+}
+
+func TestSpawnReviewSubtasks_SkipsForReviewParent(t *testing.T) {
+	tbCfg := config.TaskBoardConfig{}
+	d := newTestDispatcher(t, tbCfg, DispatcherDeps{
+		Executor:     &mockExecutor{},
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	parent := TaskBoard{
+		Title:   "Review GitHub PR #305 (lookr-android-remake)",
+		Project: "lookr",
+		Status:  "done",
+	}
+	parent, err := d.engine.CreateTask(parent)
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+
+	items := []reviewActionableItem{
+		{Action: "simplify resolveLayoutBlock", Type: "fix", Priority: "low", Adopt: true, Assignee: "kokuyou"},
+		{Action: "document compose path", Type: "chore", Priority: "low", Adopt: true, Assignee: "kokuyou"},
+	}
+
+	d.spawnReviewSubtasks(parent, items, "ruri")
+
+	children, _ := d.engine.ListTasks("todo", "", "")
+	for _, c := range children {
+		if c.ParentID == parent.ID {
+			t.Errorf("unexpected child task created under review parent: %s", c.Title)
+		}
+	}
+
+	comments := taskComments(t, d, parent.ID)
+	if !hasComment(comments, "Skipped 2 actionable") {
+		t.Errorf("expected skip comment on parent, got: %+v", comments)
+	}
+}
+
 // =============================================================================
 // Worktree gate tests
 // =============================================================================
@@ -2063,6 +2124,45 @@ func TestDispatchTask_ExistingTodosNotOverwritten(t *testing.T) {
 	}
 }
 
+// TestDispatchTask_RelativeAgentsDir_SkipsTodos pins the guard at processing.go
+// that refuses to create todos files when AgentsDir is empty or relative. Without
+// this guard, filepath.Join resolves against the caller's cwd and strays appear
+// at e.g. internal/taskboard/kokuyou/todos/*.md.
+func TestDispatchTask_RelativeAgentsDir_SkipsTodos(t *testing.T) {
+	cwd := t.TempDir()
+	origCwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(origCwd) })
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	agentName := "kokuyou"
+	ex := &capturingExecutor{result: dispatch.TaskResult{Status: "success", Output: ""}}
+	// AgentsDir deliberately empty — simulates misconfigured Dispatcher.
+	cfg := &config.Config{AgentsDir: ""}
+	d := newTestDispatcherWithConfig(t, config.TaskBoardConfig{}, cfg, DispatcherDeps{
+		Executor:     ex,
+		FillDefaults: func(_ *config.Config, _ *dispatch.Task) {},
+	})
+
+	task, err := d.engine.CreateTask(TaskBoard{
+		Title:         "should not leak to cwd",
+		Status:        "todo",
+		Assignee:      agentName,
+		ScopeBoundary: "diagnostic_only",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	d.dispatchTask(task)
+
+	strayPath := filepath.Join(cwd, agentName, "todos", task.ID+".md")
+	if _, err := os.Stat(strayPath); err == nil {
+		t.Errorf("guard failed: stray todos file written at %s (AgentsDir was relative/empty)", strayPath)
+	}
+}
+
 // =============================================================================
 // isTimeoutError unit tests
 // =============================================================================
@@ -2174,5 +2274,189 @@ func TestTriageStuckPartialDone_UpdateFailure_NoNotify(t *testing.T) {
 
 	if disc.embedCount() != 0 {
 		t.Errorf("expected 0 Discord embeds when UPDATE fails, got %d (duplicate notification risk)", disc.embedCount())
+	}
+}
+
+// =============================================================================
+// shouldRunTriage guard tests
+// =============================================================================
+
+// TestShouldTriage_FalseWhenRetryCountNonZero pins the guard that prevents
+// triage from re-running on retried tasks.  Regression protection for
+// processing.go shouldRunTriage — the commander already decided on attempt 0.
+func TestShouldTriage_FalseWhenRetryCountNonZero(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{} // non-nil executor
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 1, // non-zero — this is a retry
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true for RetryCount=1; retried tasks must skip triage")
+	}
+}
+
+// TestShouldTriage_TrueOnFirstAttempt confirms the guard fires on attempt 0.
+func TestShouldTriage_TrueOnFirstAttempt(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if !shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned false for RetryCount=0 with triage enabled; expected true")
+	}
+}
+
+// TestShouldTriage_FalseWhenDisabled ensures TriageEnabled=false short-circuits.
+func TestShouldTriage_FalseWhenDisabled(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: false,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "ruri",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when TriageEnabled=false")
+	}
+}
+
+// TestShouldTriage_FalseWhenAssigneeNotTriageAgent ensures non-commander assignees skip triage.
+func TestShouldTriage_FalseWhenAssigneeNotTriageAgent(t *testing.T) {
+	cfg := config.TaskBoardDispatchConfig{
+		TriageEnabled: true,
+		DefaultAgent:  "ruri",
+	}
+	ex := &mockExecutor{}
+
+	task := TaskBoard{
+		Assignee:   "kokuyou",
+		RetryCount: 0,
+	}
+
+	if shouldRunTriage(cfg, ex, task) {
+		t.Error("shouldRunTriage returned true when assignee is not the triage agent")
+	}
+}
+
+// --- Escalation cost tracking tests (PR #100 review: MEDIUM#3) ---
+
+// validTriageJSON returns a minimally valid triage JSON for an agent name.
+func validTriageJSON(targetAgent, confidence string) string {
+	b, _ := json.Marshal(map[string]string{
+		"targetAgent": targetAgent,
+		"instruction": "do the thing",
+		"confidence":  confidence,
+	})
+	return string(b)
+}
+
+func newTriageTestDispatcher(t *testing.T, results []dispatch.TaskResult, escalate *bool) (*Dispatcher, *mockExecutor) {
+	t.Helper()
+	ex := &mockExecutor{results: results}
+	cfg := &config.Config{
+		Agents: map[string]config.AgentConfig{
+			"kokuyou": {Model: "sonnet"},
+			"ruri":    {Model: "sonnet"},
+		},
+	}
+	tbCfg := config.TaskBoardConfig{
+		AutoDispatch: config.TaskBoardDispatchConfig{
+			TriageEnabled:          true,
+			DefaultAgent:           "ruri",
+			TriageBudget:           0.05,
+			TriageEscalateToSonnet: escalate,
+		},
+	}
+	d := newTestDispatcherWithConfig(t, tbCfg, cfg, DispatcherDeps{Executor: ex})
+	return d, ex
+}
+
+// TestTriage_EscalationBothSuccess verifies that when haiku returns
+// confidence:low and sonnet succeeds with valid JSON, the combined cost
+// reflects haiku + sonnet spend.
+func TestTriage_EscalationBothSuccess(t *testing.T) {
+	d, ex := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		{Status: "success", Output: validTriageJSON("kokuyou", "high"), CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr == nil {
+		t.Fatal("expected non-nil triageResult")
+	}
+	if ex.calls.Load() != 2 {
+		t.Fatalf("expected 2 executor calls (haiku + sonnet), got %d", ex.calls.Load())
+	}
+	wantCost := 0.002 + 0.020
+	if tr.CostUSD != wantCost {
+		t.Fatalf("CostUSD = %v, want %v (haiku + sonnet)", tr.CostUSD, wantCost)
+	}
+}
+
+// TestTriage_EscalationSonnetParseFail ensures that even when sonnet's
+// output fails to parse, the cost of the sonnet call is still attributed.
+// Regression protection: previously result2.CostUSD was silently dropped
+// when JSON parse failed, under-reporting spend.
+func TestTriage_EscalationSonnetParseFail(t *testing.T) {
+	d, _ := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		{Status: "success", Output: "not-json", CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr == nil {
+		t.Fatal("expected haiku result preserved, got nil")
+	}
+	wantCost := 0.002 + 0.020
+	if tr.CostUSD != wantCost {
+		t.Fatalf("CostUSD = %v, want %v (haiku + sonnet even on parse fail)", tr.CostUSD, wantCost)
+	}
+}
+
+// TestTriage_EscalationDisabled confirms that when
+// TriageEscalateToSonnet=false, sonnet is not invoked even on low confidence.
+func TestTriage_EscalationDisabled(t *testing.T) {
+	disable := false
+	d, ex := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: validTriageJSON("kokuyou", "low"), CostUSD: 0.002},
+		// If escalation wrongly runs, it would consume this slot; assertion
+		// on call count below catches that.
+		{Status: "success", Output: validTriageJSON("kokuyou", "high"), CostUSD: 0.020},
+	}, &disable)
+
+	_ = d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if ex.calls.Load() != 1 {
+		t.Fatalf("expected 1 executor call (escalation disabled), got %d", ex.calls.Load())
+	}
+}
+
+// TestTriage_BothParseFailReturnsNil verifies graceful fallback when both
+// haiku and sonnet produce unparseable output.
+func TestTriage_BothParseFailReturnsNil(t *testing.T) {
+	d, _ := newTriageTestDispatcher(t, []dispatch.TaskResult{
+		{Status: "success", Output: "not-json", CostUSD: 0.002},
+		{Status: "success", Output: "also-not-json", CostUSD: 0.020},
+	}, nil)
+
+	tr := d.triageTask(context.Background(), TaskBoard{ID: "t1", Title: "x", Description: "y"}, "prompt")
+	if tr != nil {
+		t.Fatalf("expected nil when both parses fail, got %+v", tr)
 	}
 }

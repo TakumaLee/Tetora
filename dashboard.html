@@ -2909,6 +2909,7 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       </div>
       <button class="btn btn-add" id="pwa-install-btn" onclick="pwaInstall()" style="display:none;padding:6px 14px;font-size:12px">Install App</button>
       <button class="btn btn-run" onclick="openDispatchModal()" style="padding:6px 14px;font-size:12px">Quick Dispatch</button>
+      <button class="btn" onclick="openReviewModal()" style="padding:6px 14px;font-size:12px" title="Direct PR/MR review (bypasses ruri triage)">Review PR</button>
       <div class="notif-bell" onclick="toggleNotifDropdown()" id="notif-bell-container">&#x1F514;<span class="notif-badge-count" id="notif-badge" style="display:none">0</span><div class="notif-dropdown" id="notif-dropdown"><div class="notif-empty">No notifications</div></div></div>
       <span class="updated" id="updated"></span>
       <span class="badge badge-ok" id="conn-badge">Connected</span>
@@ -5843,6 +5844,42 @@ body:not([class*="theme-"])::after, body.theme-default::after {
       <div class="spinner"></div>
       <div>Running task...</div>
       <div style="font-size:11px;margin-top:4px" id="df-elapsed"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Review PR Modal -->
+<div class="modal-overlay" id="review-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+    <h3>Review PR/MR</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Direct kokuyou review — bypasses ruri triage for cost savings.</div>
+    <form id="review-form" onsubmit="return submitReview(event)">
+      <div class="form-row">
+        <label>PR/MR URL</label>
+        <input type="text" id="rf-url" required placeholder="https://github.com/owner/repo/pull/123 or TakumaLee/tetora#99">
+      </div>
+      <div class="form-row-inline">
+        <div class="form-row">
+          <label>Agent</label>
+          <select id="rf-agent">
+            <option value="">— default —</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Model</label>
+          <input type="text" id="rf-model" placeholder="haiku">
+        </div>
+      </div>
+      <div class="form-actions" id="rf-actions">
+        <button type="button" class="btn" onclick="closeReviewModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="rf-submit">Review</button>
+      </div>
+    </form>
+    <div class="dispatch-loading" id="rf-loading" style="display:none">
+      <div class="spinner"></div>
+      <div>Fetching diff + reviewing...</div>
+      <div style="font-size:11px;margin-top:4px" id="rf-elapsed"></div>
     </div>
   </div>
 </div>
@@ -11578,6 +11615,95 @@ function archiveChat() {
     .catch(function(e) { toast('Archive failed: ' + e.message); });
 }
 
+// --- Review PR/MR Modal ---
+
+let reviewTimer = null;
+
+function openReviewModal() {
+  const modal = document.getElementById('review-modal');
+  document.getElementById('review-form').reset();
+  document.getElementById('review-form').style.display = '';
+  document.getElementById('rf-loading').style.display = 'none';
+  document.getElementById('rf-actions').style.display = 'flex';
+
+  // Populate agent dropdown from cached roles (kokuyou preferred default).
+  const agentSel = document.getElementById('rf-agent');
+  const opts = ['<option value="">— default —</option>'];
+  if (typeof cachedRoles !== 'undefined' && Array.isArray(cachedRoles)) {
+    cachedRoles.forEach(r => {
+      opts.push(`<option value="${esc(r.name)}">${esc(r.name)}</option>`);
+    });
+  }
+  agentSel.innerHTML = opts.join('');
+
+  modal.classList.add('open');
+}
+
+function closeReviewModal() {
+  document.getElementById('review-modal').classList.remove('open');
+  if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
+}
+
+async function submitReview(e) {
+  e.preventDefault();
+
+  const url = document.getElementById('rf-url').value.trim();
+  if (!url) return false;
+
+  const payload = { pr_url: normalizeReviewURL(url) };
+  const agent = document.getElementById('rf-agent').value.trim();
+  const model = document.getElementById('rf-model').value.trim();
+  if (agent) payload.agent = agent;
+  if (model) payload.model = model;
+
+  document.getElementById('rf-actions').style.display = 'none';
+  document.getElementById('rf-loading').style.display = '';
+  const startTime = Date.now();
+  reviewTimer = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(elapsed / 60);
+    const s = elapsed % 60;
+    document.getElementById('rf-elapsed').textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }, 1000);
+
+  try {
+    const result = await fetchJSON('/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
+    closeReviewModal();
+
+    const cost = (result.costUsd || 0).toFixed(4);
+    const secs = Math.round((result.durationMs || 0) / 1000);
+    if (result.status === 'ok') {
+      alert(`Review complete ($${cost}, ${secs}s)\n\n${result.output || '(no output)'}`);
+    } else {
+      alert(`Review failed: ${result.error || 'unknown error'}`);
+    }
+  } catch (err) {
+    if (reviewTimer) { clearInterval(reviewTimer); reviewTimer = null; }
+    closeReviewModal();
+    const msg = (err && err.message) ? err.message : String(err);
+    if (msg.includes('409') || msg.includes('dispatch already running')) {
+      alert('Another dispatch is already running. Please retry after it finishes.');
+    } else {
+      alert('Review failed: ' + msg);
+    }
+  }
+  return false;
+}
+
+// Accept github shorthand (owner/repo#NUM) → full URL.
+function normalizeReviewURL(s) {
+  s = (s || '').trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  const m = s.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/);
+  if (m) return `https://github.com/${m[1]}/pull/${m[2]}`;
+  return s;
+}
 // === Agent Management ===
 
 var _agentArchetypes = [];

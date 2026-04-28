@@ -54,6 +54,7 @@ type triageResult struct {
 	TargetAgent string  `json:"targetAgent"`
 	Workflow    string  `json:"workflow,omitempty"`
 	Instruction string  `json:"instruction"`
+	Confidence  string  `json:"confidence,omitempty"`
 	CostUSD     float64 `json:"-"`
 }
 
@@ -259,8 +260,14 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Inject per-task todo for retry awareness.
 	// Path: agents/{agent}/todos/{taskId}.md — isolated per task to prevent cross-task clobbering.
-	// Guard: task IDs are server-generated (task-{unix_nano}) but validate to prevent path traversal.
-	if !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
+	// Guards:
+	//   (1) task IDs are server-generated (task-{unix_nano}) but validate to prevent path traversal.
+	//   (2) AgentsDir must be absolute — empty or relative would land in the caller's cwd
+	//       (root cause of stray internal/taskboard/kokuyou/todos/ artifacts).
+	if !filepath.IsAbs(d.cfg.AgentsDir) {
+		log.Warn("taskboard dispatch: skipping todos injection — AgentsDir not absolute",
+			"task", t.ID, "agentsDir", d.cfg.AgentsDir)
+	} else if !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
 		todoDir := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos")
 		todoPath := filepath.Join(todoDir, t.ID+".md")
 		if err := os.MkdirAll(todoDir, 0755); err != nil {
@@ -415,10 +422,7 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		triageAgent = "ruri"
 	}
 
-	shouldTriage := d.engine.config.AutoDispatch.TriageEnabled &&
-		d.deps.Executor != nil &&
-		t.Assignee == triageAgent &&
-		t.RetryCount == 0
+	shouldTriage := shouldRunTriage(d.engine.config.AutoDispatch, d.deps.Executor, t)
 
 	if shouldTriage {
 		tr := d.triageTask(ctx, t, prompt)
@@ -831,7 +835,9 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 
 	// Clean up per-task todo file on final completion.
 	// Keep the file on failed/review so retries can resume from it.
-	if newStatus == "done" && !strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
+	// Mirror the IsAbs guard in dispatchTask — never Remove relative to cwd.
+	if newStatus == "done" && filepath.IsAbs(d.cfg.AgentsDir) &&
+		!strings.Contains(t.ID, "/") && !strings.Contains(t.ID, "..") {
 		cleanTodoPath := filepath.Join(d.cfg.AgentsDir, t.Assignee, "todos", t.ID+".md")
 		if err := os.Remove(cleanTodoPath); err != nil && !os.IsNotExist(err) {
 			log.Warn("taskboard dispatch: failed to remove task todo", "task", t.ID, "error", err)
@@ -1153,6 +1159,19 @@ func (d *Dispatcher) reviewTaskOutput(ctx context.Context, originalPrompt, outpu
 // Section: Triage (commander delegation)
 // =============================================================================
 
+// shouldRunTriage reports whether the task should be triaged by the commander.
+// Retried tasks skip triage: the commander already decided on the first attempt.
+func shouldRunTriage(cfg config.TaskBoardDispatchConfig, executor interface{}, t TaskBoard) bool {
+	triageAgent := cfg.DefaultAgent
+	if triageAgent == "" {
+		triageAgent = "ruri"
+	}
+	return cfg.TriageEnabled &&
+		executor != nil &&
+		t.Assignee == triageAgent &&
+		t.RetryCount == 0
+}
+
 // triageTask runs a lightweight LLM call to decide which agent should execute the task.
 func (d *Dispatcher) triageTask(ctx context.Context, t TaskBoard, prompt string) *triageResult {
 	truncate := func(s string, n int) string {
@@ -1184,11 +1203,12 @@ Project: %s
 ## Available Agents
 %s
 Reply with ONLY a JSON object:
-{"targetAgent":"agent_name","workflow":"","instruction":"Refined instructions for the executor..."}
+{"targetAgent":"agent_name","workflow":"","instruction":"Refined instructions for the executor...","confidence":"high|medium|low"}
 
 - targetAgent: which agent should execute (must be from the list above)
 - workflow: optional workflow override (empty = use default routing)
-- instruction: briefing for the executor — clarify approach, priorities, gotchas`,
+- instruction: briefing for the executor — clarify approach, priorities, gotchas
+- confidence: your confidence in the delegation decision (high/medium/low)`,
 		t.Title,
 		truncate(t.Description, 2000),
 		t.Type,
@@ -1207,37 +1227,85 @@ Reply with ONLY a JSON object:
 	if d.deps.FillDefaults != nil {
 		d.deps.FillDefaults(d.cfg, &task)
 	}
-	task.Model = "sonnet"
+	// Triage is structured JSON routing; haiku handles the vast majority of cases.
+	// SOUL is intentionally omitted — the prompt above is self-contained.
+	task.Model = "haiku"
 	task.PermissionMode = "plan"
 
-	// Load commander SOUL.
 	triageAgent := d.engine.config.AutoDispatch.DefaultAgent
 	if triageAgent == "" {
 		triageAgent = "ruri"
 	}
-	if d.deps.LoadAgentPrompt != nil {
-		if soulPrompt, err := d.deps.LoadAgentPrompt(d.cfg, triageAgent); err == nil && soulPrompt != "" {
-			task.SystemPrompt = soulPrompt
+
+	parseTriage := func(output string) (*triageResult, error) {
+		start := strings.Index(output, "{")
+		end := strings.LastIndex(output, "}")
+		if start < 0 || end <= start {
+			return nil, fmt.Errorf("no JSON in output")
 		}
+		var tr triageResult
+		if err := json.Unmarshal([]byte(output[start:end+1]), &tr); err != nil {
+			return nil, err
+		}
+		return &tr, nil
 	}
 
+	// Step 1: Try with haiku for cost efficiency.
 	result := d.deps.Executor.RunTask(ctx, task, triageAgent)
 	if result.Status != "success" {
 		log.Warn("triage: execution failed, falling back to direct dispatch", "task", t.ID, "error", result.Output)
 		return nil
 	}
 
-	// Parse JSON from output.
-	start := strings.Index(result.Output, "{")
-	end := strings.LastIndex(result.Output, "}")
-	if start < 0 || end <= start {
-		log.Warn("triage: no JSON in output, falling back", "task", t.ID)
-		return nil
+	tr, parseErr := parseTriage(result.Output)
+
+	// Step 2: If parse failed or confidence is low, escalate to sonnet once —
+	// unless the operator has killed the escalation path via config.
+	shouldEscalate := parseErr != nil || (tr != nil && tr.Confidence == "low")
+	escalateEnabled := d.engine.config.AutoDispatch.TriageEscalateToSonnetOrDefault()
+	escalationFailed := false
+	if shouldEscalate && !escalateEnabled {
+		log.Warn("triage: haiku uncertain but escalation disabled by config",
+			"task", t.ID, "haikuCost", result.CostUSD, "parseErr", parseErr)
+	}
+	if shouldEscalate && escalateEnabled {
+		reason := "low confidence"
+		if parseErr != nil {
+			reason = "parse error: " + parseErr.Error()
+		}
+		log.Info("triage: haiku result uncertain, escalating to sonnet", "task", t.ID, "reason", reason)
+		task.Model = "sonnet"
+		result2 := d.deps.Executor.RunTask(ctx, task, triageAgent)
+		combinedCost := result.CostUSD + result2.CostUSD
+		if result2.Status == "success" {
+			if tr2, err2 := parseTriage(result2.Output); err2 == nil {
+				tr = tr2
+				tr.CostUSD = combinedCost
+			} else if tr != nil {
+				// Sonnet ran but its output didn't parse either. Keep the haiku
+				// result (if any) but charge for both API calls so cost audit
+				// stays accurate.
+				tr.CostUSD = combinedCost
+				escalationFailed = true
+			} else {
+				escalationFailed = true
+			}
+		} else {
+			escalationFailed = true
+		}
+		// Emit a summary line grep-able for weekly escalation-rate monitoring.
+		log.Info("triage: escalation summary",
+			"task", t.ID,
+			"reason", reason,
+			"escalated", true,
+			"sonnetCost", result2.CostUSD,
+			"totalCost", combinedCost,
+			"sonnetOK", !escalationFailed,
+		)
 	}
 
-	var tr triageResult
-	if err := json.Unmarshal([]byte(result.Output[start:end+1]), &tr); err != nil {
-		log.Warn("triage: JSON parse failed, falling back", "task", t.ID, "error", err)
+	if tr == nil {
+		log.Warn("triage: JSON parse failed after escalation, falling back", "task", t.ID)
 		return nil
 	}
 
@@ -1247,8 +1315,10 @@ Reply with ONLY a JSON object:
 		return nil
 	}
 
-	tr.CostUSD = result.CostUSD
-	return &tr
+	if tr.CostUSD == 0 {
+		tr.CostUSD = result.CostUSD
+	}
+	return tr
 }
 
 // recordTriageHandoff writes the handoff record and agent message for a triage delegation.
@@ -1281,9 +1351,26 @@ func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAg
 	return id
 }
 
+// isReviewTask reports whether a task is a code-review meta-task. Its deliverable
+// is the review comment itself, not any code change — so followup actionable
+// items from such tasks must not auto-spawn child tasks.
+func isReviewTask(t TaskBoard) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(t.Title)), "review ")
+}
+
 // spawnReviewSubtasks creates follow-up tasks from adopted review suggestions
 // and logs rejected ones as comments on the parent task.
 func (d *Dispatcher) spawnReviewSubtasks(parentTask TaskBoard, items []reviewActionableItem, reviewer string) {
+	if isReviewTask(parentTask) {
+		if len(items) > 0 {
+			d.engine.AddComment(parentTask.ID, reviewer,
+				fmt.Sprintf("[review-followup] Skipped %d actionable item(s): review tasks do not auto-spawn followup tasks (deliverable is the review comment itself).",
+					len(items)))
+			log.Info("spawnReviewSubtasks: skipped for review parent",
+				"parent", parentTask.ID, "title", parentTask.Title, "items", len(items))
+		}
+		return
+	}
 	for _, item := range items {
 		if !item.Adopt {
 			d.engine.AddComment(parentTask.ID, "system",
