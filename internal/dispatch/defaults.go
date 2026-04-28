@@ -15,6 +15,9 @@ import (
 // DefaultFallbackModel is the model used when no model is configured anywhere.
 const DefaultFallbackModel = "claude-sonnet-4-6"
 
+// AgentOutputSubdir is the subdirectory under AgentOutputBase/{agent}/ where output-only agents write artifacts.
+const AgentOutputSubdir = "outputs"
+
 // FillDefaults populates empty Task fields with sensible defaults from config.
 func FillDefaults(cfg *config.Config, t *Task) {
 	if t.ID == "" {
@@ -40,7 +43,53 @@ func FillDefaults(cfg *config.Config, t *Task) {
 		t.PermissionMode = cfg.DefaultPermissionMode
 	}
 	if t.Workdir == "" {
-		t.Workdir = cfg.DefaultWorkdir
+		// Resolve workdir based on workdirMode.
+		if t.Agent != "" {
+			if rc, ok := cfg.Agents[t.Agent]; ok {
+				// WorkdirMode takes precedence; fall back to OutputOnly for backward compat.
+				effectiveMode := rc.WorkdirMode
+				if effectiveMode == "" && rc.OutputOnly {
+					effectiveMode = "output_only"
+				}
+
+				switch effectiveMode {
+				case "output_only":
+					if cfg.AgentOutputBase != "" {
+						agentName := filepath.Clean(t.Agent)
+						if strings.Contains(agentName, "..") || filepath.IsAbs(agentName) {
+							agentName = "unknown"
+						}
+						targetPath := filepath.Join(cfg.AgentOutputBase, agentName, AgentOutputSubdir)
+						if !strings.HasPrefix(targetPath, filepath.Clean(cfg.AgentOutputBase)+string(filepath.Separator)) {
+							targetPath = filepath.Join(cfg.AgentOutputBase, "unknown", AgentOutputSubdir)
+						}
+						t.Workdir = targetPath
+						break
+					}
+					fallthrough
+				case "workspace":
+					if cfg.WorkspaceDir != "" {
+						t.Workdir = cfg.WorkspaceDir
+						break
+					}
+					fallthrough
+				default:
+					if cfg.WorkspaceDir != "" {
+						t.Workdir = cfg.WorkspaceDir
+					} else {
+						t.Workdir = cfg.DefaultWorkdir
+					}
+				}
+			} else if cfg.WorkspaceDir != "" {
+				t.Workdir = cfg.WorkspaceDir
+			} else {
+				t.Workdir = cfg.DefaultWorkdir
+			}
+		} else if cfg.WorkspaceDir != "" {
+			t.Workdir = cfg.WorkspaceDir
+		} else {
+			t.Workdir = cfg.DefaultWorkdir
+		}
 	}
 	// Expand ~ in workdir.
 	if strings.HasPrefix(t.Workdir, "~/") {

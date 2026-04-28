@@ -115,6 +115,7 @@ type Config struct {
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"`
 	AgentsDir             string                     `json:"agentsDir,omitempty"`
 	WorkspaceDir          string                     `json:"workspaceDir,omitempty"`
+	AgentOutputBase       string                     `json:"agentOutputBase,omitempty"` // Base dir for agent outputs (~/.tetora/workspace/agents)
 	RuntimeDir            string                     `json:"runtimeDir,omitempty"`
 	VaultDir              string                     `json:"vaultDir,omitempty"`
 	Skills                []SkillConfig              `json:"skills,omitempty"`

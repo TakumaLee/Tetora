@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"tetora/internal/classify"
@@ -20,6 +21,20 @@ var validScopeBoundaries = map[string]bool{
 	"implement_allowed": true,
 	"test_only":         true,
 	"review_only":       true,
+}
+
+// validAgentName matches only safe identifier characters to prevent prompt injection
+// via newlines, markdown headings, or other special chars in agent names.
+var validAgentName = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+
+// sanitizeAgentName returns the agent name if it matches [a-zA-Z0-9_-], otherwise "unknown".
+// This prevents prompt injection via malicious agent names.
+func sanitizeAgentName(name string) string {
+	if validAgentName.MatchString(name) {
+		return name
+	}
+	log.Warn("agent name contains invalid characters, sanitized to 'unknown'", "name", name)
+	return "unknown"
 }
 
 // skillExtractionSection is injected into every dispatched agent prompt.
@@ -166,6 +181,21 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			task.Workdir = ws.Dir
 		}
 		task.AddDirs = append(task.AddDirs, cfg.BaseDir)
+
+		// Inject workspace rules into system prompt for API providers that need
+		// explicit path guidance. Terminal/CLI providers (claude-code, codex-cli,
+		// qwen-cli, terminal-*) manage their own file context and do not need
+		// workspace rules injected into the prompt.
+		if needsWorkspaceRuleInjection(providerType) {
+			workspaceRule := buildWorkspaceRule(cfg, agentName)
+			if workspaceRule != "" {
+				if task.SystemPrompt != "" {
+					task.SystemPrompt += "\n\n" + workspaceRule
+				} else {
+					task.SystemPrompt = workspaceRule
+				}
+			}
+		}
 	}
 
 	// --- 3. Agent config overrides (always) ---
@@ -474,4 +504,54 @@ func mergeDedup(base, extra []string) []string {
 		}
 	}
 	return result
+}
+
+// needsWorkspaceRuleInjection returns true if the provider type requires workspace
+// rules to be injected into the system prompt.
+//
+// API providers (anthropic, openai-compatible, google, groq) need explicit path
+// guidance because they don't manage their own file context.
+//
+// Terminal/CLI providers (claude-code, codex-cli, qwen-cli, terminal-*) run as
+// subprocesses and manage their own file context — they don't need rules injected.
+func needsWorkspaceRuleInjection(providerType string) bool {
+	// Terminal/CLI providers that manage their own file context.
+	terminalProviders := map[string]bool{
+		"claude-code": true,
+		"codex-cli":   true,
+		"qwen-cli":    true,
+	}
+
+	if terminalProviders[providerType] {
+		return false
+	}
+
+	// Any provider starting with "terminal-" is a CLI subprocess provider.
+	if strings.HasPrefix(providerType, "terminal-") {
+		return false
+	}
+
+	// All other providers are API providers that need workspace rules.
+	return true
+}
+
+// buildWorkspaceRule generates a workspace rule for the given agent.
+// Rule: "Save outputs to ~/.tetora/workspace/agents/{name}/outputs/"
+func buildWorkspaceRule(cfg *config.Config, agentName string) string {
+	if cfg.AgentOutputBase == "" {
+		return ""
+	}
+
+	safeName := sanitizeAgentName(agentName)
+	outputDir := filepath.Join(cfg.AgentOutputBase, safeName, dispatch.AgentOutputSubdir)
+
+	return fmt.Sprintf(`## Working Directory Rules
+1. **Code Edits**: Modify files in-place within the project structure.
+2. **New Artifacts**: Save all generated documents (reports, docs, plans, analysis) to:
+   **%s**
+3. **Cross-Project Review**: When reviewing external projects:
+   - READ from external directories is allowed.
+   - WRITE all notes, reviews, and reports to your output directory above.
+   - NEVER create loose files in external project directories.
+4. **NEVER** create temporary files in the project root directory.`, outputDir)
 }
