@@ -11866,6 +11866,13 @@ func initProviders(cfg *Config) *provider.Registry {
 				Tmux:           tmuxOpsAdapter{},
 				Workers:        newWorkerTrackerAdapter(tmux.NewSupervisor()),
 			})
+
+		case "gemini-cli":
+			path := pc.Path
+			if path == "" {
+				path = "gemini"
+			}
+			reg.Register(name, &provider.GeminiProvider{BinaryPath: path})
 		}
 	}
 
@@ -11989,11 +11996,20 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
 	model := task.Model
 
-	// If active provider has an explicit model override (not "auto"), use it.
+	// If active provider override is set, check whether the task model is just
+	// the global default (e.g. "sonnet" from main.go) that is incompatible with
+	// the selected provider. In that case, use the provider's configured model.
 	if cfg.ActiveProviderStore != nil {
 		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
-		if activeState != nil && activeState.Model != "" && activeState.Model != "auto" {
-			model = activeState.Model
+		if activeState != nil && activeState.ProviderName != "" {
+			// Task model matches global default → treat it as "use provider default"
+			if model == cfg.DefaultModel {
+				if pc, ok := cfg.Providers[activeState.ProviderName]; ok && pc.Model != "" {
+					model = pc.Model
+				}
+			} else if activeState.Model != "" && activeState.Model != "auto" {
+				model = activeState.Model
+			}
 		}
 	}
 
