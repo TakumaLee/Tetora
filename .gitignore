@@ -16,6 +16,8 @@ agents/SOUL.local.md
 jobs.json
 logs/
 *.log
+runtime/
+active-provider.json
 
 # Secrets
 .env

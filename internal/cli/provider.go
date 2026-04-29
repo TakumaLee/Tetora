@@ -225,15 +225,20 @@ func providerListCmd() {
 }
 
 // getActiveProviderPath returns the path to the active provider state file.
+// Must resolve to the same path the daemon uses (RuntimeDir/active-provider.json)
+// so that CLI changes are immediately visible to the running daemon.
 func getActiveProviderPath(cfg *config.Config) string {
-	if cfg.RuntimeDir != "" {
-		return filepath.Join(cfg.RuntimeDir, "active-provider.json")
+	// Ensure NormalizePaths() has been applied so RuntimeDir is set.
+	if cfg.RuntimeDir == "" {
+		if cfg.BaseDir == "" {
+			// BaseDir not set — derive from config file location, matching
+			// what loadConfig() and the daemon do.
+			configPath := getConfigPath()
+			cfg.BaseDir = filepath.Dir(configPath)
+		}
+		cfg.RuntimeDir = filepath.Join(cfg.BaseDir, "runtime")
 	}
-
-	// Fallback to config directory.
-	configPath := getConfigPath()
-	configDir := filepath.Dir(configPath)
-	return filepath.Join(configDir, "active-provider.json")
+	return filepath.Join(cfg.RuntimeDir, "active-provider.json")
 }
 
 // isKnownPreset checks if the provider name is a known preset.
