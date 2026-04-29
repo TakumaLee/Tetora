@@ -115,6 +115,7 @@ type Config struct {
 	KnowledgeDir          string                     `json:"knowledgeDir,omitempty"`
 	AgentsDir             string                     `json:"agentsDir,omitempty"`
 	WorkspaceDir          string                     `json:"workspaceDir,omitempty"`
+	AgentOutputBase       string                     `json:"agentOutputBase,omitempty"` // Base dir for agent outputs (~/.tetora/workspace/agents)
 	RuntimeDir            string                     `json:"runtimeDir,omitempty"`
 	VaultDir              string                     `json:"vaultDir,omitempty"`
 	Skills                []SkillConfig              `json:"skills,omitempty"`
@@ -217,6 +218,10 @@ type Config struct {
 	// are in root (package main). Root code sets these during startup and
 	// accesses them via typed helper functions.
 	Runtime RuntimeState `json:"-"`
+
+	// Active provider override store — enables dynamic provider switching
+	// without modifying individual agent configurations.
+	ActiveProviderStore *ActiveProviderStore `json:"-"`
 }
 
 // RuntimeState holds runtime service references that are set after config loading.
@@ -286,4 +291,18 @@ func (c *Config) OutputsDirFor(clientID string) string {
 		return c.BaseDir
 	}
 	return c.ClientDir(clientID)
+}
+
+// NormalizePaths applies path-related defaults that depend on BaseDir.
+// This is shared between CLI and daemon config loading so they resolve
+// the same file paths (e.g., active-provider.json in RuntimeDir).
+// Must be called after BaseDir is set from the config file location.
+func (c *Config) NormalizePaths() {
+	// RuntimeDir defaulting.
+	if c.RuntimeDir == "" {
+		c.RuntimeDir = filepath.Join(c.BaseDir, "runtime")
+	}
+	if !filepath.IsAbs(c.RuntimeDir) {
+		c.RuntimeDir = filepath.Join(c.BaseDir, c.RuntimeDir)
+	}
 }

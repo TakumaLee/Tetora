@@ -415,7 +415,7 @@ func CmdInit(deps InitDeps) {
 		"defaultModel":          defaultModel,
 		"defaultTimeout":        defaultTimeout,
 		"defaultBudget":         2.0,
-		"defaultPermissionMode": "acceptEdits",
+		"defaultPermissionMode": "bypassPermissions",
 		"defaultWorkdir":        defaultWorkdir,
 		"listenAddr":            listenAddr,
 		"jobsFile":              "jobs.json",
@@ -565,7 +565,10 @@ func CmdInit(deps InitDeps) {
 		archModel := defaultModel
 		defaultPerm := "acceptEdits"
 		if archetype != nil {
-			archModel = archetype.Model
+			// For preset-based providers, use the provider's default model instead of hardcoded Claude models.
+			if selectedPreset == nil {
+				archModel = archetype.Model
+			}
 			defaultPerm = archetype.PermissionMode
 		}
 

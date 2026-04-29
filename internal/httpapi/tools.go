@@ -11,6 +11,7 @@ import (
 // ToolsDeps holds dependencies for tools, MCP, embedding, proactive, and groupchat HTTP handlers.
 type ToolsDeps struct {
 	ListTools      func() any
+	ExecuteTool    func(ctx context.Context, name string, input json.RawMessage) (string, error)
 	MCPStatus      func() any
 	MCPRestart     func(name string) error
 	HybridSearch   func(ctx context.Context, query, source string, topK int) (any, error)
@@ -38,6 +39,39 @@ func RegisterToolRoutes(mux *http.ServeMux, d ToolsDeps) {
 			tools = []any{}
 		}
 		json.NewEncoder(w).Encode(tools)
+	})
+
+	// POST /api/tools/execute — Execute a registered tool by name.
+	mux.HandleFunc("/api/tools/execute", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+			return
+		}
+		if d.ExecuteTool == nil {
+			http.Error(w, `{"error":"tool execution not available"}`, http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, `{"error":"name is required"}`, http.StatusBadRequest)
+			return
+		}
+		output, err := d.ExecuteTool(r.Context(), req.Name, req.Input)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(output))
 	})
 
 	mux.HandleFunc("/api/mcp/servers", func(w http.ResponseWriter, r *http.Request) {

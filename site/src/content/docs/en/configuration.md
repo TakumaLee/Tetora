@@ -364,6 +364,7 @@ The built-in task board tracks work items and can automatically dispatch them to
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `branchConvention` | string | `"{type}/{agent}-{description}"` | Branch naming template. Variables: `{type}`, `{agent}`, `{description}`. |
+| `baseBranch` | string | `""` | Explicit PR/MR base branch override. Empty uses the repository default branch. |
 | `types` | string[] | `["feat","fix","refactor","chore"]` | Allowed branch type prefixes. |
 | `defaultType` | string | `"feat"` | Fallback type when none is specified. |
 | `autoMerge` | bool | `false` | Automatically merge back to main when task is done (only when `gitWorktree: true`). |

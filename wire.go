@@ -104,6 +104,8 @@ import (
 	warroomAutoupdate "tetora/internal/warroom/autoupdate"
 	"tetora/internal/webhook"
 	"tetora/internal/workspace"
+	"tetora/internal/search"
+	"tetora/internal/search/providers"
 )
 
 // ============================================================
@@ -1759,6 +1761,32 @@ type OpenAITTSProvider = voice.OpenAITTSProvider
 type ElevenLabsTTSProvider = voice.ElevenLabsTTSProvider
 type VoiceEngine = voice.VoiceEngine
 
+// --- Search (from internal/search) ---
+
+type SearchProvider = search.SearchProvider
+type SearchResult = search.SearchResult
+type SearchOptions = search.SearchOptions
+type SearchService = search.SearchService
+type SerpAPIProvider = providers.SerpAPIProvider
+type FeloProvider = providers.FeloProvider
+
+func newSearchService(cfg *Config) (*SearchService, error) {
+	s, err := search.NewSearchService(cfg.BaseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Register providers based on config
+	if cfg.Tools.WebSearch.Provider == "serp" && cfg.Tools.WebSearch.APIKey != "" {
+		s.Registry.Register(providers.NewSerpAPIProvider(cfg.Tools.WebSearch.APIKey))
+	}
+	
+	// Always register Felo as fallback
+	s.Registry.Register(providers.NewFeloProvider())
+
+	return s, nil
+}
+
 func newVoiceEngine(cfg *Config) *VoiceEngine {
 	dbPath := cfg.HistoryDB
 	auditFn := func(action, source, detail string) {
@@ -2039,6 +2067,8 @@ func embeddingDecayHalfLifeOrDefault(cfg EmbeddingConfig) float64 {
 type OAuthManager = iOAuth.OAuthManager
 type OAuthToken = iOAuth.OAuthToken
 type OAuthTokenStatus = iOAuth.OAuthTokenStatus
+
+var globalApp *App
 
 var globalOAuthManager *OAuthManager
 
@@ -3913,6 +3943,69 @@ func buildCoreDeps() tools.CoreDeps {
 		AgentListHandler:     toolAgentList,
 		AgentDispatchHandler: toolAgentDispatch,
 		AgentMessageHandler:  toolAgentMessage,
+		CompetitiveSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 10
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
+		NewsSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 5
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "news", Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
+		XSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+			if globalApp == nil || globalApp.Search == nil {
+				return "", fmt.Errorf("search service not initialized")
+			}
+			var args struct {
+				Query string `json:"query"`
+				Limit int    `json:"limit"`
+			}
+			if err := json.Unmarshal(input, &args); err != nil {
+				return "", err
+			}
+			if args.Limit <= 0 {
+				args.Limit = 10
+			}
+			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "social", Limit: args.Limit})
+			if err != nil {
+				return "", err
+			}
+			out, _ := json.Marshal(results)
+			return string(out), nil
+		},
 		SearchToolsHandler:   toolSearchTools,
 		ExecuteToolHandler:   toolExecuteTool,
 		ImageAnalyzeHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
@@ -11760,6 +11853,26 @@ func initProviders(cfg *Config) *provider.Registry {
 				path = "codex"
 			}
 			reg.Register(name, &provider.CodexProvider{BinaryPath: path})
+
+		case "qwen-cli":
+			path := pc.Path
+			if path == "" {
+				path = "qwen"
+			}
+			reg.Register(name, &provider.TerminalProvider{
+				BinaryPath:     path,
+				DefaultWorkdir: cfg.DefaultWorkdir,
+				Profile:        newProfileAdapter(tmux.NewClaudeProfile()),
+				Tmux:           tmuxOpsAdapter{},
+				Workers:        newWorkerTrackerAdapter(tmux.NewSupervisor()),
+			})
+
+		case "gemini-cli":
+			path := pc.Path
+			if path == "" {
+				path = "gemini"
+			}
+			reg.Register(name, &provider.GeminiProvider{BinaryPath: path})
 		}
 	}
 
@@ -11803,17 +11916,37 @@ func initProviders(cfg *Config) *provider.Registry {
 // Stays in root because it depends on Config, Task, and SSEEvent.
 
 func resolveProviderName(cfg *Config, task Task, agentName string) string {
+	// Priority 1: Task-level override (highest priority)
 	if task.Provider != "" {
 		return task.Provider
 	}
-	if agentName != "" {
-		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
-			return rc.Provider
+
+	// Priority 2: Active provider override (CLI/API session-level override)
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.ProviderName != "" {
+			return activeState.ProviderName
 		}
 	}
+
+	// Priority 3: Agent-level provider
+	if agentName != "" {
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
+			// If agent uses "auto", fall through to global default
+			if rc.Provider == "auto" {
+				// Continue to default resolution
+			} else {
+				return rc.Provider
+			}
+		}
+	}
+
+	// Priority 4: Global default provider
 	if cfg.DefaultProvider != "" {
 		return cfg.DefaultProvider
 	}
+
+	// Fallback: legacy default
 	return "claude"
 }
 
@@ -11822,6 +11955,21 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 	seen := map[string]bool{primary: true}
 	candidates := []string{primary}
 
+	// If active provider override is set, only use global fallback providers
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.ProviderName != "" {
+			for _, fb := range cfg.FallbackProviders {
+				if !seen[fb] {
+					seen[fb] = true
+					candidates = append(candidates, fb)
+				}
+			}
+			return candidates
+		}
+	}
+
+	// Normal flow: use agent-level and global fallback providers
 	if agentName != "" {
 		if rc, ok := cfg.Agents[agentName]; ok {
 			for _, fb := range rc.FallbackProviders {
@@ -11847,9 +11995,30 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 // The eventCh is bridged into the provider.Request.OnEvent callback.
 func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
 	model := task.Model
-	if model == "" {
+
+	// If active provider override is set, check whether the task model is just
+	// the global default (e.g. "sonnet" from main.go) that is incompatible with
+	// the selected provider. In that case, use the provider's configured model.
+	if cfg.ActiveProviderStore != nil {
+		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
+		if activeState != nil && activeState.ProviderName != "" {
+			// Task model matches global default → treat it as "use provider default"
+			if model == cfg.DefaultModel {
+				if pc, ok := cfg.Providers[activeState.ProviderName]; ok && pc.Model != "" {
+					model = pc.Model
+				}
+			} else if activeState.Model != "" && activeState.Model != "auto" {
+				model = activeState.Model
+			}
+		}
+	}
+
+	// Resolve "auto" model to the provider's default model.
+	if model == "" || model == "auto" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
 			model = pc.Model
+		} else if cfg.DefaultModel != "" && cfg.DefaultModel != "auto" {
+			model = cfg.DefaultModel
 		}
 	}
 

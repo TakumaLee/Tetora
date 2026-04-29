@@ -20,9 +20,11 @@ import (
 	"tetora/internal/log"
 	"tetora/internal/nlp"
 	"tetora/internal/provider"
+	"tetora/internal/skill"
 	"tetora/internal/tool"
 	"tetora/internal/tools"
 	"tetora/internal/trace"
+	"strconv"
 	"time"
 	dtypes "tetora/internal/dispatch"
 )
@@ -72,6 +74,100 @@ func registerBuiltins(r *ToolRegistry, cfg *Config) {
 	tools.RegisterTaskboardTools(r, cfg, enabled, buildTaskboardDeps(cfg))
 	tools.RegisterReflectionTools(r, cfg, enabled, buildReflectionDeps(cfg))
 	tools.RegisterImageGenTools(r, cfg, enabled, buildImageGenDeps())
+	registerSkillTools(r, cfg)
+}
+
+// registerSkillTools exposes each configured skill as a first-class tool.
+// Variables are auto-extracted from {{var}} references in the skill's
+// Command/Args/Env/Workdir and surface as JSON-schema properties, so the
+// LLM calls the skill with a native tool invocation rather than through a
+// generic dispatcher.
+//
+// Name collisions with existing tools fall back to a `skill_` prefix; if
+// still colliding, the skill is skipped (the existing tool wins).
+func registerSkillTools(r *ToolRegistry, cfg *Config) {
+	for _, s := range listSkills(cfg) {
+		name := skill.ToolNameFor(s)
+		if name == "" {
+			continue
+		}
+		if _, exists := r.Get(name); exists {
+			name = "skill_" + name
+		}
+		if _, exists := r.Get(name); exists {
+			continue
+		}
+		desc := strings.TrimSpace(s.Description)
+		if desc == "" {
+			desc = fmt.Sprintf("Run the %q skill.", s.Name)
+		}
+		if s.Example != "" {
+			desc = desc + "\n\nExample: " + strings.TrimSpace(s.Example)
+		}
+		skillName := s.Name
+		r.Register(&ToolDef{
+			Name:        name,
+			Description: desc,
+			InputSchema: skill.BuildToolSchema(s),
+			Handler:     makeSkillToolHandler(skillName),
+			Builtin:     true,
+		})
+	}
+}
+
+// makeSkillToolHandler returns a Handler closure bound to a skill name.
+// Lookup happens on every call so hot-reloaded or swapped skill definitions
+// are picked up without re-registering the tool.
+func makeSkillToolHandler(skillName string) ToolHandler {
+	return func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
+		s := getSkill(cfg, skillName)
+		if s == nil {
+			return "", fmt.Errorf("skill %q not found", skillName)
+		}
+		vars := decodeSkillToolVars(input)
+		result, err := executeSkill(ctx, *s, vars)
+		if err != nil {
+			return "", err
+		}
+		switch result.Status {
+		case "timeout":
+			return "", fmt.Errorf("skill %q timed out: %s", skillName, result.Error)
+		case "error":
+			return "", fmt.Errorf("skill %q failed: %s", skillName, result.Error)
+		}
+		return result.Output, nil
+	}
+}
+
+// decodeSkillToolVars turns a tool call's JSON input into the string-keyed
+// map that ExecuteSkill expects. Numbers and booleans are coerced to their
+// canonical string form; objects and arrays are re-marshaled as JSON so
+// skill scripts can handle them as needed.
+func decodeSkillToolVars(input json.RawMessage) map[string]string {
+	vars := map[string]string{}
+	if len(input) == 0 {
+		return vars
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(input, &raw); err != nil {
+		return vars
+	}
+	for k, v := range raw {
+		switch val := v.(type) {
+		case string:
+			vars[k] = val
+		case float64:
+			vars[k] = strconv.FormatFloat(val, 'f', -1, 64)
+		case bool:
+			vars[k] = strconv.FormatBool(val)
+		case nil:
+			// skip nulls
+		default:
+			b, _ := json.Marshal(val)
+			vars[k] = string(b)
+		}
+	}
+	return vars
 }
 
 // registerAdminTools registers admin/ops tools (backup, export, health,

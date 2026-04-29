@@ -56,6 +56,7 @@ func DefaultWorkspace(cfg *config.Config) config.WorkspaceConfig {
 //	~/.tetora/
 //	  agents/{name}/          — agent identity (SOUL.md)
 //	  workspace/              — shared workspace
+//	    lore/                 — world-building & story context (injected into system prompt)
 //	    rules/                — governance rules (injected into system prompt)
 //	    memory/               — shared memory (.md files)
 //	    team/                 — team governance
@@ -79,6 +80,7 @@ func InitDirectories(cfg *config.Config) error {
 		cfg.AgentsDir,
 		// Workspace sub-directories
 		cfg.WorkspaceDir,
+		filepath.Join(cfg.WorkspaceDir, "lore"),
 		filepath.Join(cfg.WorkspaceDir, "rules"),
 		filepath.Join(cfg.WorkspaceDir, "memory"),
 		filepath.Join(cfg.WorkspaceDir, "team"),
@@ -334,6 +336,33 @@ func InjectContent(cfg *config.Config, systemPrompt *string, addDirs *[]string, 
 			}
 		}
 		*addDirs = append(*addDirs, dir)
+	}
+
+	// Inject lore before rules so rules always win via recency bias.
+	// The LORE tags signal to the LLM that this block is background context only.
+	loreDir := filepath.Join(cfg.WorkspaceDir, "lore")
+	if entries, err := os.ReadDir(loreDir); err == nil {
+		var loreBlock strings.Builder
+		var loreSize int
+		const loreSoftLimit = 16 * 1024 // 16KB soft limit
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			data, _ := os.ReadFile(filepath.Join(loreDir, e.Name()))
+			if len(data) > 0 {
+				loreSize += len(data) + 2 // +2 for "\n\n"
+				loreBlock.Write(data)
+				loreBlock.WriteString("\n\n")
+			}
+		}
+		if loreSize > loreSoftLimit {
+			fmt.Fprintf(os.Stderr, "[warn] lore/ directory total size %d bytes exceeds %d byte soft limit; excess context will consume LLM token budget\n", loreSize, loreSoftLimit)
+		}
+		if loreBlock.Len() > 0 {
+			loreWrapped := "<!-- LORE: world context only -->\n\n" + strings.TrimSpace(loreBlock.String()) + "\n\n<!-- /LORE -->"
+			*systemPrompt = loreWrapped + "\n\n" + *systemPrompt
+		}
 	}
 
 	rulesDir := filepath.Join(cfg.WorkspaceDir, "rules")

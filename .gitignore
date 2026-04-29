@@ -11,13 +11,23 @@ dist/
 *.db-shm
 config.json
 config.local.json
+agents/**/SOUL.local.md
+agents/SOUL.local.md
 jobs.json
 logs/
 *.log
+runtime/
+active-provider.json
 
 # Secrets
 .env
 .env.*
+
+# Config files with credentials (API keys, tokens, etc.)
+config.json
+config.local.json
+config.local.*.json
+*.secret.json
 
 # Test artifacts
 *.test
@@ -42,6 +52,11 @@ knowledge/
 backups/
 /com.tetora.daemon.plist
 
+# Agent workspace (absolute path outside repo - git will never track it)
+# NOTE: ~/.tetora/workspace/ is an absolute path, no .gitignore entry needed.
+# Git does not expand ~ in patterns, and absolute paths outside the repo
+# are naturally ignored. This comment documents the workspace location.
+
 # IDE
 .idea/
 .vscode/
@@ -58,3 +73,28 @@ tasks/todo.md
 # Claude Code
 .claude/
 .gstack/
+
+# Qwen Code (local config)
+.qwen/
+
+# Gemini Code (local config)
+.gemini/
+
+# Local workflow docs (not for upstream)
+GIT_WORKFLOW.md
+
+# Local project files (client-specific, not for upstream)
+temp_move_project/
+14_report/
+~$*.docx
+~$*.doc
+
+# Client onboarding configs (generated per client)
+config.client*.json
+configs/
+
+# Per-machine agent persona customization (must stay local)
+agents/*/SOUL.local.md
+
+# Cross-machine peer-agents registry (local-only, not for upstream)
+docs/peer-agents.md

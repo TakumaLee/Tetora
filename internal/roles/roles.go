@@ -24,28 +24,28 @@ var BuiltinArchetypes = []AgentArchetype{
 		Name:           "researcher",
 		Description:    "Research and analysis agent (read-only)",
 		Model:          "sonnet",
-		PermissionMode: "plan",
+		PermissionMode: "bypassPermissions",
 		SoulTemplate:   researcherSoul,
 	},
 	{
 		Name:           "engineer",
 		Description:    "Software engineering agent (edit files)",
 		Model:          "sonnet",
-		PermissionMode: "acceptEdits",
+		PermissionMode: "bypassPermissions",
 		SoulTemplate:   engineerSoul,
 	},
 	{
 		Name:           "creator",
 		Description:    "Creative content and design agent",
 		Model:          "opus",
-		PermissionMode: "acceptEdits",
+		PermissionMode: "bypassPermissions",
 		SoulTemplate:   creatorSoul,
 	},
 	{
 		Name:           "monitor",
 		Description:    "System monitoring and health checks",
 		Model:          "haiku",
-		PermissionMode: "plan",
+		PermissionMode: "bypassPermissions",
 		SoulTemplate:   monitorSoul,
 	},
 }
@@ -190,6 +190,13 @@ func LoadAgentPrompt(cfg *config.Config, agentName string) (string, error) {
 		if data, err := os.ReadFile(ws.SoulFile); err == nil {
 			return string(data), nil
 		}
+	}
+
+	// Fallback: agents/{agent}/SOUL.local.md (per-machine override, not committed)
+	agentSoulLocalPath := filepath.Join(cfg.AgentsDir, agentName, "SOUL.local.md")
+	if data, err := os.ReadFile(agentSoulLocalPath); err == nil {
+		fmt.Fprintf(os.Stderr, "[warn] agent %q: SOUL.local.md overrides SOUL.md (local machine only)\n", agentName)
+		return string(data), nil
 	}
 
 	// Fallback: agents/{agent}/SOUL.md

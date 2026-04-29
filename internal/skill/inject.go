@@ -372,6 +372,12 @@ func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity clas
 			sb.WriteString("- **")
 			sb.WriteString(skill.Name)
 			sb.WriteString("**")
+			toolName := ToolNameFor(skill)
+			if toolName != skill.Name {
+				sb.WriteString(" (tool: `")
+				sb.WriteString(toolName)
+				sb.WriteString("`)")
+			}
 			if skill.Description != "" {
 				sb.WriteString(": ")
 				sb.WriteString(skill.Description)
@@ -386,7 +392,7 @@ func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity clas
 			}
 		}
 
-		sb.WriteString("\nTo load a skill's full SKILL.md on demand, use the `skill_load` tool.\n")
+		sb.WriteString("\nTo load a skill's full SKILL.md on demand, use the `skill_load` tool. Each skill above is exposed as a first-class tool under its sanitized name (hyphens and spaces become underscores). Call it directly like any other tool.\n")
 
 		// --- Tier 2: Skill documentation (Complex only when on-demand enabled;
 		// Standard+Complex when on-demand disabled; never Simple). ---

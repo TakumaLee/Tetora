@@ -364,6 +364,7 @@ Smart Dispatch 根據規則、關鍵字及 LLM 分類，自動將傳入任務路
 | 欄位 | 類型 | 預設值 | 說明 |
 |---|---|---|---|
 | `branchConvention` | string | `"{type}/{agent}-{description}"` | 分支命名範本。變數：`{type}`、`{agent}`、`{description}`。 |
+| `baseBranch` | string | `""` | 明確指定 PR/MR 的基底分支。留空時使用 repository 的預設分支。 |
 | `types` | string[] | `["feat","fix","refactor","chore"]` | 允許的分支類型前綴。 |
 | `defaultType` | string | `"feat"` | 未指定類型時的預設值。 |
 | `autoMerge` | bool | `false` | 任務完成時自動合併回 main（僅在 `gitWorktree: true` 時有效）。 |
