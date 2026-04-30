@@ -5104,6 +5104,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
 		cState.mu.Lock()
 		cState.cancel = cancel
+		cState.startAt = time.Now()
 		cState.mu.Unlock()
 		defer cancel()
 
@@ -5168,10 +5169,6 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
 		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
-		// startAt must be set manually here because dispatch() only sets it when manageActive=true.
-		cState.mu.Lock()
-		cState.startAt = time.Now()
-		cState.mu.Unlock()
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -7604,7 +7601,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
