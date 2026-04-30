@@ -5210,6 +5210,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
 				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+					log.Warn("review: comment post failed", "url", req.PRURL, "error", commentErr)
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
