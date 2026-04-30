@@ -5179,7 +5179,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		audit.Log(auditDB, "review", "http",
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
-		// skipActive=true: we already claimed cState.active + cState.cancel above under lock.
+		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
+		// startAt must be set manually here because dispatch() only sets it when manageActive=true.
+		cState.mu.Lock()
+		cState.startAt = time.Now()
+		cState.mu.Unlock()
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -7482,6 +7486,9 @@ func fetchPRMeta(prURL string) (title, body string, err error) {
 	if parseErr != nil {
 		return "", "", parseErr
 	}
+	if err := validateReviewHost(u.Host); err != nil {
+		return "", "", err
+	}
 	host := strings.ToLower(u.Host)
 	switch {
 	case strings.Contains(host, "github"):
@@ -7525,6 +7532,9 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid url: %w", err)
+	}
+	if err := validateReviewHost(u.Host); err != nil {
+		return "", "", err
 	}
 	host := strings.ToLower(u.Host)
 	switch {
@@ -7654,22 +7664,40 @@ func glabDiffsToUnified(data []byte) (string, error) {
 	}
 	var buf strings.Builder
 	for _, d := range diffs {
-		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", d.OldPath, d.NewPath)
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n", d.OldPath, d.NewPath, d.OldPath, d.NewPath)
 		buf.WriteString(d.Diff)
 	}
 	return buf.String(), nil
 }
 
 // postReviewComment posts review output as a comment on the PR/MR.
+// body is written to a temp file to avoid ARG_MAX limits on long review outputs.
 func postReviewComment(prURL, body string) error {
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %w", err)
 	}
+	if err := validateReviewHost(u.Host); err != nil {
+		return err
+	}
+
+	tmpFile, err := os.CreateTemp("", "tetora-review-*.md")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString(body); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
 	host := strings.ToLower(u.Host)
 	switch {
 	case strings.Contains(host, "github"):
-		out, err := exec.Command("gh", "pr", "comment", prURL, "--body", body).CombinedOutput()
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
 		}
@@ -7681,7 +7709,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
@@ -7689,6 +7717,20 @@ func postReviewComment(prURL, body string) error {
 	default:
 		return fmt.Errorf("unsupported host %q for comment posting", host)
 	}
+}
+
+// validateReviewHost rejects URLs whose host is not a recognised GitHub/GitLab origin.
+// strings.Contains("gitlab") alone would allow attacker-controlled hosts like
+// gitlab.evil.com to receive authenticated glab API calls (SSRF / token leak).
+func validateReviewHost(host string) error {
+	h := strings.ToLower(host)
+	if h == "github.com" || strings.HasSuffix(h, ".github.com") {
+		return nil
+	}
+	if h == "gitlab.com" || strings.HasSuffix(h, ".gitlab.com") {
+		return nil
+	}
+	return fmt.Errorf("untrusted review host %q: only github.com and gitlab.com (and their subdomains) are allowed", host)
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.

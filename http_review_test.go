@@ -40,8 +40,8 @@ func TestFetchReviewDiff_UnsupportedHost(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unsupported host")
 	}
-	if !strings.Contains(err.Error(), "unsupported host") {
-		t.Fatalf("expected 'unsupported host' error, got %v", err)
+	if !strings.Contains(err.Error(), "untrusted review host") {
+		t.Fatalf("expected 'untrusted review host' error, got %v", err)
 	}
 }
 
@@ -52,10 +52,24 @@ func TestFetchReviewDiff_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestFetchReviewDiff_SSRFBlocked(t *testing.T) {
+	_, _, err := fetchReviewDiff("https://gitlab.evil.com/org/repo/-/merge_requests/1")
+	if err == nil || !strings.Contains(err.Error(), "untrusted review host") {
+		t.Fatalf("expected SSRF block, got %v", err)
+	}
+}
+
 func TestPostReviewComment_UnsupportedHost(t *testing.T) {
 	err := postReviewComment("https://bitbucket.org/foo/bar/pull-requests/1", "body")
-	if err == nil || !strings.Contains(err.Error(), "unsupported host") {
-		t.Fatalf("expected unsupported host error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "untrusted review host") {
+		t.Fatalf("expected untrusted host error, got %v", err)
+	}
+}
+
+func TestPostReviewComment_SSRFBlocked(t *testing.T) {
+	err := postReviewComment("https://gitlab.evil.com/org/repo/-/merge_requests/1", "body")
+	if err == nil || !strings.Contains(err.Error(), "untrusted review host") {
+		t.Fatalf("expected SSRF block, got %v", err)
 	}
 }
 
