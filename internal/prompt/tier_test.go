@@ -362,3 +362,33 @@ func TestBuildTieredPrompt_NoMarkdownSectionHeader(t *testing.T) {
 	}
 }
 
+func TestNeedsWorkspaceRuleInjection(t *testing.T) {
+	cases := []struct {
+		providerType string
+		want         bool
+	}{
+		// Terminal/CLI providers — must NOT inject
+		{"claude-code", false},
+		{"codex-cli", false},
+		{"qwen-cli", false},
+		{"terminal-bash", false},
+		{"terminal-zsh", false},
+		{"terminal-", false},
+		// API providers — must inject
+		{"anthropic", true},
+		{"openai-compatible", true},
+		{"google", true},
+		{"groq", true},
+		{"", true},
+		{"unknown-provider", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.providerType, func(t *testing.T) {
+			got := needsWorkspaceRuleInjection(tc.providerType)
+			if got != tc.want {
+				t.Errorf("needsWorkspaceRuleInjection(%q) = %v, want %v", tc.providerType, got, tc.want)
+			}
+		})
+	}
+}
