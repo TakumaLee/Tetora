@@ -5162,11 +5162,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
 
 		task := Task{
-			Name:   fmt.Sprintf("review:%s", req.PRURL),
-			Prompt: promptBuf.String(),
-			Model:  model,
-			Agent:  agent,
-			Source: "review",
+			Name:           fmt.Sprintf("review:%s", req.PRURL),
+			Prompt:         promptBuf.String(),
+			Model:          model,
+			Agent:          agent,
+			Source:         "review",
+			AllowDangerous: true, // diff content is untrusted text; pattern matches inside it are false positives
 		}
 		fillDefaults(cfg, &task)
 		task.ClientID = clientID
