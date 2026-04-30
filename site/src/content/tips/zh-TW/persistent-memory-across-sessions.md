@@ -1,4 +1,3 @@
----
 title: "跨 Session 的持久記憶——讓 Agent 記住你說過的事"
 lang: zh-TW
 date: "2026-04-25"
