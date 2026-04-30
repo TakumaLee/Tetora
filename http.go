@@ -7484,6 +7484,12 @@ func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
 	if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
 		mrIID = mrIID[:i]
 	}
+	// Validate IID is numeric to avoid passing non-IID paths (e.g. /new) to the API.
+	for _, c := range mrIID {
+		if c < '0' || c > '9' {
+			return "", "", false
+		}
+	}
 	return projectPath, mrIID, true
 }
 
