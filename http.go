@@ -5078,9 +5078,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cfg := s.Cfg()
 
 		var req struct {
-			PRURL string `json:"pr_url"`
-			Agent string `json:"agent,omitempty"`
-			Model string `json:"model,omitempty"`
+			PRURL       string `json:"pr_url"`
+			Agent       string `json:"agent,omitempty"`
+			Model       string `json:"model,omitempty"`
+			PostComment bool   `json:"post_comment,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -5095,32 +5096,16 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Own the cancel func so /cancel can cut review dispatches. dispatch()
-		// is called with skipActive=true below, so it won't wire state.cancel
-		// itself — we must do it here, atomically with the active claim.
+		// Reviews skip the cState.active gate so multiple reviews can run
+		// concurrently (capped by cSem). cState.cancel holds the most recently
+		// started review's cancel func; /cancel aborts that one. cancel() is
+		// idempotent so a stale cState.cancel after a review finishes is harmless.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
-
-		// Atomically check-and-claim to prevent TOCTOU: two concurrent POSTs
-		// must not both pass the busy check and then race into dispatch().
 		cState.mu.Lock()
-		if cState.active {
-			cState.mu.Unlock()
-			cancel()
-			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
-			return
-		}
-		cState.active = true
-		cState.startAt = time.Now()
 		cState.cancel = cancel
 		cState.mu.Unlock()
-		defer func() {
-			cState.mu.Lock()
-			cState.active = false
-			cState.cancel = nil
-			cState.mu.Unlock()
-			cancel()
-		}()
+		defer cancel()
 
 		agent := req.Agent
 		if agent == "" {
@@ -5182,7 +5167,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		audit.Log(auditDB, "review", "http",
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
-		// skipActive=true: we already claimed cState.active + cState.cancel above under lock.
+		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -5200,6 +5185,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			if tr.Error != "" {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
+			} else if req.PostComment && tr.Output != "" {
+				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+					resp["comment_error"] = commentErr.Error()
+				} else {
+					resp["commented"] = true
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -7564,6 +7555,44 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		}
 	}
 	return sb.String()
+}
+
+// postReviewComment posts review output as a comment on the PR/MR.
+func postReviewComment(prURL, body string) error {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	host := strings.ToLower(u.Host)
+	switch {
+	case strings.Contains(host, "github"):
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body", body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	case strings.Contains(host, "gitlab"):
+		path := strings.TrimPrefix(u.Path, "/")
+		projectPath, mrIID, ok := strings.Cut(path, "/-/merge_requests/")
+		if !ok {
+			projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+		}
+		if !ok || mrIID == "" || projectPath == "" {
+			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+			mrIID = mrIID[:i]
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported host %q for comment posting", host)
+	}
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.

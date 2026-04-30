@@ -33,9 +33,10 @@ async function submitReview(e) {
   const url = document.getElementById('rf-url').value.trim();
   if (!url) return false;
 
-  const payload = { pr_url: normalizeReviewURL(url) };
   const agent = document.getElementById('rf-agent').value.trim();
   const model = document.getElementById('rf-model').value.trim();
+  const postComment = document.getElementById('rf-post-comment').checked;
+  const payload = { pr_url: normalizeReviewURL(url), post_comment: postComment };
   if (agent) payload.agent = agent;
   if (model) payload.model = model;
 
