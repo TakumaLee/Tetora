@@ -5168,6 +5168,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
 		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
+		// startAt must be set manually here because dispatch() only sets it when manageActive=true.
+		cState.mu.Lock()
+		cState.startAt = time.Now()
+		cState.mu.Unlock()
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -7558,15 +7562,30 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 }
 
 // postReviewComment posts review output as a comment on the PR/MR.
+// body is written to a temp file to avoid ARG_MAX limits on long review outputs.
 func postReviewComment(prURL, body string) error {
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %w", err)
 	}
+
+	tmpFile, err := os.CreateTemp("", "tetora-review-*.md")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString(body); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
 	host := strings.ToLower(u.Host)
 	switch {
 	case strings.Contains(host, "github"):
-		out, err := exec.Command("gh", "pr", "comment", prURL, "--body", body).CombinedOutput()
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
 		}
@@ -7585,7 +7604,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body="+body).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}

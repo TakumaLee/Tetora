@@ -11687,6 +11687,9 @@ async function submitReview(e) {
     const secs = Math.round((result.durationMs || 0) / 1000);
     if (result.status === 'ok') {
       alert(`Review complete ($${cost}, ${secs}s)\n\n${result.output || '(no output)'}`);
+      if (result.comment_error) {
+        alert(`Warning: review completed but failed to post comment:\n${result.comment_error}`);
+      }
     } else {
       alert(`Review failed: ${result.error || 'unknown error'}`);
     }
