@@ -7655,17 +7655,30 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 // glabDiffsToUnified converts GitLab /diffs API JSON into a unified diff string.
 func glabDiffsToUnified(data []byte) (string, error) {
 	var diffs []struct {
-		Diff    string `json:"diff"`
-		NewPath string `json:"new_path"`
-		OldPath string `json:"old_path"`
+		Diff        string `json:"diff"`
+		NewPath     string `json:"new_path"`
+		OldPath     string `json:"old_path"`
+		NewFile     bool   `json:"new_file"`
+		DeletedFile bool   `json:"deleted_file"`
 	}
 	if err := json.Unmarshal(data, &diffs); err != nil {
 		return "", err
 	}
 	var buf strings.Builder
 	for _, d := range diffs {
-		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n", d.OldPath, d.NewPath, d.OldPath, d.NewPath)
+		oldHeader := "a/" + d.OldPath
+		if d.NewFile {
+			oldHeader = "/dev/null"
+		}
+		newHeader := "b/" + d.NewPath
+		if d.DeletedFile {
+			newHeader = "/dev/null"
+		}
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", d.OldPath, d.NewPath, oldHeader, newHeader)
 		buf.WriteString(d.Diff)
+		if !strings.HasSuffix(d.Diff, "\n") {
+			buf.WriteByte('\n')
+		}
 	}
 	return buf.String(), nil
 }
@@ -7709,7 +7722,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
