@@ -5137,6 +5137,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
+		truncated = sanitizeDiff(truncated)
 
 		prCtx := fetchPRContext(r.Context(), req.PRURL) // best-effort; errors logged internally
 
@@ -5162,12 +5163,13 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
 
 		task := Task{
-			Name:           fmt.Sprintf("review:%s", req.PRURL),
-			Prompt:         promptBuf.String(),
-			Model:          model,
-			Agent:          agent,
-			Source:         "review",
-			AllowDangerous: true, // diff content is untrusted text; pattern matches inside it are false positives
+			Name:   fmt.Sprintf("review:%s", req.PRURL),
+			Prompt: promptBuf.String(),
+			Model:  model,
+			Agent:  agent,
+			Source: "review",
+			// AllowDangerous left false: sanitizeDiff already neutralized
+			// dangerous-ops patterns in the diff before prompt injection.
 		}
 		fillDefaults(cfg, &task)
 		task.ClientID = clientID
@@ -7479,53 +7481,6 @@ func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
 	return projectPath, mrIID, true
 }
 
-// fetchPRMeta fetches the title and description of a PR/MR for language detection.
-// Returns empty strings on failure (non-fatal — diff can still proceed).
-func fetchPRMeta(prURL string) (title, body string, err error) {
-	u, parseErr := url.Parse(prURL)
-	if parseErr != nil {
-		return "", "", parseErr
-	}
-	if err := validateReviewHost(u.Host); err != nil {
-		return "", "", err
-	}
-	host := strings.ToLower(u.Host)
-	switch {
-	case strings.Contains(host, "github"):
-		out, cmdErr := exec.Command("gh", "pr", "view", prURL, "--json", "title,body").CombinedOutput()
-		if cmdErr != nil {
-			return "", "", nil
-		}
-		var meta struct {
-			Title string `json:"title"`
-			Body  string `json:"body"`
-		}
-		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
-			return "", "", nil
-		}
-		return meta.Title, meta.Body, nil
-	case strings.Contains(host, "gitlab"):
-		projectPath, mrIID, ok := parseGitLabMRPath(u)
-		if !ok {
-			return "", "", nil
-		}
-		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s", url.PathEscape(projectPath), mrIID)
-		out, cmdErr := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
-		if cmdErr != nil {
-			return "", "", nil
-		}
-		var meta struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-		}
-		if jsonErr := json.Unmarshal(out, &meta); jsonErr != nil {
-			return "", "", nil
-		}
-		return meta.Title, meta.Description, nil
-	}
-	return "", "", nil
-}
-
 // fetchReviewDiff fetches the diff of a PR/MR URL using gh or glab.
 // Returns (diff, kind, err) where kind is "PR" or "MR".
 func fetchReviewDiff(prURL string) (string, string, error) {
@@ -7722,7 +7677,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
@@ -7744,6 +7699,22 @@ func validateReviewHost(host string) error {
 		return nil
 	}
 	return fmt.Errorf("untrusted review host %q: only github.com and gitlab.com (and their subdomains) are allowed", host)
+}
+
+// sanitizeDiff inserts a zero-width non-joiner (U+200C) into each substring
+// of diff that matches a dangerousOpsPattern, breaking the regex match.
+// This lets the dangerous-ops guard run on the full review prompt without
+// flagging code-under-review as executable instructions.
+func sanitizeDiff(diff string) string {
+	for _, p := range dangerousOpsPatterns {
+		diff = p.pattern.ReplaceAllStringFunc(diff, func(m string) string {
+			if len(m) == 0 {
+				return m
+			}
+			return m[:1] + "‌" + m[1:] // break word boundary / \s patterns
+		})
+	}
+	return diff
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.
