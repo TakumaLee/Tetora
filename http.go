@@ -5107,11 +5107,6 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cState.startAt = time.Now()
 		cState.mu.Unlock()
 		defer cancel()
-		defer func() {
-			cState.mu.Lock()
-			cState.startAt = time.Time{} // clear so /status doesn't show stale elapsed time
-			cState.mu.Unlock()
-		}()
 
 		agent := req.Agent
 		if agent == "" {
@@ -5192,7 +5187,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
-				if commentErr := postReviewComment(r.Context(), req.PRURL, tr.Output); commentErr != nil {
+				if commentErr := postReviewComment(context.Background(), req.PRURL, tr.Output); commentErr != nil {
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
@@ -7607,6 +7602,9 @@ func postReviewComment(ctx context.Context, prURL, body string) error {
 		}
 		if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
 			mrIID = mrIID[:i]
+		}
+		if _, err := strconv.Atoi(mrIID); err != nil {
+			return fmt.Errorf("invalid MR IID %q: not numeric", mrIID)
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
