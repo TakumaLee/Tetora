@@ -5107,6 +5107,11 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cState.startAt = time.Now()
 		cState.mu.Unlock()
 		defer cancel()
+		defer func() {
+			cState.mu.Lock()
+			cState.startAt = time.Time{} // clear so /status doesn't show stale elapsed time
+			cState.mu.Unlock()
+		}()
 
 		agent := req.Agent
 		if agent == "" {
@@ -5187,7 +5192,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
-				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+				if commentErr := postReviewComment(r.Context(), req.PRURL, tr.Output); commentErr != nil {
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
@@ -5216,7 +5221,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		cancelFn()
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"cancelling"}`))
+		w.Write([]byte(`{"status":"cancelling","note":"cancels the most recently started in-flight review only"}`))
 	})
 
 	// --- Cancel single task ---
@@ -7560,7 +7565,8 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 
 // postReviewComment posts review output as a comment on the PR/MR.
 // body is written to a temp file to avoid ARG_MAX limits on long review outputs.
-func postReviewComment(prURL, body string) error {
+// ctx is used to enforce a timeout; callers should pass r.Context() or a derived context.
+func postReviewComment(ctx context.Context, prURL, body string) error {
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %w", err)
@@ -7579,10 +7585,13 @@ func postReviewComment(prURL, body string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	host := strings.ToLower(u.Host)
 	switch {
 	case strings.Contains(host, "github"):
-		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
+		out, err := exec.CommandContext(cmdCtx, "gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
 		}
@@ -7601,7 +7610,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
