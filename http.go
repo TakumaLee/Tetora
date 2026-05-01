@@ -7627,6 +7627,7 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		OldPath     string `json:"old_path"`
 		NewFile     bool   `json:"new_file"`
 		DeletedFile bool   `json:"deleted_file"`
+		TooLarge    bool   `json:"too_large"`
 	}
 	if err := json.Unmarshal(data, &diffs); err != nil {
 		return "", err
@@ -7640,6 +7641,11 @@ func glabDiffsToUnified(data []byte) (string, error) {
 			return r
 		}, p)
 	}
+	if len(diffs) == 100 {
+		// GitLab caps per_page at 100; hitting the cap means the MR likely has
+		// more files that are not included here.
+		buf.WriteString("# WARNING: diff truncated — MR has 100+ files, only first 100 shown\n")
+	}
 	for _, d := range diffs {
 		oldPath := sanitizePath(d.OldPath)
 		newPath := sanitizePath(d.NewPath)
@@ -7652,9 +7658,13 @@ func glabDiffsToUnified(data []byte) (string, error) {
 			newHeader = "/dev/null"
 		}
 		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", oldPath, newPath, oldHeader, newHeader)
-		buf.WriteString(d.Diff)
-		if !strings.HasSuffix(d.Diff, "\n") {
-			buf.WriteByte('\n')
+		if d.TooLarge || d.Diff == "" {
+			buf.WriteString("@@ -0,0 +0,0 @@ (binary or oversized file; diff not available)\n")
+		} else {
+			buf.WriteString(d.Diff)
+			if !strings.HasSuffix(d.Diff, "\n") {
+				buf.WriteByte('\n')
+			}
 		}
 	}
 	return buf.String(), nil
