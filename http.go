@@ -7517,7 +7517,7 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		if !ok {
 			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
-		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs?per_page=100",
 			url.PathEscape(projectPath), mrIID)
 		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
 		if err != nil {
