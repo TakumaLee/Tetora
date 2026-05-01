@@ -7601,7 +7601,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-f", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
