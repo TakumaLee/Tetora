@@ -87,8 +87,7 @@ async function submitReview(e) {
         results.push(`✗ ${prUrl}: another dispatch is running — aborted`);
         break;
       }
-      results.push(`✗ ${prUrl}: ${msg}`);
-    }
+      results.push(`✗ ${prUrl}: ${msg}`);    }
   }
 
   closeReviewModal();

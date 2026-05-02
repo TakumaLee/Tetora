@@ -5094,10 +5094,16 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 
+		if skip, reason := checkReviewGate(r.Context(), req.PRURL); skip {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"status": "skipped", "message": reason})
+			return
+		}
+
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Reviews skip the cState.active gate (multiple reviews can run concurrently,
+// Reviews skip the cState.active gate (multiple reviews can run concurrently,
 		// capped by cSem). cState.cancel is still wired so /cancel can abort the most
 		// recently started review; earlier concurrent reviews are not cancellable via
 		// the per-client cancel signal.
@@ -5105,15 +5111,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
 		cState.mu.Lock()
 		cState.cancel = cancel
-		// &cancel is a pointer to the heap-escaped CancelFunc; taking the address of
-		// a local var forces heap allocation in Go. Pointer identity (*context.CancelFunc)
-		// is the only way to distinguish goroutines here since func values cannot be
-		// compared in Go (except to nil).
 		cState.cancelPtr = &cancel
+		// startAt tracks the most recently started review, not the first concurrent one.
+		cState.startAt = time.Now()
 		cState.mu.Unlock()
 		defer func() {
 			cState.mu.Lock()
-			// Clear only if no newer review has overwritten cState.cancel.
 			if cState.cancelPtr == &cancel {
 				cState.cancel = nil
 				cState.cancelPtr = nil
@@ -5187,10 +5190,6 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
 		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
-		// startAt must be set manually here because dispatch() only sets it when manageActive=true.
-		cState.mu.Lock()
-		cState.startAt = time.Now()
-		cState.mu.Unlock()
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -5209,8 +5208,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
-				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
-					log.Warn("review: comment post failed", "url", req.PRURL, "error", commentErr)
+				if commentErr := postReviewComment(context.Background(), req.PRURL, tr.Output); commentErr != nil {
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
@@ -5239,7 +5237,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		}
 		cancelFn()
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"cancelling"}`))
+		w.Write([]byte(`{"status":"cancelling","note":"cancels the most recently started in-flight review only"}`))
 	})
 
 	// --- Cancel single task ---
@@ -7535,6 +7533,62 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	}
 }
 
+// checkReviewGate returns (true, reason) if the review should be skipped.
+// For GitHub PRs: skip when the last comment is not from the PR author and
+// no commit is newer than that comment — meaning the author hasn't responded yet.
+// Best-effort: on any fetch/parse error, returns (false, "") to allow review.
+func checkReviewGate(ctx context.Context, prURL string) (bool, string) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return false, ""
+	}
+	if !strings.Contains(strings.ToLower(u.Hostname()), "github") {
+		return false, ""
+	}
+
+	type gateView struct {
+		Author struct{ Login string } `json:"author"`
+		Comments []struct {
+			Author    struct{ Login string } `json:"author"`
+			CreatedAt time.Time             `json:"createdAt"`
+		} `json:"comments"`
+		Commits []struct {
+			CommittedDate time.Time `json:"committedDate"`
+		} `json:"commits"`
+	}
+
+	tCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(tCtx, "gh", "pr", "view", prURL, "--json", "author,comments,commits").Output()
+	if err != nil {
+		log.Warn("checkReviewGate: gh pr view", "error", err)
+		return false, ""
+	}
+	var view gateView
+	if err := json.Unmarshal(out, &view); err != nil {
+		log.Warn("checkReviewGate: parse", "error", err)
+		return false, ""
+	}
+	if len(view.Comments) == 0 {
+		return false, ""
+	}
+
+	last := view.Comments[len(view.Comments)-1]
+	if last.Author.Login == view.Author.Login {
+		return false, ""
+	}
+	// Allow if any commit is newer than the last comment (author pushed new code).
+	for _, c := range view.Commits {
+		if c.CommittedDate.After(last.CreatedAt) {
+			return false, ""
+		}
+	}
+	return true, fmt.Sprintf(
+		"last comment is from %s, not PR author %s, and no new commits since — waiting for author to respond",
+		last.Author.Login, view.Author.Login,
+	)
+}
+
 // fetchPRContext fetches PR title, description, and existing comments/reviews
 // from GitHub. Returns a formatted string for inclusion in the review prompt,
 // so the agent is aware of already-discussed issues.
@@ -7680,8 +7734,9 @@ func glabDiffsToUnified(data []byte) (string, error) {
 
 // postReviewComment posts review output as a comment on the PR/MR.
 // body is written to a temp file to avoid ARG_MAX limits on long review outputs.
-func postReviewComment(prURL, body string) error {
-	u, err := url.Parse(prURL)
+// ctx enforces a timeout. Callers pass context.Background() (not r.Context()) so
+// the comment is posted even if the HTTP client has already disconnected.
+func postReviewComment(ctx context.Context, prURL, body string) error {	u, err := url.Parse(prURL)
 	if err != nil {
 		return fmt.Errorf("invalid url: %w", err)
 	}
@@ -7702,10 +7757,13 @@ func postReviewComment(prURL, body string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
-		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
+		out, err := exec.CommandContext(cmdCtx, "gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
 		}
@@ -7717,7 +7775,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
@@ -7752,7 +7810,7 @@ func sanitizeDiff(diff string) string {
 				return m
 			}
 			_, size := utf8.DecodeRuneInString(m)
-			return m[:size] + "‌" + m[size:] // break word boundary / \s patterns
+			return m[:size] + "\u200c" + m[size:] // break word boundary / \s patterns
 		})
 	}
 	return diff
