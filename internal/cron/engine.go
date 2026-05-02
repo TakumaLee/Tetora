@@ -14,7 +14,6 @@ import (
 	"tetora/internal/audit"
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
-	"tetora/internal/health"
 	"tetora/internal/history"
 	"tetora/internal/log"
 	"tetora/internal/quiet"
@@ -490,7 +489,7 @@ func (ce *Engine) checkDisk() (status string, freeGB float64) {
 	if ce.cfg.BaseDir == "" {
 		return "ok", 0
 	}
-	free := health.DiskFreeBytes(ce.cfg.BaseDir)
+	free := diskFreeBytes(ce.cfg.BaseDir)
 	freeGB = float64(free) / (1024 * 1024 * 1024)
 	freeMB := freeGB * 1024
 	switch {

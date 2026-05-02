@@ -1,126 +1,26 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
-
-	"tetora/internal/backup"
 )
 
-// CmdBackup implements `tetora backup [--output PATH]`.
-func CmdBackup(args []string) {
-	fs := flag.NewFlagSet("backup", flag.ExitOnError)
-	output := fs.String("output", "", "output path for backup file (default: ~/.tetora/backups/tetora-backup-TIMESTAMP.tar.gz)")
-	fs.Parse(args) //nolint:errcheck
-
-	baseDir := FindBaseDir()
-	outputPath := *output
-	if outputPath == "" {
-		backupDir := filepath.Join(baseDir, "backups")
-		os.MkdirAll(backupDir, 0o755) //nolint:errcheck
-		ts := time.Now().Format("20060102-150405")
-		outputPath = filepath.Join(backupDir, fmt.Sprintf("tetora-backup-%s.tar.gz", ts))
-	}
-
-	fmt.Printf("Creating backup of %s ...\n", baseDir)
-
-	if err := backup.Create(baseDir, outputPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	info, err := os.Stat(outputPath)
-	if err == nil {
-		fmt.Printf("Backup created: %s (%s)\n", outputPath, FormatSize(info.Size()))
-	} else {
-		fmt.Printf("Backup created: %s\n", outputPath)
-	}
-
-	entries, err := backup.ListContents(outputPath)
-	if err == nil {
-		fmt.Printf("Files: %d\n", len(entries))
-	}
+// CmdBackup — backup feature archived.
+func CmdBackup(_ []string) {
+	fmt.Fprintln(os.Stderr, "backup: not available (feature archived)")
+	os.Exit(1)
 }
 
-// CmdRestore implements `tetora restore <backup-file>`.
-func CmdRestore(args []string) {
-	if len(args) == 0 {
-		fmt.Println("Usage: tetora restore <backup-file>")
-		fmt.Println()
-		fmt.Println("Restores a tetora backup. A pre-restore backup is created automatically.")
-		return
-	}
-
-	backupPath := args[0]
-
-	if _, err := os.Stat(backupPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: backup file not found: %s\n", backupPath)
-		os.Exit(1)
-	}
-
-	entries, err := backup.ListContents(backupPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid backup: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Backup contains %d files:\n", len(entries))
-	for _, e := range entries {
-		fmt.Printf("  %s\n", e)
-	}
-	fmt.Println()
-
-	targetDir := FindBaseDir()
-	fmt.Printf("Restoring to %s ...\n", targetDir)
-
-	if err := backup.Restore(backupPath, targetDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: restore failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Restore complete.")
-	fmt.Println("Note: Restart the tetora daemon to pick up restored config.")
+// CmdRestore — restore feature archived.
+func CmdRestore(_ []string) {
+	fmt.Fprintln(os.Stderr, "restore: not available (feature archived)")
+	os.Exit(1)
 }
 
-// CmdBackupList implements `tetora backup list`.
-func CmdBackupList(args []string) {
-	baseDir := FindBaseDir()
-	backupDir := filepath.Join(baseDir, "backups")
-
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		fmt.Println("No backups found.")
-		return
-	}
-
-	found := 0
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if len(name) < 7 || name[len(name)-7:] != ".tar.gz" {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		fmt.Printf("  %s  %s  %s\n",
-			info.ModTime().Format("2006-01-02 15:04:05"),
-			FormatSize(info.Size()),
-			filepath.Join(backupDir, name))
-		found++
-	}
-
-	if found == 0 {
-		fmt.Println("No backups found.")
-	} else {
-		fmt.Printf("\n%d backup(s) in %s\n", found, backupDir)
-	}
+// CmdBackupList — backup list feature archived.
+func CmdBackupList(_ []string) {
+	fmt.Fprintln(os.Stderr, "backup list: not available (feature archived)")
 }
 
 // FindBaseDir returns the tetora base directory (~/.tetora).

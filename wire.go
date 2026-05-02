@@ -45,7 +45,6 @@ import (
 	"tetora/internal/db"
 	"tetora/internal/estimate"
 	
-	"tetora/internal/health"
 	"tetora/internal/history"
 	"tetora/internal/knowledge"
 	"tetora/internal/log"
@@ -3321,7 +3320,7 @@ func (s *slaChecker) tick(ctx context.Context) {
 }
 
 func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startTime time.Time) map[string]any {
-	input := health.CheckInput{
+	input := healthCheckInput{
 		Version:      tetoraVersion,
 		StartTime:    startTime,
 		BaseDir:      cfg.BaseDir,
@@ -3347,10 +3346,10 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 		input.DBPath = cfg.HistoryDB
 	}
 
-	providers := map[string]health.ProviderInfo{}
+	providers := map[string]healthProviderInfo{}
 	if cfg.Runtime.ProviderRegistry != nil {
 		for name := range cfg.Providers {
-			pi := health.ProviderInfo{
+			pi := healthProviderInfo{
 				Type:   cfg.Providers[name].Type,
 				Status: "ok",
 			}
@@ -3367,7 +3366,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 			providers[name] = pi
 		}
 		if _, exists := providers["claude"]; !exists {
-			pi := health.ProviderInfo{Type: "claude-cli", Status: "ok"}
+			pi := healthProviderInfo{Type: "claude-cli", Status: "ok"}
 			if cfg.Runtime.CircuitRegistry != nil {
 				cb := cfg.Runtime.CircuitRegistry.(*circuit.Registry).Get("claude")
 				st := cb.State()
@@ -3395,7 +3394,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 				enabled++
 			}
 		}
-		input.Cron = &health.CronSummary{Total: len(jobs), Enabled: enabled, Running: running}
+		input.Cron = &healthCronSummary{Total: len(jobs), Enabled: enabled, Running: running}
 	}
 
 	if cfg.Runtime.CircuitRegistry != nil {
@@ -3403,25 +3402,25 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 	}
 
 	if cfg.OfflineQueue.Enabled && cfg.HistoryDB != "" {
-		input.Queue = &health.QueueInfo{
+		input.Queue = &healthQueueInfo{
 			Pending: countPendingQueue(cfg.HistoryDB),
 			Max:     cfg.OfflineQueue.MaxItemsOrDefault(),
 		}
 	}
 
-	return health.DeepCheck(input)
+	return healthDeepCheck(input)
 }
 
 func degradeStatus(current, proposed string) string {
-	return health.DegradeStatus(current, proposed)
+	return healthDegradeStatus(current, proposed)
 }
 
 func diskInfo(path string) map[string]any {
-	return health.DiskInfo(path)
+	return healthDiskInfo(path)
 }
 
 func diskFreeBytes(path string) uint64 {
-	return health.DiskFreeBytes(path)
+	return rootDiskFreeBytes(path)
 }
 
 // ============================================================

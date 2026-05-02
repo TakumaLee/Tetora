@@ -27,7 +27,6 @@ import (
 	"unicode/utf8"
 
 	"tetora/internal/audit"
-	"tetora/internal/backup"
 	tetoraConfig "tetora/internal/config"
 	
 	"tetora/internal/cli"
@@ -3176,40 +3175,9 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		json.NewEncoder(w).Encode(map[string]any{"results": results})
 	})
 
-	// --- Backup ---
+	// --- Backup (archived) ---
 	mux.HandleFunc("/backup", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
-			return
-		}
-
-		audit.Log(cfg.HistoryDB, "backup.download", "http", "", clientIP(r))
-
-		// Create temp backup.
-		tmpFile, err := os.CreateTemp("", "tetora-backup-*.tar.gz")
-		if err != nil {
-			jsonError(w, "create temp: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		tmpPath := tmpFile.Name()
-		tmpFile.Close()
-		defer os.Remove(tmpPath)
-
-		if err := backup.Create(cfg.BaseDir, tmpPath); err != nil {
-			jsonError(w, "create backup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		data, err := os.ReadFile(tmpPath)
-		if err != nil {
-			jsonError(w, "read backup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/gzip")
-		w.Header().Set("Content-Disposition", "attachment; filename=tetora-backup.tar.gz")
-		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Write(data)
+		http.Error(w, `{"error":"backup not available"}`, http.StatusNotImplemented)
 	})
 
 	// Dashboard login.
