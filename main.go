@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"tetora/internal/audit"
-	"tetora/internal/automation/briefing"
-	"tetora/internal/automation/insights"
 	"tetora/internal/circuit"
 	"tetora/internal/cli"
 	"tetora/internal/completion"
@@ -458,40 +456,10 @@ func main() {
 			initHumanGateTable(cfg.HistoryDB)
 		}
 
-		// --- P23.1: User Profile & Emotional Memory ---
-		if cfg.UserProfile.Enabled && cfg.HistoryDB != "" {
-			if err := initUserProfileDB(cfg.HistoryDB); err != nil {
-				log.Warn("init user_profiles failed", "error", err)
-			} else {
-				app.UserProfile = newUserProfileService(cfg)
-				log.Info("user profile service initialized", "sentiment", cfg.UserProfile.SentimentEnabled)
-			}
-		}
-
 		// --- P23.7: Reliability & Operations --- Init tables.
 		if cfg.HistoryDB != "" {
 			if err := initOpsDB(cfg.HistoryDB); err != nil {
 				log.Warn("init ops tables failed", "error", err)
-			}
-		}
-
-		// --- P23.4: Financial Tracking ---
-		if cfg.Finance.Enabled && cfg.HistoryDB != "" {
-			if err := initFinanceDB(cfg.HistoryDB); err != nil {
-				log.Warn("init finance tables failed", "error", err)
-			} else {
-				app.Finance = newFinanceService(cfg)
-				log.Info("finance service initialized", "defaultCurrency", cfg.Finance.DefaultCurrencyOrTWD())
-			}
-		}
-
-		// --- P23.2: Task Management ---
-		if cfg.TaskManager.Enabled && cfg.HistoryDB != "" {
-			if err := initTaskManagerDB(cfg.HistoryDB); err != nil {
-				log.Warn("init task_manager tables failed", "error", err)
-			} else {
-				app.TaskManager = newTaskManagerService(cfg)
-				log.Info("task manager initialized", "defaultProject", cfg.TaskManager.DefaultProjectOrInbox())
 			}
 		}
 
@@ -505,103 +473,9 @@ func main() {
 			}
 		}
 
-		// --- P23.5: Media Control ---
-		if cfg.Spotify.Enabled {
-			app.Spotify = newSpotifyService(cfg)
-			log.Info("spotify service initialized", "market", cfg.Spotify.MarketOrDefault())
-		}
-		if cfg.Podcast.Enabled && cfg.HistoryDB != "" {
-			if err := initPodcastDB(cfg.HistoryDB); err != nil {
-				log.Warn("init podcast tables failed", "error", err)
-			} else {
-				app.Podcast = newPodcastService(cfg.HistoryDB)
-				log.Info("podcast service initialized")
-			}
-		}
-
-		// --- P23.6: Multi-User / Family Mode ---
-		if cfg.Family.Enabled && cfg.HistoryDB != "" {
-			if err := initFamilyDB(cfg.HistoryDB); err != nil {
-				log.Warn("init family tables failed", "error", err)
-			} else {
-				svc, err := newFamilyService(cfg, cfg.Family)
-				if err != nil {
-					log.Warn("init family service failed", "error", err)
-				} else {
-					app.Family = svc
-					log.Info("family mode initialized", "maxUsers", cfg.Family.MaxUsersOrDefault())
-				}
-			}
-		}
-
-		// --- P24.2: Contact & Social Graph ---
-		if cfg.HistoryDB != "" {
-			if err := initContactsDB(cfg.HistoryDB); err != nil {
-				log.Warn("init contacts tables failed", "error", err)
-			} else {
-				app.Contacts = newContactsService(cfg)
-				log.Info("contacts service initialized")
-			}
-		}
-
-		// --- P24.3: Life Insights Engine ---
-		if cfg.HistoryDB != "" {
-			if err := initInsightsDB(cfg.HistoryDB); err != nil {
-				log.Warn("init insights tables failed", "error", err)
-			} else {
-				app.Insights = newInsightsEngine(cfg)
-				log.Info("insights engine initialized")
-			}
-		}
-
 		// --- P24.4: Smart Scheduling ---
 		app.Scheduling = newSchedulingService(cfg)
 		log.Info("scheduling service initialized")
-
-		// --- P24.5: Habit & Wellness Tracking ---
-		if cfg.HistoryDB != "" {
-			if err := initHabitsDB(cfg.HistoryDB); err != nil {
-				log.Warn("init habits tables failed", "error", err)
-			} else {
-				app.Habits = newHabitsService(cfg)
-				log.Info("habits service initialized")
-			}
-		}
-
-		// --- P24.6: Goal Planning & Autonomy ---
-		if cfg.HistoryDB != "" {
-			if err := initGoalsDB(cfg.HistoryDB); err != nil {
-				log.Warn("init goals tables failed", "error", err)
-			} else {
-				app.Goals = newGoalsService(cfg)
-				log.Info("goals service initialized")
-			}
-		}
-
-		// --- P29.2: Time Tracking ---
-		if cfg.TimeTracking.Enabled && cfg.HistoryDB != "" {
-			if err := initTimeTrackingDB(cfg.HistoryDB); err != nil {
-				log.Warn("init time_entries failed", "error", err)
-			} else {
-				app.TimeTracking = newTimeTrackingService(cfg)
-				log.Info("time tracking initialized")
-			}
-		}
-
-		// --- P29.0: Lifecycle Automation ---
-		if cfg.Lifecycle.Enabled {
-			app.Lifecycle = newLifecycleEngine(cfg)
-			log.Info("lifecycle engine initialized",
-				"autoHabitSuggest", cfg.Lifecycle.AutoHabitSuggest,
-				"autoInsightAction", cfg.Lifecycle.AutoInsightAction,
-				"autoBirthdayRemind", cfg.Lifecycle.AutoBirthdayRemind)
-		}
-
-		// --- P24.7: Morning Briefing & Evening Wrap ---
-		if cfg.HistoryDB != "" {
-			app.Briefing = newBriefingService(cfg)
-			log.Info("briefing service initialized")
-		}
 
 		// Warn about incoming webhooks without secrets.
 		for name, wh := range cfg.IncomingWebhooks {
@@ -1059,23 +933,7 @@ func main() {
 			triggerEngine.Start(ctx)
 		}
 
-		// --- P19.3: Smart Reminders --- Initialize reminder engine.
-		if cfg.Reminders.Enabled && cfg.HistoryDB != "" {
-			if err := initReminderDB(cfg.HistoryDB); err != nil {
-				log.Warn("init reminders table failed", "error", err)
-			} else {
-				app.Reminder = newReminderEngine(cfg, notifyFn)
-				app.Reminder.Start()
-				log.Info("reminder engine started", "checkInterval", cfg.Reminders.CheckIntervalOrDefault().String(), "maxPerUser", cfg.Reminders.MaxPerUserOrDefault())
-			}
-		}
 
-		// --- P19.4: Notes/Obsidian Integration --- Initialize notes service.
-		if cfg.Notes.Enabled {
-			notesSvc := newNotesService(cfg)
-			setGlobalNotesService(notesSvc)
-			log.Info("notes service initialized", "vault", cfg.Notes.VaultPathResolved(cfg.BaseDir))
-		}
 
 		// --- P19.5: Unified Presence/Typing Indicators --- Initialize presence manager.
 		// Note: Telegram bot is registered after creation below.
@@ -1103,36 +961,9 @@ func main() {
 		}
 		log.Info("presence manager initialized", "setters", len(app.Presence.setters))
 
-		// --- P20.1: Home Assistant --- Initialize HA service.
-		if cfg.HomeAssistant.Enabled && cfg.HomeAssistant.BaseURL != "" {
-			app.HA = newHAService(cfg.HomeAssistant)
-			if cfg.HomeAssistant.WebSocket {
-				go app.HA.StartEventListener(ctx, &haEventPublisherAdapter{broker: state.broker})
-			}
-			log.Info("home assistant enabled", "baseUrl", cfg.HomeAssistant.BaseURL)
-		}
-
 		// --- P20.4: Device Actions --- Ensure output dir exists.
 		if cfg.Device.Enabled {
 			tools.EnsureDeviceOutputDir(cfg)
-		}
-
-		// --- P19.1: Gmail Integration ---
-		if cfg.Gmail.Enabled {
-			app.Gmail = newGmailService(cfg)
-			log.Info("gmail integration enabled")
-		}
-
-		// --- P19.2: Google Calendar Integration ---
-		if cfg.Calendar.Enabled {
-			app.Calendar = newCalendarService(cfg)
-			log.Info("calendar integration enabled")
-		}
-
-		// --- P20.3: Twitter/X Integration ---
-		if cfg.Twitter.Enabled {
-			app.Twitter = newTwitterService(cfg)
-			log.Info("twitter integration enabled")
 		}
 
 		// --- P21.6: Chrome Extension Relay ---
@@ -1359,10 +1190,6 @@ func main() {
 			srvInstance.triggerEngine.Stop()
 		}
 
-		// --- P19.3: Smart Reminders --- Stop reminder engine.
-		if app.Reminder != nil {
-			app.Reminder.Stop()
-		}
 
 		// Stop cron scheduler (waits for running jobs up to 30s).
 		cron.Stop()
@@ -1566,117 +1393,37 @@ type App struct {
 	Cfg *Config
 
 	// Life services
-	UserProfile *UserProfileService
-	Finance     *FinanceService
-	TaskManager *TaskManagerService
 	FileManager *storage.Service
-	Spotify     *SpotifyService
-	Podcast     *PodcastService
-	Family      *FamilyService
-	Contacts    *ContactsService
-	Insights    *insights.Engine
 	Scheduling  *scheduling.Service
-	Habits      *HabitsService
-	Goals       *GoalsService
-	Briefing    *briefing.Service
 
 	// Integration services
 	OAuth    *OAuthManager
-	Gmail    *GmailService
-	Calendar *CalendarService
-	Twitter  *TwitterService
-	HA       *HAService
-	Drive    *DriveService
-	Dropbox  *DropboxService
 	Browser  *BrowserRelay
 	IMessage *imessagebot.Bot
-
-	// P29 services
-	Lifecycle    *LifecycleEngine
-	TimeTracking *TimeTrackingService
 
 	// Infrastructure
 	SpawnTracker        *spawnTracker
 	JudgeCache          *judgeCache
 	ImageGenLimiter     *tools.ImageGenLimiter
 	Presence            *presenceManager
-	Reminder            *ReminderEngine
 }
 
 // SyncToGlobals sets all global singletons from App fields.
-// This maintains backwards compatibility with existing tool handlers and HTTP routes.
 func (a *App) SyncToGlobals() {
-	if a.UserProfile != nil {
-		globalUserProfileService = a.UserProfile
-	}
-	if a.Finance != nil {
-		globalFinanceService = a.Finance
-	}
-	if a.TaskManager != nil {
-		globalTaskManager = a.TaskManager
-	}
 	if a.FileManager != nil {
 		globalFileManager = a.FileManager
-	}
-	if a.Spotify != nil {
-		globalSpotifyService = a.Spotify
-	}
-	if a.Podcast != nil {
-		globalPodcastService = a.Podcast
-	}
-	if a.Family != nil {
-		globalFamilyService = a.Family
-	}
-	if a.Contacts != nil {
-		globalContactsService = a.Contacts
-	}
-	if a.Insights != nil {
-		globalInsightsEngine = a.Insights
 	}
 	if a.Scheduling != nil {
 		globalSchedulingService = a.Scheduling
 	}
-	if a.Habits != nil {
-		globalHabitsService = a.Habits
-	}
-	if a.Goals != nil {
-		globalGoalsService = a.Goals
-	}
-	if a.Briefing != nil {
-		globalBriefingService = a.Briefing
-	}
 	if a.OAuth != nil {
 		globalOAuthManager = a.OAuth
-	}
-	if a.Gmail != nil {
-		globalGmailService = a.Gmail
-	}
-	if a.Calendar != nil {
-		globalCalendarService = a.Calendar
-	}
-	if a.Twitter != nil {
-		globalTwitterService = a.Twitter
-	}
-	if a.HA != nil {
-		globalHAService = a.HA
-	}
-	if a.Drive != nil {
-		globalDriveService = a.Drive
-	}
-	if a.Dropbox != nil {
-		globalDropboxService = a.Dropbox
 	}
 	if a.Browser != nil {
 		globalBrowserRelay = a.Browser
 	}
 	if a.IMessage != nil {
 		globalIMessageBot = a.IMessage
-	}
-	if a.Lifecycle != nil {
-		globalLifecycleEngine = a.Lifecycle
-	}
-	if a.TimeTracking != nil {
-		globalTimeTracking = a.TimeTracking
 	}
 	if a.SpawnTracker != nil {
 		globalSpawnTracker = a.SpawnTracker
@@ -1689,9 +1436,6 @@ func (a *App) SyncToGlobals() {
 	}
 	if a.Presence != nil {
 		globalPresence = a.Presence
-	}
-	if a.Reminder != nil {
-		globalReminderEngine = a.Reminder
 	}
 }
 
@@ -3329,11 +3073,11 @@ func getSystemHealth(cfg *Config) map[string]any {
 		"teams":     cfg.Teams.Enabled,
 		"signal":    cfg.Signal.Enabled,
 		"gchat":     cfg.GoogleChat.Enabled,
-		"gmail":     cfg.Gmail.Enabled,
+		"gmail":     false,
 		"calendar":  cfg.Calendar.Enabled,
-		"twitter":   cfg.Twitter.Enabled,
+		"twitter":   false,
 		"imessage":  cfg.IMessage.Enabled,
-		"homeassistant": cfg.HomeAssistant.Enabled,
+		"homeassistant": false,
 	}
 	health["integrations"] = integrations
 

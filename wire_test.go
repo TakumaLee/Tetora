@@ -28,7 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"tetora/internal/automation/insights"
 	"tetora/internal/classify"
 	"tetora/internal/cli"
 	"tetora/internal/completion"
@@ -37,7 +36,6 @@ import (
 	"tetora/internal/db"
 	"tetora/internal/estimate"
 	"tetora/internal/history"
-	"tetora/internal/integration/notes"
 	"tetora/internal/knowledge"
 	"tetora/internal/log"
 	"tetora/internal/metrics"

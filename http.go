@@ -2215,15 +2215,7 @@ func startHTTPServer(s *Server) *http.Server {
 		},
 		Revoke: func(channel, userID string) error { return pairingManager.Revoke(channel, userID) },
 	})
-	httpapi.RegisterReminderRoutes(mux, httpapi.ReminderDeps{
-		Engine:        s.app.Reminder,
-		ParseTime:     parseNaturalTime,
-		ParseCronExpr: func(expr string) (any, error) { return parseCronExpr(expr) },
-	})
 	s.registerAdminRoutes(mux)
-	httpapi.RegisterFamilyRoutes(mux, s.app.Family, func() string { return s.Cfg().HistoryDB })
-	httpapi.RegisterContactsRoutes(mux, s.app.Contacts, func() string { return s.Cfg().HistoryDB })
-	httpapi.RegisterHabitsRoutes(mux, s.app.Habits)
 	httpapi.RegisterWarRoomRoutes(mux, httpapi.WarRoomDeps{
 		WorkspaceDir: func() string { return s.Cfg().WorkspaceDir },
 		TriggerAutoUpdate: func(ctx context.Context) error {
@@ -3721,13 +3713,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		}
 
 		// Home Assistant status.
-		if !cfg.HomeAssistant.Enabled {
-			status.HomeAssistant = "not_configured"
-		} else if s.app != nil && s.app.HA != nil {
-			status.HomeAssistant = "connected"
-		} else {
-			status.HomeAssistant = "not_configured"
-		}
+		status.HomeAssistant = "not_configured"
 
 		json.NewEncoder(w).Encode(status)
 	})
@@ -3779,10 +3765,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 				"rss":           cfg.RSS.Enabled,
 				"translate":     map[string]any{"enabled": cfg.Translate.Enabled, "provider": cfg.Translate.Provider, "apiKey": maskSecret(cfg.Translate.APIKey)},
 				"imageGen":      map[string]any{"enabled": cfg.ImageGen.Enabled, "apiKey": maskSecret(cfg.ImageGen.APIKey), "model": cfg.ImageGen.Model, "dailyLimit": cfg.ImageGen.DailyLimit, "maxCostDay": cfg.ImageGen.MaxCostDay},
-				"homeAssistant": map[string]any{"enabled": cfg.HomeAssistant.Enabled, "url": cfg.HomeAssistant.BaseURL},
-				"gmail":         cfg.Gmail.Enabled,
+				"homeAssistant": false,
+				"gmail":         false,
 				"calendar":      cfg.Calendar.Enabled,
-				"twitter":       cfg.Twitter.Enabled,
+				"twitter":       false,
 				"browserRelay":  cfg.BrowserRelay.Enabled,
 				"notebookLM":    cfg.NotebookLM.Enabled,
 			},
