@@ -7466,7 +7466,7 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("invalid url: %w", err)
 	}
-	host := strings.ToLower(u.Host)
+	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
 		out, err := exec.Command("gh", "pr", "diff", prURL).CombinedOutput()
@@ -7498,7 +7498,7 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		log.Warn("fetchPRContext: parse url", "error", err)
 		return ""
 	}
-	if u.Host != "github.com" {
+	if u.Hostname() != "github.com" {
 		return ""
 	}
 
@@ -7597,7 +7597,7 @@ func postReviewComment(ctx context.Context, prURL, body string) error {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	host := strings.ToLower(u.Host)
+	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
 		out, err := exec.CommandContext(cmdCtx, "gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
@@ -7624,7 +7624,7 @@ func postReviewComment(ctx context.Context, prURL, body string) error {
 			url.PathEscape(projectPath), mrIID)
 		// --form reads @filepath as file contents (per glab api --help);
 		// -F/--field and -f/--raw-field do not support @filename syntax.
-		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
