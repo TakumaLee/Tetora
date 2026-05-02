@@ -24,6 +24,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"tetora/internal/audit"
 	"tetora/internal/backup"
@@ -5104,6 +5105,9 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
 		cState.mu.Lock()
 		cState.cancel = cancel
+		// &cancel is a pointer to the heap-escaped CancelFunc; pointer identity
+		// uniquely identifies this goroutine's cancel since Go compares func values
+		// by identity, not equality. Taking &cancel forces heap allocation.
 		cState.cancelPtr = &cancel
 		cState.mu.Unlock()
 		defer func() {
@@ -7677,7 +7681,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
@@ -7711,7 +7715,8 @@ func sanitizeDiff(diff string) string {
 			if len(m) == 0 {
 				return m
 			}
-			return m[:1] + "‌" + m[1:] // break word boundary / \s patterns
+			_, size := utf8.DecodeRuneInString(m)
+			return m[:size] + "‌" + m[size:] // break word boundary / \s patterns
 		})
 	}
 	return diff
