@@ -134,6 +134,8 @@ type Config struct {
 	DiskWarnMB            int                        `json:"diskWarnMB,omitempty"`
 	DiskBlockMB           int                        `json:"diskBlockMB,omitempty"`
 	Reflection            ReflectionConfig           `json:"reflection,omitempty"`
+	DeepMemoryExtract    DeepMemoryExtractConfig    `json:"deepMemoryExtract,omitempty"`
+	SkillEvolve          SkillEvolveConfig          `json:"skillEvolve,omitempty"`
 	NotifyIntel           NotifyIntelConfig          `json:"notifyIntel,omitempty"`
 	Trust                 TrustConfig                `json:"trust,omitempty"`
 	IncomingWebhooks      map[string]IncomingWebhookConfig `json:"incomingWebhooks,omitempty"`

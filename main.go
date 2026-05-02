@@ -1876,6 +1876,7 @@ type WorkflowTriggerConfig = config.WorkflowTriggerConfig
 type TriggerSpec = config.TriggerSpec
 type OfflineQueueConfig = config.OfflineQueueConfig
 type ReflectionConfig = config.ReflectionConfig
+type DeepMemoryExtractConfig = config.DeepMemoryExtractConfig
 type NotifyIntelConfig = config.NotifyIntelConfig
 type IncomingWebhookConfig = config.IncomingWebhookConfig
 type RetentionConfig = config.RetentionConfig

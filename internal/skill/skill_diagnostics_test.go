@@ -8,6 +8,9 @@ import (
 
 func writeSkillMD(t *testing.T, dir, content string) string {
 	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll %s: %v", dir, err)
+	}
 	path := filepath.Join(dir, "SKILL.md")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)

@@ -171,6 +171,9 @@ type Env struct {
 
 	// QuietGlobal is the shared quiet-hours state for digest queuing.
 	QuietGlobal *quiet.State
+
+	// RunSkillEvolveScan scans for high-failure-rate skills and generates LLM rewrite proposals.
+	RunSkillEvolveScan func(ctx context.Context) error
 }
 
 // --- Engine ---
@@ -761,6 +764,31 @@ func (ce *Engine) tick(ctx context.Context) {
 			continue
 		}
 
+		// Special handling for skill evolve scan.
+		if j.ID == "skill_evolve" {
+			nowLocal := now.In(j.loc)
+			if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
+				continue
+			}
+			if !j.expr.Matches(nowLocal) {
+				continue
+			}
+			if !j.lastRun.IsZero() &&
+				j.lastRun.In(j.loc).Truncate(time.Minute).Equal(nowLocal.Truncate(time.Minute)) {
+				continue
+			}
+			j.nextRun = NextRunAfter(j.expr, j.loc, nowLocal)
+			j.lastRun = now
+			go func() {
+				if ce.env.RunSkillEvolveScan != nil {
+					if err := ce.env.RunSkillEvolveScan(ctx); err != nil {
+						log.Debug("skill evolve scan error", "error", err)
+					}
+				}
+			}()
+			continue
+		}
+
 		// Special handling for backlog triage job.
 		if j.ID == "backlog-triage" {
 			nowLocal := now.In(j.loc)
@@ -1327,6 +1355,17 @@ func (ce *Engine) RunJobByID(_ context.Context, id string) error {
 	ce.mu.Unlock()
 
 	// Special-ID dispatch bypasses the generic prompt-based runJob.
+	if id == "skill_evolve" {
+		go func() {
+			if ce.env.RunSkillEvolveScan != nil {
+				if err := ce.env.RunSkillEvolveScan(ce.ctx); err != nil {
+					log.Debug("skill evolve scan error", "error", err)
+				}
+			}
+		}()
+		return nil
+	}
+
 	if id == "war_room_autoupdate" {
 		jobCtx, jobCancel := context.WithCancel(ce.ctx)
 		go func() {
@@ -1694,7 +1733,7 @@ func (ce *Engine) StartupReplay(ctx context.Context) {
 		if j.IdleMinHours > 0 || j.RequireApproval || j.Trigger == "idle" {
 			continue
 		}
-		if j.ID == "daily_notes" || j.ID == "backlog-triage" || j.ID == "war_room_autoupdate" {
+		if j.ID == "daily_notes" || j.ID == "backlog-triage" || j.ID == "war_room_autoupdate" || j.ID == "skill_evolve" {
 			continue
 		}
 

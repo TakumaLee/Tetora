@@ -58,6 +58,7 @@ import (
 	"tetora/internal/integration/spotify"
 	"tetora/internal/integration/twitter"
 	"tetora/internal/knowledge"
+	"tetora/internal/memory"
 	"tetora/internal/life/calendar"
 	"tetora/internal/life/contacts"
 	"tetora/internal/life/dailynotes"
@@ -4244,6 +4245,174 @@ func setMemory(cfg *Config, role, key, value string, priority ...string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
+// setMemoryWithCRUD writes memory with conflict-aware semantics per CLAUDE.md.
+// It reads the existing value first, then routes through ADD/UPDATE/CONFLICT/NOOP logic.
+func setMemoryWithCRUD(cfg *Config, key, body, op string) error {
+	if op == "NOOP" {
+		return nil
+	}
+	date := time.Now().UTC().Format("2006-01-02")
+	existing, _ := getMemory(cfg, "", key)
+	switch op {
+	case "ADD":
+		if existing != "" {
+			// LLM said ADD but file already exists — downgrade to CONFLICT.
+			return setMemory(cfg, "", key,
+				fmt.Sprintf("⚠️ CONFLICT [%s]:\nNew:\n%s\n\nOriginal:\n%s", date, body, existing))
+		}
+		return setMemory(cfg, "", key, body)
+	case "UPDATE":
+		merged := body
+		if existing != "" {
+			merged = fmt.Sprintf("%s\n\n---\n_Previous version archived %s_:\n%s", body, date, existing)
+		}
+		return setMemory(cfg, "", key, merged)
+	case "CONFLICT":
+		// If the file already carries a CONFLICT marker, skip to avoid infinite accumulation.
+		if strings.Contains(existing, "⚠️ CONFLICT") {
+			return nil
+		}
+		return setMemory(cfg, "", key,
+			fmt.Sprintf("⚠️ CONFLICT [%s]:\nNew:\n%s\n\nOriginal:\n%s", date, body, existing))
+	default:
+		return fmt.Errorf("unknown op %q", op)
+	}
+}
+
+// deepExtractSem limits concurrent deep memory extraction LLM calls (cap 2).
+var deepExtractSem = make(chan struct{}, 2)
+
+// shouldDeepExtract returns true when all gate conditions for deep memory extraction are met.
+func shouldDeepExtract(cfg *Config, result TaskResult, ref *ReflectionResult) bool {
+	if cfg == nil || !cfg.DeepMemoryExtract.Enabled {
+		return false
+	}
+	if cfg.WorkspaceDir == "" || ref == nil {
+		return false
+	}
+	if result.Status != "success" {
+		return false
+	}
+	if ref.Score < cfg.DeepMemoryExtract.MinScoreOrDefault() {
+		return false
+	}
+	if result.CostUSD < cfg.DeepMemoryExtract.MinCostOrDefault() {
+		return false
+	}
+	return true
+}
+
+// runDeepMemoryExtract runs a bounded Haiku LLM call to extract cross-session knowledge
+// from a completed task into workspace/memory/. Must be launched as a background goroutine.
+// All failure paths log at DEBUG level and return without propagating errors.
+func runDeepMemoryExtract(ctx context.Context, cfg *Config, task Task, result TaskResult, ref *ReflectionResult) {
+	// Concurrency is bounded by deepExtractSem passed to runSingleTask below (cap 2).
+	// Do NOT pre-acquire here — runSingleTask acquires internally, matching extractAutoSkill pattern.
+
+	memoryDir := filepath.Join(cfg.WorkspaceDir, "memory")
+
+	// Read recent auto-extracts to help the LLM avoid duplicates.
+	recentExtracts := ""
+	if data, err := os.ReadFile(filepath.Join(memoryDir, "auto-extracts.md")); err == nil {
+		var recentLines []string
+		count := 0
+		for _, l := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(l, "- [") {
+				recentLines = append(recentLines, l)
+				count++
+				if count >= 5 {
+					break
+				}
+			}
+		}
+		if len(recentLines) > 0 {
+			recentExtracts = strings.Join(recentLines, "\n")
+		}
+	}
+
+	maxExtracts := cfg.DeepMemoryExtract.MaxExtractsOrDefault()
+
+	prompt := fmt.Sprintf(`你從一個剛完成的高品質任務中萃取「值得跨 session 記住」的核心知識。
+
+[TASK PROMPT]
+%s
+
+[TASK OUTPUT]
+%s
+
+[REFLECTION]
+Score: %d/5
+Feedback: %s
+
+[RECENT AUTO-EXTRACTS (DO NOT DUPLICATE)]
+%s
+
+規則:
+1. 萃取 0-%d 條真正值得跨 session 記住的知識，不到值得就回 {"extracts": []}
+2. key 必須用前綴 extract: 加 slug，slug 為小寫英數字和連字符，3-40字元
+3. operation 判斷: ADD=key 不存在; UPDATE=補充現有; NOOP=已覆蓋; CONFLICT=與現有矛盾
+4. 不要記錄臨時的 task ID、session、時間戳等
+5. 嚴禁寫入任務未明確提到的事實
+
+回應僅 JSON，格式：
+{"extracts": [{"key": "extract:<slug>", "kind": "fact|procedure|gotcha|preference", "summary": "<120字", "body": "<400字", "tags": ["tag1"], "operation": "ADD|UPDATE|NOOP|CONFLICT", "operation_reason": "理由"}]}`,
+		truncateStr(task.Prompt, 800),
+		truncateStr(result.Output, 1500),
+		ref.Score,
+		truncateStr(ref.Feedback, 300),
+		recentExtracts,
+		maxExtracts,
+	)
+
+	llmTask := Task{
+		ID:             newUUID(),
+		Name:           "deep-memory-extract",
+		Prompt:         prompt,
+		Timeout:        "30s",
+		PermissionMode: "plan",
+		Source:         "deep-memory-extract",
+	}
+	fillDefaults(cfg, &llmTask)
+	llmTask.Model = "haiku"
+	llmTask.Budget = cfg.DeepMemoryExtract.BudgetOrDefault()
+
+	llmResult := runSingleTask(ctx, cfg, llmTask, deepExtractSem, nil, "")
+	if llmResult.Status != "success" || llmResult.Output == "" {
+		log.Debug("deep memory extract LLM failed", "status", llmResult.Status)
+		return
+	}
+
+	extracts := memory.ParseExtractsJSON(llmResult.Output)
+	if len(extracts) == 0 {
+		log.Debug("deep memory extract: no extracts from LLM")
+		return
+	}
+
+	written := 0
+	for _, e := range extracts {
+		if written >= maxExtracts {
+			break
+		}
+		if err := memory.ValidateExtract(e); err != nil {
+			log.Debug("deep memory extract: invalid extract", "key", e.Key, "error", err)
+			continue
+		}
+		if e.Operation == "NOOP" {
+			continue
+		}
+		if err := setMemoryWithCRUD(cfg, e.Key, e.Body, e.Operation); err != nil {
+			log.Debug("deep memory extract: write failed", "key", e.Key, "error", err)
+			continue
+		}
+		_ = memory.AppendToAutoExtractsMD(memoryDir, ref.Agent, ref.Score, e)
+		written++
+		log.Debug("deep memory extract: stored", "key", e.Key, "op", e.Operation)
+	}
+	if written > 0 {
+		log.Debug("deep memory extract: complete", "written", written, "taskId", task.ID[:min(8, len(task.ID))])
+	}
+}
+
 // --- List ---
 
 // listMemory lists all memory files, parsing priority from frontmatter.
@@ -5847,6 +6016,10 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 					ref.AIDurationSec = int(result.DurationMs / 1000)
 					_ = storeReflection(hdb, ref)
 					extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
+					// Deep memory extraction for cron-dispatched tasks.
+					if shouldDeepExtract(cfg, rootResult, ref) {
+						go runDeepMemoryExtract(context.Background(), cfg, rootTask, rootResult, ref)
+					}
 				}()
 			}
 			return result
@@ -5921,6 +6094,11 @@ func newCronEngine(cfg *Config, sem, childSem chan struct{}, notifyFn func(strin
 		},
 
 		QuietGlobal: quietGlobal,
+
+		RunSkillEvolveScan: func(ctx context.Context) error {
+			runSkillEvolveScan(ctx, cfg)
+			return nil
+		},
 	}
 
 	return cron.NewEngine(cfg, sem, childSem, notifyFn, env)
