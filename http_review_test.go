@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -60,28 +61,28 @@ func TestFetchReviewDiff_SSRFBlocked(t *testing.T) {
 }
 
 func TestPostReviewComment_UnsupportedHost(t *testing.T) {
-	err := postReviewComment("https://bitbucket.org/foo/bar/pull-requests/1", "body")
+	err := postReviewComment(context.Background(), "https://bitbucket.org/foo/bar/pull-requests/1", "body")
 	if err == nil || !strings.Contains(err.Error(), "untrusted review host") {
 		t.Fatalf("expected untrusted host error, got %v", err)
 	}
 }
 
 func TestPostReviewComment_SSRFBlocked(t *testing.T) {
-	err := postReviewComment("https://gitlab.evil.com/org/repo/-/merge_requests/1", "body")
+	err := postReviewComment(context.Background(), "https://gitlab.evil.com/org/repo/-/merge_requests/1", "body")
 	if err == nil || !strings.Contains(err.Error(), "untrusted review host") {
 		t.Fatalf("expected SSRF block, got %v", err)
 	}
 }
 
 func TestPostReviewComment_InvalidURL(t *testing.T) {
-	err := postReviewComment("://not-a-url", "body")
+	err := postReviewComment(context.Background(), "://not-a-url", "body")
 	if err == nil {
 		t.Fatal("expected error for invalid url")
 	}
 }
 
 func TestPostReviewComment_GitLabBadURL(t *testing.T) {
-	err := postReviewComment("https://gitlab.com/no-mr-id-here", "body")
+	err := postReviewComment(context.Background(), "https://gitlab.com/no-mr-id-here", "body")
 	if err == nil || !strings.Contains(err.Error(), "unrecognized GitLab MR URL") {
 		t.Fatalf("expected unrecognized GitLab MR URL error, got %v", err)
 	}
