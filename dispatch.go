@@ -92,7 +92,8 @@ type dispatchState struct {
 	active      bool
 	draining    bool             // graceful shutdown: stop accepting new tasks
 	cancel      context.CancelFunc
-	broker      *sseBroker       // SSE event broker for streaming progress
+	cancelPtr   *context.CancelFunc // identity token for the most-recent review's cancel var
+	broker      *sseBroker          // SSE event broker for streaming progress
 	sandboxMgr        *sandbox.SandboxManager       // --- P13.2: Sandbox Plugin ---
 	discordBot        *DiscordBot                  // --- P14.1: Discord Components v2 ---
 	discordActivities map[string]*discordActivity  // task ID -> active Discord task

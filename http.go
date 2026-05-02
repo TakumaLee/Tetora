@@ -5098,15 +5098,28 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 
 		// Reviews skip the cState.active gate so multiple reviews can run
 		// concurrently (capped by cSem). cState.cancel holds the most recently
-		// started review's cancel func; /cancel aborts that one. cancel() is
-		// idempotent so a stale cState.cancel after a review finishes is harmless.
+		// started review's cancel func; /cancel aborts that one.
+		// cancelPtr (pointer to the heap-escaped cancel var) is the identity token
+		// used in the defer to nil out cState.cancel only if no newer review has
+		// overwritten it — prevents a stale non-nil cancel from causing a false
+		// "cancelling" response after this review finishes.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
 		cState.mu.Lock()
 		cState.cancel = cancel
+		cState.cancelPtr = &cancel
+		// startAt tracks the most recently started review, not the first concurrent one.
 		cState.startAt = time.Now()
 		cState.mu.Unlock()
-		defer cancel()
+		defer func() {
+			cState.mu.Lock()
+			if cState.cancelPtr == &cancel {
+				cState.cancel = nil
+				cState.cancelPtr = nil
+			}
+			cState.mu.Unlock()
+			cancel()
+		}()
 
 		agent := req.Agent
 		if agent == "" {
@@ -7560,7 +7573,8 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 
 // postReviewComment posts review output as a comment on the PR/MR.
 // body is written to a temp file to avoid ARG_MAX limits on long review outputs.
-// ctx is used to enforce a timeout; callers should pass r.Context() or a derived context.
+// ctx enforces a timeout. Callers pass context.Background() (not r.Context()) so
+// the comment is posted even if the HTTP client has already disconnected.
 func postReviewComment(ctx context.Context, prURL, body string) error {
 	u, err := url.Parse(prURL)
 	if err != nil {
@@ -7608,7 +7622,9 @@ func postReviewComment(ctx context.Context, prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "-F", "body=@"+tmpFile.Name()).CombinedOutput()
+		// --form reads @filepath as file contents (per glab api --help);
+		// -F/--field and -f/--raw-field do not support @filename syntax.
+		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
