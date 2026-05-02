@@ -8910,7 +8910,7 @@ func expandPrompt(prompt, jobID, dbPath, agentName, knowledgeDir string, cfg *Co
 	})
 
 	if agentName != "" && cfg != nil {
-		memRe := regexp.MustCompile(`\{\{memory\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+		memRe := regexp.MustCompile(`\{\{memory\.([A-Za-z_][A-Za-z0-9_:\-]*)\}\}`)
 		prompt = memRe.ReplaceAllStringFunc(prompt, func(match string) string {
 			parts := memRe.FindStringSubmatch(match)
 			if len(parts) < 2 {

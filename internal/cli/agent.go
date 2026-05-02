@@ -2,18 +2,25 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
+	"time"
+
+	"tetora/internal/agent"
 )
 
 func CmdAgent(args []string) {
 	if len(args) == 0 {
-		fmt.Println("Usage: tetora agent <list|add|show|remove> [name]")
+		fmt.Println("Usage: tetora agent <list|add|show|remove|configure|watch> [name]")
 		return
 	}
 	switch args[0] {
@@ -40,6 +47,10 @@ func CmdAgent(args []string) {
 			return
 		}
 		agentRemove(args[1])
+	case "configure":
+		agentConfigure(args[1:])
+	case "watch":
+		agentWatch(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", args[0])
 	}
@@ -301,4 +312,207 @@ func agentRemove(name string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Agent %q removed.\n", name)
+}
+
+// agentConfigure runs `tetora agent configure <name>` or `--all`.
+func agentConfigure(args []string) {
+	if len(args) == 0 {
+		fmt.Println("Usage: tetora agent configure <name>")
+		fmt.Println("       tetora agent configure --all")
+		return
+	}
+
+	cfg := LoadCLIConfig(FindConfigPath())
+	claudePath := cfg.ClaudePath
+	if claudePath == "" {
+		claudePath = DetectClaude()
+	}
+	ioProtocolPath := filepath.Join(cfg.WorkspaceDir, "rules", "tetora-agent-io-protocol.md")
+
+	if args[0] == "--all" {
+		names := make([]string, 0, len(cfg.Agents))
+		for name := range cfg.Agents {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		results, err := agent.ConfigureAll(claudePath, cfg.AgentsDir, ioProtocolPath, names)
+		for _, r := range results {
+			applyConfigureResult(cfg, r)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	name := args[0]
+	if _, ok := cfg.Agents[name]; !ok {
+		fmt.Printf("Agent %q not found. Use `tetora agent list` to see registered agents.\n", name)
+		os.Exit(1)
+	}
+
+	r, err := agent.Configure(claudePath, cfg.AgentsDir, ioProtocolPath, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	applyConfigureResult(cfg, r)
+	fmt.Printf("Agent %s configured.\n", name)
+}
+
+// applyConfigureResult adds cron jobs to jobs.json for capabilities that need them.
+func applyConfigureResult(cfg *CLIConfig, r *agent.ConfigureResult) {
+	if len(r.CronJobs) == 0 {
+		return
+	}
+	jf := LoadJobsFile(cfg.JobsFile)
+	changed := false
+	for _, capID := range r.CronJobs {
+		jobID := fmt.Sprintf("agent_%s_%s", r.Agent, strings.ReplaceAll(capID, ".", "_"))
+		// Skip if already present.
+		found := false
+		for _, j := range jf.Jobs {
+			if j.ID == jobID {
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		cronExpr := capCronExpr(capID)
+		if cronExpr == "" {
+			continue
+		}
+		jf.Jobs = append(jf.Jobs, JobConfig{
+			ID:      jobID,
+			Name:    fmt.Sprintf("%s: %s", r.Agent, capID),
+			Enabled: true,
+			Schedule: cronExpr,
+			Agent:   r.Agent,
+			Task: TaskConfig{
+				Prompt: buildCapabilityPrompt(r.Agent, capID),
+			},
+		})
+		changed = true
+		fmt.Printf("  Added cron job: %s (%s)\n", jobID, cronExpr)
+	}
+	if changed {
+		SaveJobsFile(cfg.JobsFile, jf)
+	}
+}
+
+func capCronExpr(capID string) string {
+	for _, c := range agent.BuiltinCapabilities {
+		if c.ID == capID {
+			return c.CronExpr
+		}
+	}
+	return ""
+}
+
+func buildCapabilityPrompt(agentName, capID string) string {
+	switch capID {
+	case "weekly-review":
+		return fmt.Sprintf("Execute your weekly-review capability: run `tetora lesson promote` then `tetora rule audit`. Report what was promoted or flagged.")
+	default:
+		return fmt.Sprintf("Execute the %s capability.", capID)
+	}
+}
+
+// agentWatch runs `tetora agent watch [--daemon] [--interval=<duration>]`.
+func agentWatch(args []string) {
+	daemon := false
+	interval := 30 * time.Second
+
+	for _, arg := range args {
+		switch {
+		case arg == "--daemon":
+			daemon = true
+		case strings.HasPrefix(arg, "--interval="):
+			d, err := time.ParseDuration(strings.TrimPrefix(arg, "--interval="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid interval: %v\n", err)
+				os.Exit(1)
+			}
+			interval = d
+		case arg == "--help":
+			fmt.Println("Usage: tetora agent watch [--daemon] [--interval=<duration>]")
+			fmt.Println("  --daemon            Run in background (logs to /tmp/tetora-watcher.log)")
+			fmt.Println("  --interval=30s      Poll interval (default: 30s)")
+			return
+		}
+	}
+
+	cfg := LoadCLIConfig(FindConfigPath())
+	claudePath := cfg.ClaudePath
+	if claudePath == "" {
+		claudePath = DetectClaude()
+	}
+
+	watchCfg := agent.WatchConfig{
+		HistoryDB:  cfg.HistoryDB,
+		AgentsDir:  cfg.AgentsDir,
+		ClaudePath: claudePath,
+		Interval:   interval,
+	}
+
+	if daemon {
+		runWatchDaemon(watchCfg)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Println("\nShutting down watcher...")
+		cancel()
+	}()
+
+	if err := agent.Watch(ctx, watchCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runWatchDaemon(cfg agent.WatchConfig) {
+	executable, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot determine executable path: %v\n", err)
+		os.Exit(1)
+	}
+
+	logPath := filepath.Join(os.TempDir(), "tetora-watcher.log")
+	pidPath := filepath.Join(os.TempDir(), "tetora-watcher.pid")
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot open log file: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmd := buildDaemonCmd(executable, cfg.Interval)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start daemon: %v\n", err)
+		os.Exit(1)
+	}
+	_ = logFile.Close()
+
+	if err := os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n", cmd.Process.Pid)), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not write PID file: %v\n", err)
+	}
+
+	fmt.Printf("Watcher daemon started (PID: %d)\n", cmd.Process.Pid)
+	fmt.Printf("  Log: %s\n", logPath)
+	fmt.Printf("  PID: %s\n", pidPath)
+	fmt.Printf("  Stop: kill %d\n", cmd.Process.Pid)
 }
