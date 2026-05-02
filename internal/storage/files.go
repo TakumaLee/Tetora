@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"tetora/internal/life/lifedb"
 )
 
 // --- Types ---
@@ -45,12 +44,12 @@ type Service struct {
 	dbPath     string
 	storageDir string
 	maxSizeMB  int
-	db         lifedb.DB
+	db         DBHelpers
 	uuidFn     UUIDFn
 }
 
 // New creates a new file management Service.
-func New(dbPath, storageDir string, maxSizeMB int, db lifedb.DB, uuidFn UUIDFn) *Service {
+func New(dbPath, storageDir string, maxSizeMB int, db DBHelpers, uuidFn UUIDFn) *Service {
 	os.MkdirAll(storageDir, 0o755)
 	return &Service{
 		dbPath:     dbPath,

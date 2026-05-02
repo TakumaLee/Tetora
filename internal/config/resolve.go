@@ -173,7 +173,6 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.GoogleChat.ServiceAccountKey != "" {
 		cfg.GoogleChat.ServiceAccountKey = ResolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
 	}
-	cfg.HomeAssistant.Token = ResolveEnvRef(cfg.HomeAssistant.Token, "homeAssistant.token")
 	cfg.IMessage.Password = ResolveEnvRef(cfg.IMessage.Password, "imessage.password")
 	cfg.OAuth.EncryptionKey = ResolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
 	for name, svc := range cfg.OAuth.Services {

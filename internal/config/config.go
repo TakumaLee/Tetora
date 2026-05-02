@@ -12,12 +12,6 @@ import (
 	// Type aliases for configs defined in internal packages.
 	"tetora/internal/cost"
 	"tetora/internal/estimate"
-	"tetora/internal/integration/gmail"
-	"tetora/internal/integration/homeassistant"
-	"tetora/internal/integration/notes"
-	"tetora/internal/integration/podcast"
-	"tetora/internal/integration/spotify"
-	"tetora/internal/integration/twitter"
 	"tetora/internal/messaging/gchat"
 	"tetora/internal/messaging/imessage"
 	"tetora/internal/messaging/line"
@@ -56,13 +50,13 @@ type TeamsConfig = teams.Config
 type IMessageConfig = imessage.Config
 type SlackBotConfig = slack.Config
 
-// Integration configs.
-type GmailConfig = gmail.Config
-type SpotifyConfig = spotify.Config
-type TwitterConfig = twitter.Config
-type PodcastConfig = podcast.Config
-type HomeAssistantConfig = homeassistant.Config
-type NotesConfig = notes.Config
+// Integration configs (archived in PR1 — fields kept as json.RawMessage to avoid breaking existing config.json).
+type GmailConfig = json.RawMessage
+type SpotifyConfig = json.RawMessage
+type TwitterConfig = json.RawMessage
+type PodcastConfig = json.RawMessage
+type HomeAssistantConfig = json.RawMessage
+type NotesConfig = json.RawMessage
 
 // --- Config ---
 
