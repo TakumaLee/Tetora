@@ -70,17 +70,11 @@ func Classify(prompt string, source string) Complexity {
 		return Complex
 	}
 
-	if runeLen < 100 && chatSources[srcLower] {
+	if runeLen < 100 && ChatSources[srcLower] {
 		return Simple
 	}
 
 	return Standard
-}
-
-var chatSources = map[string]bool{
-	"chat": true, "discord": true, "telegram": true, "slack": true,
-	"whatsapp": true, "line": true, "matrix": true, "teams": true,
-	"signal": true, "gchat": true, "imessage": true,
 }
 
 var complexSources = map[string]bool{"agent-comm": true}

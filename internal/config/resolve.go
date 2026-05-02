@@ -145,6 +145,56 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.TaskManager.Notion.APIKey != "" {
 		cfg.TaskManager.Notion.APIKey = ResolveEnvRef(cfg.TaskManager.Notion.APIKey, "taskManager.notion.apiKey")
 	}
+
+	// Messaging platforms — all secret fields support $ENV_VAR. The integrations
+	// in main.go gate on these (e.g. cfg.Telegram.Enabled && BotToken != ""), so
+	// failing to resolve here would leave the literal "$ENV_VAR" in place and
+	// silently break authentication at runtime.
+	if cfg.Telegram.BotToken != "" {
+		cfg.Telegram.BotToken = ResolveEnvRef(cfg.Telegram.BotToken, "telegram.botToken")
+	}
+	if cfg.Slack.BotToken != "" {
+		cfg.Slack.BotToken = ResolveEnvRef(cfg.Slack.BotToken, "slack.botToken")
+	}
+	if cfg.Slack.SigningSecret != "" {
+		cfg.Slack.SigningSecret = ResolveEnvRef(cfg.Slack.SigningSecret, "slack.signingSecret")
+	}
+	if cfg.Slack.AppToken != "" {
+		cfg.Slack.AppToken = ResolveEnvRef(cfg.Slack.AppToken, "slack.appToken")
+	}
+	if cfg.WhatsApp.AccessToken != "" {
+		cfg.WhatsApp.AccessToken = ResolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
+	}
+	if cfg.WhatsApp.AppSecret != "" {
+		cfg.WhatsApp.AppSecret = ResolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
+	}
+	if cfg.LINE.ChannelSecret != "" {
+		cfg.LINE.ChannelSecret = ResolveEnvRef(cfg.LINE.ChannelSecret, "line.channelSecret")
+	}
+	if cfg.LINE.ChannelAccessToken != "" {
+		cfg.LINE.ChannelAccessToken = ResolveEnvRef(cfg.LINE.ChannelAccessToken, "line.channelAccessToken")
+	}
+	if cfg.Matrix.AccessToken != "" {
+		cfg.Matrix.AccessToken = ResolveEnvRef(cfg.Matrix.AccessToken, "matrix.accessToken")
+	}
+	if cfg.Teams.AppID != "" {
+		cfg.Teams.AppID = ResolveEnvRef(cfg.Teams.AppID, "teams.appId")
+	}
+	if cfg.Teams.AppPassword != "" {
+		cfg.Teams.AppPassword = ResolveEnvRef(cfg.Teams.AppPassword, "teams.appPassword")
+	}
+	if cfg.Teams.TenantID != "" {
+		cfg.Teams.TenantID = ResolveEnvRef(cfg.Teams.TenantID, "teams.tenantId")
+	}
+	if cfg.Signal.PhoneNumber != "" {
+		cfg.Signal.PhoneNumber = ResolveEnvRef(cfg.Signal.PhoneNumber, "signal.phoneNumber")
+	}
+	if cfg.GoogleChat.ServiceAccountKey != "" {
+		cfg.GoogleChat.ServiceAccountKey = ResolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
+	}
+	if cfg.IMessage.Password != "" {
+		cfg.IMessage.Password = ResolveEnvRef(cfg.IMessage.Password, "imessage.password")
+	}
 }
 
 // ResolveMCPPaths writes MCP configs to temp files for --mcp-config flag.

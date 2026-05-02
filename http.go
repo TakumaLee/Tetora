@@ -33,6 +33,7 @@ import (
 	"tetora/internal/cost"
 	"tetora/internal/db"
 	"tetora/internal/discord"
+	dispatchpkg "tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/httpapi"
 	"tetora/internal/knowledge"
@@ -2957,16 +2958,14 @@ func resolvePortraitURL(baseDir, name string) string {
 // --- State Resolution ---
 
 // isChatSource returns true if the task source indicates a chat conversation.
+// Uses dispatch.ChatSources as the single source of truth so additions stay in
+// sync with Classify().
 func isChatSource(source string) bool {
 	s := strings.ToLower(source)
 	if i := strings.IndexByte(s, ':'); i > 0 {
 		s = s[:i]
 	}
-	switch s {
-	case "chat", "discord", "telegram", "slack", "whatsapp", "line", "matrix", "teams", "signal", "gchat", "imessage":
-		return true
-	}
-	return false
+	return dispatchpkg.ChatSources[s]
 }
 
 // resolveAgentSprite determines the sprite state from dispatch/task context.

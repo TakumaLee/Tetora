@@ -1,11 +1,16 @@
 package usage
 
+// NOTE: this file lives under _archive/ and is excluded from `go build ./...`.
+// It is kept only as historical reference for the life-stack subsystem.
+// The original `tetora/internal/text` package was folded in PR4; the
+// truncateStr helper below was inlined here so that, should a future restore
+// reach for this archive, it does not depend on a deleted package.
+
 import (
 	"fmt"
 	"strings"
 
 	"tetora/internal/db"
-	"tetora/internal/text"
 )
 
 // UsageSummary is the aggregate cost/token summary for a time period.
@@ -355,5 +360,16 @@ func FormatAgentBreakdown(roles []AgentUsage) string {
 	return strings.Join(lines, "\n")
 }
 
-// truncateStr delegates to text.TruncateStr.
-var truncateStr = text.TruncateStr
+// truncateStr was previously a delegating var to text.TruncateStr; the text
+// package was deleted in PR4 (slim-internal-packages), so the implementation
+// is inlined here to keep this archived file self-contained.
+func truncateStr(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen < 4 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
