@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -53,20 +54,20 @@ func TestParseCapabilityResponse_Empty(t *testing.T) {
 
 func TestBuildConfigurePrompt_IncludesSoul(t *testing.T) {
 	prompt := buildConfigurePrompt("hisui", "I am a market analyst.")
-	if !contains(prompt, "I am a market analyst.") {
+	if !strings.Contains(prompt, "I am a market analyst.") {
 		t.Error("expected SOUL content in prompt")
 	}
-	if !contains(prompt, "hisui") {
+	if !strings.Contains(prompt, "hisui") {
 		t.Error("expected agent name in prompt")
 	}
-	if !contains(prompt, "selected_capabilities") {
+	if !strings.Contains(prompt, "selected_capabilities") {
 		t.Error("expected JSON schema hint in prompt")
 	}
 }
 
 func TestBuildConfigurePrompt_NoSoul(t *testing.T) {
 	prompt := buildConfigurePrompt("amber", "")
-	if !contains(prompt, "amber") {
+	if !strings.Contains(prompt, "amber") {
 		t.Error("expected agent name in prompt")
 	}
 }
@@ -88,10 +89,10 @@ func TestGenerateCapabilityFiles_CreatesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
-	if !contains(string(claudeMD), "@SOUL.md") {
+	if !strings.Contains(string(claudeMD), "@SOUL.md") {
 		t.Error("CLAUDE.md missing @SOUL.md")
 	}
-	if !contains(string(claudeMD), "@capabilities/index.md") {
+	if !strings.Contains(string(claudeMD), "@capabilities/index.md") {
 		t.Error("CLAUDE.md missing @capabilities/index.md")
 	}
 
@@ -100,14 +101,14 @@ func TestGenerateCapabilityFiles_CreatesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capabilities/index.md not created: %v", err)
 	}
-	if !contains(string(index), "memory.auto-extracts") {
+	if !strings.Contains(string(index), "memory.auto-extracts") {
 		t.Error("index.md missing memory.auto-extracts")
 	}
-	if !contains(string(index), "skill-evolve") {
+	if !strings.Contains(string(index), "skill-evolve") {
 		t.Error("index.md missing skill-evolve")
 	}
 	// weekly-review was not selected
-	if contains(string(index), "weekly-review") {
+	if strings.Contains(string(index), "weekly-review") {
 		t.Error("index.md should not contain weekly-review (not selected)")
 	}
 
@@ -186,13 +187,13 @@ func TestWriteCLAUDEMD(t *testing.T) {
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	content := string(data)
-	if !contains(content, "@SOUL.md") {
+	if !strings.Contains(content, "@SOUL.md") {
 		t.Error("missing @SOUL.md")
 	}
-	if !contains(content, "@capabilities/index.md") {
+	if !strings.Contains(content, "@capabilities/index.md") {
 		t.Error("missing @capabilities/index.md")
 	}
-	if !contains(content, "/workspace/rules/proto.md") {
+	if !strings.Contains(content, "/workspace/rules/proto.md") {
 		t.Error("missing io-protocol path")
 	}
 }
@@ -213,14 +214,3 @@ func TestLoadSoul_Found(t *testing.T) {
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
-}

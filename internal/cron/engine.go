@@ -23,6 +23,11 @@ import (
 	"tetora/internal/webhook"
 )
 
+// SkillEvolveJobID is the cron job ID reserved for the skill-evolve scan.
+// Used by tick() / RunJobByID() / StartupReplay() to bypass the generic
+// prompt-based runner and dispatch into RunSkillEvolveScan.
+const SkillEvolveJobID = "skill_evolve"
+
 // --- Cron Job Types ---
 
 // JobsFile is the top-level structure of jobs.json.
@@ -765,7 +770,7 @@ func (ce *Engine) tick(ctx context.Context) {
 		}
 
 		// Special handling for skill evolve scan.
-		if j.ID == "skill_evolve" {
+		if j.ID == SkillEvolveJobID {
 			nowLocal := now.In(j.loc)
 			if !j.nextRun.IsZero() && nowLocal.Before(j.nextRun) {
 				continue
@@ -1355,7 +1360,7 @@ func (ce *Engine) RunJobByID(_ context.Context, id string) error {
 	ce.mu.Unlock()
 
 	// Special-ID dispatch bypasses the generic prompt-based runJob.
-	if id == "skill_evolve" {
+	if id == SkillEvolveJobID {
 		go func() {
 			if ce.env.RunSkillEvolveScan != nil {
 				if err := ce.env.RunSkillEvolveScan(ce.ctx); err != nil {
@@ -1733,7 +1738,7 @@ func (ce *Engine) StartupReplay(ctx context.Context) {
 		if j.IdleMinHours > 0 || j.RequireApproval || j.Trigger == "idle" {
 			continue
 		}
-		if j.ID == "daily_notes" || j.ID == "backlog-triage" || j.ID == "war_room_autoupdate" || j.ID == "skill_evolve" {
+		if j.ID == "daily_notes" || j.ID == "backlog-triage" || j.ID == "war_room_autoupdate" || j.ID == SkillEvolveJobID {
 			continue
 		}
 

@@ -1416,6 +1416,13 @@ func (c *DeepMemoryExtractConfig) MaxExtractsOrDefault() int {
 	return c.MaxExtractsPerTask
 }
 
+func (c *DeepMemoryExtractConfig) DailyBudgetOrDefault() float64 {
+	if c.DailyBudgetUSD <= 0 {
+		return 1.0
+	}
+	return c.DailyBudgetUSD
+}
+
 type NotifyIntelConfig struct {
 	BatchInterval string `json:"notifyBatch,omitempty"`
 }

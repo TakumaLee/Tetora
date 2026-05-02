@@ -17,7 +17,7 @@ func TestValidateExtract_Valid(t *testing.T) {
 		Tags:      []string{"go", "test"},
 		Operation: "ADD",
 	}
-	if err := ValidateExtract(e); err != nil {
+	if err := ValidateExtract(&e); err != nil {
 		t.Errorf("expected valid, got error: %v", err)
 	}
 }
@@ -27,7 +27,7 @@ func TestValidateExtract_MissingPrefix(t *testing.T) {
 		Key:       "no-prefix-slug",
 		Operation: "ADD",
 	}
-	if err := ValidateExtract(e); err == nil {
+	if err := ValidateExtract(&e); err == nil {
 		t.Error("expected error for missing 'extract:' prefix, got nil")
 	}
 }
@@ -41,7 +41,7 @@ func TestValidateExtract_InvalidSlug(t *testing.T) {
 	}
 	for _, key := range cases {
 		e := Extract{Key: key, Operation: "ADD"}
-		if err := ValidateExtract(e); err == nil {
+		if err := ValidateExtract(&e); err == nil {
 			t.Errorf("expected error for key %q, got nil", key)
 		}
 	}
@@ -52,7 +52,7 @@ func TestValidateExtract_InvalidOp(t *testing.T) {
 		Key:       "extract:valid-slug",
 		Operation: "DELETE",
 	}
-	if err := ValidateExtract(e); err == nil {
+	if err := ValidateExtract(&e); err == nil {
 		t.Error("expected error for invalid operation, got nil")
 	}
 }
@@ -63,7 +63,7 @@ func TestValidateExtract_SummaryTooLong(t *testing.T) {
 		Summary:   strings.Repeat("x", 151),
 		Operation: "ADD",
 	}
-	if err := ValidateExtract(e); err == nil {
+	if err := ValidateExtract(&e); err == nil {
 		t.Error("expected error for summary > 150 chars, got nil")
 	}
 }
@@ -71,9 +71,24 @@ func TestValidateExtract_SummaryTooLong(t *testing.T) {
 func TestValidateExtract_AllOpsValid(t *testing.T) {
 	for _, op := range []string{"ADD", "UPDATE", "NOOP", "CONFLICT"} {
 		e := Extract{Key: "extract:my-slug", Operation: op}
-		if err := ValidateExtract(e); err != nil {
+		if err := ValidateExtract(&e); err != nil {
 			t.Errorf("expected op %q to be valid, got: %v", op, err)
 		}
+	}
+}
+
+func TestValidateExtract_BodyTruncated(t *testing.T) {
+	e := Extract{
+		Key:       "extract:my-slug",
+		Summary:   "ok",
+		Body:      strings.Repeat("x", 800),
+		Operation: "ADD",
+	}
+	if err := ValidateExtract(&e); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(e.Body) != 600 {
+		t.Errorf("expected body truncated to 600, got %d", len(e.Body))
 	}
 }
 

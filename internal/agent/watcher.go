@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"tetora/internal/db"
@@ -14,11 +15,14 @@ import (
 
 // WatchConfig holds the parameters for the task watcher.
 type WatchConfig struct {
-	HistoryDB  string
-	AgentsDir  string
-	ClaudePath string
-	Interval   time.Duration
+	HistoryDB     string
+	AgentsDir     string
+	ClaudePath    string
+	Interval      time.Duration
+	MaxConcurrent int // upper bound of in-flight claude spawns; 0 → defaultMaxConcurrent
 }
+
+const defaultMaxConcurrent = 4
 
 // watchedTask is a minimal view of a taskboard row for the watcher.
 type watchedTask struct {
@@ -36,10 +40,15 @@ func Watch(ctx context.Context, cfg WatchConfig) error {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
-	fmt.Printf("Watcher started (interval: %s, db: %s)\n", interval, cfg.HistoryDB)
+	maxConc := cfg.MaxConcurrent
+	if maxConc <= 0 {
+		maxConc = defaultMaxConcurrent
+	}
+	sem := make(chan struct{}, maxConc)
+	fmt.Printf("Watcher started (interval: %s, db: %s, maxConcurrent: %d)\n", interval, cfg.HistoryDB, maxConc)
 
 	for {
-		if err := poll(ctx, cfg); err != nil {
+		if err := poll(ctx, cfg, sem); err != nil {
 			fmt.Fprintf(os.Stderr, "poll error: %v\n", err)
 		}
 
@@ -51,8 +60,9 @@ func Watch(ctx context.Context, cfg WatchConfig) error {
 	}
 }
 
-// poll fetches assigned tasks and spawns one agent process per task.
-func poll(ctx context.Context, cfg WatchConfig) error {
+// poll fetches assigned tasks and spawns one agent process per task, capped by
+// the semaphore.
+func poll(ctx context.Context, cfg WatchConfig, sem chan struct{}) error {
 	tasks, err := fetchAssignedTasks(cfg.HistoryDB)
 	if err != nil {
 		return err
@@ -61,9 +71,10 @@ func poll(ctx context.Context, cfg WatchConfig) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
+		case sem <- struct{}{}:
 		}
-		if err := spawnAgent(cfg, t); err != nil {
+		if err := spawnAgent(cfg, t, sem); err != nil {
+			<-sem // release slot on error
 			fmt.Fprintf(os.Stderr, "spawn %s for task %s: %v\n", t.Assignee, t.ID, err)
 		}
 	}
@@ -101,10 +112,36 @@ func fetchAssignedTasks(dbPath string) ([]watchedTask, error) {
 	return tasks, nil
 }
 
+// resolveAgentDir validates the assignee resolves to a path strictly inside
+// agentsDir. This blocks path-traversal payloads (e.g. assignee="../../etc")
+// that would otherwise direct claude at an arbitrary directory.
+func resolveAgentDir(agentsDir, assignee string) (string, error) {
+	if assignee == "" || strings.ContainsAny(assignee, "/\\") || assignee == "." || assignee == ".." {
+		return "", fmt.Errorf("invalid assignee %q", assignee)
+	}
+	root, err := filepath.Abs(filepath.Clean(agentsDir))
+	if err != nil {
+		return "", err
+	}
+	candidate, err := filepath.Abs(filepath.Join(root, assignee))
+	if err != nil {
+		return "", err
+	}
+	rootWithSep := root + string(os.PathSeparator)
+	if candidate != root && !strings.HasPrefix(candidate, rootWithSep) {
+		return "", fmt.Errorf("assignee %q escapes agents dir", assignee)
+	}
+	return candidate, nil
+}
+
 // spawnAgent marks the task "doing" (optimistic lock) then spawns claude in the
-// agent's directory. The claude process runs asynchronously.
-func spawnAgent(cfg WatchConfig, t watchedTask) error {
-	agentDir := filepath.Join(cfg.AgentsDir, t.Assignee)
+// agent's directory. The claude process runs asynchronously and releases the
+// concurrency slot on exit.
+func spawnAgent(cfg WatchConfig, t watchedTask, sem chan struct{}) error {
+	agentDir, err := resolveAgentDir(cfg.AgentsDir, t.Assignee)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
 		return fmt.Errorf("agent dir not found: %s (run: tetora agent configure %s)", agentDir, t.Assignee)
 	}
@@ -134,18 +171,32 @@ func spawnAgent(cfg WatchConfig, t watchedTask) error {
 		return fmt.Errorf("start claude: %w", err)
 	}
 
-	// Reap the child process to prevent zombies.
-	go func() { _ = cmd.Wait() }()
+	// Reap the child process and release the concurrency slot when done.
+	go func() {
+		_ = cmd.Wait()
+		<-sem
+	}()
 
 	return nil
 }
 
 // markTaskDoing atomically moves a task from "todo" to "doing".
 // Returns true if the update actually changed a row (i.e., we won the race).
+//
+// Implemented as a single sqlite3 invocation that runs the UPDATE then queries
+// changes() in the same connection — this keeps the read of the row count
+// linearizable with the write, unlike a separate verification SELECT.
+var markTaskDoingMu sync.Mutex
+
 func markTaskDoing(dbPath, taskID string) (bool, error) {
-	// Read the current status first to detect the race.
+	// Serialise local callers to avoid two goroutines racing on the same row;
+	// other processes are still guarded by the WHERE status='todo' clause.
+	markTaskDoingMu.Lock()
+	defer markTaskDoingMu.Unlock()
+
 	rows, err := db.Query(dbPath, fmt.Sprintf(
-		`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(taskID),
+		`UPDATE tasks SET status = 'doing', updated_at = datetime('now') WHERE id = '%s' AND status = 'todo'; SELECT changes() AS changed;`,
+		db.Escape(taskID),
 	))
 	if err != nil {
 		return false, err
@@ -153,25 +204,7 @@ func markTaskDoing(dbPath, taskID string) (bool, error) {
 	if len(rows) == 0 {
 		return false, nil
 	}
-	if db.Str(rows[0]["status"]) != "todo" {
-		return false, nil
-	}
-
-	if err := db.Exec(dbPath, fmt.Sprintf(
-		`UPDATE tasks SET status = 'doing', updated_at = datetime('now') WHERE id = '%s' AND status = 'todo'`,
-		db.Escape(taskID),
-	)); err != nil {
-		return false, err
-	}
-
-	// Verify the update actually applied (the conditional WHERE guards against races).
-	rows2, err := db.Query(dbPath, fmt.Sprintf(
-		`SELECT status FROM tasks WHERE id = '%s'`, db.Escape(taskID),
-	))
-	if err != nil || len(rows2) == 0 {
-		return false, err
-	}
-	return db.Str(rows2[0]["status"]) == "doing", nil
+	return db.Int(rows[0]["changed"]) > 0, nil
 }
 
 func buildTaskPrompt(t watchedTask) string {

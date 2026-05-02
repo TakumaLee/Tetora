@@ -2,14 +2,20 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"time"
 )
+
+// askAgentTimeout caps how long we wait for claude to answer the capability
+// question; without this, a hung claude blocks `tetora agent configure`
+// indefinitely.
+const askAgentTimeout = 120 * time.Second
 
 // Capability describes a Tetora capability that an agent can opt into.
 type Capability struct {
@@ -71,11 +77,24 @@ func Configure(claudePath, agentsDir, ioProtocolPath, agentName string) (*Config
 	agentDir := filepath.Join(agentsDir, agentName)
 
 	soulContent := loadSoul(agentDir)
+	if soulContent == "" {
+		fmt.Fprintf(os.Stderr, "warning: no SOUL.md found in %s — generated CLAUDE.md still references @SOUL.md\n", agentDir)
+	}
 	prompt := buildConfigurePrompt(agentName, soulContent)
 
 	resp, err := askAgent(claudePath, agentDir, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("asking agent: %w", err)
+	}
+
+	known := make(map[string]bool, len(BuiltinCapabilities))
+	for _, c := range BuiltinCapabilities {
+		known[c.ID] = true
+	}
+	for _, id := range resp.SelectedCapabilities {
+		if !known[id] {
+			fmt.Fprintf(os.Stderr, "warning: agent %s requested unknown capability %q (ignored)\n", agentName, id)
+		}
 	}
 
 	if err := generateCapabilityFiles(agentDir, ioProtocolPath, resp); err != nil {
@@ -161,15 +180,18 @@ func buildConfigurePrompt(agentName, soulContent string) string {
 
 // askAgent spawns claude with the prompt and parses the JSON capability response.
 func askAgent(claudePath, agentDir, prompt string) (*capabilityResponse, error) {
-	var cmd *exec.Cmd
+	ctx, cancel := context.WithTimeout(context.Background(), askAgentTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, claudePath, "-p", prompt)
 	if _, err := os.Stat(agentDir); err == nil {
-		cmd = exec.Command(claudePath, "-p", prompt)
 		cmd.Dir = agentDir
-	} else {
-		cmd = exec.Command(claudePath, "-p", prompt)
 	}
 
 	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("claude timed out after %s", askAgentTimeout)
+	}
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("claude exit %d: %s", ee.ExitCode(), string(ee.Stderr))
@@ -180,11 +202,67 @@ func askAgent(claudePath, agentDir, prompt string) (*capabilityResponse, error) 
 	return parseCapabilityResponse(string(out))
 }
 
-// jsonObjectRe extracts the first `{...}` block that contains selected_capabilities.
-var jsonObjectRe = regexp.MustCompile(`(?s)\{[^{}]*"selected_capabilities"[^{}]*\}`)
+// extractJSONObject returns the first balanced `{...}` block in s that contains
+// the literal `"selected_capabilities"`. Walks the string respecting brace
+// depth and string literals, so reasons like `"reason": "use {memory.x}"` and
+// nested examples don't break the match.
+func extractJSONObject(s, mustContain string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '{' {
+			continue
+		}
+		end := matchBrace(s, i)
+		if end == -1 {
+			continue
+		}
+		block := s[i : end+1]
+		if strings.Contains(block, mustContain) {
+			return block
+		}
+	}
+	return ""
+}
+
+// matchBrace returns the index of the `}` matching the `{` at start, or -1.
+// Honours string literals (with backslash escapes) so braces inside JSON
+// strings don't unbalance the count.
+func matchBrace(s string, start int) int {
+	depth := 0
+	inStr := false
+	escaped := false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
 
 func parseCapabilityResponse(output string) (*capabilityResponse, error) {
-	raw := jsonObjectRe.FindString(output)
+	raw := extractJSONObject(output, `"selected_capabilities"`)
 	if raw == "" {
 		raw = strings.TrimSpace(output)
 	}

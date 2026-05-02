@@ -185,7 +185,10 @@ func WriteEvolveProposal(cand EvolveCandidate, prop EvolveProposal) (string, err
 		return "", err
 	}
 
-	id := time.Now().UTC().Format("2006-01-02T15-04-05")
+	// Nanosecond suffix prevents filename collisions when two proposals are
+	// generated within the same second.
+	now := time.Now().UTC()
+	id := fmt.Sprintf("%s-%09d", now.Format("2006-01-02T15-04-05"), now.Nanosecond())
 	fpath := filepath.Join(dir, id+".md")
 
 	diff := computeUnifiedDiff(cand.Body, prop.ProposedBody)
@@ -267,7 +270,14 @@ func ListProposals(skillDir string) ([]ProposalInfo, error) {
 		id := strings.TrimSuffix(e.Name(), ".md")
 		fpath := filepath.Join(dir, e.Name())
 		status := readProposalStatus(fpath)
-		created, _ := time.Parse("2006-01-02T15-04-05", id)
+		// IDs are formatted as "YYYY-MM-DDTHH-MM-SS" optionally followed by
+		// "-NNNNNNNNN" (nanoseconds). Parse the leading 19 characters as the
+		// timestamp; ignore any nano suffix for the Created field.
+		tsPart := id
+		if len(tsPart) > 19 {
+			tsPart = tsPart[:19]
+		}
+		created, _ := time.Parse("2006-01-02T15-04-05", tsPart)
 		proposals = append(proposals, ProposalInfo{
 			ID:       id,
 			FilePath: fpath,
@@ -339,8 +349,7 @@ func ApproveProposal(skillDir, proposalID string) error {
 	}
 
 	// Mark proposal as approved.
-	updateProposalStatus(proposalPath, "approved")
-	return nil
+	return updateProposalStatus(proposalPath, "approved")
 }
 
 // RejectProposal marks proposal as rejected.
@@ -349,18 +358,20 @@ func RejectProposal(skillDir, proposalID string) error {
 	if _, err := os.Stat(proposalPath); err != nil {
 		return fmt.Errorf("proposal not found: %s", proposalPath)
 	}
-	updateProposalStatus(proposalPath, "rejected")
-	return nil
+	return updateProposalStatus(proposalPath, "rejected")
 }
 
-func updateProposalStatus(fpath, status string) {
+func updateProposalStatus(fpath, status string) error {
 	data, err := os.ReadFile(fpath)
 	if err != nil {
-		return
+		return fmt.Errorf("read proposal: %w", err)
 	}
 	content := regexp.MustCompile(`(?m)^status: .+$`).
 		ReplaceAllString(string(data), "status: "+status)
-	_ = os.WriteFile(fpath, []byte(content), 0o644)
+	if err := os.WriteFile(fpath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write proposal status: %w", err)
+	}
+	return nil
 }
 
 func extractSection(content, header string) string {

@@ -9,18 +9,6 @@ import (
 	"tetora/internal/db"
 )
 
-// ---- helpers ----
-
-func mkSkillMD(t *testing.T, skillDir, content string) {
-	t.Helper()
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
-		t.Fatalf("WriteFile SKILL.md: %v", err)
-	}
-}
-
 // ---- LoadSkillBody ----
 
 func TestLoadSkillBody_WithFrontmatter(t *testing.T) {

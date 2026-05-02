@@ -2560,7 +2560,18 @@ Feedback: %s
 	llmTask.Model = "haiku"
 	llmTask.Budget = cfg.DeepMemoryExtract.BudgetOrDefault()
 
+	// Reserve against the daily cap before incurring LLM cost. We reserve the
+	// per-call budget upper bound; once we know the actual cost we reconcile.
+	dailyCap := cfg.DeepMemoryExtract.DailyBudgetOrDefault()
+	if !memory.ReserveDailyBudget(dailyCap, llmTask.Budget) {
+		log.Debug("deep memory extract: daily budget exceeded", "cap", dailyCap)
+		return
+	}
+
 	llmResult := runSingleTask(ctx, cfg, llmTask, deepExtractSem, nil, "")
+	// Reconcile reservation with actual cost (delta may be negative or positive).
+	memory.AdjustDailyBudget(llmResult.CostUSD - llmTask.Budget)
+
 	if llmResult.Status != "success" || llmResult.Output == "" {
 		log.Debug("deep memory extract LLM failed", "status", llmResult.Status)
 		return
@@ -2577,7 +2588,7 @@ Feedback: %s
 		if written >= maxExtracts {
 			break
 		}
-		if err := memory.ValidateExtract(e); err != nil {
+		if err := memory.ValidateExtract(&e); err != nil {
 			log.Debug("deep memory extract: invalid extract", "key", e.Key, "error", err)
 			continue
 		}
