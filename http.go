@@ -5165,7 +5165,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
 		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
-			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
+			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do not default to any specific language. If no language signal is available, default to English.")
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -7517,7 +7517,9 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		if !ok {
 			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
-		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs?per_page=100",
+		// per_page=101: if we receive >100 items the MR genuinely has 100+ files;
+		// exactly 100 would be ambiguous (could be a complete result).
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs?per_page=101",
 			url.PathEscape(projectPath), mrIID)
 		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
 		if err != nil {
@@ -7642,10 +7644,11 @@ func glabDiffsToUnified(data []byte) (string, error) {
 			return r
 		}, p)
 	}
-	if len(diffs) == 100 {
-		// GitLab caps per_page at 100; hitting the cap means the MR likely has
-		// more files that are not included here.
+	if len(diffs) > 100 {
+		// We requested per_page=101; more than 100 results means the MR has 100+ files
+		// and the diff shown here is truncated.
 		buf.WriteString("# WARNING: diff truncated — MR has 100+ files, only first 100 shown\n")
+		diffs = diffs[:100]
 	}
 	for _, d := range diffs {
 		oldPath := sanitizePath(d.OldPath)
