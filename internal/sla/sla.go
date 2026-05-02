@@ -10,45 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"tetora/internal/config"
 	"tetora/internal/db"
 	tlog "tetora/internal/log"
 )
 
-// --- Config types ---
-
-// SLAConfig configures per-agent SLA monitoring.
-type SLAConfig struct {
-	Enabled       bool                   `json:"enabled,omitempty"`
-	Agents        map[string]AgentSLACfg `json:"agents,omitempty"`
-	CheckInterval string                 `json:"checkInterval,omitempty"` // duration between checks (default "1h")
-	Window        string                 `json:"window,omitempty"`        // sliding window for metrics (default "24h")
-}
-
-// AgentSLACfg defines SLA thresholds for a single agent.
-type AgentSLACfg struct {
-	MinSuccessRate  float64 `json:"minSuccessRate,omitempty"`  // e.g. 0.95
-	MaxP95LatencyMs int64   `json:"maxP95LatencyMs,omitempty"` // e.g. 60000
-}
-
-// CheckIntervalOrDefault returns the parsed CheckInterval or 1h.
-func (c SLAConfig) CheckIntervalOrDefault() time.Duration {
-	if c.CheckInterval != "" {
-		if d, err := time.ParseDuration(c.CheckInterval); err == nil {
-			return d
-		}
-	}
-	return 1 * time.Hour
-}
-
-// WindowOrDefault returns the parsed Window or 24h.
-func (c SLAConfig) WindowOrDefault() time.Duration {
-	if c.Window != "" {
-		if d, err := time.ParseDuration(c.Window); err == nil {
-			return d
-		}
-	}
-	return 24 * time.Hour
-}
+// SLAConfig and AgentSLACfg are defined in config to avoid circular imports.
+type SLAConfig = config.SLAConfig
+type AgentSLACfg = config.AgentSLACfg
 
 // --- Metric and status types ---
 

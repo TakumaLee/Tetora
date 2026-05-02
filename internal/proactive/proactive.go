@@ -19,7 +19,7 @@ import (
 	"tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/log"
-	"tetora/internal/messaging/telegram"
+	
 )
 
 // Deps holds injected callbacks that the engine needs but cannot import directly
@@ -792,31 +792,14 @@ func (e *Engine) deliver(rule config.ProactiveRule, content string) error {
 	}
 }
 
-// deliverTelegram sends a message via Telegram.
+// deliverTelegram is a stub — Telegram support was archived.
 func (e *Engine) deliverTelegram(rule config.ProactiveRule, content string) error {
-	if !e.cfg.Telegram.Enabled {
-		return fmt.Errorf("telegram not enabled")
-	}
-
-	chatID := rule.Delivery.ChatID
-	if chatID == 0 {
-		chatID = e.cfg.Telegram.ChatID
-	}
-	_ = chatID // used implicitly via cfg passed to SendTelegramNotify
-
-	return telegram.SendTelegramNotify(&e.cfg.Telegram, content)
+	return fmt.Errorf("telegram delivery not supported (archived)")
 }
 
-// deliverSlack sends a message via Slack.
+// deliverSlack is a stub — Slack support was archived.
 func (e *Engine) deliverSlack(rule config.ProactiveRule, content string) error {
-	if !e.cfg.Slack.Enabled {
-		return fmt.Errorf("slack not enabled")
-	}
-
-	// Use existing Slack notification mechanism.
-	log.Info("proactive slack delivery", "rule", rule.Name, "message", truncate(content, 100))
-	// TODO: integrate with Slack send when available.
-	return nil
+	return fmt.Errorf("slack delivery not supported (archived)")
 }
 
 // deliverDiscord sends a message via Discord.

@@ -12,7 +12,7 @@ import (
 
 	"tetora/internal/config"
 	"tetora/internal/db"
-	"tetora/internal/handoff"
+	
 )
 
 // ChildSemConcurrentOrDefault returns the capacity for the child semaphore.
@@ -213,9 +213,8 @@ func GenerateMessageID() string {
 }
 
 // InitAgentCommDB initializes the agent_messages table.
-// Delegates to handoff.InitTables which owns the canonical unified DDL.
 func InitAgentCommDB(dbPath string) error {
-	handoff.InitTables(dbPath)
+	InitTables(dbPath)
 	return nil
 }
 

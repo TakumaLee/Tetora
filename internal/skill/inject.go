@@ -5,8 +5,13 @@ import (
 	"os"
 	"strings"
 	"time"
+)
 
-	"tetora/internal/classify"
+// Complexity levels (matches dispatch.Complexity — kept as int to avoid import cycle).
+const (
+	complexitySimple   = 0
+	complexityStandard = 1
+	complexityComplex  = 2
 )
 
 // --- P17.3c: Dynamic Skill Injection ---
@@ -251,7 +256,7 @@ func BuildSkillCatalog(cfg *AppConfig) string {
 // Tier 0 (always): full skill catalog (all skills, compact listing).
 // Tier 1 (matched): one-line summaries for context-matched skills.
 // Tier 2 (Standard/Complex only): SKILL.md doc injection when available.
-func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Complexity) string {
+func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity int) string {
 	out, _ := BuildSkillsPromptWithMeta(cfg, task, complexity)
 	return out
 }
@@ -266,7 +271,7 @@ func BuildSkillsPrompt(cfg *AppConfig, task TaskContext, complexity classify.Com
 //                    inlining — agents pull via the `skill_load` tool
 //   - Complex tier:  unchanged (catalog + matched + Tier 2 docs)
 // When disabled, falls back to the legacy always-inject behaviour across tiers.
-func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity classify.Complexity) (string, []string) {
+func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity int) (string, []string) {
 	onDemand := cfg.SkillsOnDemandEnabled
 
 	skills := SelectSkills(cfg, task)
@@ -280,7 +285,7 @@ func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity clas
 
 	// Simple tier + on-demand: strip everything except mandatory skills.
 	// Mandatory skills keep their doc (they're the identity guards and are small).
-	if onDemand && complexity == classify.Simple {
+	if onDemand && complexity == complexitySimple {
 		var mandatoryOnly []SkillConfig
 		for _, s := range skills {
 			if s.Mandatory {
@@ -390,8 +395,8 @@ func BuildSkillsPromptWithMeta(cfg *AppConfig, task TaskContext, complexity clas
 
 		// --- Tier 2: Skill documentation (Complex only when on-demand enabled;
 		// Standard+Complex when on-demand disabled; never Simple). ---
-		injectTier2 := complexity == classify.Complex ||
-			(!onDemand && complexity == classify.Standard)
+		injectTier2 := complexity == complexityComplex ||
+			(!onDemand && complexity == complexityStandard)
 		if injectTier2 {
 			docBudget := cfg.skillsMaxOrDefault()
 			docUsed := 0

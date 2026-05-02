@@ -7,9 +7,25 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"tetora/internal/estimate"
 )
+
+// estimateCostEstimate is a CLI-local copy of estimate.CostEstimate.
+type estimateCostEstimate struct {
+	Name               string  `json:"name"`
+	Provider           string  `json:"provider"`
+	Model              string  `json:"model"`
+	EstimatedCostUSD   float64 `json:"estimatedCostUsd"`
+	EstimatedTokensIn  int     `json:"estimatedTokensIn"`
+	EstimatedTokensOut int     `json:"estimatedTokensOut"`
+	Breakdown          string  `json:"breakdown,omitempty"`
+}
+
+// estimateResult is a CLI-local copy of estimate.EstimateResult.
+type estimateResult struct {
+	Tasks              []estimateCostEstimate `json:"tasks"`
+	TotalEstimatedCost float64                `json:"totalEstimatedCostUsd"`
+	ClassifyCost       float64                `json:"classifyCostUsd,omitempty"`
+}
 
 // dispatchResult is a CLI-local copy of DispatchResult for decoding dispatch responses.
 type dispatchResult struct {
@@ -278,7 +294,7 @@ func CmdDispatch(args []string) {
 			os.Exit(1)
 		}
 
-		var estResult estimate.EstimateResult
+		var estResult estimateResult
 		if err := json.NewDecoder(resp.Body).Decode(&estResult); err != nil {
 			fmt.Fprintf(os.Stderr, "error: parse estimate: %v\n", err)
 			os.Exit(1)

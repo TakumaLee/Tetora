@@ -29,7 +29,7 @@ import (
 	"tetora/internal/audit"
 	"tetora/internal/backup"
 	tetoraConfig "tetora/internal/config"
-	"tetora/internal/classify"
+	
 	"tetora/internal/cli"
 	"tetora/internal/cost"
 	"tetora/internal/db"
@@ -2955,7 +2955,11 @@ func isChatSource(source string) bool {
 	if i := strings.IndexByte(s, ':'); i > 0 {
 		s = s[:i]
 	}
-	return classify.ChatSources[s]
+	switch s {
+	case "chat", "discord", "telegram", "slack", "whatsapp", "line", "matrix", "teams", "signal", "gchat", "imessage":
+		return true
+	}
+	return false
 }
 
 // resolveAgentSprite determines the sprite state from dispatch/task context.

@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"tetora/internal/bm25"
-	"tetora/internal/classify"
 	"tetora/internal/config"
+	"tetora/internal/dispatch"
 	"tetora/internal/provider"
 )
 
@@ -63,6 +63,7 @@ func (r *Registry) SetReranker(rk bm25.Reranker) {
 	r.reranker = rk
 	r.mu.Unlock()
 }
+
 
 // Register adds a tool to the registry and marks the BM25 index as dirty.
 // The index is rebuilt lazily on the next SearchBM25 call.
@@ -286,11 +287,11 @@ func ForProfile(profile string) map[string]bool {
 }
 
 // ForComplexity returns the tool profile name appropriate for the given request complexity.
-func ForComplexity(c classify.Complexity) string {
+func ForComplexity(c dispatch.Complexity) string {
 	switch c {
-	case classify.Simple:
+	case dispatch.Simple:
 		return "none"
-	case classify.Standard:
+	case dispatch.Standard:
 		return "standard"
 	default:
 		return "full"

@@ -11,11 +11,6 @@ import (
 
 	"tetora/internal/config"
 	"tetora/internal/log"
-	imessagebot "tetora/internal/messaging/imessage"
-	"tetora/internal/messaging/line"
-	"tetora/internal/messaging/matrix"
-	signalbot "tetora/internal/messaging/signal"
-	"tetora/internal/messaging/teams"
 	"tetora/internal/messaging/whatsapp"
 )
 
@@ -81,6 +76,9 @@ func (d *DiscordNotifier) Send(text string) error {
 
 func (d *DiscordNotifier) Name() string { return "discord" }
 
+// WhatsAppNotifier is a type alias for the whatsapp messaging notifier.
+type WhatsAppNotifier = whatsapp.Notifier
+
 // NewDiscordNotifier creates a DiscordNotifier with the given webhook URL and HTTP timeout.
 func NewDiscordNotifier(webhookURL string, timeout time.Duration) *DiscordNotifier {
 	return &DiscordNotifier{WebhookURL: webhookURL, client: &http.Client{Timeout: timeout}}
@@ -98,9 +96,6 @@ func (m *MultiNotifier) Send(text string) {
 		}
 	}
 }
-
-// WhatsAppNotifier is an alias for the internal whatsapp.Notifier.
-type WhatsAppNotifier = whatsapp.Notifier
 
 // BuildDiscordNotifierByName returns a DiscordNotifier for the named channel (from cfg.Notifications), or nil.
 func BuildDiscordNotifierByName(cfg *config.Config, name string) *DiscordNotifier {
@@ -126,72 +121,6 @@ func BuildNotifiers(cfg *config.Config) []Notifier {
 		case "discord":
 			if ch.WebhookURL != "" {
 				notifiers = append(notifiers, &DiscordNotifier{WebhookURL: ch.WebhookURL, client: client})
-			}
-		case "whatsapp":
-			// For WhatsApp, WebhookURL should contain the recipient phone number
-			if ch.WebhookURL != "" && cfg.WhatsApp.Enabled {
-				notifiers = append(notifiers, &whatsapp.Notifier{
-					Cfg:       cfg.WhatsApp,
-					Recipient: ch.WebhookURL, // use webhookUrl field for phone number
-				})
-			}
-		case "line": // --- P15.1: LINE Channel ---
-			// For LINE, WebhookURL should contain the target user/group ID
-			if ch.WebhookURL != "" && cfg.LINE.Enabled {
-				notifiers = append(notifiers, &line.Notifier{
-					Config: cfg.LINE,
-					ChatID: ch.WebhookURL, // use webhookUrl field for LINE user/group ID
-				})
-			}
-		case "matrix": // --- P15.2: Matrix Channel ---
-			// For Matrix, WebhookURL should contain the target room ID
-			if ch.WebhookURL != "" && cfg.Matrix.Enabled {
-				notifiers = append(notifiers, &matrix.MatrixNotifier{
-					Config: cfg.Matrix,
-					RoomID: ch.WebhookURL, // use webhookUrl field for Matrix room ID
-				})
-			}
-		case "teams": // --- P15.3: Teams Channel ---
-			// For Teams, WebhookURL is used as "serviceUrl|conversationId" format
-			if ch.WebhookURL != "" && cfg.Teams.Enabled {
-				parts := strings.SplitN(ch.WebhookURL, "|", 2)
-				if len(parts) == 2 {
-					teamsBot := teams.NewBot(cfg.Teams, nil) // nil runtime OK — only used for proactive send
-					notifiers = append(notifiers, &teams.Notifier{
-						Bot:            teamsBot,
-						ServiceURL:     parts[0],
-						ConversationID: parts[1],
-					})
-				}
-			}
-		case "signal": // --- P15.4: Signal Channel ---
-			// For Signal, WebhookURL format: "phoneNumber" or "group:groupId"
-			if ch.WebhookURL != "" && cfg.Signal.Enabled {
-				isGroup := strings.HasPrefix(ch.WebhookURL, "group:")
-				recipient := ch.WebhookURL
-				if isGroup {
-					recipient = strings.TrimPrefix(recipient, "group:")
-				}
-				notifiers = append(notifiers, &signalbot.Notifier{
-					Config:    cfg.Signal,
-					Recipient: recipient,
-					IsGroup:   isGroup,
-				})
-			}
-		case "gchat", "googlechat": // --- P15.5: Google Chat Channel ---
-			// For Google Chat, WebhookURL should contain the space name (spaces/{space_id})
-			if ch.WebhookURL != "" && cfg.GoogleChat.Enabled {
-				// Note: GoogleChatNotifier requires a bot instance which is created in main.go
-				// This is a placeholder - actual initialization happens in main.go
-				log.Warn("gchat notifier requires bot initialization in main.go", "space", ch.WebhookURL)
-			}
-		case "imessage": // --- P20.2: iMessage via BlueBubbles ---
-			// For iMessage, WebhookURL field holds the target chat GUID.
-			if ch.WebhookURL != "" && cfg.IMessage.Enabled {
-				notifiers = append(notifiers, &imessagebot.Notifier{
-					Config:   cfg.IMessage,
-					ChatGUID: ch.WebhookURL,
-				})
 			}
 		default:
 			log.Warn("unknown notification type", "type", ch.Type)

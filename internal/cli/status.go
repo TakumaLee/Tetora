@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"tetora/internal/quiet"
 )
 
 func CmdStatus(args []string) {
@@ -165,14 +163,14 @@ func CmdStatus(args []string) {
 
 	// 6. Quiet hours.
 	if cfg.QuietHours.Enabled {
-		qcfg := quiet.Config{
+		qcfg := quietConfig{
 			Enabled: cfg.QuietHours.Enabled,
 			Start:   cfg.QuietHours.Start,
 			End:     cfg.QuietHours.End,
 			TZ:      cfg.QuietHours.TZ,
 			Digest:  cfg.QuietHours.Digest,
 		}
-		if quiet.IsQuietHours(qcfg) {
+		if isQuietHours(qcfg) {
 			// In CLI context the quiet queue is not accessible; omit queued count.
 			fmt.Printf("  Quiet:    \033[33mactive\033[0m (%s - %s)\n", cfg.QuietHours.Start, cfg.QuietHours.End)
 		} else {
@@ -275,7 +273,7 @@ func cmdStatusJSON(cfg *CLIConfig, api *APIClient) {
 
 	// Quiet hours.
 	if cfg.QuietHours.Enabled {
-		qcfg := quiet.Config{
+		qcfg := quietConfig{
 			Enabled: cfg.QuietHours.Enabled,
 			Start:   cfg.QuietHours.Start,
 			End:     cfg.QuietHours.End,
@@ -284,7 +282,7 @@ func cmdStatusJSON(cfg *CLIConfig, api *APIClient) {
 		}
 		// In CLI context the quiet queue is not accessible; queued is always 0.
 		result["quietHours"] = map[string]any{
-			"active": quiet.IsQuietHours(qcfg),
+			"active": isQuietHours(qcfg),
 			"start":  cfg.QuietHours.Start,
 			"end":    cfg.QuietHours.End,
 			"queued": 0,

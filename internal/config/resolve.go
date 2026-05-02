@@ -66,7 +66,6 @@ func ResolveEnvRef(value, fieldName string) string {
 // ResolveSecrets resolves $ENV_VAR references in secret config fields.
 func ResolveSecrets(cfg *Config) {
 	cfg.APIToken = ResolveEnvRef(cfg.APIToken, "apiToken")
-	cfg.Telegram.BotToken = ResolveEnvRef(cfg.Telegram.BotToken, "telegram.botToken")
 	if cfg.DashboardAuth.Password != "" {
 		cfg.DashboardAuth.Password = ResolveEnvRef(cfg.DashboardAuth.Password, "dashboardAuth.password")
 	}
@@ -99,15 +98,6 @@ func ResolveSecrets(cfg *Config) {
 			cfg.IncomingWebhooks[name] = wh
 		}
 	}
-	if cfg.Slack.BotToken != "" {
-		cfg.Slack.BotToken = ResolveEnvRef(cfg.Slack.BotToken, "slack.botToken")
-	}
-	if cfg.Slack.SigningSecret != "" {
-		cfg.Slack.SigningSecret = ResolveEnvRef(cfg.Slack.SigningSecret, "slack.signingSecret")
-	}
-	if cfg.Slack.AppToken != "" {
-		cfg.Slack.AppToken = ResolveEnvRef(cfg.Slack.AppToken, "slack.appToken")
-	}
 	if cfg.Discord.BotToken != "" {
 		cfg.Discord.BotToken = ResolveEnvRef(cfg.Discord.BotToken, "discord.botToken")
 	}
@@ -126,12 +116,6 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.Voice.TTS.FalAPIKey != "" {
 		cfg.Voice.TTS.FalAPIKey = ResolveEnvRef(cfg.Voice.TTS.FalAPIKey, "voice.tts.falApiKey")
 	}
-	if cfg.WhatsApp.AccessToken != "" {
-		cfg.WhatsApp.AccessToken = ResolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
-	}
-	if cfg.WhatsApp.AppSecret != "" {
-		cfg.WhatsApp.AppSecret = ResolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
-	}
 	if cfg.Push.VAPIDPublicKey != "" {
 		cfg.Push.VAPIDPublicKey = ResolveEnvRef(cfg.Push.VAPIDPublicKey, "push.vapidPublicKey")
 	}
@@ -149,31 +133,6 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.Tools.Vision.APIKey != "" {
 		cfg.Tools.Vision.APIKey = ResolveEnvRef(cfg.Tools.Vision.APIKey, "tools.vision.apiKey")
 	}
-	if cfg.LINE.ChannelSecret != "" {
-		cfg.LINE.ChannelSecret = ResolveEnvRef(cfg.LINE.ChannelSecret, "line.channelSecret")
-	}
-	if cfg.LINE.ChannelAccessToken != "" {
-		cfg.LINE.ChannelAccessToken = ResolveEnvRef(cfg.LINE.ChannelAccessToken, "line.channelAccessToken")
-	}
-	if cfg.Matrix.AccessToken != "" {
-		cfg.Matrix.AccessToken = ResolveEnvRef(cfg.Matrix.AccessToken, "matrix.accessToken")
-	}
-	if cfg.Teams.AppID != "" {
-		cfg.Teams.AppID = ResolveEnvRef(cfg.Teams.AppID, "teams.appId")
-	}
-	if cfg.Teams.AppPassword != "" {
-		cfg.Teams.AppPassword = ResolveEnvRef(cfg.Teams.AppPassword, "teams.appPassword")
-	}
-	if cfg.Teams.TenantID != "" {
-		cfg.Teams.TenantID = ResolveEnvRef(cfg.Teams.TenantID, "teams.tenantId")
-	}
-	if cfg.Signal.PhoneNumber != "" {
-		cfg.Signal.PhoneNumber = ResolveEnvRef(cfg.Signal.PhoneNumber, "signal.phoneNumber")
-	}
-	if cfg.GoogleChat.ServiceAccountKey != "" {
-		cfg.GoogleChat.ServiceAccountKey = ResolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
-	}
-	cfg.IMessage.Password = ResolveEnvRef(cfg.IMessage.Password, "imessage.password")
 	cfg.OAuth.EncryptionKey = ResolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
 	for name, svc := range cfg.OAuth.Services {
 		svc.ClientID = ResolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))

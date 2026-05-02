@@ -37,14 +37,14 @@ import (
 	tgbot "tetora/internal/messaging/telegram"
 	"tetora/internal/audit"
 	"tetora/internal/circuit"
-	"tetora/internal/classify"
+	
 	"tetora/internal/cli"
 	"tetora/internal/config"
 	"tetora/internal/cost"
 	"tetora/internal/cron"
 	"tetora/internal/db"
 	"tetora/internal/estimate"
-	"tetora/internal/handoff"
+	
 	"tetora/internal/health"
 	"tetora/internal/history"
 	"tetora/internal/knowledge"
@@ -2641,7 +2641,7 @@ func isInteractiveSource(source string) bool { return dtypes.IsInteractiveSource
 
 // --- Prompt Tier (from prompt_tier.go) ---
 
-func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity classify.Complexity) *prompt.Manifest {
+func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity dtypes.Complexity) *prompt.Manifest {
 	return prompt.BuildTieredPrompt(cfg, task, agentName, complexity, prompt.Deps{
 		ResolveProviderName:    resolveProviderName,
 		LoadSoulFile:           loadSoulFile,
@@ -3813,27 +3813,27 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 
 // --- Type aliases ---
 
-type Handoff = handoff.Handoff
-type AgentMessage = handoff.AgentMessage
-type AutoDelegation = handoff.AutoDelegation
+type Handoff = dtypes.Handoff
+type AgentMessage = dtypes.AgentMessage
+type AutoDelegation = dtypes.AutoDelegation
 
-const maxAutoDelegations = handoff.MaxAutoDelegations
+const maxAutoDelegations = dtypes.MaxAutoDelegations
 
 // --- Delegating functions ---
 
-func initHandoffTables(dbPath string)                       { handoff.InitTables(dbPath) }
-func recordHandoff(dbPath string, h Handoff) error          { return handoff.RecordHandoff(dbPath, h) }
-func updateHandoffStatus(dbPath, id, status string) error   { return handoff.UpdateStatus(dbPath, id, status) }
-func queryHandoffs(dbPath, wfID string) ([]Handoff, error)  { return handoff.QueryHandoffs(dbPath, wfID) }
+func initHandoffTables(dbPath string) { dtypes.InitTables(dbPath) }
+func recordHandoff(dbPath string, h Handoff) error          { return dtypes.RecordHandoff(dbPath, h) }
+func updateHandoffStatus(dbPath, id, status string) error   { return dtypes.UpdateStatus(dbPath, id, status) }
+func queryHandoffs(dbPath, wfID string) ([]Handoff, error)  { return dtypes.QueryHandoffs(dbPath, wfID) }
 func sendAgentMessage(dbPath string, msg AgentMessage) error {
-	return handoff.SendAgentMessage(dbPath, msg, newUUID)
+	return dtypes.SendAgentMessage(dbPath, msg, newUUID)
 }
 func queryAgentMessages(dbPath, wfID, role string, limit int) ([]AgentMessage, error) {
-	return handoff.QueryAgentMessages(dbPath, wfID, role, limit)
+	return dtypes.QueryAgentMessages(dbPath, wfID, role, limit)
 }
-func parseAutoDelegate(output string) []AutoDelegation { return handoff.ParseAutoDelegate(output) }
-func findMatchingBrace(s string) int                   { return handoff.FindMatchingBrace(s) }
-func buildHandoffPrompt(ctx, instr string) string      { return handoff.BuildHandoffPrompt(ctx, instr) }
+func parseAutoDelegate(output string) []AutoDelegation { return dtypes.ParseAutoDelegate(output) }
+func findMatchingBrace(s string) int                   { return dtypes.FindMatchingBrace(s) }
+func buildHandoffPrompt(ctx, instr string) string      { return dtypes.BuildHandoffPrompt(ctx, instr) }
 
 // --- Execution (root-only: uses runSingleTask, dispatchState, sseBroker, etc.) ---
 
@@ -6486,12 +6486,12 @@ func shouldInjectSkill(s SkillConfig, task Task) bool {
 	return skill.ShouldInjectSkill(s, toSkillTask(task))
 }
 
-func buildSkillsPrompt(cfg *Config, task Task, complexity classify.Complexity) string {
-	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), complexity)
+func buildSkillsPrompt(cfg *Config, task Task, complexity dtypes.Complexity) string {
+	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), int(complexity))
 }
 
-func buildSkillsPromptWithMeta(cfg *Config, task Task, complexity classify.Complexity) (string, []string) {
-	return skill.BuildSkillsPromptWithMeta(toSkillAppConfig(cfg), toSkillTask(task), complexity)
+func buildSkillsPromptWithMeta(cfg *Config, task Task, complexity dtypes.Complexity) (string, []string) {
+	return skill.BuildSkillsPromptWithMeta(toSkillAppConfig(cfg), toSkillTask(task), int(complexity))
 }
 
 func collectSkillAllowedTools(cfg *Config, task Task) []string {
