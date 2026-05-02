@@ -7627,6 +7627,7 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		OldPath     string `json:"old_path"`
 		NewFile     bool   `json:"new_file"`
 		DeletedFile bool   `json:"deleted_file"`
+		RenamedFile bool   `json:"renamed_file"`
 		TooLarge    bool   `json:"too_large"`
 	}
 	if err := json.Unmarshal(data, &diffs); err != nil {
@@ -7657,7 +7658,11 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		if d.DeletedFile {
 			newHeader = "/dev/null"
 		}
-		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", oldPath, newPath, oldHeader, newHeader)
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", oldPath, newPath)
+		if d.RenamedFile {
+			fmt.Fprintf(&buf, "rename from %s\nrename to %s\n", oldPath, newPath)
+		}
+		fmt.Fprintf(&buf, "--- %s\n+++ %s\n", oldHeader, newHeader)
 		if d.TooLarge || d.Diff == "" {
 			buf.WriteString("@@ -0,0 +0,0 @@ (binary or oversized file; diff not available)\n")
 		} else {
