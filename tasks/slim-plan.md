@@ -17,6 +17,13 @@
 - classify 的 ChatSources/MaxSession* inline 至 `internal/dispatch/complexity.go`
 - 所有 caller 修正，`go test ./...` ✅
 
+### PR4 ✅ — FOLD 薄套件 (2026-05-03)
+- `httputil` (20 LOC, 1 caller fn) → unexported `clientIP` in `httpapi/client_ip.go`; root http.go inlined
+- `text` (15 LOC, TruncateStr) → inline into discord/notify, usage/usage, messaging/util
+- `trace` → **KEEP** (10 callers + context propagation, too risky)
+- `crypto` → **KEEP** (88 LOC security code, wire.go is 9533 lines)
+- `go test ./...` ✅
+
 ### PR3 ✅ — Life-Stack Batch (2026-05-03)
 移至 `_archive/life-stack-2026-05/internal/`：recap, backup, health
 - health 邏輯 inline 至 `health_inline.go` + `health_disk_*.go`（root） + `internal/cron/disk_*.go`
@@ -28,19 +35,6 @@
 ---
 
 ## 下一步
-
-### PR4 — FOLD 薄套件（小工程，可繼續）
-
-目標：把真正薄的套件 fold 進 caller，不建 standalone 套件。
-
-| 套件 | LOC | 動作 | Caller |
-|------|-----|------|--------|
-| `httputil` | ~50 | → inline httpapi 或 root | httpapi/* 幾個 helper |
-| `text` | ~172 | → inline caller | usage.go + 其他 |
-| `trace` | ~thin | → 用 log 直接取代 | 少量 caller |
-| `crypto` | ~thin | → inline root | 少量 caller |
-
-做法：先 grep caller，確認 < 3 個檔，再 inline + 移除套件。
 
 ### PR5 — EXTRACT Discord（大工程，獨立計畫）
 - `internal/discord/` → `cmd/tetora-discord/`
