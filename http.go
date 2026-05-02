@@ -5105,9 +5105,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
 		cState.mu.Lock()
 		cState.cancel = cancel
-		// &cancel is a pointer to the heap-escaped CancelFunc; pointer identity
-		// uniquely identifies this goroutine's cancel since Go compares func values
-		// by identity, not equality. Taking &cancel forces heap allocation.
+		// &cancel is a pointer to the heap-escaped CancelFunc; taking the address of
+		// a local var forces heap allocation in Go. Pointer identity (*context.CancelFunc)
+		// is the only way to distinguish goroutines here since func values cannot be
+		// compared in Go (except to nil).
 		cState.cancelPtr = &cancel
 		cState.mu.Unlock()
 		defer func() {
@@ -7492,10 +7493,10 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("invalid url: %w", err)
 	}
-	if err := validateReviewHost(u.Host); err != nil {
+	if err := validateReviewHost(u.Hostname()); err != nil {
 		return "", "", err
 	}
-	host := strings.ToLower(u.Host)
+	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
 		out, err := exec.Command("gh", "pr", "diff", prURL).CombinedOutput()
@@ -7511,7 +7512,7 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, apiEndpoint).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
 		if err != nil {
 			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(string(out)))
 		}
@@ -7538,7 +7539,7 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		log.Warn("fetchPRContext: parse url", "error", err)
 		return ""
 	}
-	if u.Host != "github.com" {
+	if u.Hostname() != "github.com" {
 		return ""
 	}
 
@@ -7624,16 +7625,26 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		return "", err
 	}
 	var buf strings.Builder
+	sanitizePath := func(p string) string {
+		return strings.Map(func(r rune) rune {
+			if r == '\n' || r == '\r' || r == 0 {
+				return -1
+			}
+			return r
+		}, p)
+	}
 	for _, d := range diffs {
-		oldHeader := "a/" + d.OldPath
+		oldPath := sanitizePath(d.OldPath)
+		newPath := sanitizePath(d.NewPath)
+		oldHeader := "a/" + oldPath
 		if d.NewFile {
 			oldHeader = "/dev/null"
 		}
-		newHeader := "b/" + d.NewPath
+		newHeader := "b/" + newPath
 		if d.DeletedFile {
 			newHeader = "/dev/null"
 		}
-		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", d.OldPath, d.NewPath, oldHeader, newHeader)
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", oldPath, newPath, oldHeader, newHeader)
 		buf.WriteString(d.Diff)
 		if !strings.HasSuffix(d.Diff, "\n") {
 			buf.WriteByte('\n')
@@ -7649,7 +7660,7 @@ func postReviewComment(prURL, body string) error {
 	if err != nil {
 		return fmt.Errorf("invalid url: %w", err)
 	}
-	if err := validateReviewHost(u.Host); err != nil {
+	if err := validateReviewHost(u.Hostname()); err != nil {
 		return err
 	}
 
@@ -7666,7 +7677,7 @@ func postReviewComment(prURL, body string) error {
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	host := strings.ToLower(u.Host)
+	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
 		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
@@ -7681,7 +7692,7 @@ func postReviewComment(prURL, body string) error {
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Host, "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
+		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
 		}
