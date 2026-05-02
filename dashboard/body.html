@@ -2971,8 +2971,8 @@
     <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Direct kokuyou review — bypasses ruri triage for cost savings.</div>
     <form id="review-form" onsubmit="return submitReview(event)">
       <div class="form-row">
-        <label>PR/MR URL</label>
-        <input type="text" id="rf-url" required placeholder="https://github.com/owner/repo/pull/123 or TakumaLee/tetora#99">
+        <label>PR/MR URL <span style="font-weight:400;color:var(--muted)">(one per line)</span></label>
+        <textarea id="rf-url" required rows="3" placeholder="https://github.com/owner/repo/pull/123&#10;TakumaLee/tetora#99" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical;width:100%;box-sizing:border-box"></textarea>
       </div>
       <div class="form-row-inline">
         <div class="form-row">
@@ -2986,6 +2986,12 @@
           <input type="text" id="rf-model" placeholder="haiku">
         </div>
       </div>
+      <div style="margin:8px 0 4px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="rf-post-comment" style="width:14px;height:14px">
+          Post review as comment on GitHub/GitLab
+        </label>
+      </div>
       <div class="form-actions" id="rf-actions">
         <button type="button" class="btn" onclick="closeReviewModal()">Cancel</button>
         <button type="submit" class="btn btn-primary" id="rf-submit">Review</button>
@@ -2993,7 +2999,7 @@
     </form>
     <div class="dispatch-loading" id="rf-loading" style="display:none">
       <div class="spinner"></div>
-      <div>Fetching diff + reviewing...</div>
+      <div id="rf-progress">Fetching diff + reviewing...</div>
       <div style="font-size:11px;margin-top:4px" id="rf-elapsed"></div>
     </div>
   </div>

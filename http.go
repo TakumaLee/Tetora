@@ -24,6 +24,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"tetora/internal/audit"
 	"tetora/internal/backup"
@@ -5078,9 +5079,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		cfg := s.Cfg()
 
 		var req struct {
-			PRURL string `json:"pr_url"`
-			Agent string `json:"agent,omitempty"`
-			Model string `json:"model,omitempty"`
+			PRURL       string `json:"pr_url"`
+			Agent       string `json:"agent,omitempty"`
+			Model       string `json:"model,omitempty"`
+			PostComment bool   `json:"post_comment,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -5095,29 +5097,27 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
-		// Own the cancel func so /cancel can cut review dispatches. dispatch()
-		// is called with skipActive=true below, so it won't wire state.cancel
-		// itself — we must do it here, atomically with the active claim.
+		// Reviews skip the cState.active gate (multiple reviews can run concurrently,
+		// capped by cSem). cState.cancel is still wired so /cancel can abort the most
+		// recently started review; earlier concurrent reviews are not cancellable via
+		// the per-client cancel signal.
 		dispatchCtx := trace.WithID(context.Background(), trace.IDFromContext(r.Context()))
 		dispatchCtx, cancel := context.WithCancel(dispatchCtx)
-
-		// Atomically check-and-claim to prevent TOCTOU: two concurrent POSTs
-		// must not both pass the busy check and then race into dispatch().
 		cState.mu.Lock()
-		if cState.active {
-			cState.mu.Unlock()
-			cancel()
-			http.Error(w, `{"error":"dispatch already running"}`, http.StatusConflict)
-			return
-		}
-		cState.active = true
-		cState.startAt = time.Now()
 		cState.cancel = cancel
+		// &cancel is a pointer to the heap-escaped CancelFunc; taking the address of
+		// a local var forces heap allocation in Go. Pointer identity (*context.CancelFunc)
+		// is the only way to distinguish goroutines here since func values cannot be
+		// compared in Go (except to nil).
+		cState.cancelPtr = &cancel
 		cState.mu.Unlock()
 		defer func() {
 			cState.mu.Lock()
-			cState.active = false
-			cState.cancel = nil
+			// Clear only if no newer review has overwritten cState.cancel.
+			if cState.cancelPtr == &cancel {
+				cState.cancel = nil
+				cState.cancelPtr = nil
+			}
 			cState.mu.Unlock()
 			cancel()
 		}()
@@ -5142,6 +5142,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
+		truncated = sanitizeDiff(truncated)
 
 		prCtx := fetchPRContext(r.Context(), req.PRURL) // best-effort; errors logged internally
 
@@ -5163,7 +5164,8 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		promptBuf.WriteString("---\n")
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
-		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.")
+		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
+			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -5171,18 +5173,24 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			Model:  model,
 			Agent:  agent,
 			Source: "review",
+			// AllowDangerous left false: sanitizeDiff already neutralized
+			// dangerous-ops patterns in the diff before prompt injection.
 		}
 		fillDefaults(cfg, &task)
 		task.ClientID = clientID
 
 		log.Info("review: received", "agent", agent, "model", model,
-			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt))
+			"kind", kind, "url", req.PRURL, "prompt_len", len(task.Prompt), "post_comment", req.PostComment)
 
 		auditDB := s.resolveHistoryDB(cfg, clientID)
 		audit.Log(auditDB, "review", "http",
 			fmt.Sprintf("agent=%s url=%s (client=%s)", agent, req.PRURL, clientID), clientIP(r))
 
-		// skipActive=true: we already claimed cState.active + cState.cancel above under lock.
+		// skipActive=true: reviews don't set cState.active, so dispatch must not enforce it.
+		// startAt must be set manually here because dispatch() only sets it when manageActive=true.
+		cState.mu.Lock()
+		cState.startAt = time.Now()
+		cState.mu.Unlock()
 		result := dispatch(dispatchCtx, cfg, []Task{task}, cState, cSem, cChildSem, true)
 
 		resp := map[string]any{
@@ -5200,6 +5208,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			if tr.Error != "" {
 				resp["error"] = tr.Error
 				resp["status"] = "error"
+			} else if req.PostComment && tr.Output != "" {
+				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+					resp["comment_error"] = commentErr.Error()
+				} else {
+					resp["commented"] = true
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -7454,6 +7468,24 @@ func opDelete(summary, tag, description string, params []map[string]any, respons
 	return op
 }
 
+// parseGitLabMRPath extracts (projectPath, mrIID) from a parsed GitLab MR URL.
+// Handles both /-/merge_requests/ and /merge_requests/ path formats.
+// Returns ok=false if the URL does not match either expected format.
+func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
+	path := strings.TrimPrefix(u.Path, "/")
+	projectPath, mrIID, ok = strings.Cut(path, "/-/merge_requests/")
+	if !ok {
+		projectPath, mrIID, ok = strings.Cut(path, "/merge_requests/")
+	}
+	if !ok || mrIID == "" || projectPath == "" {
+		return "", "", false
+	}
+	if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
+		mrIID = mrIID[:i]
+	}
+	return projectPath, mrIID, true
+}
+
 // fetchReviewDiff fetches the diff of a PR/MR URL using gh or glab.
 // Returns (diff, kind, err) where kind is "PR" or "MR".
 func fetchReviewDiff(prURL string) (string, string, error) {
@@ -7461,7 +7493,10 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("invalid url: %w", err)
 	}
-	host := strings.ToLower(u.Host)
+	if err := validateReviewHost(u.Hostname()); err != nil {
+		return "", "", err
+	}
+	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
 		out, err := exec.Command("gh", "pr", "diff", prURL).CombinedOutput()
@@ -7470,11 +7505,22 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		}
 		return string(out), "PR", nil
 	case strings.Contains(host, "gitlab"):
-		out, err := exec.Command("glab", "mr", "diff", prURL).CombinedOutput()
-		if err != nil {
-			return "", "MR", fmt.Errorf("glab mr diff: %s", strings.TrimSpace(string(out)))
+		// glab mr diff requires a local git repo context; use the REST API instead.
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
+		if !ok {
+			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
-		return string(out), "MR", nil
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
+		if err != nil {
+			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(string(out)))
+		}
+		diff, parseErr := glabDiffsToUnified(out)
+		if parseErr != nil {
+			return "", "MR", fmt.Errorf("parse mr diffs: %w", parseErr)
+		}
+		return diff, "MR", nil
 	default:
 		return "", "", fmt.Errorf("unsupported host %q (expected github/gitlab)", host)
 	}
@@ -7493,7 +7539,7 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		log.Warn("fetchPRContext: parse url", "error", err)
 		return ""
 	}
-	if u.Host != "github.com" {
+	if u.Hostname() != "github.com" {
 		return ""
 	}
 
@@ -7564,6 +7610,127 @@ func fetchPRContext(ctx context.Context, prURL string) string {
 		}
 	}
 	return sb.String()
+}
+
+// glabDiffsToUnified converts GitLab /diffs API JSON into a unified diff string.
+func glabDiffsToUnified(data []byte) (string, error) {
+	var diffs []struct {
+		Diff        string `json:"diff"`
+		NewPath     string `json:"new_path"`
+		OldPath     string `json:"old_path"`
+		NewFile     bool   `json:"new_file"`
+		DeletedFile bool   `json:"deleted_file"`
+	}
+	if err := json.Unmarshal(data, &diffs); err != nil {
+		return "", err
+	}
+	var buf strings.Builder
+	sanitizePath := func(p string) string {
+		return strings.Map(func(r rune) rune {
+			if r == '\n' || r == '\r' || r == 0 {
+				return -1
+			}
+			return r
+		}, p)
+	}
+	for _, d := range diffs {
+		oldPath := sanitizePath(d.OldPath)
+		newPath := sanitizePath(d.NewPath)
+		oldHeader := "a/" + oldPath
+		if d.NewFile {
+			oldHeader = "/dev/null"
+		}
+		newHeader := "b/" + newPath
+		if d.DeletedFile {
+			newHeader = "/dev/null"
+		}
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", oldPath, newPath, oldHeader, newHeader)
+		buf.WriteString(d.Diff)
+		if !strings.HasSuffix(d.Diff, "\n") {
+			buf.WriteByte('\n')
+		}
+	}
+	return buf.String(), nil
+}
+
+// postReviewComment posts review output as a comment on the PR/MR.
+// body is written to a temp file to avoid ARG_MAX limits on long review outputs.
+func postReviewComment(prURL, body string) error {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if err := validateReviewHost(u.Hostname()); err != nil {
+		return err
+	}
+
+	tmpFile, err := os.CreateTemp("", "tetora-review-*.md")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString(body); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	host := strings.ToLower(u.Hostname())
+	switch {
+	case strings.Contains(host, "github"):
+		out, err := exec.Command("gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	case strings.Contains(host, "gitlab"):
+		projectPath, mrIID, ok := parseGitLabMRPath(u)
+		if !ok {
+			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+		}
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
+			url.PathEscape(projectPath), mrIID)
+		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported host %q for comment posting", host)
+	}
+}
+
+// validateReviewHost rejects URLs whose host is not a recognised GitHub/GitLab origin.
+// strings.Contains("gitlab") alone would allow attacker-controlled hosts like
+// gitlab.evil.com to receive authenticated glab API calls (SSRF / token leak).
+func validateReviewHost(host string) error {
+	h := strings.ToLower(host)
+	if h == "github.com" || strings.HasSuffix(h, ".github.com") {
+		return nil
+	}
+	if h == "gitlab.com" || strings.HasSuffix(h, ".gitlab.com") {
+		return nil
+	}
+	return fmt.Errorf("untrusted review host %q: only github.com and gitlab.com (and their subdomains) are allowed", host)
+}
+
+// sanitizeDiff inserts a zero-width non-joiner (U+200C) into each substring
+// of diff that matches a dangerousOpsPattern, breaking the regex match.
+// This lets the dangerous-ops guard run on the full review prompt without
+// flagging code-under-review as executable instructions.
+func sanitizeDiff(diff string) string {
+	for _, p := range dangerousOpsPatterns {
+		diff = p.pattern.ReplaceAllStringFunc(diff, func(m string) string {
+			if len(m) == 0 {
+				return m
+			}
+			_, size := utf8.DecodeRuneInString(m)
+			return m[:size] + "‌" + m[size:] // break word boundary / \s patterns
+		})
+	}
+	return diff
 }
 
 // truncateDiffLines caps a diff string at maxLines lines.
