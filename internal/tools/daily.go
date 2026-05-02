@@ -184,7 +184,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 	// Image generation tools are registered by RegisterImageGenTools in registerBuiltins.
 
 	// --- Notes/Obsidian Integration ---
-	if enabled("note_create") && cfg.Notes.Enabled {
+	if enabled("note_create") && false {
 		r.Register(&ToolDef{
 			Name:        "note_create",
 			Description: "Create a new note in the Obsidian vault. Supports nested paths (e.g. 'daily/2024-01-15'). Auto-appends .md if no extension given.",
@@ -201,7 +201,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 		})
 	}
 
-	if enabled("note_read") && cfg.Notes.Enabled {
+	if enabled("note_read") && false {
 		r.Register(&ToolDef{
 			Name:        "note_read",
 			Description: "Read a note from the Obsidian vault. Returns content, tags, and wikilinks.",
@@ -217,7 +217,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 		})
 	}
 
-	if enabled("note_append") && cfg.Notes.Enabled {
+	if enabled("note_append") && false {
 		r.Register(&ToolDef{
 			Name:        "note_append",
 			Description: "Append content to an existing note (creates if not exists).",
@@ -234,7 +234,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 		})
 	}
 
-	if enabled("note_list") && cfg.Notes.Enabled {
+	if enabled("note_list") && false {
 		r.Register(&ToolDef{
 			Name:        "note_list",
 			Description: "List notes in the vault. Optionally filter by path prefix.",
@@ -249,7 +249,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 		})
 	}
 
-	if enabled("note_search") && cfg.Notes.Enabled {
+	if enabled("note_search") && false {
 		r.Register(&ToolDef{
 			Name:        "note_search",
 			Description: "Search notes using TF-IDF full-text search. Returns ranked results with snippets.",
@@ -267,7 +267,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 	}
 
 	// --- Learning Loop: store_lesson ---
-	if enabled("store_lesson") && cfg.Notes.Enabled {
+	if enabled("store_lesson") && false {
 		r.Register(&ToolDef{
 			Name:        "store_lesson",
 			Description: "Store a lesson learned into the vault and lessons file. Triggers auto-embedding into semantic memory for future retrieval.",
@@ -287,7 +287,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 	}
 
 	// --- Note Dedup & Source Audit ---
-	if enabled("note_dedup") && cfg.Notes.Enabled {
+	if enabled("note_dedup") && false {
 		r.Register(&ToolDef{
 			Name:        "note_dedup",
 			Description: "Scan notes vault for duplicate files by content hash. Returns duplicate groups and optionally auto-deletes.",
@@ -322,7 +322,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 	}
 
 	// --- Sitemap Ingest Pipeline ---
-	if enabled("web_crawl") && cfg.Notes.Enabled {
+	if enabled("web_crawl") && false {
 		r.Register(&ToolDef{
 			Name:        "web_crawl",
 			Description: "Fetch a sitemap and import web pages into the notes vault. Supports sitemap.xml, sitemapindex, and single URL mode. Content is stripped of HTML and saved as markdown.",
@@ -346,7 +346,7 @@ func RegisterDailyTools(r *Registry, cfg *config.Config, enabled func(string) bo
 		})
 	}
 
-	if enabled("source_audit_url") && cfg.Notes.Enabled {
+	if enabled("source_audit_url") && false {
 		r.Register(&ToolDef{
 			Name:        "source_audit_url",
 			Description: "Compare a sitemap's URLs against imported notes to find missing pages",

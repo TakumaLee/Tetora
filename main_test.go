@@ -27,88 +27,47 @@ import (
 // --- from app_test.go ---
 
 func TestAppSyncToGlobals(t *testing.T) {
-	// Save and restore globals.
-	oldProfile := globalUserProfileService
-	oldFinance := globalFinanceService
 	oldScheduling := globalSchedulingService
 	defer func() {
-		globalUserProfileService = oldProfile
-		globalFinanceService = oldFinance
 		globalSchedulingService = oldScheduling
 	}()
-
-	// Clear globals.
-	globalUserProfileService = nil
-	globalFinanceService = nil
 	globalSchedulingService = nil
 
-	// Create App with mock services.
 	cfg := &Config{}
 	sched := newSchedulingService(cfg)
-
-	app := &App{
-		Cfg:        cfg,
-		Scheduling: sched,
-	}
+	app := &App{Cfg: cfg, Scheduling: sched}
 	app.SyncToGlobals()
 
-	// Verify globals are set.
 	if globalSchedulingService != sched {
 		t.Error("SyncToGlobals should set globalSchedulingService")
-	}
-
-	// Nil fields should NOT overwrite existing globals.
-	if globalUserProfileService != nil {
-		t.Error("nil App.UserProfile should not set global")
 	}
 }
 
 func TestAppNilSafe(t *testing.T) {
-	// App with all nil fields should not panic on SyncToGlobals.
 	app := &App{Cfg: &Config{}}
 	app.SyncToGlobals() // should not panic
 }
 
-func TestAppSyncToGlobals_Phase2Fields(t *testing.T) {
-	// Save and restore globals.
-	oldLifecycle := globalLifecycleEngine
-	oldTimeTracking := globalTimeTracking
+func TestAppSyncToGlobals_InfraFields(t *testing.T) {
 	oldSpawnTracker := globalSpawnTracker
 	oldJudgeCache := globalJudgeCache
 	oldImageGen := globalImageGenLimiter
 	defer func() {
-		globalLifecycleEngine = oldLifecycle
-		globalTimeTracking = oldTimeTracking
 		globalSpawnTracker = oldSpawnTracker
 		globalJudgeCache = oldJudgeCache
 		globalImageGenLimiter = oldImageGen
 	}()
 
-	// Clear globals.
-	globalLifecycleEngine = nil
-	globalTimeTracking = nil
-
-	cfg := &Config{}
-	le := &LifecycleEngine{cfg: cfg}
-	tt := newTimeTrackingService(cfg)
 	st := newSpawnTracker()
 	ig := &imageGenLimiter{}
 
 	app := &App{
-		Cfg:             cfg,
-		Lifecycle:       le,
-		TimeTracking:    tt,
+		Cfg:             &Config{},
 		SpawnTracker:    st,
 		ImageGenLimiter: ig,
 	}
 	app.SyncToGlobals()
 
-	if globalLifecycleEngine != le {
-		t.Error("SyncToGlobals should set globalLifecycleEngine")
-	}
-	if globalTimeTracking != tt {
-		t.Error("SyncToGlobals should set globalTimeTracking")
-	}
 	if globalSpawnTracker != st {
 		t.Error("SyncToGlobals should set globalSpawnTracker")
 	}
