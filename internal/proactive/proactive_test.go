@@ -315,6 +315,56 @@ func TestGet30DayDailyCosts_ColumnByName(t *testing.T) {
 	}
 }
 
+// TestGetFailedTasksToday verifies that only error/timeout runs are counted,
+// and cancelled/escalated/skipped_concurrent_limit/success are excluded.
+func TestGetFailedTasksToday(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "test.db")
+	schema := `CREATE TABLE IF NOT EXISTS job_runs (
+	  id INTEGER PRIMARY KEY AUTOINCREMENT,
+	  job_id TEXT NOT NULL DEFAULT '',
+	  name TEXT NOT NULL DEFAULT '',
+	  source TEXT NOT NULL DEFAULT '',
+	  started_at TEXT NOT NULL,
+	  finished_at TEXT NOT NULL DEFAULT '',
+	  status TEXT NOT NULL DEFAULT '',
+	  cost_usd REAL DEFAULT 0,
+	  tokens_in INTEGER DEFAULT 0
+	);`
+	if err := db.Exec(dbPath, schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	today := time.Now().Format("2006-01-02")
+	insert := func(status string) {
+		sql := fmt.Sprintf(
+			`INSERT INTO job_runs (job_id, name, source, started_at, status) VALUES ('j','n','s','%sT10:00:00Z','%s')`,
+			today, status,
+		)
+		if err := db.Exec(dbPath, sql); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	insert("error")
+	insert("timeout")
+	insert("cancelled")
+	insert("escalated")
+	insert("skipped_concurrent_limit")
+	insert("success")
+
+	e := newEngineWithRules(nil, Deps{})
+	e.cfg.HistoryDB = dbPath
+
+	n, err := e.getFailedTasksToday()
+	if err != nil {
+		t.Fatalf("getFailedTasksToday: %v", err)
+	}
+	// Only error + timeout should count; cancelled, escalated, skipped, success must be excluded.
+	if n != 2 {
+		t.Errorf("got %v, want 2 (error+timeout only)", n)
+	}
+}
+
 // TestGetSkippedConcurrentToday verifies that only skipped_concurrent_limit
 // records are counted, and error/timeout/success are excluded.
 func TestGetSkippedConcurrentToday(t *testing.T) {

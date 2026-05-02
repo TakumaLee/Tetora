@@ -5165,7 +5165,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 		promptBuf.WriteString(truncated)
 		promptBuf.WriteString("\n---\n")
 		promptBuf.WriteString("Provide a structured review with sections: Risks, Suggestions, Approve/Request-Changes Recommendation.\n" +
-			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do NOT default to Japanese or any other language — match the author's language exactly.")
+			"IMPORTANT: Detect the primary language used in the PR/MR title, description, and author comments, then write your entire review in that same language. Do not default to any specific language. If no language signal is available, default to English.")
 
 		task := Task{
 			Name:   fmt.Sprintf("review:%s", req.PRURL),
@@ -5210,6 +5210,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 				resp["status"] = "error"
 			} else if req.PostComment && tr.Output != "" {
 				if commentErr := postReviewComment(req.PRURL, tr.Output); commentErr != nil {
+					log.Warn("review: comment post failed", "url", req.PRURL, "error", commentErr)
 					resp["comment_error"] = commentErr.Error()
 				} else {
 					resp["commented"] = true
@@ -7483,6 +7484,12 @@ func parseGitLabMRPath(u *url.URL) (projectPath, mrIID string, ok bool) {
 	if i := strings.IndexAny(mrIID, "/?#"); i >= 0 {
 		mrIID = mrIID[:i]
 	}
+	// Validate IID is numeric to avoid passing non-IID paths (e.g. /new) to the API.
+	for _, c := range mrIID {
+		if c < '0' || c > '9' {
+			return "", "", false
+		}
+	}
 	return projectPath, mrIID, true
 }
 
@@ -7510,7 +7517,9 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		if !ok {
 			return "", "MR", fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
-		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs",
+		// per_page=101: if we receive >100 items the MR genuinely has 100+ files;
+		// exactly 100 would be ambiguous (could be a complete result).
+		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs?per_page=101",
 			url.PathEscape(projectPath), mrIID)
 		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
 		if err != nil {
@@ -7620,6 +7629,8 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		OldPath     string `json:"old_path"`
 		NewFile     bool   `json:"new_file"`
 		DeletedFile bool   `json:"deleted_file"`
+		RenamedFile bool   `json:"renamed_file"`
+		TooLarge    bool   `json:"too_large"`
 	}
 	if err := json.Unmarshal(data, &diffs); err != nil {
 		return "", err
@@ -7633,6 +7644,12 @@ func glabDiffsToUnified(data []byte) (string, error) {
 			return r
 		}, p)
 	}
+	if len(diffs) > 100 {
+		// We requested per_page=101; more than 100 results means the MR has 100+ files
+		// and the diff shown here is truncated.
+		buf.WriteString("# WARNING: diff truncated — MR has 100+ files, only first 100 shown\n")
+		diffs = diffs[:100]
+	}
 	for _, d := range diffs {
 		oldPath := sanitizePath(d.OldPath)
 		newPath := sanitizePath(d.NewPath)
@@ -7644,10 +7661,18 @@ func glabDiffsToUnified(data []byte) (string, error) {
 		if d.DeletedFile {
 			newHeader = "/dev/null"
 		}
-		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n--- %s\n+++ %s\n", oldPath, newPath, oldHeader, newHeader)
-		buf.WriteString(d.Diff)
-		if !strings.HasSuffix(d.Diff, "\n") {
-			buf.WriteByte('\n')
+		fmt.Fprintf(&buf, "diff --git a/%s b/%s\n", oldPath, newPath)
+		if d.RenamedFile {
+			fmt.Fprintf(&buf, "rename from %s\nrename to %s\n", oldPath, newPath)
+		}
+		fmt.Fprintf(&buf, "--- %s\n+++ %s\n", oldHeader, newHeader)
+		if d.TooLarge || d.Diff == "" {
+			buf.WriteString("@@ -0,0 +0,0 @@ (binary or oversized file; diff not available)\n")
+		} else {
+			buf.WriteString(d.Diff)
+			if !strings.HasSuffix(d.Diff, "\n") {
+				buf.WriteByte('\n')
+			}
 		}
 	}
 	return buf.String(), nil

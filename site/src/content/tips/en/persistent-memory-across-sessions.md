@@ -1,4 +1,3 @@
----
 title: "Persistent Memory Across Sessions — Keep Agents Informed Between Runs"
 lang: en
 date: "2026-04-25"
