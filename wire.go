@@ -360,7 +360,7 @@ var (
 
 func newFileManagerService(cfg *Config) *storage.Service {
 	dir := cfg.FileManager.StorageDirOrDefault(cfg.BaseDir)
-	return storage.New(cfg.HistoryDB, dir, cfg.FileManager.MaxSizeOrDefault(), makeLifeDB(), newUUID)
+	return storage.New(cfg.HistoryDB, dir, cfg.FileManager.MaxSizeOrDefault(), makeStorageDB(), newUUID)
 }
 
 // --- Base URL forwarding for tests ---
@@ -7242,9 +7242,9 @@ type Reminder = reminder.Reminder
 
 // --- makeLifeDB ---
 
-// makeLifeDB returns a lifedb.DB wired to the root package helpers.
-func makeLifeDB() lifedb.DB {
-	return lifedb.DB{
+// makeStorageDB returns a storage.DBHelpers wired to the root package helpers.
+func makeStorageDB() storage.DBHelpers {
+	return storage.DBHelpers{
 		Query:   db.Query,
 		Exec:    db.Exec,
 		Escape:  db.Escape,
@@ -7258,7 +7258,7 @@ func makeLifeDB() lifedb.DB {
 func newFinanceService(cfg *Config) *FinanceService {
 	encFn := func(v string) string { return encryptField(cfg, v) }
 	decFn := func(v string) string { return decryptField(cfg, v) }
-	return finance.New(cfg.HistoryDB, cfg.Finance.DefaultCurrencyOrTWD(), makeLifeDB(), encFn, decFn)
+	return finance.New(cfg.HistoryDB, cfg.Finance.DefaultCurrencyOrTWD(), makeStorageDB(), encFn, decFn)
 }
 
 func initFinanceDB(dbPath string) error {
@@ -7266,7 +7266,7 @@ func initFinanceDB(dbPath string) error {
 }
 
 func newHabitsService(cfg *Config) *HabitsService {
-	return habits.New(cfg.HistoryDB, makeLifeDB())
+	return habits.New(cfg.HistoryDB, makeStorageDB())
 }
 
 func initHabitsDB(dbPath string) error {
@@ -7274,7 +7274,7 @@ func initHabitsDB(dbPath string) error {
 }
 
 func newGoalsService(cfg *Config) *GoalsService {
-	return goals.New(cfg.HistoryDB, makeLifeDB())
+	return goals.New(cfg.HistoryDB, makeStorageDB())
 }
 
 func initGoalsDB(dbPath string) error {
@@ -7303,7 +7303,7 @@ func newContactsService(cfg *Config) *ContactsService {
 	encFn := func(v string) string { return encryptField(cfg, v) }
 	decFn := func(v string) string { return decryptField(cfg, v) }
 	log.Info("contacts service initialized", "db", dbPath)
-	return contacts.New(dbPath, makeLifeDB(), encFn, decFn)
+	return contacts.New(dbPath, makeStorageDB(), encFn, decFn)
 }
 
 func initContactsDB(dbPath string) error {
@@ -7317,7 +7317,7 @@ func newFamilyService(cfg *Config, familyCfg FamilyConfig) (*FamilyService, erro
 		DefaultBudget:    familyCfg.DefaultBudget,
 		DefaultRateLimit: familyCfg.DefaultRateLimit,
 	}
-	return family.New(dbPath, cfg.HistoryDB, internalCfg, makeLifeDB())
+	return family.New(dbPath, cfg.HistoryDB, internalCfg, makeStorageDB())
 }
 
 func initFamilyDB(dbPath string) error {
@@ -7325,7 +7325,7 @@ func initFamilyDB(dbPath string) error {
 }
 
 func newPriceWatchEngine(cfg *Config) *PriceWatchEngine {
-	return pricewatch.New(cfg.HistoryDB, tool.CurrencyBaseURL, makeLifeDB())
+	return pricewatch.New(cfg.HistoryDB, tool.CurrencyBaseURL, makeStorageDB())
 }
 
 func newReminderEngine(cfg *Config, notifyFn func(string)) *ReminderEngine {
@@ -7333,7 +7333,7 @@ func newReminderEngine(cfg *Config, notifyFn func(string)) *ReminderEngine {
 		CheckInterval: cfg.Reminders.CheckIntervalOrDefault(),
 		MaxPerUser:    cfg.Reminders.MaxPerUser,
 	}
-	return reminder.New(cfg.HistoryDB, internalCfg, makeLifeDB(), notifyFn, nextCronTime)
+	return reminder.New(cfg.HistoryDB, internalCfg, makeStorageDB(), notifyFn, nextCronTime)
 }
 
 func initReminderDB(dbPath string) error {
@@ -7341,7 +7341,7 @@ func initReminderDB(dbPath string) error {
 }
 
 func newTimeTrackingService(cfg *Config) *TimeTrackingService {
-	return timetracking.New(cfg.HistoryDB, makeLifeDB())
+	return timetracking.New(cfg.HistoryDB, makeStorageDB())
 }
 
 func initTimeTrackingDB(dbPath string) error {
@@ -7350,7 +7350,7 @@ func initTimeTrackingDB(dbPath string) error {
 
 func newDailyNotesService(cfg *Config) *DailyNotesService {
 	notesDir := cfg.DailyNotes.DirOrDefault(cfg.BaseDir)
-	return dailynotes.New(cfg.HistoryDB, notesDir, makeLifeDB())
+	return dailynotes.New(cfg.HistoryDB, notesDir, makeStorageDB())
 }
 
 // --- oauthAdapter wraps OAuthManager to satisfy calendar.OAuthRequester ---
@@ -7414,7 +7414,7 @@ func newUserProfileService(cfg *Config) *UserProfileService {
 	return profile.New(cfg.HistoryDB, profile.Config{
 		Enabled:          cfg.UserProfile.Enabled,
 		SentimentEnabled: cfg.UserProfile.SentimentEnabled,
-	}, makeLifeDB(), newUUID, sentimentFn, nlp.Label)
+	}, makeStorageDB(), newUUID, sentimentFn, nlp.Label)
 }
 
 func initUserProfileDB(dbPath string) error {
@@ -7426,7 +7426,7 @@ func initUserProfileDB(dbPath string) error {
 func newTaskManagerService(cfg *Config) *TaskManagerService {
 	return tasks.New(cfg.HistoryDB, tasks.Config{
 		DefaultProject: cfg.TaskManager.DefaultProjectOrInbox(),
-	}, makeLifeDB(), newUUID)
+	}, makeStorageDB(), newUUID)
 }
 
 func initTaskManagerDB(dbPath string) error {
