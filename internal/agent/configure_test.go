@@ -127,16 +127,55 @@ func TestGenerateCapabilityFiles_CreatesFiles(t *testing.T) {
 func TestGenerateCapabilityFiles_AllCapabilities(t *testing.T) {
 	dir := t.TempDir()
 	resp := &capabilityResponse{
-		SelectedCapabilities: []string{"memory.auto-extracts", "skill-evolve", "weekly-review"},
+		SelectedCapabilities: []string{"memory.auto-extracts", "skill-evolve", "weekly-review", "deep-memory-extract"},
 	}
 	if err := generateCapabilityFiles(dir, "/proto.md", resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, cap := range BuiltinCapabilities {
+		if cap.DetailFile == "" {
+			continue
+		}
 		path := filepath.Join(dir, "capabilities", cap.DetailFile)
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("detail file not created: %s", path)
 		}
+	}
+}
+
+func TestConfigureResult_ConfigFlags(t *testing.T) {
+	// deep-memory-extract must produce a ConfigFlag entry.
+	var deepCap *Capability
+	for i := range BuiltinCapabilities {
+		if BuiltinCapabilities[i].ID == "deep-memory-extract" {
+			deepCap = &BuiltinCapabilities[i]
+			break
+		}
+	}
+	if deepCap == nil {
+		t.Fatal("deep-memory-extract not in BuiltinCapabilities")
+	}
+	if deepCap.ConfigFlag != "deepMemoryExtract.enabled" {
+		t.Errorf("unexpected ConfigFlag: %q", deepCap.ConfigFlag)
+	}
+	if deepCap.DetailFile == "" {
+		t.Error("deep-memory-extract should have a detail file")
+	}
+}
+
+func TestConfigureResult_WeeklyReviewCronJob(t *testing.T) {
+	var wrCap *Capability
+	for i := range BuiltinCapabilities {
+		if BuiltinCapabilities[i].ID == "weekly-review" {
+			wrCap = &BuiltinCapabilities[i]
+			break
+		}
+	}
+	if wrCap == nil {
+		t.Fatal("weekly-review not in BuiltinCapabilities")
+	}
+	if wrCap.CronExpr != "0 9 * * 0" {
+		t.Errorf("unexpected CronExpr: %q", wrCap.CronExpr)
 	}
 }
 

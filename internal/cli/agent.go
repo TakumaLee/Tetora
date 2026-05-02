@@ -362,8 +362,34 @@ func agentConfigure(args []string) {
 	fmt.Printf("Agent %s configured.\n", name)
 }
 
-// applyConfigureResult adds cron jobs to jobs.json for capabilities that need them.
+// applyConfigureResult adds cron jobs and sets config flags for the selected capabilities.
 func applyConfigureResult(cfg *CLIConfig, r *agent.ConfigureResult) {
+	// Apply config flags (e.g. deepMemoryExtract.enabled = true).
+	if len(r.ConfigFlags) > 0 {
+		if err := MutateConfig(cfg.ConfigPath, func(raw map[string]any) {
+			for flagKey, val := range r.ConfigFlags {
+				// flagKey format: "section.field" (e.g. "deepMemoryExtract.enabled")
+				parts := strings.SplitN(flagKey, ".", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				section, field := parts[0], parts[1]
+				sec, ok := raw[section].(map[string]any)
+				if !ok {
+					sec = map[string]any{}
+				}
+				sec[field] = val
+				raw[section] = sec
+			}
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not apply config flags for %s: %v\n", r.Agent, err)
+		} else {
+			for k := range r.ConfigFlags {
+				fmt.Printf("  Config: %s = true\n", k)
+			}
+		}
+	}
+
 	if len(r.CronJobs) == 0 {
 		return
 	}

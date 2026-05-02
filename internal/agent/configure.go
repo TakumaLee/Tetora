@@ -15,8 +15,9 @@ import (
 type Capability struct {
 	ID          string
 	Description string
-	DetailFile  string // filename inside capabilities/
+	DetailFile  string // filename inside capabilities/ (empty = no file)
 	CronExpr    string // non-empty → add a cron job entry
+	ConfigFlag  string // non-empty → set this config key to true (e.g. "deepMemoryExtract.enabled")
 }
 
 // BuiltinCapabilities is the fixed catalogue of capabilities configure can install.
@@ -37,6 +38,12 @@ var BuiltinCapabilities = []Capability{
 		DetailFile:  "weekly-review.md",
 		CronExpr:    "0 9 * * 0",
 	},
+	{
+		ID:          "deep-memory-extract",
+		Description: "高品質任務後自動萃取跨 session 知識",
+		DetailFile:  "deep-memory-extract.md",
+		ConfigFlag:  "deepMemoryExtract.enabled",
+	},
 }
 
 // capabilityResponse is the JSON the agent returns during capability selection.
@@ -52,6 +59,9 @@ type ConfigureResult struct {
 	Reason   string
 	// CronJobs holds IDs of capabilities that require a cron job entry.
 	CronJobs []string
+	// ConfigFlags maps config key → true for capabilities that set a flag
+	// (e.g. "deepMemoryExtract.enabled"). The CLI layer applies these.
+	ConfigFlags map[string]bool
 }
 
 // Configure asks the agent which capabilities it needs, then writes the files.
@@ -73,14 +83,21 @@ func Configure(claudePath, agentsDir, ioProtocolPath, agentName string) (*Config
 	}
 
 	result := &ConfigureResult{
-		Agent:    agentName,
-		Selected: resp.SelectedCapabilities,
-		Reason:   resp.Reason,
+		Agent:       agentName,
+		Selected:    resp.SelectedCapabilities,
+		Reason:      resp.Reason,
+		ConfigFlags: make(map[string]bool),
 	}
 	for _, id := range resp.SelectedCapabilities {
 		for _, cap := range BuiltinCapabilities {
-			if cap.ID == id && cap.CronExpr != "" {
+			if cap.ID != id {
+				continue
+			}
+			if cap.CronExpr != "" {
 				result.CronJobs = append(result.CronJobs, id)
+			}
+			if cap.ConfigFlag != "" {
+				result.ConfigFlags[cap.ConfigFlag] = true
 			}
 		}
 	}
@@ -225,6 +242,29 @@ func writeCapabilitiesIndex(capDir string, selected map[string]bool) error {
 }
 
 var capabilityDetailContents = map[string]string{
+	"deep-memory-extract": `# deep-memory-extract
+
+高品質任務完成後（reflection score ≥ 4 + cost ≥ $0.10 + 成功），Tetora 自動從對話中萃取跨 session 知識。
+
+## 已啟用
+
+你的 Tetora 設定中 deepMemoryExtract.enabled 已設為 true。萃取會在符合條件的任務完成後自動觸發。
+
+## 萃取後的知識去哪
+
+- memory/extract:<slug>.md（個別知識條目）
+- memory/auto-extracts.md（FIFO index，最多 100 筆）
+
+## 搭配使用
+
+在 SOUL.md 訂閱萃取結果：
+
+` + "```" + `
+{{memory.auto-extracts}}
+` + "```" + `
+
+這樣每次任務都能看到 Tetora 最近自動萃取的跨 session 知識。
+`,
 	"memory.auto-extracts": `# memory.auto-extracts
 
 Tetora 自動從高品質任務中萃取跨 session 知識，存入 memory/auto-extracts.md。
