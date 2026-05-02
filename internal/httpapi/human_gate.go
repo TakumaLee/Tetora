@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // writeJSONError writes a JSON {"error": msg} response with the given HTTP status.
@@ -130,7 +129,7 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 
 			audit.Log(d.HistoryDB(), "human_gate.cancel", "http",
 				fmt.Sprintf("key=%s cancelledBy=%s reason=%s", key, body.CancelledBy, body.Reason),
-				httputil.ClientIP(r))
+				clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "cancelled", "key": key})
 			return
 		}
@@ -159,7 +158,7 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 
 			audit.Log(d.HistoryDB(), "human_gate.retry", "http",
 				fmt.Sprintf("key=%s newRunId=%s", key, newRunID),
-				httputil.ClientIP(r))
+				clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "retrying", "key": key, "newRunId": newRunID})
 			return
 		}
@@ -203,7 +202,7 @@ func RegisterHumanGateRoutes(mux *http.ServeMux, d HumanGateDeps) {
 
 			audit.Log(d.HistoryDB(), "human_gate.respond", "http",
 				fmt.Sprintf("key=%s action=%s respondedBy=%s", key, body.Action, body.RespondedBy),
-				httputil.ClientIP(r))
+				clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "delivered", "key": key, "action": body.Action})
 			return
 		}

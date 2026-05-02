@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"tetora/internal/db"
-	"tetora/internal/text"
 )
 
 // UsageSummary is the aggregate cost/token summary for a time period.
@@ -355,5 +354,13 @@ func FormatAgentBreakdown(roles []AgentUsage) string {
 	return strings.Join(lines, "\n")
 }
 
-// truncateStr delegates to text.TruncateStr.
-var truncateStr = text.TruncateStr
+func truncateStr(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen < 4 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}

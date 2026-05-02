@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // CronDeps holds dependencies for cron HTTP handlers.
@@ -60,7 +59,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 			}
 			json.Unmarshal(body, &info)
 			audit.Log(d.HistoryDB(), "job.create", "http",
-				fmt.Sprintf("id=%s schedule=%s", info.ID, info.Schedule), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s schedule=%s", info.ID, info.Schedule), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			w.Write([]byte(`{"status":"created"}`))
 
@@ -108,7 +107,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.update", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"updated"}`))
 
 		case action == "" && r.Method == http.MethodDelete:
@@ -121,7 +120,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.delete", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"removed"}`))
 
 		case action == "toggle" && r.Method == http.MethodPost:
@@ -134,7 +133,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.toggle", "http",
-				fmt.Sprintf("id=%s enabled=%v", id, body.Enabled), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s enabled=%v", id, body.Enabled), clientIP(r))
 			w.Write([]byte(fmt.Sprintf(`{"status":"ok","enabled":%v}`, body.Enabled)))
 
 		case action == "approve" && r.Method == http.MethodPost:
@@ -143,7 +142,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.approve", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"approved"}`))
 
 		case action == "reject" && r.Method == http.MethodPost:
@@ -152,7 +151,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.reject", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"rejected"}`))
 
 		case action == "run" && r.Method == http.MethodPost:
@@ -161,7 +160,7 @@ func RegisterCronRoutes(mux *http.ServeMux, d CronDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "job.trigger", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"triggered"}`))
 
 		default:

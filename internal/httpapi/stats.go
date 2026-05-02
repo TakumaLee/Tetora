@@ -12,7 +12,6 @@ import (
 	"tetora/internal/cost"
 	"tetora/internal/db"
 	"tetora/internal/history"
-	"tetora/internal/httputil"
 	"tetora/internal/log"
 	"tetora/internal/sla"
 	"tetora/internal/telemetry"
@@ -340,8 +339,8 @@ func RegisterStatsRoutes(mux *http.ServeMux, d StatsDeps) {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
-		audit.Log(historyDB, "budget.pause", "http", "all paid execution paused", httputil.ClientIP(r))
-		log.Warn("budget PAUSED by API request", "ip", httputil.ClientIP(r))
+		audit.Log(historyDB, "budget.pause", "http", "all paid execution paused", clientIP(r))
+		log.Warn("budget PAUSED by API request", "ip", clientIP(r))
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"paused"}`))
 	})
@@ -356,8 +355,8 @@ func RegisterStatsRoutes(mux *http.ServeMux, d StatsDeps) {
 			http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
 			return
 		}
-		audit.Log(historyDB, "budget.resume", "http", "paid execution resumed", httputil.ClientIP(r))
-		log.Info("budget RESUMED by API request", "ip", httputil.ClientIP(r))
+		audit.Log(historyDB, "budget.resume", "http", "paid execution resumed", clientIP(r))
+		log.Info("budget RESUMED by API request", "ip", clientIP(r))
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"active"}`))
 	})
