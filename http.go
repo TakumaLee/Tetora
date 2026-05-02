@@ -5093,6 +5093,12 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			return
 		}
 
+		if skip, reason := checkReviewGate(r.Context(), req.PRURL); skip {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"status": "skipped", "message": reason})
+			return
+		}
+
 		clientID := getClientID(r)
 		cState, cSem, cChildSem := s.resolveClientDispatch(clientID)
 
@@ -7483,6 +7489,62 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("unsupported host %q (expected github/gitlab)", host)
 	}
+}
+
+// checkReviewGate returns (true, reason) if the review should be skipped.
+// For GitHub PRs: skip when the last comment is not from the PR author and
+// no commit is newer than that comment — meaning the author hasn't responded yet.
+// Best-effort: on any fetch/parse error, returns (false, "") to allow review.
+func checkReviewGate(ctx context.Context, prURL string) (bool, string) {
+	u, err := url.Parse(prURL)
+	if err != nil {
+		return false, ""
+	}
+	if !strings.Contains(strings.ToLower(u.Hostname()), "github") {
+		return false, ""
+	}
+
+	type gateView struct {
+		Author struct{ Login string } `json:"author"`
+		Comments []struct {
+			Author    struct{ Login string } `json:"author"`
+			CreatedAt time.Time             `json:"createdAt"`
+		} `json:"comments"`
+		Commits []struct {
+			CommittedDate time.Time `json:"committedDate"`
+		} `json:"commits"`
+	}
+
+	tCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(tCtx, "gh", "pr", "view", prURL, "--json", "author,comments,commits").Output()
+	if err != nil {
+		log.Warn("checkReviewGate: gh pr view", "error", err)
+		return false, ""
+	}
+	var view gateView
+	if err := json.Unmarshal(out, &view); err != nil {
+		log.Warn("checkReviewGate: parse", "error", err)
+		return false, ""
+	}
+	if len(view.Comments) == 0 {
+		return false, ""
+	}
+
+	last := view.Comments[len(view.Comments)-1]
+	if last.Author.Login == view.Author.Login {
+		return false, ""
+	}
+	// Allow if any commit is newer than the last comment (author pushed new code).
+	for _, c := range view.Commits {
+		if c.CommittedDate.After(last.CreatedAt) {
+			return false, ""
+		}
+	}
+	return true, fmt.Sprintf(
+		"last comment is from %s, not PR author %s, and no new commits since — waiting for author to respond",
+		last.Author.Login, view.Author.Login,
+	)
 }
 
 // fetchPRContext fetches PR title, description, and existing comments/reviews
