@@ -1255,6 +1255,18 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 				log.Debug("reflection store failed", "taskId", task.ID[:8], "error", err)
 			} else {
 				log.Debug("reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
+				// Deep memory extraction: persist cross-session knowledge from high-quality tasks.
+				// Use a fresh context so reflection's remaining timeout doesn't starve the extract.
+				if shouldDeepExtract(cfg, result, ref) {
+					extractCtx, extractCancel := context.WithTimeout(
+						trace.WithID(context.Background(), trace.IDFromContext(reflCtx)),
+						2*time.Minute,
+					)
+					go func() {
+						defer extractCancel()
+						runDeepMemoryExtract(extractCtx, cfg, task, result, ref)
+					}()
+				}
 			}
 		}()
 	}
@@ -4122,6 +4134,15 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 					log.Debug("taskboard reflection stored", "taskId", task.ID[:8], "agent", ref.Agent, "score", ref.Score)
 				}
 				extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
+				// Deep memory extraction for taskboard-dispatched tasks.
+				// Use a fresh context so reflection's remaining timeout doesn't starve the extract.
+				if shouldDeepExtract(cfg, rootResult, ref) {
+					extractCtx, extractCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					go func() {
+						defer extractCancel()
+						runDeepMemoryExtract(extractCtx, cfg, rootTask, rootResult, ref)
+					}()
+				}
 			}()
 		}
 		if shouldExtractSkill(cfg, rootTask, rootResult) {
@@ -5211,4 +5232,110 @@ Reply with ONLY a JSON object with these fields:
 		return
 	}
 	log.Debug("learned skill extracted", "name", parsed.Name, "role", task.Agent)
+}
+
+// skillEvolveSem limits concurrent skill evolve LLM calls (background, non-critical).
+var skillEvolveSem = make(chan struct{}, 1)
+
+// runSkillEvolveScan scans for skills meeting evolve thresholds and runs LLM rewrite
+// for each candidate. Proposals are written to skills/<name>/proposals/ for human review.
+// Concurrency bounded by skillEvolveSem (cap 1, heavier than extraction).
+func runSkillEvolveScan(ctx context.Context, cfg *Config) {
+	if cfg == nil || !cfg.SkillEvolve.Enabled {
+		return
+	}
+	if cfg.HistoryDB == "" {
+		log.Debug("skill evolve scan: no HistoryDB configured")
+		return
+	}
+
+	thresholds := cfg.SkillEvolve.ToThresholds()
+	candidates, err := skill.ScanEvolveCandidates(appConfigToSkillCfg(cfg), cfg.HistoryDB, thresholds)
+	if err != nil {
+		log.Debug("skill evolve scan failed", "error", err)
+		return
+	}
+	if len(candidates) == 0 {
+		log.Debug("skill evolve scan: no candidates")
+		return
+	}
+
+	maxN := cfg.SkillEvolve.MaxPerScanOrDefault()
+	if len(candidates) > maxN {
+		candidates = candidates[:maxN]
+	}
+
+	log.Debug("skill evolve scan: found candidates", "count", len(candidates))
+
+	for _, cand := range candidates {
+		prompt := fmt.Sprintf(`你是 Tetora 的 skill 改寫專家。以下 skill 在過去 %d 天內的失敗率為 %.0f%%（%d/%d），請分析失敗模式並提出改寫建議。
+
+[CURRENT SKILL BODY]
+%s
+
+[RECENT FAILURE EXAMPLES]
+%s
+
+規則:
+1. 僅改寫 body，不動 frontmatter（你只看到 body）
+2. 改動要有針對性，不要重寫整篇
+3. 若 confidence < 0.5，仍須給 proposed_body，但 diagnosis 需說明「low confidence」
+
+回應僅 JSON，不要其他內容：
+{
+  "diagnosis": "根因分析（2-3 句）",
+  "proposed_body": "改寫後完整 body 文字",
+  "key_changes": ["change1", "change2"],
+  "confidence": 0.0
+}`,
+			thresholds.Days,
+			cand.FailRate*100,
+			cand.FailCount,
+			cand.InvokedCount,
+			truncateStr(cand.Body, 2000),
+			truncateStr(cand.Failures, 800),
+		)
+
+		llmTask := Task{
+			ID:             newUUID(),
+			Name:           "skill-evolve",
+			Prompt:         prompt,
+			Timeout:        "60s",
+			PermissionMode: "plan",
+			Source:         "skill-evolve",
+		}
+		fillDefaults(cfg, &llmTask)
+		llmTask.Model = "haiku"
+		llmTask.Budget = cfg.SkillEvolve.BudgetOrDefault()
+
+		llmResult := runSingleTask(ctx, cfg, llmTask, skillEvolveSem, nil, "")
+		if llmResult.Status != "success" || llmResult.Output == "" {
+			log.Debug("skill evolve LLM failed", "skill", cand.Name, "status", llmResult.Status)
+			_ = skill.MarkSkillEvolved(cand.SkillDir) // mark anyway to enforce cooldown
+			continue
+		}
+
+		raw := extractJSON(llmResult.Output)
+		var prop skill.EvolveProposal
+		if err := json.Unmarshal([]byte(raw), &prop); err != nil {
+			log.Debug("skill evolve parse failed", "skill", cand.Name, "error", err)
+			continue
+		}
+		if prop.ProposedBody == "" {
+			log.Debug("skill evolve: empty proposed body", "skill", cand.Name)
+			continue
+		}
+		// Strip any frontmatter the LLM accidentally included.
+		if strings.HasPrefix(strings.TrimSpace(prop.ProposedBody), "---") {
+			_, prop.ProposedBody, _ = skill.LoadSkillBodyFromString(prop.ProposedBody)
+		}
+
+		fpath, err := skill.WriteEvolveProposal(cand, prop)
+		if err != nil {
+			log.Debug("skill evolve: write proposal failed", "skill", cand.Name, "error", err)
+			continue
+		}
+		_ = skill.MarkSkillEvolved(cand.SkillDir)
+		log.Debug("skill evolve: proposal written", "skill", cand.Name, "path", fpath, "confidence", prop.Confidence)
+	}
 }

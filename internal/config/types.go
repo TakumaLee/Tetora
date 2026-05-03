@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"tetora/internal/skill"
 )
 
 // --- Core config types (from config.go) ---
@@ -1376,6 +1378,51 @@ func (c ReflectionConfig) MinCostOrDefault() float64 {
 	return 0.03
 }
 
+// DeepMemoryExtractConfig controls automatic knowledge extraction after high-quality tasks.
+type DeepMemoryExtractConfig struct {
+	Enabled            bool    `json:"enabled"`
+	MinScore           int     `json:"minScore"`           // default 4
+	MinCostUSD         float64 `json:"minCostUSD"`         // default 0.10
+	Budget             float64 `json:"budget"`             // default 0.03
+	MaxExtractsPerTask int     `json:"maxExtractsPerTask"` // default 3
+	DailyBudgetUSD     float64 `json:"dailyBudgetUSD"`     // default 1.0
+}
+
+func (c *DeepMemoryExtractConfig) MinScoreOrDefault() int {
+	if c.MinScore <= 0 {
+		return 4
+	}
+	return c.MinScore
+}
+
+func (c *DeepMemoryExtractConfig) MinCostOrDefault() float64 {
+	if c.MinCostUSD <= 0 {
+		return 0.10
+	}
+	return c.MinCostUSD
+}
+
+func (c *DeepMemoryExtractConfig) BudgetOrDefault() float64 {
+	if c.Budget <= 0 {
+		return 0.03
+	}
+	return c.Budget
+}
+
+func (c *DeepMemoryExtractConfig) MaxExtractsOrDefault() int {
+	if c.MaxExtractsPerTask <= 0 {
+		return 3
+	}
+	return c.MaxExtractsPerTask
+}
+
+func (c *DeepMemoryExtractConfig) DailyBudgetOrDefault() float64 {
+	if c.DailyBudgetUSD <= 0 {
+		return 1.0
+	}
+	return c.DailyBudgetUSD
+}
+
 type NotifyIntelConfig struct {
 	BatchInterval string `json:"notifyBatch,omitempty"`
 }
@@ -1674,4 +1721,50 @@ type LifecycleConfig struct {
 	AutoHabitSuggest   bool `json:"autoHabitSuggest,omitempty"`
 	AutoInsightAction  bool `json:"autoInsightAction,omitempty"`
 	AutoBirthdayRemind bool `json:"autoBirthdayRemind,omitempty"`
+}
+
+// SkillEvolveConfig controls automatic skill evolution via LLM rewrite proposals.
+// Evolution is opt-in: set enabled=true to activate.
+type SkillEvolveConfig struct {
+	Enabled           bool    `json:"enabled"`
+	MinInvocations    int     `json:"minInvocations"`    // default 10
+	FailRateThreshold float64 `json:"failRateThreshold"` // default 0.4
+	CooldownHours     int     `json:"cooldownHours"`     // default 168 (7d)
+	Days              int     `json:"days"`              // default 30
+	MaxPerScan        int     `json:"maxPerScan"`        // default 3
+	Budget            float64 `json:"budget"`            // default 0.05
+}
+
+// ToThresholds converts SkillEvolveConfig to skill.EvolveThresholds, applying defaults.
+func (c *SkillEvolveConfig) ToThresholds() skill.EvolveThresholds {
+	t := skill.DefaultEvolveThresholds()
+	if c.MinInvocations > 0 {
+		t.MinInvocations = c.MinInvocations
+	}
+	if c.FailRateThreshold > 0 {
+		t.FailRateThreshold = c.FailRateThreshold
+	}
+	if c.CooldownHours > 0 {
+		t.Cooldown = time.Duration(c.CooldownHours) * time.Hour
+	}
+	if c.Days > 0 {
+		t.Days = c.Days
+	}
+	return t
+}
+
+// MaxPerScanOrDefault returns the configured max candidates per scan (default 3).
+func (c *SkillEvolveConfig) MaxPerScanOrDefault() int {
+	if c.MaxPerScan <= 0 {
+		return 3
+	}
+	return c.MaxPerScan
+}
+
+// BudgetOrDefault returns the configured LLM budget per evolve call (default 0.05).
+func (c *SkillEvolveConfig) BudgetOrDefault() float64 {
+	if c.Budget <= 0 {
+		return 0.05
+	}
+	return c.Budget
 }
