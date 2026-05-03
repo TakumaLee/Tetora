@@ -5,10 +5,15 @@ package cli
 import (
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 )
 
 func buildDaemonCmd(executable string, interval time.Duration) *exec.Cmd {
-	return exec.Command(executable, "agent", "watch",
+	cmd := exec.Command(executable, "agent", "watch",
 		fmt.Sprintf("--interval=%s", interval))
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
+	}
+	return cmd
 }

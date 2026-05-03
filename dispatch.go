@@ -1256,8 +1256,16 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 			} else {
 				log.Debug("reflection stored", "taskId", task.ID[:8], "role", ref.Agent, "score", ref.Score)
 				// Deep memory extraction: persist cross-session knowledge from high-quality tasks.
+				// Use a fresh context so reflection's remaining timeout doesn't starve the extract.
 				if shouldDeepExtract(cfg, result, ref) {
-					go runDeepMemoryExtract(reflCtx, cfg, task, result, ref)
+					extractCtx, extractCancel := context.WithTimeout(
+						trace.WithID(context.Background(), trace.IDFromContext(reflCtx)),
+						2*time.Minute,
+					)
+					go func() {
+						defer extractCancel()
+						runDeepMemoryExtract(extractCtx, cfg, task, result, ref)
+					}()
 				}
 			}
 		}()
@@ -4127,8 +4135,13 @@ func newTaskBoardDispatcher(engine *TaskBoardEngine, cfg *Config, sem, childSem 
 				}
 				extractAutoLesson(cfg.WorkspaceDir, hdb, ref)
 				// Deep memory extraction for taskboard-dispatched tasks.
+				// Use a fresh context so reflection's remaining timeout doesn't starve the extract.
 				if shouldDeepExtract(cfg, rootResult, ref) {
-					go runDeepMemoryExtract(reflCtx, cfg, rootTask, rootResult, ref)
+					extractCtx, extractCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					go func() {
+						defer extractCancel()
+						runDeepMemoryExtract(extractCtx, cfg, rootTask, rootResult, ref)
+					}()
 				}
 			}()
 		}

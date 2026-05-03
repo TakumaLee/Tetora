@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Extract holds a single extracted memory item from an LLM response.
@@ -50,8 +51,9 @@ func ValidateExtract(e *Extract) error {
 	if len(e.Summary) > 150 {
 		return fmt.Errorf("summary too long: %d > 150", len(e.Summary))
 	}
-	if len(e.Body) > 600 {
-		e.Body = e.Body[:600]
+	if utf8.RuneCountInString(e.Body) > 600 {
+		runes := []rune(e.Body)
+		e.Body = string(runes[:600])
 	}
 	return nil
 }
@@ -149,11 +151,54 @@ func AppendToAutoExtractsMD(memoryDir, agent string, score int, e Extract) error
 }
 
 // dailyBudget tracks cumulative deep-memory-extract spend per UTC day.
+// dailyBudgetStorePath, when set via InitDailyBudgetStore, persists the state
+// across process restarts so the daily cap is not silently reset on crashes.
 var (
-	dailyBudgetMu    sync.Mutex
-	dailyBudgetDate  string
-	dailyBudgetSpent float64
+	dailyBudgetMu        sync.Mutex
+	dailyBudgetDate      string
+	dailyBudgetSpent     float64
+	dailyBudgetStorePath string
 )
+
+type dailyBudgetState struct {
+	Date  string  `json:"date"`
+	Spent float64 `json:"spent"`
+}
+
+// InitDailyBudgetStore sets the file path for persisting the daily spend.
+// Call once at startup before any ReserveDailyBudget calls. Thread-safe.
+func InitDailyBudgetStore(path string) {
+	dailyBudgetMu.Lock()
+	defer dailyBudgetMu.Unlock()
+	dailyBudgetStorePath = path
+	loadDailyBudgetLocked()
+}
+
+func loadDailyBudgetLocked() {
+	if dailyBudgetStorePath == "" {
+		return
+	}
+	data, err := os.ReadFile(dailyBudgetStorePath)
+	if err != nil {
+		return
+	}
+	var s dailyBudgetState
+	if json.Unmarshal(data, &s) == nil && s.Date == time.Now().UTC().Format("2006-01-02") {
+		dailyBudgetDate = s.Date
+		dailyBudgetSpent = s.Spent
+	}
+}
+
+func saveDailyBudgetLocked() {
+	if dailyBudgetStorePath == "" {
+		return
+	}
+	data, err := json.Marshal(dailyBudgetState{Date: dailyBudgetDate, Spent: dailyBudgetSpent})
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dailyBudgetStorePath, data, 0o644)
+}
 
 // ReserveDailyBudget reports whether spending budgetUSD more today would stay
 // within limitUSD. When limitUSD <= 0, no cap is enforced. Increments the
@@ -170,6 +215,7 @@ func ReserveDailyBudget(limitUSD, budgetUSD float64) bool {
 		return false
 	}
 	dailyBudgetSpent += budgetUSD
+	saveDailyBudgetLocked()
 	return true
 }
 
@@ -182,4 +228,5 @@ func AdjustDailyBudget(deltaUSD float64) {
 	if dailyBudgetSpent < 0 {
 		dailyBudgetSpent = 0
 	}
+	saveDailyBudgetLocked()
 }

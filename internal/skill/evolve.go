@@ -361,13 +361,23 @@ func RejectProposal(skillDir, proposalID string) error {
 	return updateProposalStatus(proposalPath, "rejected")
 }
 
+var statusLineRe = regexp.MustCompile(`(?m)^status: .+$`)
+
 func updateProposalStatus(fpath, status string) error {
 	data, err := os.ReadFile(fpath)
 	if err != nil {
 		return fmt.Errorf("read proposal: %w", err)
 	}
-	content := regexp.MustCompile(`(?m)^status: .+$`).
-		ReplaceAllString(string(data), "status: "+status)
+	raw := string(data)
+	// Limit the replacement to the frontmatter block (between the two "---"
+	// delimiters) so body text containing "status: ..." is never clobbered.
+	const sep = "\n---\n"
+	splitAt := strings.Index(raw, sep)
+	if splitAt == -1 {
+		splitAt = len(raw) // no separator — apply to entire file as fallback
+	}
+	fm := statusLineRe.ReplaceAllString(raw[:splitAt], "status: "+status)
+	content := fm + raw[splitAt:]
 	if err := os.WriteFile(fpath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write proposal status: %w", err)
 	}

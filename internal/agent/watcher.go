@@ -152,7 +152,8 @@ func spawnAgent(cfg WatchConfig, t watchedTask, sem chan struct{}) error {
 		return fmt.Errorf("mark doing: %w", err)
 	}
 	if !affected {
-		// Another process already claimed this task.
+		// Another process already claimed this task; release the slot we acquired.
+		<-sem
 		return nil
 	}
 
@@ -212,9 +213,11 @@ func buildTaskPrompt(t watchedTask) string {
 	sb.WriteString(fmt.Sprintf("Task ID: %s\n", t.ID))
 	sb.WriteString(fmt.Sprintf("Title: %s\n", t.Title))
 	if t.Description != "" {
-		sb.WriteString("\n")
+		// Wrap in XML delimiters to raise the bar for prompt injection via
+		// crafted DB values. The model is instructed to treat this block as data.
+		sb.WriteString("\n<task-description>\n")
 		sb.WriteString(t.Description)
-		sb.WriteString("\n")
+		sb.WriteString("\n</task-description>\n")
 	}
 	return sb.String()
 }

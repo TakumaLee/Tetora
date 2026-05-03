@@ -2486,6 +2486,8 @@ func shouldDeepExtract(cfg *Config, result TaskResult, ref *ReflectionResult) bo
 	return true
 }
 
+var deepExtractBudgetOnce sync.Once
+
 // runDeepMemoryExtract runs a bounded Haiku LLM call to extract cross-session knowledge
 // from a completed task into workspace/memory/. Must be launched as a background goroutine.
 // All failure paths log at DEBUG level and return without propagating errors.
@@ -2494,6 +2496,11 @@ func runDeepMemoryExtract(ctx context.Context, cfg *Config, task Task, result Ta
 	// Do NOT pre-acquire here — runSingleTask acquires internally, matching extractAutoSkill pattern.
 
 	memoryDir := filepath.Join(cfg.WorkspaceDir, "memory")
+
+	// Lazy-init the daily budget store once per process so spend survives restarts.
+	deepExtractBudgetOnce.Do(func() {
+		memory.InitDailyBudgetStore(filepath.Join(memoryDir, ".daily-budget.json"))
+	})
 
 	// Read recent auto-extracts to help the LLM avoid duplicates.
 	recentExtracts := ""

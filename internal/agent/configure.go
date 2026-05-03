@@ -74,7 +74,10 @@ type ConfigureResult struct {
 // ioProtocolPath is the absolute path to tetora-agent-io-protocol.md (used in
 // the generated CLAUDE.md @include line).
 func Configure(claudePath, agentsDir, ioProtocolPath, agentName string) (*ConfigureResult, error) {
-	agentDir := filepath.Join(agentsDir, agentName)
+	agentDir, err := resolveAgentDir(agentsDir, agentName)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agent name: %w", err)
+	}
 
 	soulContent := loadSoul(agentDir)
 	if soulContent == "" {
