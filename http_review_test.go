@@ -328,3 +328,70 @@ func TestReviewCommentCmdArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCrossRefSummary(t *testing.T) {
+	t.Run("detects_cross_file_call", func(t *testing.T) {
+		// resolveAgentDir defined in watcher.go, called from configure.go —
+		// the exact pattern that caused a false "duplication" review finding.
+		diff := "diff --git a/internal/agent/watcher.go b/internal/agent/watcher.go\n" +
+			"new file mode 100644\n--- /dev/null\n+++ b/internal/agent/watcher.go\n" +
+			"@@ -0,0 +1,4 @@\n+package agent\n" +
+			"+func resolveAgentDir(agentsDir, assignee string) (string, error) {\n" +
+			"+\treturn agentsDir + \"/\" + assignee, nil\n+}\n" +
+			"diff --git a/internal/agent/configure.go b/internal/agent/configure.go\n" +
+			"new file mode 100644\n--- /dev/null\n+++ b/internal/agent/configure.go\n" +
+			"@@ -0,0 +1,5 @@\n+package agent\n" +
+			"+func Configure(agentsDir, name string) error {\n" +
+			"+\tdir, err := resolveAgentDir(agentsDir, name)\n" +
+			"+\t_ = dir\n+\treturn err\n+}\n"
+		out := buildCrossRefSummary(diff)
+		if !strings.Contains(out, "resolveAgentDir") {
+			t.Errorf("expected resolveAgentDir in xref summary, got:\n%s", out)
+		}
+		if !strings.Contains(out, "watcher.go") {
+			t.Errorf("expected watcher.go (definition file) in xref summary, got:\n%s", out)
+		}
+		if !strings.Contains(out, "configure.go") {
+			t.Errorf("expected configure.go (call site) in xref summary, got:\n%s", out)
+		}
+	})
+
+	t.Run("no_cross_file_refs_returns_empty", func(t *testing.T) {
+		diff := "diff --git a/internal/foo/foo.go b/internal/foo/foo.go\n" +
+			"--- /dev/null\n+++ b/internal/foo/foo.go\n@@ -0,0 +1,5 @@\n" +
+			"+package foo\n+func helper() string { return \"x\" }\n" +
+			"+func DoSomething() string {\n+\treturn helper()\n+}\n"
+		if out := buildCrossRefSummary(diff); out != "" {
+			t.Errorf("expected empty summary for same-file calls, got:\n%s", out)
+		}
+	})
+
+	t.Run("non_go_files_ignored", func(t *testing.T) {
+		diff := "diff --git a/script.sh b/script.sh\n--- /dev/null\n+++ b/script.sh\n" +
+			"@@ -0,0 +1,1 @@\n+function myFunc() { echo hi; }\n" +
+			"diff --git a/other.sh b/other.sh\n--- /dev/null\n+++ b/other.sh\n" +
+			"@@ -0,0 +1,1 @@\n+myFunc\n"
+		if out := buildCrossRefSummary(diff); out != "" {
+			t.Errorf("expected empty summary for non-Go files, got:\n%s", out)
+		}
+	})
+
+	t.Run("empty_diff_returns_empty", func(t *testing.T) {
+		if got := buildCrossRefSummary(""); got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("multiple_callers", func(t *testing.T) {
+		diff := "diff --git a/pkg/a.go b/pkg/a.go\n--- /dev/null\n+++ b/pkg/a.go\n" +
+			"@@ -0,0 +1,2 @@\n+package pkg\n+func Shared() string { return \"x\" }\n" +
+			"diff --git a/pkg/b.go b/pkg/b.go\n--- /dev/null\n+++ b/pkg/b.go\n" +
+			"@@ -0,0 +1,2 @@\n+package pkg\n+func UseB() string { return Shared() }\n" +
+			"diff --git a/pkg/c.go b/pkg/c.go\n--- /dev/null\n+++ b/pkg/c.go\n" +
+			"@@ -0,0 +1,2 @@\n+package pkg\n+func UseC() string { return Shared() }\n"
+		out := buildCrossRefSummary(diff)
+		if !strings.Contains(out, "pkg/b.go") || !strings.Contains(out, "pkg/c.go") {
+			t.Errorf("expected both callers listed, got:\n%s", out)
+		}
+	})
+}

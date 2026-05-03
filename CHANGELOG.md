@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Added
+- **GitLab MR review support**: Review agent now handles GitLab merge requests with full feature parity — context fetching, diff parsing (with per_page=100 and rename header support), and comment posting via REST API. Filters system notes to preserve human discussion in limited context window
+- **Universal agent output workspace (#68)**: New workspace directory standard for agent-generated artifacts — persistent storage for research findings, tool outputs, and review logs independent of session lifecycle
+- **Review context preservation**: PR and MR discussion threads now retain the most recent 2 reviews + 2 comments with chronological output. Soft per-item ceiling (32KB with middle-elision on overflow) ensures tail comments with latest replies never get silently truncated
+
+### Fixed
+- **Review context re-flagging**: Combined GitHub-only context + GitLab blindness caused re-review loops. PR context now includes latest discussion state; GitLab MRs now included. Added review gate to skip re-review when last comment is not from PR author and no new commits landed
+- **Concurrent review deadlock**: Lifted single-active-review guard; allows multiple reviews in flight with identity token for precise `/cancel` targeting. `PostComment` checkbox now respected — comment auto-posting only when explicitly checked
+- **GitLab command-line regressions (#108)**: Locked down `glab` flag semantics via dedicated `reviewCommentCmdArgs` helper — `-F body=@file` for JSON field vs `--form` for multipart. Added test assertion to prevent future flips. Also fixed stderr handling in diff fetching (glab warnings were polluting JSON output)
+- **MR diff truncation handling**: MRs exceeding 100-file limit now emit a header comment warning. Binary/oversized files show placeholder hunks instead of empty diff blocks so review agent understands file existed but is unavailable
+- **Language detection leaks**: Removed internal model bias mentions ("Do NOT default to Japanese"). Explicit English fallback when no signal available
+- **Hostname matching**: URL hostname extraction now strips port before passing to glab/gh `--hostname` flag
+
+### Changed
+- **Life-stack archive**: Moved `life/automation/integration` packages (contacts, finance, calendar, spotify, podcast, etc.) to `_archive/life-stack-2026-05`. Cleaned root-layer wiring (main.go, wire.go, tool.go, http.go) of ~4700 lines of obsolete dependencies. Inlined lifedb types into storage package as the last reference
+
 ---
 
 ## [v2.4.2] - 2026-04-19

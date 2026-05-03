@@ -18,9 +18,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -5110,6 +5111,10 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			jsonError(w, fmt.Sprintf("diff fetch failed: %s", fetchErr.Error()), http.StatusBadGateway)
 			return
 		}
+		// Build cross-reference index from the full diff before truncation so
+		// that even large PRs have complete definition→call-site mapping.
+		xref := buildCrossRefSummary(diff)
+
 		truncated, truncatedCount := truncateDiffLines(diff, maxLines)
 		truncated = sanitizeDiff(truncated)
 
@@ -5130,6 +5135,14 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			promptBuf.WriteString(safe)
 			promptBuf.WriteString("</pr_context>\n\n")
 			promptBuf.WriteString("When writing your review, be aware of issues already discussed in the pr_context block, but still flag any security or correctness concerns you find independently.\n\n")
+		}
+		if xref != "" {
+			log.Debug("review: injecting xref summary", "url", req.PRURL, "entries", strings.Count(xref, "\n"))
+			promptBuf.WriteString("<diff_xref>\n")
+			promptBuf.WriteString(xref)
+			promptBuf.WriteString("</diff_xref>\n")
+			promptBuf.WriteString("The diff_xref block lists functions newly defined in this diff and which other files call them. " +
+				"Before flagging cross-file duplication, verify against this index.\n\n")
 		}
 		if truncatedCount > 0 {
 			fmt.Fprintf(&promptBuf, "[diff truncated at %d lines]\n", maxLines)
@@ -7957,6 +7970,124 @@ func validateReviewHost(host string) error {
 		return nil
 	}
 	return fmt.Errorf("untrusted review host %q: only github.com and gitlab.com (and their subdomains) are allowed", host)
+}
+
+// newFuncDefRe matches a newly added Go function definition in a diff hunk.
+// Captures the function name so we can track cross-file call sites.
+var newFuncDefRe = regexp.MustCompile(`^\+func\s+([A-Za-z][A-Za-z0-9_]*)`)
+
+// xrefDef records one newly-defined function and the files that call it.
+type xrefDef struct {
+	name      string
+	definedIn string
+	calledIn  []string
+}
+
+// buildCrossRefSummary parses a unified diff and returns a compact index of
+// newly-defined Go functions mapped to the other files in the same diff that
+// call them. The index is injected into the review prompt so the reviewer can
+// quickly verify cross-file call relationships without reading every hunk.
+//
+// Only Go files are processed (`.go` suffix). Returns an empty string when no
+// cross-file references are found.
+func buildCrossRefSummary(diff string) string {
+	var defs []*xrefDef
+	defIndex := map[string]*xrefDef{}
+
+	// Pass 1: collect newly-defined function names per file.
+	currentFile := ""
+	for _, line := range strings.Split(diff, "\n") {
+		if f, ok := diffFilePath(line); ok {
+			currentFile = f
+			continue
+		}
+		if currentFile == "" || !strings.HasSuffix(currentFile, ".go") {
+			continue
+		}
+		if m := newFuncDefRe.FindStringSubmatch(line); m != nil {
+			name := m[1]
+			if _, exists := defIndex[name]; !exists {
+				d := &xrefDef{name: name, definedIn: currentFile}
+				defs = append(defs, d)
+				defIndex[name] = d
+			}
+		}
+	}
+	if len(defs) == 0 {
+		return ""
+	}
+
+	// Pass 2: find which other files in the diff call each new function.
+	currentFile = ""
+	for _, line := range strings.Split(diff, "\n") {
+		if f, ok := diffFilePath(line); ok {
+			currentFile = f
+			continue
+		}
+		if currentFile == "" || !strings.HasSuffix(currentFile, ".go") {
+			continue
+		}
+		// Only consider added lines; skip the +++ header itself.
+		if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		for _, d := range defs {
+			if d.definedIn == currentFile {
+				continue // definition in same file — not a cross-file ref
+			}
+			if !strings.Contains(line, d.name+"(") {
+				continue
+			}
+			// Skip only if this line defines d.name itself (recursive/self-reference).
+			// A line like `+func UseB() { return Shared() }` defines UseB but calls
+			// Shared — we must not skip it when looking for Shared's callers.
+			if m := newFuncDefRe.FindStringSubmatch(line); m != nil && m[1] == d.name {
+				continue
+			}
+			if !xrefContains(d.calledIn, currentFile) {
+				d.calledIn = append(d.calledIn, currentFile)
+			}
+		}
+	}
+
+	// Build summary lines — only include functions with cross-file call sites.
+	var lines []string
+	for _, d := range defs {
+		if len(d.calledIn) == 0 {
+			continue
+		}
+		sort.Strings(d.calledIn)
+		lines = append(lines, fmt.Sprintf("- %s() defined in %s — called from: %s",
+			d.name, d.definedIn, strings.Join(d.calledIn, ", ")))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	sort.Strings(lines)
+	return "Newly-defined functions and their call sites within this diff:\n" + strings.Join(lines, "\n") + "\n"
+}
+
+// diffFilePath extracts the destination file path from a unified-diff +++ header.
+// Returns ("", false) for /dev/null (deleted file) or non-header lines.
+func diffFilePath(line string) (string, bool) {
+	if !strings.HasPrefix(line, "+++ b/") {
+		return "", false
+	}
+	path := strings.TrimPrefix(line, "+++ b/")
+	if path == "/dev/null" {
+		return "", false
+	}
+	return path, true
+}
+
+// xrefContains reports whether s contains v (small-slice linear scan).
+func xrefContains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeDiff inserts a zero-width non-joiner (U+200C) into each substring
