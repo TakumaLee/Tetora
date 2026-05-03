@@ -18,7 +18,7 @@ import (
 
 	"tetora/internal/audit"
 	"tetora/internal/db"
-	"tetora/internal/classify"
+	
 	"tetora/internal/config"
 	"tetora/internal/cost"
 	dtypes "tetora/internal/dispatch"
@@ -510,33 +510,33 @@ func dispatch(ctx context.Context, cfg *Config, tasks []Task, state *dispatchSta
 
 // resolveTaskComplexity returns the complexity tier for task assembly.
 // If task.ComplexityHint is a valid value (simple|standard|complex), it's used
-// directly and classify.Classify is skipped. Returns hintUsed so caller can
+// directly and dtypes.Classify is skipped. Returns hintUsed so caller can
 // record mismatch observations. Invalid hint falls back to auto-classify.
-func resolveTaskComplexity(task Task) (classify.Complexity, bool) {
+func resolveTaskComplexity(task Task) (dtypes.Complexity, bool) {
 	switch strings.ToLower(task.ComplexityHint) {
 	case "simple":
-		return classify.Simple, true
+		return dtypes.Simple, true
 	case "standard":
-		return classify.Standard, true
+		return dtypes.Standard, true
 	case "complex":
-		return classify.Complex, true
+		return dtypes.Complex, true
 	case "":
-		return classify.Classify(task.Prompt, task.Source), false
+		return dtypes.Classify(task.Prompt, task.Source), false
 	default:
 		log.Warn("invalid complexityHint; falling back to auto-classify",
 			"hint", task.ComplexityHint, "taskID", task.ID)
-		return classify.Classify(task.Prompt, task.Source), false
+		return dtypes.Classify(task.Prompt, task.Source), false
 	}
 }
 
 // logComplexityHintMismatch logs a debug line when a parent-provided hint
-// disagrees with what classify.Classify would have chosen. Only runs the
+// disagrees with what dtypes.Classify would have chosen. Only runs the
 // sanity classify in debug mode to avoid perf regression.
-func logComplexityHintMismatch(cfg *Config, task Task, hinted classify.Complexity, hintUsed bool) {
+func logComplexityHintMismatch(cfg *Config, task Task, hinted dtypes.Complexity, hintUsed bool) {
 	if !hintUsed || cfg.Logging.Level != "debug" {
 		return
 	}
-	if auto := classify.Classify(task.Prompt, task.Source); auto != hinted {
+	if auto := dtypes.Classify(task.Prompt, task.Source); auto != hinted {
 		log.Debug("complexity hint accepted despite classify disagree",
 			"hint", hinted, "classify", auto, "taskID", task.ID)
 	}
@@ -550,7 +550,7 @@ func annotateManifestWithHint(m *prompt.Manifest, task Task, hintUsed bool) {
 		return
 	}
 	m.ComplexityHintUsed = true
-	m.ClassifyResult = classify.Classify(task.Prompt, task.Source).String()
+	m.ClassifyResult = dtypes.Classify(task.Prompt, task.Source).String()
 }
 
 // runSingleTask runs one task using the shared semaphore. Used by cron engine.
@@ -1040,7 +1040,7 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 		}
 
 		// Reuse complexity from tiered prompt builder for tool trimming.
-		if complexity == classify.Simple {
+		if complexity == dtypes.Simple {
 			pr = executeWithProvider(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh)
 		} else {
 			pr = executeWithProviderAndTools(taskCtx, cfg, task, agentName, cfg.Runtime.ProviderRegistry.(*providerRegistry), eventCh, state.broker)
@@ -2373,7 +2373,7 @@ func checkBindings(cfg *Config, req RouteRequest) *RouteResult {
 
 // --- Keyword Classification (Fast Path) ---
 
-// classifyByKeywords delegates to internal/dispatch.ClassifyByKeywords.
+// classifyByKeywords delegates to internal/dtypes.ClassifyByKeywords.
 func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 	return dtypes.ClassifyByKeywords(cfg, prompt, nil)
 }
@@ -2384,7 +2384,7 @@ func classifyByKeywords(cfg *Config, prompt string) *RouteResult {
 // Routing should never compete with task execution for slots.
 var routeSemGlobal = make(chan struct{}, 5)
 
-// classifyByLLM delegates to internal/dispatch.ClassifyByLLM, wiring
+// classifyByLLM delegates to internal/dtypes.ClassifyByLLM, wiring
 // runSingleTask+routeSemGlobal as the TaskExecutor.
 func classifyByLLM(ctx context.Context, cfg *Config, prompt string) (*RouteResult, error) {
 	return dtypes.ClassifyByLLM(ctx, cfg, prompt, routeExecutor(cfg))

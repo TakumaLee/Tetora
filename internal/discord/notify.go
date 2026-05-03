@@ -9,11 +9,18 @@ import (
 
 	dtypes "tetora/internal/dispatch"
 	"tetora/internal/log"
-	"tetora/internal/text"
 )
 
-// truncateStr delegates to text.TruncateStr.
-var truncateStr = text.TruncateStr
+func truncateStr(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen < 4 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
 
 // Notification levels for task events. Empty string means "inherit" (or default
 // to LevelThread at the root for backwards compatibility).

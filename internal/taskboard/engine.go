@@ -11,7 +11,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/db"
 	"tetora/internal/log"
-	"tetora/internal/webhook"
+	
 )
 
 // Engine handles the task board database operations.
@@ -880,11 +880,24 @@ func HasBlockingDeps(tb *Engine, t TaskBoard) bool {
 	return false
 }
 
+// webhookMatchesEvent checks if an event matches a webhook's event filter.
+func webhookMatchesEvent(events []string, event string) bool {
+	if len(events) == 0 {
+		return true
+	}
+	for _, e := range events {
+		if e == "all" || e == event {
+			return true
+		}
+	}
+	return false
+}
+
 // fireWebhook sends a webhook notification for task board events.
 func (tb *Engine) fireWebhook(event string, payload any) {
 	fullEvent := "taskboard." + event
 	for _, wh := range tb.webhooks {
-		if !webhook.MatchesEvent(webhook.Config{URL: wh.URL, Events: wh.Events, Headers: wh.Headers}, fullEvent) {
+		if !webhookMatchesEvent(wh.Events, fullEvent) {
 			continue
 		}
 

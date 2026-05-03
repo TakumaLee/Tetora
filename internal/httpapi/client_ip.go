@@ -1,5 +1,4 @@
-// Package httputil provides shared HTTP helpers for handler packages.
-package httputil
+package httpapi
 
 import (
 	"net"
@@ -7,8 +6,7 @@ import (
 	"strings"
 )
 
-// ClientIP extracts the client IP from the request, checking X-Forwarded-For first.
-func ClientIP(r *http.Request) string {
+func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		return strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
 	}

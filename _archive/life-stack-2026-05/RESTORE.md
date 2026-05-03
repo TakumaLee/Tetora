@@ -1,7 +1,18 @@
-# Life Stack Archive (2026-05-02)
+# Life Stack Archive
 
-Archived: 2026-05-03
-Reason: Tetora 瘦身計畫 PR1 — life/automation/integration stack 與 Tetora 核心需求（PR review/Workflow/Files/戰情室/Discord）無關，暫存以便未來撿回。
+## PR1 (2026-05-02)
+Tetora 瘦身計畫 PR1 — life/automation/integration stack 與 Tetora 核心需求（PR review/Workflow/Files/戰情室/Discord）無關，暫存以便未來撿回。
+
+## PR3 (2026-05-03)
+Additional packages archived. See table below.
+
+| Package | Status | Notes |
+|---------|--------|-------|
+| recap | archived | Discord transcript mirroring; callers removed from main.go |
+| backup | archived | HTTP endpoint returns 501; cli/backup.go stubbed |
+| health | archived | Inlined into root (health_inline.go, health_disk_*.go) and cron (disk_unix/windows.go) |
+| usage | RESTORED | Too coupled to stats HTTP endpoint + wire_test.go tests |
+| notify | RESTORED | Too coupled to main.go notification engine startup |
 
 ## 還原方式
 git mv _archive/life-stack-2026-05/internal/life internal/

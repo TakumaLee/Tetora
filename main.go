@@ -42,7 +42,6 @@ import (
 	"tetora/internal/messaging/whatsapp"
 	"tetora/internal/metrics"
 	"tetora/internal/migrate"
-	"tetora/internal/recap"
 	"tetora/internal/sandbox"
 	"tetora/internal/scheduling"
 	"tetora/internal/sla"
@@ -789,21 +788,6 @@ func main() {
 				discordBot.sendNotify(text)
 			}
 
-			// Recap watcher: mirror Claude Code transcript `away_summary` entries to
-			// per-session Discord threads. Skipped when no DB path or when disabled.
-			if cfg.Discord.Recap.Enabled && cfg.HistoryDB != "" {
-				if err := recap.InitSchema(cfg.HistoryDB); err != nil {
-					log.Warn("recap: init schema failed", "error", err)
-				} else {
-					recapRouter := &recap.Router{
-						Cfg:    cfg.Discord.Recap,
-						API:    discordBot.api,
-						DBPath: cfg.HistoryDB,
-					}
-					recapWatcher := recap.New(cfg.Discord.Recap, recapRouter)
-					go recapWatcher.Start(ctx)
-				}
-			}
 		}
 
 		// Wire notifyFn into config for skill install scan notifications.

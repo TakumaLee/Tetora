@@ -15,7 +15,6 @@ import (
 	"tetora/internal/coord"
 	"tetora/internal/db"
 	"tetora/internal/dispatch"
-	"tetora/internal/handoff"
 	"tetora/internal/log"
 )
 
@@ -554,10 +553,10 @@ func (d *Dispatcher) dispatchTask(t TaskBoard) {
 		if result.Status != "success" {
 			status = "error"
 		}
-		if err := handoff.UpdateStatus(d.cfg.HistoryDB, handoffID, status); err != nil {
+		if err := dispatch.UpdateStatus(d.cfg.HistoryDB, handoffID, status); err != nil {
 			log.Warn("triage: failed to update handoff status", "handoffId", handoffID, "error", err)
 		}
-		if err := handoff.SendAgentMessage(d.cfg.HistoryDB, handoff.AgentMessage{
+		if err := dispatch.SendAgentMessage(d.cfg.HistoryDB, dispatch.AgentMessage{
 			FromAgent: t.Assignee,
 			ToAgent:   triageAgent,
 			Type:      "response",
@@ -1331,7 +1330,7 @@ func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAg
 		id = fmt.Sprintf("ho-%s-%d", t.ID, time.Now().UnixMilli())
 	}
 
-	_ = handoff.RecordHandoff(d.cfg.HistoryDB, handoff.Handoff{
+	_ = dispatch.RecordHandoff(d.cfg.HistoryDB, dispatch.Handoff{
 		ID:          id,
 		FromAgent:   triageAgent,
 		ToAgent:     tr.TargetAgent,
@@ -1340,7 +1339,7 @@ func (d *Dispatcher) recordTriageHandoff(t TaskBoard, tr *triageResult, triageAg
 		Status:      "pending",
 	})
 
-	_ = handoff.SendAgentMessage(d.cfg.HistoryDB, handoff.AgentMessage{
+	_ = dispatch.SendAgentMessage(d.cfg.HistoryDB, dispatch.AgentMessage{
 		FromAgent: triageAgent,
 		ToAgent:   tr.TargetAgent,
 		Type:      "handoff",

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"tetora/internal/classify"
+	
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
 )
@@ -21,7 +21,7 @@ func minimalDeps(providerName string) Deps {
 		ResolveWorkspace:       func(_ *config.Config, _ string) config.WorkspaceConfig { return config.WorkspaceConfig{} },
 		BuildReflectionContext: func(_, _ string, _ int) string { return "" },
 		LoadWritingStyle:       func(_ *config.Config) string { return "" },
-		BuildSkillsPrompt:      func(_ *config.Config, _ dispatch.Task, _ classify.Complexity) string { return "" },
+		BuildSkillsPrompt:      func(_ *config.Config, _ dispatch.Task, _ dispatch.Complexity) string { return "" },
 		CollectSkillAllowedTools: func(_ *config.Config, _ dispatch.Task) []string { return nil },
 		InjectWorkspaceContent: func(_ *config.Config, _ *dispatch.Task, _ string) {},
 		EstimateDirSize:        func(_ string) int { return 0 },
@@ -37,7 +37,7 @@ func minimalCfg() *config.Config {
 func TestSkillExtractionInSystemPrompt_Standard(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "do the thing"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if !strings.Contains(task.SystemPrompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("standard dispatch: system prompt missing Post-Task Skill Extraction section")
@@ -55,7 +55,7 @@ func TestSkillExtractionInSystemPrompt_Standard(t *testing.T) {
 func TestSkillExtractionInSystemPrompt_Complex(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "do the complex thing"}
-	BuildTieredPrompt(cfg, task, "", classify.Complex, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Complex, minimalDeps("openai"))
 
 	if !strings.Contains(task.SystemPrompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("complex dispatch: system prompt missing Post-Task Skill Extraction section")
@@ -66,7 +66,7 @@ func TestSkillExtractionInSystemPrompt_Complex(t *testing.T) {
 func TestSkillExtractionAbsent_Simple(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "quick lookup"}
-	BuildTieredPrompt(cfg, task, "", classify.Simple, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Simple, minimalDeps("openai"))
 
 	if strings.Contains(task.SystemPrompt, "Post-Task Skill Extraction") {
 		t.Error("simple dispatch: system prompt must not contain Post-Task Skill Extraction")
@@ -79,7 +79,7 @@ func TestSkillExtractionInUserPrompt_ClaudeCode(t *testing.T) {
 	cfg := minimalCfg()
 	original := "implement feature X"
 	task := &dispatch.Task{Prompt: original}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("claude-code"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("claude-code"))
 
 	if !strings.Contains(task.Prompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("claude-code dispatch: task.Prompt missing Post-Task Skill Extraction section")
@@ -99,7 +99,7 @@ func TestSkillExtractionInUserPrompt_CodexCLI(t *testing.T) {
 	cfg := minimalCfg()
 	original := "generate code"
 	task := &dispatch.Task{Prompt: original}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("codex"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("codex"))
 
 	if !strings.Contains(task.Prompt, "<!-- Post-Task Skill Extraction") {
 		t.Error("codex-cli dispatch: task.Prompt missing Post-Task Skill Extraction section")
@@ -128,7 +128,7 @@ func TestPreflightHeaderInjection_PrependedToPrompt(t *testing.T) {
 	cfg := &config.Config{BaseDir: dir}
 	original := "deploy staging"
 	task := &dispatch.Task{Prompt: original}
-	BuildTieredPrompt(cfg, task, agentName, classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, agentName, dispatch.Standard, minimalDeps("openai"))
 
 	if !strings.HasPrefix(task.Prompt, preflightContent) {
 		t.Errorf("preflight content must be prepended; got prefix: %q", task.Prompt[:min(len(task.Prompt), 60)])
@@ -143,7 +143,7 @@ func TestPreflightHeaderInjection_AbsentForNoFile(t *testing.T) {
 	cfg := minimalCfg()
 	original := "deploy staging"
 	task := &dispatch.Task{Prompt: original}
-	BuildTieredPrompt(cfg, task, "tekkou", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "tekkou", dispatch.Standard, minimalDeps("openai"))
 
 	if task.Prompt != original+skillExtractionSection {
 		// task.Prompt gets skillExtractionSection appended (non-claude-code path); without preflight it's just that
@@ -168,7 +168,7 @@ func TestPreflightHeaderInjection_ClaudeCodeProvider(t *testing.T) {
 	cfg := &config.Config{BaseDir: dir}
 	original := "run health check"
 	task := &dispatch.Task{Prompt: original}
-	BuildTieredPrompt(cfg, task, agentName, classify.Standard, minimalDeps("claude-code"))
+	BuildTieredPrompt(cfg, task, agentName, dispatch.Standard, minimalDeps("claude-code"))
 
 	if !strings.HasPrefix(task.Prompt, preflightContent) {
 		t.Errorf("claude-code: preflight must be prepended; got prefix: %q", task.Prompt[:min(len(task.Prompt), 60)])
@@ -180,7 +180,7 @@ func TestPreflightHeaderInjection_ClaudeCodeProvider(t *testing.T) {
 func TestScopeBoundary_DiagnosticOnly(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "audit the db", ScopeBoundary: "diagnostic_only"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if !strings.HasPrefix(task.Prompt, "⛔ SCOPE: diagnostic_only") {
 		t.Errorf("expected scope header at top of task.Prompt; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -195,7 +195,7 @@ func TestScopeBoundary_DiagnosticOnly(t *testing.T) {
 func TestScopeBoundary_ClaudeCodeProvider(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "verify config", ScopeBoundary: "review_only"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("claude-code"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("claude-code"))
 
 	if !strings.HasPrefix(task.Prompt, "🔍 SCOPE: review_only") {
 		t.Errorf("claude-code: expected scope header; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -206,7 +206,7 @@ func TestScopeBoundary_ClaudeCodeProvider(t *testing.T) {
 func TestScopeBoundary_ImplementAllowed(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "fix the bug", ScopeBoundary: "implement_allowed"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if !strings.HasPrefix(task.Prompt, "⚠️ SCOPE: implement_allowed") {
 		t.Errorf("expected implement_allowed scope header at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -223,7 +223,7 @@ func TestScopeBoundary_ImplementAllowed(t *testing.T) {
 func TestScopeBoundary_TestOnly(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "write tests", ScopeBoundary: "test_only"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if !strings.HasPrefix(task.Prompt, "⚠️ SCOPE: test_only") {
 		t.Errorf("expected test_only scope header at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -241,7 +241,7 @@ func TestScopeBoundary_Empty(t *testing.T) {
 	cfg := minimalCfg()
 	original := "do the thing"
 	task := &dispatch.Task{Prompt: original, ScopeBoundary: ""}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if strings.Contains(task.Prompt, "SCOPE:") {
 		t.Errorf("empty ScopeBoundary must not inject SCOPE header; got: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -252,7 +252,7 @@ func TestScopeBoundary_Empty(t *testing.T) {
 func TestScopeBoundary_Unknown(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{Prompt: "do the thing", ScopeBoundary: "wildly_unsafe"}
-	BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("openai"))
+	BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("openai"))
 
 	if strings.Contains(task.Prompt, "SCOPE:") {
 		t.Error("unknown ScopeBoundary must not inject any SCOPE header")
@@ -277,7 +277,7 @@ func TestScopeBoundary_PrependedAfterPreflight(t *testing.T) {
 
 	cfg := &config.Config{BaseDir: dir}
 	task := &dispatch.Task{Prompt: "run health check", ScopeBoundary: "diagnostic_only"}
-	BuildTieredPrompt(cfg, task, agentName, classify.Standard, minimalDeps("claude-code"))
+	BuildTieredPrompt(cfg, task, agentName, dispatch.Standard, minimalDeps("claude-code"))
 
 	if !strings.HasPrefix(task.Prompt, "⛔ SCOPE: diagnostic_only") {
 		t.Errorf("SCOPE header must be at top; got prefix: %q", task.Prompt[:min(len(task.Prompt), 80)])
@@ -314,31 +314,31 @@ func TestBuildTieredPrompt_NoMarkdownSectionHeader(t *testing.T) {
 	cases := []struct {
 		name       string
 		provider   string
-		complexity classify.Complexity
+		complexity dispatch.Complexity
 		field      func(*dispatch.Task) string
 	}{
 		{
 			name:       "openai+Standard injects into SystemPrompt without markdown header",
 			provider:   "openai",
-			complexity: classify.Standard,
+			complexity: dispatch.Standard,
 			field:      func(task *dispatch.Task) string { return task.SystemPrompt },
 		},
 		{
 			name:       "claude-code+Standard injects into Prompt without markdown header",
 			provider:   "claude-code",
-			complexity: classify.Standard,
+			complexity: dispatch.Standard,
 			field:      func(task *dispatch.Task) string { return task.Prompt },
 		},
 		{
 			name:       "openai+Complex injects into SystemPrompt without markdown header",
 			provider:   "openai",
-			complexity: classify.Complex,
+			complexity: dispatch.Complex,
 			field:      func(task *dispatch.Task) string { return task.SystemPrompt },
 		},
 		{
 			name:       "codex+Standard injects into Prompt without markdown header",
 			provider:   "codex",
-			complexity: classify.Standard,
+			complexity: dispatch.Standard,
 			field:      func(task *dispatch.Task) string { return task.Prompt },
 		},
 	}

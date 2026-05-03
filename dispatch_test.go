@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"tetora/internal/classify"
+	dtypes "tetora/internal/dispatch"
 )
 // --- newUUID tests ---
 
@@ -1714,17 +1714,17 @@ func TestBuildProviderCandidates(t *testing.T) {
 
 func TestRequestComplexityString(t *testing.T) {
 	tests := []struct {
-		c    classify.Complexity
+		c    dtypes.Complexity
 		want string
 	}{
-		{classify.Simple, "simple"},
-		{classify.Standard, "standard"},
-		{classify.Complex, "complex"},
-		{classify.Complexity(99), "standard"}, // unknown falls back
+		{dtypes.Simple, "simple"},
+		{dtypes.Standard, "standard"},
+		{dtypes.Complex, "complex"},
+		{dtypes.Complexity(99), "standard"}, // unknown falls back
 	}
 	for _, tt := range tests {
 		if got := tt.c.String(); got != tt.want {
-			t.Errorf("classify.Complexity(%d).String() = %q, want %q", int(tt.c), got, tt.want)
+			t.Errorf("dtypes.Complexity(%d).String() = %q, want %q", int(tt.c), got, tt.want)
 		}
 	}
 }
@@ -1749,9 +1749,9 @@ func TestClassifySimpleGreeting(t *testing.T) {
 		{"How are you?", "chat"},
 	}
 	for _, tc := range cases {
-		got := classify.Classify(tc.prompt, tc.source)
-		if got != classify.Simple {
-			t.Errorf("classify.Classify(%q, %q) = %v, want simple", tc.prompt, tc.source, got)
+		got := dtypes.Classify(tc.prompt, tc.source)
+		if got != dtypes.Simple {
+			t.Errorf("dtypes.Classify(%q, %q) = %v, want simple", tc.prompt, tc.source, got)
 		}
 	}
 }
@@ -1778,9 +1778,9 @@ func TestClassifyComplexCodingKeywords(t *testing.T) {
 		{"Run the benchmark for concurrency test"}, // multiple keywords
 	}
 	for _, tc := range cases {
-		got := classify.Classify(tc.prompt, "discord")
-		if got != classify.Complex {
-			t.Errorf("classify.Classify(%q, discord) = %v, want complex", tc.prompt, got)
+		got := dtypes.Classify(tc.prompt, "discord")
+		if got != dtypes.Complex {
+			t.Errorf("dtypes.Classify(%q, discord) = %v, want complex", tc.prompt, got)
 		}
 	}
 }
@@ -1799,9 +1799,9 @@ func TestClassifyComplexJapaneseKeywords(t *testing.T) {
 		{"パイプラインを構築して"},
 	}
 	for _, tc := range cases {
-		got := classify.Classify(tc.prompt, "discord")
-		if got != classify.Complex {
-			t.Errorf("classify.Classify(%q, discord) = %v, want complex", tc.prompt, got)
+		got := dtypes.Classify(tc.prompt, "discord")
+		if got != dtypes.Complex {
+			t.Errorf("dtypes.Classify(%q, discord) = %v, want complex", tc.prompt, got)
 		}
 	}
 }
@@ -1821,9 +1821,9 @@ func TestClassifyStandard(t *testing.T) {
 		{"I was wondering if you could help me understand the general process of how things work around here in more detail please", "discord"},
 	}
 	for _, tc := range cases {
-		got := classify.Classify(tc.prompt, tc.source)
-		if got != classify.Standard {
-			t.Errorf("classify.Classify(%q, %q) = %v, want standard", tc.prompt, tc.source, got)
+		got := dtypes.Classify(tc.prompt, tc.source)
+		if got != dtypes.Standard {
+			t.Errorf("dtypes.Classify(%q, %q) = %v, want standard", tc.prompt, tc.source, got)
 		}
 	}
 }
@@ -1833,19 +1833,19 @@ func TestClassifyStandard(t *testing.T) {
 func TestClassifyCJKLength(t *testing.T) {
 	// 99 CJK characters should be < 100 rune threshold → simple from chat source
 	short := strings.Repeat("あ", 99)
-	if got := classify.Classify(short, "discord"); got != classify.Simple {
+	if got := dtypes.Classify(short, "discord"); got != dtypes.Simple {
 		t.Errorf("99 CJK runes from discord = %v, want simple", got)
 	}
 
 	// 100 CJK characters should be >= 100 → standard (no keywords, chat source)
 	exact100 := strings.Repeat("あ", 100)
-	if got := classify.Classify(exact100, "discord"); got != classify.Standard {
+	if got := dtypes.Classify(exact100, "discord"); got != dtypes.Standard {
 		t.Errorf("100 CJK runes from discord = %v, want standard", got)
 	}
 
 	// 2001 CJK characters should be > 2000 → complex
 	long := strings.Repeat("漢", 2001)
-	if got := classify.Classify(long, "discord"); got != classify.Complex {
+	if got := dtypes.Classify(long, "discord"); got != dtypes.Complex {
 		t.Errorf("2001 CJK runes from discord = %v, want complex", got)
 	}
 }
@@ -1854,38 +1854,38 @@ func TestClassifyCJKLength(t *testing.T) {
 
 func TestClassifySourceCronKeywordBased(t *testing.T) {
 	// Short cron prompt → Simple (keyword-based, not auto-Complex).
-	got := classify.Classify("hello", "cron")
-	if got != classify.Simple {
-		t.Errorf("classify.Classify(hello, cron) = %v, want simple", got)
+	got := dtypes.Classify("hello", "cron")
+	if got != dtypes.Simple {
+		t.Errorf("dtypes.Classify(hello, cron) = %v, want simple", got)
 	}
 }
 
 func TestClassifySourceWorkflowKeywordBased(t *testing.T) {
 	// Short workflow prompt → Simple (keyword-based, not auto-Complex).
-	got := classify.Classify("check status", "workflow")
-	if got != classify.Simple {
-		t.Errorf("classify.Classify(check status, workflow) = %v, want simple", got)
+	got := dtypes.Classify("check status", "workflow")
+	if got != dtypes.Simple {
+		t.Errorf("dtypes.Classify(check status, workflow) = %v, want simple", got)
 	}
 }
 
 func TestClassifySourceOverrideAgentComm(t *testing.T) {
-	got := classify.Classify("ping", "agent-comm")
-	if got != classify.Complex {
-		t.Errorf("classify.Classify(ping, agent-comm) = %v, want complex", got)
+	got := dtypes.Classify("ping", "agent-comm")
+	if got != dtypes.Complex {
+		t.Errorf("dtypes.Classify(ping, agent-comm) = %v, want complex", got)
 	}
 }
 
 func TestClassifySourceCaseInsensitive(t *testing.T) {
 	// Source matching should be case-insensitive.
-	got := classify.Classify("hi", "Discord")
-	if got != classify.Simple {
-		t.Errorf("classify.Classify(hi, Discord) = %v, want simple", got)
+	got := dtypes.Classify("hi", "Discord")
+	if got != dtypes.Simple {
+		t.Errorf("dtypes.Classify(hi, Discord) = %v, want simple", got)
 	}
 
 	// Short cron prompt → Simple (keyword-based, not auto-Complex).
-	got2 := classify.Classify("hi", "CRON")
-	if got2 != classify.Simple {
-		t.Errorf("classify.Classify(hi, CRON) = %v, want simple", got2)
+	got2 := dtypes.Classify("hi", "CRON")
+	if got2 != dtypes.Simple {
+		t.Errorf("dtypes.Classify(hi, CRON) = %v, want simple", got2)
 	}
 }
 
@@ -1893,36 +1893,36 @@ func TestClassifySourceCaseInsensitive(t *testing.T) {
 
 func TestClassifyEmptyString(t *testing.T) {
 	// Empty prompt from chat source: length 0 < 100 → simple
-	got := classify.Classify("", "discord")
-	if got != classify.Simple {
-		t.Errorf("classify.Classify(empty, discord) = %v, want simple", got)
+	got := dtypes.Classify("", "discord")
+	if got != dtypes.Simple {
+		t.Errorf("dtypes.Classify(empty, discord) = %v, want simple", got)
 	}
 
 	// Empty prompt from unknown source: no keywords, length 0 < 100, but source not in ChatSources
-	got2 := classify.Classify("", "http")
-	if got2 != classify.Standard {
-		t.Errorf("classify.Classify(empty, http) = %v, want standard", got2)
+	got2 := dtypes.Classify("", "http")
+	if got2 != dtypes.Standard {
+		t.Errorf("dtypes.Classify(empty, http) = %v, want standard", got2)
 	}
 
 	// Empty prompt and empty source
-	got3 := classify.Classify("", "")
-	if got3 != classify.Standard {
-		t.Errorf("classify.Classify(empty, empty) = %v, want standard", got3)
+	got3 := dtypes.Classify("", "")
+	if got3 != dtypes.Standard {
+		t.Errorf("dtypes.Classify(empty, empty) = %v, want standard", got3)
 	}
 }
 
 func TestClassifyExactly100Chars(t *testing.T) {
 	// Exactly 100 ASCII characters, no keywords, chat source → standard (not simple; threshold is < 100)
 	prompt := strings.Repeat("a", 100)
-	got := classify.Classify(prompt, "discord")
-	if got != classify.Standard {
+	got := dtypes.Classify(prompt, "discord")
+	if got != dtypes.Standard {
 		t.Errorf("100 ascii chars from discord = %v, want standard", got)
 	}
 
 	// 99 ASCII characters, no keywords, chat source → simple
 	prompt99 := strings.Repeat("a", 99)
-	got2 := classify.Classify(prompt99, "discord")
-	if got2 != classify.Simple {
+	got2 := dtypes.Classify(prompt99, "discord")
+	if got2 != dtypes.Simple {
 		t.Errorf("99 ascii chars from discord = %v, want simple", got2)
 	}
 }
@@ -1930,15 +1930,15 @@ func TestClassifyExactly100Chars(t *testing.T) {
 func TestClassifyExactly2000Chars(t *testing.T) {
 	// Exactly 2000 characters → not > 2000, so not auto-complex
 	prompt := strings.Repeat("x", 2000)
-	got := classify.Classify(prompt, "discord")
-	if got != classify.Standard {
+	got := dtypes.Classify(prompt, "discord")
+	if got != dtypes.Standard {
 		t.Errorf("2000 chars from discord = %v, want standard", got)
 	}
 
 	// 2001 characters → complex
 	prompt2001 := strings.Repeat("x", 2001)
-	got2 := classify.Classify(prompt2001, "discord")
-	if got2 != classify.Complex {
+	got2 := dtypes.Classify(prompt2001, "discord")
+	if got2 != dtypes.Complex {
 		t.Errorf("2001 chars from discord = %v, want complex", got2)
 	}
 }
@@ -1947,34 +1947,34 @@ func TestClassifyExactly2000Chars(t *testing.T) {
 
 func TestComplexityMaxSessionMessages(t *testing.T) {
 	tests := []struct {
-		c    classify.Complexity
+		c    dtypes.Complexity
 		want int
 	}{
-		{classify.Simple, 5},
-		{classify.Standard, 10},
-		{classify.Complex, 20},
-		{classify.Complexity(99), 10}, // unknown falls back
+		{dtypes.Simple, 5},
+		{dtypes.Standard, 10},
+		{dtypes.Complex, 20},
+		{dtypes.Complexity(99), 10}, // unknown falls back
 	}
 	for _, tt := range tests {
-		if got := classify.MaxSessionMessages(tt.c); got != tt.want {
-			t.Errorf("classify.MaxSessionMessages(%v) = %d, want %d", tt.c, got, tt.want)
+		if got := dtypes.MaxSessionMessages(tt.c); got != tt.want {
+			t.Errorf("dtypes.MaxSessionMessages(%v) = %d, want %d", tt.c, got, tt.want)
 		}
 	}
 }
 
 func TestComplexityMaxSessionChars(t *testing.T) {
 	tests := []struct {
-		c    classify.Complexity
+		c    dtypes.Complexity
 		want int
 	}{
-		{classify.Simple, 4000},
-		{classify.Standard, 8000},
-		{classify.Complex, 16000},
-		{classify.Complexity(99), 8000}, // unknown falls back
+		{dtypes.Simple, 4000},
+		{dtypes.Standard, 8000},
+		{dtypes.Complex, 16000},
+		{dtypes.Complexity(99), 8000}, // unknown falls back
 	}
 	for _, tt := range tests {
-		if got := classify.MaxSessionChars(tt.c); got != tt.want {
-			t.Errorf("classify.MaxSessionChars(%v) = %d, want %d", tt.c, got, tt.want)
+		if got := dtypes.MaxSessionChars(tt.c); got != tt.want {
+			t.Errorf("dtypes.MaxSessionChars(%v) = %d, want %d", tt.c, got, tt.want)
 		}
 	}
 }
@@ -1991,9 +1991,9 @@ func TestClassifyKeywordCaseInsensitive(t *testing.T) {
 		"ALGORITHM complexity",
 	}
 	for _, prompt := range cases {
-		got := classify.Classify(prompt, "discord")
-		if got != classify.Complex {
-			t.Errorf("classify.Classify(%q, discord) = %v, want complex", prompt, got)
+		got := dtypes.Classify(prompt, "discord")
+		if got != dtypes.Complex {
+			t.Errorf("dtypes.Classify(%q, discord) = %v, want complex", prompt, got)
 		}
 	}
 }
@@ -2002,18 +2002,18 @@ func TestClassifyKeywordCaseInsensitive(t *testing.T) {
 
 func TestClassifyShortWithKeyword(t *testing.T) {
 	// Short prompt but contains a keyword → complex wins over simple.
-	got := classify.Classify("fix the code", "discord")
-	if got != classify.Complex {
-		t.Errorf("classify.Classify(fix the code, discord) = %v, want complex", got)
+	got := dtypes.Classify("fix the code", "discord")
+	if got != dtypes.Complex {
+		t.Errorf("dtypes.Classify(fix the code, discord) = %v, want complex", got)
 	}
 }
 
 func TestClassifyLongFromChatNoKeywords(t *testing.T) {
 	// >100 runes from a chat source, no keywords → standard.
 	prompt := "I would really appreciate it if you could tell me what the weather forecast looks like for the next few days because I am planning a trip"
-	got := classify.Classify(prompt, "discord")
-	if got != classify.Standard {
-		t.Errorf("classify.Classify(long no-keyword, discord) = %v, want standard", got)
+	got := dtypes.Classify(prompt, "discord")
+	if got != dtypes.Standard {
+		t.Errorf("dtypes.Classify(long no-keyword, discord) = %v, want standard", got)
 	}
 }
 
@@ -2604,7 +2604,7 @@ func TestResolveTaskComplexity_NoHint_FallsBackToClassify(t *testing.T) {
 	if hintUsed {
 		t.Errorf("expected hintUsed=false when ComplexityHint is empty")
 	}
-	want := classify.Classify(task.Prompt, task.Source)
+	want := dtypes.Classify(task.Prompt, task.Source)
 	if got != want {
 		t.Errorf("no-hint result mismatch: got %v want %v (auto-classify)", got, want)
 	}
@@ -2613,13 +2613,13 @@ func TestResolveTaskComplexity_NoHint_FallsBackToClassify(t *testing.T) {
 func TestResolveTaskComplexity_ValidHints(t *testing.T) {
 	cases := []struct {
 		hint string
-		want classify.Complexity
+		want dtypes.Complexity
 	}{
-		{"simple", classify.Simple},
-		{"standard", classify.Standard},
-		{"complex", classify.Complex},
-		{"SIMPLE", classify.Simple},   // case-insensitive
-		{"Complex", classify.Complex}, // case-insensitive
+		{"simple", dtypes.Simple},
+		{"standard", dtypes.Standard},
+		{"complex", dtypes.Complex},
+		{"SIMPLE", dtypes.Simple},   // case-insensitive
+		{"Complex", dtypes.Complex}, // case-insensitive
 	}
 	for _, tc := range cases {
 		task := Task{Prompt: "x", ComplexityHint: tc.hint}
@@ -2639,7 +2639,7 @@ func TestResolveTaskComplexity_InvalidHint_FallsBackAndWarns(t *testing.T) {
 	if hintUsed {
 		t.Errorf("invalid hint should not be marked as used")
 	}
-	want := classify.Classify(task.Prompt, task.Source)
+	want := dtypes.Classify(task.Prompt, task.Source)
 	if got != want {
 		t.Errorf("invalid hint fallback mismatch: got %v want %v", got, want)
 	}

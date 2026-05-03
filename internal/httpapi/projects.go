@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // ProjectsDeps holds dependencies for projects HTTP handlers.
@@ -54,7 +53,7 @@ func RegisterProjectRoutes(mux *http.ServeMux, d ProjectsDeps) {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), code)
 				return
 			}
-			audit.Log(d.HistoryDB(), "project.create", "http", "created", httputil.ClientIP(r))
+			audit.Log(d.HistoryDB(), "project.create", "http", "created", clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(project)
 
@@ -136,7 +135,7 @@ func RegisterProjectRoutes(mux *http.ServeMux, d ProjectsDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "project.update", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			json.NewEncoder(w).Encode(updated)
 
 		case http.MethodDelete:
@@ -149,7 +148,7 @@ func RegisterProjectRoutes(mux *http.ServeMux, d ProjectsDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "project.delete", "http",
-				fmt.Sprintf("id=%s", id), httputil.ClientIP(r))
+				fmt.Sprintf("id=%s", id), clientIP(r))
 			w.Write([]byte(`{"status":"deleted"}`))
 
 		default:

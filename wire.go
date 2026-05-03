@@ -37,15 +37,14 @@ import (
 	tgbot "tetora/internal/messaging/telegram"
 	"tetora/internal/audit"
 	"tetora/internal/circuit"
-	"tetora/internal/classify"
+	
 	"tetora/internal/cli"
 	"tetora/internal/config"
 	"tetora/internal/cost"
 	"tetora/internal/cron"
 	"tetora/internal/db"
 	"tetora/internal/estimate"
-	"tetora/internal/handoff"
-	"tetora/internal/health"
+	
 	"tetora/internal/history"
 	"tetora/internal/knowledge"
 	"tetora/internal/memory"
@@ -2828,7 +2827,7 @@ func isInteractiveSource(source string) bool { return dtypes.IsInteractiveSource
 
 // --- Prompt Tier (from prompt_tier.go) ---
 
-func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity classify.Complexity) *prompt.Manifest {
+func buildTieredPrompt(cfg *Config, task *Task, agentName string, complexity dtypes.Complexity) *prompt.Manifest {
 	return prompt.BuildTieredPrompt(cfg, task, agentName, complexity, prompt.Deps{
 		ResolveProviderName:    resolveProviderName,
 		LoadSoulFile:           loadSoulFile,
@@ -3508,7 +3507,7 @@ func (s *slaChecker) tick(ctx context.Context) {
 }
 
 func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startTime time.Time) map[string]any {
-	input := health.CheckInput{
+	input := healthCheckInput{
 		Version:      tetoraVersion,
 		StartTime:    startTime,
 		BaseDir:      cfg.BaseDir,
@@ -3534,10 +3533,10 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 		input.DBPath = cfg.HistoryDB
 	}
 
-	providers := map[string]health.ProviderInfo{}
+	providers := map[string]healthProviderInfo{}
 	if cfg.Runtime.ProviderRegistry != nil {
 		for name := range cfg.Providers {
-			pi := health.ProviderInfo{
+			pi := healthProviderInfo{
 				Type:   cfg.Providers[name].Type,
 				Status: "ok",
 			}
@@ -3554,7 +3553,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 			providers[name] = pi
 		}
 		if _, exists := providers["claude"]; !exists {
-			pi := health.ProviderInfo{Type: "claude-cli", Status: "ok"}
+			pi := healthProviderInfo{Type: "claude-cli", Status: "ok"}
 			if cfg.Runtime.CircuitRegistry != nil {
 				cb := cfg.Runtime.CircuitRegistry.(*circuit.Registry).Get("claude")
 				st := cb.State()
@@ -3582,7 +3581,7 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 				enabled++
 			}
 		}
-		input.Cron = &health.CronSummary{Total: len(jobs), Enabled: enabled, Running: running}
+		input.Cron = &healthCronSummary{Total: len(jobs), Enabled: enabled, Running: running}
 	}
 
 	if cfg.Runtime.CircuitRegistry != nil {
@@ -3590,25 +3589,25 @@ func deepHealthCheck(cfg *Config, state *dispatchState, cron *CronEngine, startT
 	}
 
 	if cfg.OfflineQueue.Enabled && cfg.HistoryDB != "" {
-		input.Queue = &health.QueueInfo{
+		input.Queue = &healthQueueInfo{
 			Pending: countPendingQueue(cfg.HistoryDB),
 			Max:     cfg.OfflineQueue.MaxItemsOrDefault(),
 		}
 	}
 
-	return health.DeepCheck(input)
+	return healthDeepCheck(input)
 }
 
 func degradeStatus(current, proposed string) string {
-	return health.DegradeStatus(current, proposed)
+	return healthDegradeStatus(current, proposed)
 }
 
 func diskInfo(path string) map[string]any {
-	return health.DiskInfo(path)
+	return healthDiskInfo(path)
 }
 
 func diskFreeBytes(path string) uint64 {
-	return health.DiskFreeBytes(path)
+	return rootDiskFreeBytes(path)
 }
 
 // ============================================================
@@ -4000,27 +3999,27 @@ func (d *queueDrainer) processItem(ctx context.Context, item *QueueItem) {
 
 // --- Type aliases ---
 
-type Handoff = handoff.Handoff
-type AgentMessage = handoff.AgentMessage
-type AutoDelegation = handoff.AutoDelegation
+type Handoff = dtypes.Handoff
+type AgentMessage = dtypes.AgentMessage
+type AutoDelegation = dtypes.AutoDelegation
 
-const maxAutoDelegations = handoff.MaxAutoDelegations
+const maxAutoDelegations = dtypes.MaxAutoDelegations
 
 // --- Delegating functions ---
 
-func initHandoffTables(dbPath string)                       { handoff.InitTables(dbPath) }
-func recordHandoff(dbPath string, h Handoff) error          { return handoff.RecordHandoff(dbPath, h) }
-func updateHandoffStatus(dbPath, id, status string) error   { return handoff.UpdateStatus(dbPath, id, status) }
-func queryHandoffs(dbPath, wfID string) ([]Handoff, error)  { return handoff.QueryHandoffs(dbPath, wfID) }
+func initHandoffTables(dbPath string) { dtypes.InitTables(dbPath) }
+func recordHandoff(dbPath string, h Handoff) error          { return dtypes.RecordHandoff(dbPath, h) }
+func updateHandoffStatus(dbPath, id, status string) error   { return dtypes.UpdateStatus(dbPath, id, status) }
+func queryHandoffs(dbPath, wfID string) ([]Handoff, error)  { return dtypes.QueryHandoffs(dbPath, wfID) }
 func sendAgentMessage(dbPath string, msg AgentMessage) error {
-	return handoff.SendAgentMessage(dbPath, msg, newUUID)
+	return dtypes.SendAgentMessage(dbPath, msg, newUUID)
 }
 func queryAgentMessages(dbPath, wfID, role string, limit int) ([]AgentMessage, error) {
-	return handoff.QueryAgentMessages(dbPath, wfID, role, limit)
+	return dtypes.QueryAgentMessages(dbPath, wfID, role, limit)
 }
-func parseAutoDelegate(output string) []AutoDelegation { return handoff.ParseAutoDelegate(output) }
-func findMatchingBrace(s string) int                   { return handoff.FindMatchingBrace(s) }
-func buildHandoffPrompt(ctx, instr string) string      { return handoff.BuildHandoffPrompt(ctx, instr) }
+func parseAutoDelegate(output string) []AutoDelegation { return dtypes.ParseAutoDelegate(output) }
+func findMatchingBrace(s string) int                   { return dtypes.FindMatchingBrace(s) }
+func buildHandoffPrompt(ctx, instr string) string      { return dtypes.BuildHandoffPrompt(ctx, instr) }
 
 // --- Execution (root-only: uses runSingleTask, dispatchState, sseBroker, etc.) ---
 
@@ -6682,12 +6681,12 @@ func shouldInjectSkill(s SkillConfig, task Task) bool {
 	return skill.ShouldInjectSkill(s, toSkillTask(task))
 }
 
-func buildSkillsPrompt(cfg *Config, task Task, complexity classify.Complexity) string {
-	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), complexity)
+func buildSkillsPrompt(cfg *Config, task Task, complexity dtypes.Complexity) string {
+	return skill.BuildSkillsPrompt(toSkillAppConfig(cfg), toSkillTask(task), int(complexity))
 }
 
-func buildSkillsPromptWithMeta(cfg *Config, task Task, complexity classify.Complexity) (string, []string) {
-	return skill.BuildSkillsPromptWithMeta(toSkillAppConfig(cfg), toSkillTask(task), complexity)
+func buildSkillsPromptWithMeta(cfg *Config, task Task, complexity dtypes.Complexity) (string, []string) {
+	return skill.BuildSkillsPromptWithMeta(toSkillAppConfig(cfg), toSkillTask(task), int(complexity))
 }
 
 func collectSkillAllowedTools(cfg *Config, task Task) []string {

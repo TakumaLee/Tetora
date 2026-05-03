@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"tetora/internal/classify"
+	
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
 	"tetora/internal/knowledge"
@@ -56,10 +56,10 @@ type Deps struct {
 	ResolveWorkspace       func(cfg *config.Config, agentName string) config.WorkspaceConfig
 	BuildReflectionContext func(dbPath, role string, limit int) string
 	LoadWritingStyle       func(cfg *config.Config) string
-	BuildSkillsPrompt          func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) string
+	BuildSkillsPrompt          func(cfg *config.Config, task dispatch.Task, complexity dispatch.Complexity) string
 	// BuildSkillsPromptWithMeta is optional. If non-nil, used instead of BuildSkillsPrompt
 	// so the manifest can record matched skill names.
-	BuildSkillsPromptWithMeta func(cfg *config.Config, task dispatch.Task, complexity classify.Complexity) (string, []string)
+	BuildSkillsPromptWithMeta func(cfg *config.Config, task dispatch.Task, complexity dispatch.Complexity) (string, []string)
 	CollectSkillAllowedTools   func(cfg *config.Config, task dispatch.Task) []string
 	InjectWorkspaceContent     func(cfg *config.Config, task *dispatch.Task, agentName string)
 	EstimateDirSize            func(dir string) int
@@ -113,7 +113,7 @@ func BuildScopeBlock(scope string) string {
 //
 // Returns a Manifest describing the sections that were injected, for post-hoc
 // debugging and token accounting. The returned manifest is never nil.
-func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string, complexity classify.Complexity, deps Deps) *Manifest {
+func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string, complexity dispatch.Complexity, deps Deps) *Manifest {
 	// --- Scope Boundary validation (warn-only; never fail) ---
 	// Empty value is tolerated for backward compatibility with pre-existing jobs,
 	// but emits a warning so operators can see unconfigured tasks. Unknown values
@@ -159,7 +159,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 		if soulPrompt != "" {
 			var injected string
 			switch complexity {
-			case classify.Simple:
+			case dispatch.Simple:
 				injected = TruncateToChars(soulPrompt, 4000)
 			default:
 				injected = TruncateToChars(soulPrompt, cfg.PromptBudget.SoulMaxOrDefault())
@@ -273,7 +273,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 
 	// --- 5. Knowledge dir ---
 	// Simple: skip. Standard/Complex: inject if exists and < 50KB.
-	if complexity != classify.Simple {
+	if complexity != dispatch.Simple {
 		if cfg.KnowledgeDir != "" && knowledge.HasFiles(cfg.KnowledgeDir) && deps.EstimateDirSize(cfg.KnowledgeDir) <= 50*1024 {
 			task.AddDirs = append(task.AddDirs, cfg.KnowledgeDir)
 			manifest.Record("knowledge_dir", "add_dirs", deps.EstimateDirSize(cfg.KnowledgeDir), Path(cfg.KnowledgeDir))
@@ -282,9 +282,9 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 
 	// --- 6. Reflection ---
 	// Simple: skip. Standard: limit 1. Complex: limit 3.
-	if complexity != classify.Simple && cfg.Reflection.Enabled && agentName != "" && cfg.HistoryDB != "" {
+	if complexity != dispatch.Simple && cfg.Reflection.Enabled && agentName != "" && cfg.HistoryDB != "" {
 		limit := 1
-		if complexity == classify.Complex {
+		if complexity == dispatch.Complex {
 			limit = 3
 		}
 		if refCtx := deps.BuildReflectionContext(cfg.HistoryDB, agentName, limit); refCtx != "" {
@@ -301,7 +301,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 
 	// --- 7. Writing Style ---
 	// Simple/Standard: skip. Complex: inject.
-	if complexity == classify.Complex && cfg.WritingStyle.Enabled {
+	if complexity == dispatch.Complex && cfg.WritingStyle.Enabled {
 		style := deps.LoadWritingStyle(cfg)
 		if style != "" {
 			block := "\n\n## Writing Style\n\n" + style
@@ -312,7 +312,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 
 	// --- 8. Citation Rules ---
 	// Simple: skip. Standard/Complex: inject.
-	if complexity != classify.Simple && cfg.Citation.Enabled {
+	if complexity != dispatch.Simple && cfg.Citation.Enabled {
 		citationFmt := cfg.Citation.Format
 		if citationFmt == "" {
 			citationFmt = "bracket"
@@ -350,7 +350,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// --- 8.6. Skill extraction instruction (Standard/Complex only) ---
 	// Mirrors workspace CLAUDE.md "Post-Task Skill Extraction" (authoritative source).
 	// Conditions align with ShouldExtractSkill in internal/skill/skill.go.
-	if complexity != classify.Simple {
+	if complexity != dispatch.Simple {
 		task.SystemPrompt += skillExtractionSection
 		manifest.Record("skill_extraction", "system_prompt", len(skillExtractionSection))
 	}
@@ -364,7 +364,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 
 	// --- 9. Workspace Content Injection ---
 	// Simple: skip entirely. Standard/Complex: call InjectWorkspaceContent.
-	if complexity != classify.Simple {
+	if complexity != dispatch.Simple {
 		preLenSys := len(task.SystemPrompt)
 		preLenUser := len(task.Prompt)
 		deps.InjectWorkspaceContent(cfg, task, agentName)
@@ -384,7 +384,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 	// Never include the bare home directory — agents scanning $HOME causes
 	// extreme I/O load (find over millions of files).
 	home, _ := os.UserHomeDir()
-	if complexity == classify.Simple {
+	if complexity == dispatch.Simple {
 		task.AddDirs = []string{cfg.BaseDir}
 	} else {
 		var kept []string
@@ -401,7 +401,7 @@ func BuildTieredPrompt(cfg *config.Config, task *dispatch.Task, agentName string
 			}
 		}
 		// For complex tasks, also keep project-specific dirs (not home).
-		if complexity == classify.Complex {
+		if complexity == dispatch.Complex {
 			for _, d := range task.AddDirs {
 				if d != home && !seen[d] {
 					seen[d] = true

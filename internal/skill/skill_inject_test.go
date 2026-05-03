@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"tetora/internal/classify"
+	
 )
 
 func TestExtractChannelFromSource(t *testing.T) {
@@ -144,7 +144,7 @@ func TestBuildSkillsPrompt(t *testing.T) {
 	}
 
 	task := TaskContext{Prompt: "hello"}
-	prompt := BuildSkillsPrompt(cfg, task, classify.Standard)
+	prompt := BuildSkillsPrompt(cfg, task, complexityStandard)
 
 	if prompt == "" {
 		t.Fatal("BuildSkillsPrompt returned empty string")
@@ -191,7 +191,7 @@ func TestBuildSkillsPromptTier2DocInjection(t *testing.T) {
 	task := TaskContext{Prompt: "test-skill related query"}
 
 	// Standard complexity: should inject SKILL.md.
-	prompt := BuildSkillsPrompt(cfg, task, classify.Standard)
+	prompt := BuildSkillsPrompt(cfg, task, complexityStandard)
 	if !skillStringContains(prompt, "<skill-doc name=\"test-skill\">") {
 		t.Error("Standard complexity should inject skill-doc tag")
 	}
@@ -200,7 +200,7 @@ func TestBuildSkillsPromptTier2DocInjection(t *testing.T) {
 	}
 
 	// Simple complexity: should NOT inject SKILL.md.
-	promptSimple := BuildSkillsPrompt(cfg, task, classify.Simple)
+	promptSimple := BuildSkillsPrompt(cfg, task, complexitySimple)
 	if skillStringContains(promptSimple, "<skill-doc") {
 		t.Error("Simple complexity should not inject skill-doc")
 	}
@@ -234,7 +234,7 @@ func TestBuildSkillsPromptTier2LargeDoc(t *testing.T) {
 	}
 
 	task := TaskContext{Prompt: "big-skill query"}
-	prompt := BuildSkillsPrompt(cfg, task, classify.Standard)
+	prompt := BuildSkillsPrompt(cfg, task, complexityStandard)
 
 	// Should not inline the doc, but provide path hint.
 	if skillStringContains(prompt, "<skill-doc") {
@@ -271,7 +271,7 @@ func TestBuildSkillsPromptTier2BudgetExceeded(t *testing.T) {
 	}
 
 	task := TaskContext{Prompt: "skill query"}
-	prompt := BuildSkillsPrompt(cfg, task, classify.Complex)
+	prompt := BuildSkillsPrompt(cfg, task, complexityComplex)
 
 	// First skill should be inlined, second should get budget exceeded hint.
 	if !skillStringContains(prompt, "<skill-doc name=\"skill-a\">") {
@@ -370,7 +370,7 @@ func TestBuildSkillsPromptWithMeta_Simple_OnDemandOff(t *testing.T) {
 	}
 	task := TaskContext{Prompt: "legacy-skill usage"}
 
-	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, complexitySimple)
 	if !skillStringContains(prompt, "legacy-skill") {
 		t.Error("OnDemand off should keep Tier 1 summary on Simple tier")
 	}
@@ -393,7 +393,7 @@ func TestBuildSkillsPromptWithMeta_Simple_OnDemandOn_NoMandatory_ReturnsEmpty(t 
 	}
 	task := TaskContext{Prompt: "some-skill relevant"}
 
-	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, complexitySimple)
 	if prompt != "" {
 		t.Errorf("Simple+OnDemand with no mandatory skills should return empty; got %q", prompt)
 	}
@@ -415,7 +415,7 @@ func TestBuildSkillsPromptWithMeta_Simple_OnDemandOn_Mandatory_AlwaysInjected(t 
 	// Prompt has no keyword match for either skill — mandatory must bypass matcher.
 	task := TaskContext{Prompt: "unrelated chatter"}
 
-	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, classify.Simple)
+	prompt, matched := BuildSkillsPromptWithMeta(cfg, task, complexitySimple)
 	if !skillStringContains(prompt, "guard-skill") {
 		t.Error("mandatory skill must be injected on Simple tier")
 	}
@@ -445,7 +445,7 @@ func TestBuildSkillsPromptWithMeta_Standard_OnDemand_SkipsTier2(t *testing.T) {
 	}
 	task := TaskContext{Prompt: "doc-skill related"}
 
-	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, classify.Standard)
+	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, complexityStandard)
 	if !skillStringContains(prompt, "doc-skill") {
 		t.Error("Standard tier should still list matched skills")
 	}
@@ -468,7 +468,7 @@ func TestBuildSkillsPromptWithMeta_Complex_OnDemand_KeepsTier2(t *testing.T) {
 	}
 	task := TaskContext{Prompt: "doc-skill related"}
 
-	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, classify.Complex)
+	prompt, _ := BuildSkillsPromptWithMeta(cfg, task, complexityComplex)
 	if !skillStringContains(prompt, "<skill-doc name=\"doc-skill\">") {
 		t.Error("Complex tier should still inline Tier 2 docs even with OnDemand on")
 	}

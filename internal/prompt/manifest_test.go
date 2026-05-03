@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"tetora/internal/classify"
+	
 	"tetora/internal/config"
 	"tetora/internal/dispatch"
 )
@@ -138,7 +138,7 @@ func TestManifest_Save_UnknownTaskIDFallback(t *testing.T) {
 func TestBuildTieredPrompt_ReturnsManifest_ClaudeCode(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{ID: "claude-cc-1", Prompt: "do it"}
-	m := BuildTieredPrompt(cfg, task, "", classify.Standard, minimalDeps("claude-code"))
+	m := BuildTieredPrompt(cfg, task, "", dispatch.Standard, minimalDeps("claude-code"))
 	if m == nil {
 		t.Fatal("manifest must not be nil")
 	}
@@ -170,7 +170,7 @@ func TestBuildTieredPrompt_ReturnsManifest_APIProvider(t *testing.T) {
 	cfg := minimalCfg()
 	cfg.Citation.Enabled = true
 	task := &dispatch.Task{ID: "abc-1", Prompt: "build a feature", ScopeBoundary: "implement_allowed"}
-	m := BuildTieredPrompt(cfg, task, "", classify.Complex, minimalDeps("openai"))
+	m := BuildTieredPrompt(cfg, task, "", dispatch.Complex, minimalDeps("openai"))
 	if m == nil {
 		t.Fatal("manifest must not be nil")
 	}
@@ -198,10 +198,10 @@ func TestBuildTieredPrompt_SkillsWithMeta(t *testing.T) {
 	cfg := minimalCfg()
 	task := &dispatch.Task{ID: "skills-1", Prompt: "please fix"}
 	deps := minimalDeps("openai")
-	deps.BuildSkillsPromptWithMeta = func(_ *config.Config, _ dispatch.Task, _ classify.Complexity) (string, []string) {
+	deps.BuildSkillsPromptWithMeta = func(_ *config.Config, _ dispatch.Task, _ dispatch.Complexity) (string, []string) {
 		return "\n\n## Active Skills\n- a\n- b\n", []string{"a", "b"}
 	}
-	m := BuildTieredPrompt(cfg, task, "", classify.Standard, deps)
+	m := BuildTieredPrompt(cfg, task, "", dispatch.Standard, deps)
 	for _, s := range m.Sections {
 		if s.Name == "skills" {
 			if len(s.Items) != 2 || s.Items[0] != "a" || s.Items[1] != "b" {

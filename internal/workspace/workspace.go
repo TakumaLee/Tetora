@@ -9,7 +9,7 @@ import (
 	"tetora/internal/config"
 	"tetora/internal/log"
 	"tetora/internal/rule"
-	"tetora/internal/sprite"
+	
 )
 
 // SessionScope defines trust and tool constraints per session type.
@@ -118,11 +118,6 @@ func InitDirectories(cfg *config.Config) error {
 			return err
 		}
 	}
-	// Write default sprite config if not present.
-	if err := sprite.InitConfig(filepath.Join(cfg.BaseDir, "media", "sprites")); err != nil {
-		log.Warn("sprite config init failed", "error", err)
-	}
-
 	log.Info("initialized directories", "agents", cfg.AgentsDir, "workspace", cfg.WorkspaceDir, "runtime", cfg.RuntimeDir)
 	return nil
 }

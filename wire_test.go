@@ -28,10 +28,11 @@ import (
 	"testing"
 	"time"
 
-	"tetora/internal/classify"
+	
 	"tetora/internal/cli"
 	"tetora/internal/completion"
 	"tetora/internal/config"
+	dtypes "tetora/internal/dispatch"
 	"tetora/internal/cost"
 	"tetora/internal/db"
 	"tetora/internal/estimate"
@@ -9965,9 +9966,9 @@ func TestBuildTieredPromptNoPanic(t *testing.T) {
 	}
 
 	// Should not panic with any complexity level.
-	buildTieredPrompt(cfg, &task, "test", classify.Simple)
-	buildTieredPrompt(cfg, &task, "test", classify.Standard)
-	buildTieredPrompt(cfg, &task, "test", classify.Complex)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Simple)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Standard)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Complex)
 }
 
 func TestBuildTieredPromptSimpleShorterThanComplex(t *testing.T) {
@@ -9991,8 +9992,8 @@ func TestBuildTieredPromptSimpleShorterThanComplex(t *testing.T) {
 		Source: "cron",
 	}
 
-	buildTieredPrompt(cfg, &simpleTask, "test", classify.Simple)
-	buildTieredPrompt(cfg, &complexTask, "test", classify.Complex)
+	buildTieredPrompt(cfg, &simpleTask, "test", dtypes.Simple)
+	buildTieredPrompt(cfg, &complexTask, "test", dtypes.Complex)
 
 	simpleLen := len(simpleTask.SystemPrompt)
 	complexLen := len(complexTask.SystemPrompt)
@@ -10019,7 +10020,7 @@ func TestBuildTieredPromptSimpleClearsAddDirs(t *testing.T) {
 		Source: "discord",
 	}
 
-	buildTieredPrompt(cfg, &task, "test", classify.Simple)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Simple)
 
 	// Simple should only have baseDir.
 	if len(task.AddDirs) != 1 || task.AddDirs[0] != "/tmp/tetora" {
@@ -10047,7 +10048,7 @@ func TestBuildTieredPromptClaudeCodeSkipsInjection(t *testing.T) {
 		Provider: "cc",
 	}
 
-	buildTieredPrompt(cfg, &task, "test", classify.Complex)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Complex)
 
 	// Should NOT contain writing style or citation (claude-code skips injection).
 	if strings.Contains(task.SystemPrompt, "Writing Style") {
@@ -10076,7 +10077,7 @@ func TestBuildTieredPromptTotalBudget(t *testing.T) {
 		SystemPrompt: strings.Repeat("x", 200),
 	}
 
-	buildTieredPrompt(cfg, &task, "test", classify.Complex)
+	buildTieredPrompt(cfg, &task, "test", dtypes.Complex)
 
 	// SystemPrompt should be truncated to fit within totalMax + truncation notice.
 	if len(task.SystemPrompt) > 150 { // 100 + truncation notice overhead

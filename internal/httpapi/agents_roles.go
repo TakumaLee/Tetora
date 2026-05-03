@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // ArchetypeInfo describes a builtin agent archetype.
@@ -124,7 +123,7 @@ func (h *agentRoleHandler) handleRoles(w http.ResponseWriter, r *http.Request) {
 		}
 
 		audit.Log(h.d.HistoryDB(), "agent.create", "http",
-			fmt.Sprintf("name=%s", body.Name), httputil.ClientIP(r))
+			fmt.Sprintf("name=%s", body.Name), clientIP(r))
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"status":"created"}`))
 
@@ -176,7 +175,7 @@ func (h *agentRoleHandler) handleRole(w http.ResponseWriter, r *http.Request) {
 		}
 
 		audit.Log(h.d.HistoryDB(), "agent.update", "http",
-			fmt.Sprintf("name=%s", name), httputil.ClientIP(r))
+			fmt.Sprintf("name=%s", name), clientIP(r))
 		w.Write([]byte(`{"status":"updated"}`))
 
 	case http.MethodDelete:
@@ -196,7 +195,7 @@ func (h *agentRoleHandler) handleRole(w http.ResponseWriter, r *http.Request) {
 		}
 
 		audit.Log(h.d.HistoryDB(), "agent.delete", "http",
-			fmt.Sprintf("name=%s", name), httputil.ClientIP(r))
+			fmt.Sprintf("name=%s", name), clientIP(r))
 		w.Write([]byte(`{"status":"deleted"}`))
 
 	default:

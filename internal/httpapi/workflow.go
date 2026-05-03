@@ -13,7 +13,6 @@ import (
 
 	"tetora/internal/audit"
 	"tetora/internal/db"
-	"tetora/internal/httputil"
 	"tetora/internal/log"
 )
 
@@ -166,7 +165,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "workflow.create", "http",
-				fmt.Sprintf("name=%s steps=%d", name, stepCount), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s steps=%d", name, stepCount), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]string{"status": "created", "name": name})
 
@@ -201,7 +200,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 		}
 
 		audit.Log(d.HistoryDB(), "workflow.import", "http",
-			fmt.Sprintf("name=%s steps=%d", name, stepCount), httputil.ClientIP(r))
+			fmt.Sprintf("name=%s steps=%d", name, stepCount), clientIP(r))
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"status": "imported", "name": name})
 	})
@@ -261,7 +260,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "workflow.delete", "http",
-				fmt.Sprintf("name=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "name": name})
 
 		case action == "run" && r.Method == http.MethodPost:
@@ -287,7 +286,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				}
 			}
 			audit.Log(d.HistoryDB(), "workflow.run", "http",
-				fmt.Sprintf("name=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s", name), clientIP(r))
 			// Run asynchronously — context carries trace ID.
 			d.RunWorkflow(r.Context(), name, runBody.Variables)
 			w.WriteHeader(http.StatusAccepted)
@@ -317,7 +316,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				}
 			}
 			audit.Log(d.HistoryDB(), "workflow.dry-run", "http",
-				fmt.Sprintf("name=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s", name), clientIP(r))
 			run, err := d.DryRunWorkflow(r.Context(), name, dryBody.Variables)
 			if err != nil {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusInternalServerError)
@@ -344,7 +343,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "workflow.restore", "http",
-				fmt.Sprintf("name=%s version=%s", name, restoreBody.VersionID), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s version=%s", name, restoreBody.VersionID), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "restored", "workflow": name, "versionId": restoreBody.VersionID})
 
 		case action == "runs" && r.Method == http.MethodGet:
@@ -409,7 +408,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				log.Warn("cancel workflow run failed", "runID", runID, "error", err)
 			}
 			audit.Log(d.HistoryDB(), "workflow.cancel", "http",
-				fmt.Sprintf("runID=%s", runID), httputil.ClientIP(r))
+				fmt.Sprintf("runID=%s", runID), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "cancelled", "runId": runID})
 			return
 		}
@@ -440,7 +439,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 			}
 
 			audit.Log(d.HistoryDB(), "workflow.resume", "http",
-				fmt.Sprintf("originalRunID=%s", runID), httputil.ClientIP(r))
+				fmt.Sprintf("originalRunID=%s", runID), clientIP(r))
 
 			d.ResumeWorkflow(r.Context(), runID)
 
@@ -561,7 +560,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				installedName = name
 			}
 			audit.Log(d.HistoryDB(), "template.install", "http",
-				fmt.Sprintf("template=%s installed_as=%s", name, installedName), httputil.ClientIP(r))
+				fmt.Sprintf("template=%s installed_as=%s", name, installedName), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]string{"status": "installed", "name": installedName})
 
@@ -632,7 +631,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 			}
 			tName, tType, tWorkflow, _ := d.DecodeTriggerConfig(body)
 			audit.Log(d.HistoryDB(), "trigger.create", "http",
-				fmt.Sprintf("name=%s type=%s workflow=%s", tName, tType, tWorkflow), httputil.ClientIP(r))
+				fmt.Sprintf("name=%s type=%s workflow=%s", tName, tType, tWorkflow), clientIP(r))
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]string{"status": "created", "name": tName})
 
@@ -759,7 +758,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				d.AppendStreamingCallback(d.HistoryDB(), key, out.Seq, cbResult)
 			}
 			audit.Log(d.HistoryDB(), "callback."+status, "http",
-				fmt.Sprintf("key=%s", key), httputil.ClientIP(r))
+				fmt.Sprintf("key=%s", key), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": status})
 			return
 		case "dup":
@@ -785,7 +784,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 		}
 		d.MarkCallbackDelivered(d.HistoryDB(), key, 0, cbResult)
 		audit.Log(d.HistoryDB(), "callback.stored", "http",
-			fmt.Sprintf("key=%s (no active channel)", key), httputil.ClientIP(r))
+			fmt.Sprintf("key=%s (no active channel)", key), clientIP(r))
 		json.NewEncoder(w).Encode(map[string]string{"status": "stored"})
 	})
 
@@ -820,7 +819,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 			if payload == nil {
 				payload = make(map[string]string)
 			}
-			payload["_webhook_remote"] = httputil.ClientIP(r)
+			payload["_webhook_remote"] = clientIP(r)
 
 			if err := d.HandleWebhookTrigger(webhookID, payload); err != nil {
 				status := http.StatusNotFound
@@ -831,7 +830,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "trigger.webhook", "http",
-				fmt.Sprintf("trigger=%s", webhookID), httputil.ClientIP(r))
+				fmt.Sprintf("trigger=%s", webhookID), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{
 				"status":  "accepted",
 				"trigger": webhookID,
@@ -850,7 +849,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "trigger.fire", "http",
-				fmt.Sprintf("trigger=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{
 				"status":  "accepted",
 				"trigger": name,
@@ -877,7 +876,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "trigger.toggle", "http",
-				fmt.Sprintf("trigger=%s enabled=%v", name, newEnabled), httputil.ClientIP(r))
+				fmt.Sprintf("trigger=%s enabled=%v", name, newEnabled), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]any{"status": "toggled", "name": name, "enabled": newEnabled})
 
 		case action == "" && r.Method == http.MethodPut:
@@ -918,7 +917,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "trigger.update", "http",
-				fmt.Sprintf("trigger=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "updated", "name": name})
 
 		case action == "" && r.Method == http.MethodDelete:
@@ -942,7 +941,7 @@ func RegisterWorkflowRoutes(mux *http.ServeMux, d WorkflowDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "trigger.delete", "http",
-				fmt.Sprintf("trigger=%s", name), httputil.ClientIP(r))
+				fmt.Sprintf("trigger=%s", name), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "name": name})
 
 		case action == "runs" && r.Method == http.MethodGet:

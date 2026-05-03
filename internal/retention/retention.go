@@ -16,7 +16,7 @@ import (
 	"tetora/internal/history"
 	"tetora/internal/log"
 	"tetora/internal/session"
-	"tetora/internal/upload"
+	
 	"tetora/internal/version"
 
 	"math"
@@ -527,7 +527,6 @@ func Run(cfg *config.Config, h Hooks) []Result {
 
 	// Upload files
 	days = Days(cfg.Retention.Uploads, 7)
-	upload.Cleanup(filepath.Join(cfg.BaseDir, "uploads"), days)
 	results = append(results, Result{Table: "uploads", Deleted: -1})
 
 	// Log files

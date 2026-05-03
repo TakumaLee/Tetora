@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"tetora/internal/httputil"
 )
 
 // AgentDeps holds all dependencies for the agent HTTP handlers.
@@ -158,7 +157,7 @@ func (h *agentHandler) handleAgentMessages(w http.ResponseWriter, r *http.Reques
 		}
 		if h.d.AuditLog != nil {
 			detail := fmt.Sprintf("%s→%s type=%s", msg.FromAgent, msg.ToAgent, msg.Type)
-			h.d.AuditLog("agent.message", "http", detail, httputil.ClientIP(r))
+			h.d.AuditLog("agent.message", "http", detail, clientIP(r))
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "sent", "id": id})
 
@@ -719,7 +718,7 @@ func (h *agentHandler) handleTrustAgent(w http.ResponseWriter, r *http.Request) 
 				strings.Join(h.d.ValidTrustLevels(), ", ")), http.StatusBadRequest)
 			return
 		}
-		status, err := h.d.SetTrustLevel(agentName, body.Level, httputil.ClientIP(r))
+		status, err := h.d.SetTrustLevel(agentName, body.Level, clientIP(r))
 		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusInternalServerError)
 			return

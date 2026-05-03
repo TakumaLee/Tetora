@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // MemoryDeps holds dependencies for memory and MCP config HTTP handlers.
@@ -61,7 +60,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, d MemoryDeps) {
 				http.Error(w, fmt.Sprintf(`{"error":"%v"}`, err), http.StatusBadRequest)
 				return
 			}
-			audit.Log(d.HistoryDB(), "mcp.save", "http", body.Name, httputil.ClientIP(r))
+			audit.Log(d.HistoryDB(), "mcp.save", "http", body.Name, clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "name": body.Name})
 
 		default:
@@ -100,7 +99,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, d MemoryDeps) {
 				http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err), http.StatusNotFound)
 				return
 			}
-			audit.Log(d.HistoryDB(), "mcp.delete", "http", name, httputil.ClientIP(r))
+			audit.Log(d.HistoryDB(), "mcp.delete", "http", name, clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
 		case action == "test" && r.Method == "POST":
@@ -153,7 +152,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, d MemoryDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "memory.set", "http",
-				fmt.Sprintf("agent=%s key=%s", body.Agent, body.Key), httputil.ClientIP(r))
+				fmt.Sprintf("agent=%s key=%s", body.Agent, body.Key), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
 		default:
@@ -190,7 +189,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, d MemoryDeps) {
 				return
 			}
 			audit.Log(d.HistoryDB(), "memory.delete", "http",
-				fmt.Sprintf("role=%s key=%s", role, key), httputil.ClientIP(r))
+				fmt.Sprintf("role=%s key=%s", role, key), clientIP(r))
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
 		default:

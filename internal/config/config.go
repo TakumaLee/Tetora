@@ -8,44 +8,78 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"time"
 
 	// Type aliases for configs defined in internal packages.
 	"tetora/internal/cost"
 	"tetora/internal/estimate"
+	linebot "tetora/internal/messaging/line"
 	"tetora/internal/messaging/gchat"
 	"tetora/internal/messaging/imessage"
-	"tetora/internal/messaging/line"
 	"tetora/internal/messaging/matrix"
 	"tetora/internal/messaging/signal"
 	"tetora/internal/messaging/slack"
 	"tetora/internal/messaging/teams"
-	tgbot "tetora/internal/messaging/telegram"
+	tgconfig "tetora/internal/messaging/telegram"
 	"tetora/internal/messaging/whatsapp"
 	"tetora/internal/quickaction"
 	"tetora/internal/skill"
-	"tetora/internal/sla"
 	"tetora/internal/sprite"
 )
 
 // --- Type aliases for configs already defined in internal packages ---
 
-type SLAConfig = sla.SLAConfig
 type BudgetConfig = cost.BudgetConfig
 type AutoDowngradeConfig = cost.AutoDowngradeConfig
-type ModelPricing = estimate.ModelPricing
 type SkillConfig = skill.SkillConfig
 type SkillStoreConfig = skill.SkillStoreConfig
 type SpriteConfig = sprite.Config
+
+// SLAConfig — inlined after archiving internal/sla.
+type SLAConfig struct {
+	Enabled       bool                   `json:"enabled,omitempty"`
+	Agents        map[string]AgentSLACfg `json:"agents,omitempty"`
+	CheckInterval string                 `json:"checkInterval,omitempty"`
+	Window        string                 `json:"window,omitempty"`
+}
+
+type AgentSLACfg struct {
+	MinSuccessRate  float64 `json:"minSuccessRate,omitempty"`
+	MaxP95LatencyMs int64   `json:"maxP95LatencyMs,omitempty"`
+}
+
+func (c SLAConfig) CheckIntervalOrDefault() time.Duration {
+	if c.CheckInterval != "" {
+		if d, err := time.ParseDuration(c.CheckInterval); err == nil {
+			return d
+		}
+	}
+	return time.Hour
+}
+
+func (c SLAConfig) WindowOrDefault() time.Duration {
+	if c.Window != "" {
+		if d, err := time.ParseDuration(c.Window); err == nil {
+			return d
+		}
+	}
+	return 24 * time.Hour
+}
+
+// ModelPricing is a type alias for estimate.ModelPricing.
+type ModelPricing = estimate.ModelPricing
+
+// QuickAction type aliases from quickaction package.
 type QuickAction = quickaction.Action
 type QuickActionParam = quickaction.Param
 
-// Messaging platform configs.
-type TelegramConfig = tgbot.Config
+// Messaging platform config type aliases.
+type TelegramConfig = tgconfig.Config
 type MatrixConfig = matrix.Config
 type WhatsAppConfig = whatsapp.Config
 type SignalConfig = signal.Config
 type GoogleChatConfig = gchat.Config
-type LINEConfig = line.Config
+type LINEConfig = linebot.Config
 type TeamsConfig = teams.Config
 type IMessageConfig = imessage.Config
 type SlackBotConfig = slack.Config

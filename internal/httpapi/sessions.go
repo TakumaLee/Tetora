@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"tetora/internal/audit"
-	"tetora/internal/httputil"
 )
 
 // SessionDeps holds all dependencies for session and skill HTTP handlers.
@@ -68,7 +67,7 @@ type SessionDeps struct {
 	AgentExists func(name string) bool
 }
 
-func clientIPFromRequest(r *http.Request) string { return httputil.ClientIP(r) }
+func clientIPFromRequest(r *http.Request) string { return clientIP(r) }
 
 // RegisterSessionRoutes registers session and skill routes on the given mux.
 func RegisterSessionRoutes(mux *http.ServeMux, d SessionDeps) {

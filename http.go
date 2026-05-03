@@ -28,16 +28,15 @@ import (
 	"unicode/utf8"
 
 	"tetora/internal/audit"
-	"tetora/internal/backup"
 	tetoraConfig "tetora/internal/config"
-	"tetora/internal/classify"
+	
 	"tetora/internal/cli"
 	"tetora/internal/cost"
 	"tetora/internal/db"
 	"tetora/internal/discord"
+	dispatchpkg "tetora/internal/dispatch"
 	"tetora/internal/history"
 	"tetora/internal/httpapi"
-	"tetora/internal/httputil"
 	"tetora/internal/knowledge"
 	"tetora/internal/log"
 	"tetora/internal/messaging/webhook"
@@ -349,7 +348,16 @@ func (ll *loginLimiter) cleanup() {
 	}
 }
 
-func clientIP(r *http.Request) string { return httputil.ClientIP(r) }
+func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		return strings.TrimSpace(strings.SplitN(fwd, ",", 2)[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 // --- IP Allowlist ---
 
@@ -2951,12 +2959,14 @@ func resolvePortraitURL(baseDir, name string) string {
 // --- State Resolution ---
 
 // isChatSource returns true if the task source indicates a chat conversation.
+// Uses dispatch.ChatSources as the single source of truth so additions stay in
+// sync with Classify().
 func isChatSource(source string) bool {
 	s := strings.ToLower(source)
 	if i := strings.IndexByte(s, ':'); i > 0 {
 		s = s[:i]
 	}
-	return classify.ChatSources[s]
+	return dispatchpkg.ChatSources[s]
 }
 
 // resolveAgentSprite determines the sprite state from dispatch/task context.
@@ -3173,40 +3183,9 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 		json.NewEncoder(w).Encode(map[string]any{"results": results})
 	})
 
-	// --- Backup ---
+	// --- Backup (archived) ---
 	mux.HandleFunc("/backup", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, `{"error":"GET only"}`, http.StatusMethodNotAllowed)
-			return
-		}
-
-		audit.Log(cfg.HistoryDB, "backup.download", "http", "", clientIP(r))
-
-		// Create temp backup.
-		tmpFile, err := os.CreateTemp("", "tetora-backup-*.tar.gz")
-		if err != nil {
-			jsonError(w, "create temp: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		tmpPath := tmpFile.Name()
-		tmpFile.Close()
-		defer os.Remove(tmpPath)
-
-		if err := backup.Create(cfg.BaseDir, tmpPath); err != nil {
-			jsonError(w, "create backup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		data, err := os.ReadFile(tmpPath)
-		if err != nil {
-			jsonError(w, "read backup: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/gzip")
-		w.Header().Set("Content-Disposition", "attachment; filename=tetora-backup.tar.gz")
-		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Write(data)
+		http.Error(w, `{"error":"backup not available"}`, http.StatusNotImplemented)
 	})
 
 	// Dashboard login.

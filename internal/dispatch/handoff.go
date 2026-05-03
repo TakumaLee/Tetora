@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"tetora/internal/config"
-	"tetora/internal/handoff"
+	
 	"tetora/internal/log"
 	"tetora/internal/session"
 	"tetora/internal/trace"
@@ -31,10 +31,10 @@ type HandoffDeps struct {
 
 // ExecuteHandoff creates a new task for the target agent with handoff context
 // and updates the handoff record status on completion.
-func ExecuteHandoff(ctx context.Context, cfg *config.Config, h *handoff.Handoff,
+func ExecuteHandoff(ctx context.Context, cfg *config.Config, h *Handoff,
 	deps HandoffDeps, sem, childSem chan struct{}) TaskResult {
 
-	prompt := handoff.BuildHandoffPrompt(h.Context, h.Instruction)
+	prompt := BuildHandoffPrompt(h.Context, h.Instruction)
 
 	task := Task{
 		ID:        trace.NewUUID(),
@@ -67,7 +67,7 @@ func ExecuteHandoff(ctx context.Context, cfg *config.Config, h *handoff.Handoff,
 
 	// Update handoff status to active.
 	h.Status = "active"
-	handoff.UpdateStatus(cfg.HistoryDB, h.ID, "active")
+	UpdateStatus(cfg.HistoryDB, h.ID, "active")
 
 	// Execute.
 	result := deps.RunTask(ctx, task, sem, childSem, h.ToAgent)
@@ -77,9 +77,9 @@ func ExecuteHandoff(ctx context.Context, cfg *config.Config, h *handoff.Handoff,
 
 	// Update handoff status based on result.
 	if result.Status == "success" {
-		handoff.UpdateStatus(cfg.HistoryDB, h.ID, "completed")
+		UpdateStatus(cfg.HistoryDB, h.ID, "completed")
 	} else {
-		handoff.UpdateStatus(cfg.HistoryDB, h.ID, "error")
+		UpdateStatus(cfg.HistoryDB, h.ID, "error")
 	}
 
 	if cfg.Log {
@@ -91,7 +91,7 @@ func ExecuteHandoff(ctx context.Context, cfg *config.Config, h *handoff.Handoff,
 
 // ProcessAutoDelegations handles delegation markers from a dispatch step's output.
 // It executes delegated tasks and returns the combined output.
-func ProcessAutoDelegations(ctx context.Context, cfg *config.Config, delegations []handoff.AutoDelegation,
+func ProcessAutoDelegations(ctx context.Context, cfg *config.Config, delegations []AutoDelegation,
 	originalOutput, workflowRunID, fromAgent, fromStepID string,
 	deps HandoffDeps, sem, childSem chan struct{}, broker SSEBrokerPublisher) string {
 
@@ -119,7 +119,7 @@ func ProcessAutoDelegations(ctx context.Context, cfg *config.Config, delegations
 		}
 
 		// Record handoff.
-		h := handoff.Handoff{
+		h := Handoff{
 			ID:            handoffID,
 			WorkflowRunID: workflowRunID,
 			FromAgent:     fromAgent,
@@ -131,10 +131,10 @@ func ProcessAutoDelegations(ctx context.Context, cfg *config.Config, delegations
 			ToSessionID:   toSessionID,
 			CreatedAt:     now,
 		}
-		handoff.RecordHandoff(cfg.HistoryDB, h)
+		RecordHandoff(cfg.HistoryDB, h)
 
 		// Record agent message.
-		handoff.SendAgentMessage(cfg.HistoryDB, handoff.AgentMessage{
+		SendAgentMessage(cfg.HistoryDB, AgentMessage{
 			WorkflowRunID: workflowRunID,
 			FromAgent:     fromAgent,
 			ToAgent:       d.Agent,
@@ -177,7 +177,7 @@ func ProcessAutoDelegations(ctx context.Context, cfg *config.Config, delegations
 		if deps.TruncateStr != nil {
 			responseContent = deps.TruncateStr(result.Output, 2000)
 		}
-		handoff.SendAgentMessage(cfg.HistoryDB, handoff.AgentMessage{
+		SendAgentMessage(cfg.HistoryDB, AgentMessage{
 			WorkflowRunID: workflowRunID,
 			FromAgent:     d.Agent,
 			ToAgent:       fromAgent,

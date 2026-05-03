@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 
-	"tetora/internal/telemetry"
 	"tetora/internal/usage"
 )
 
@@ -20,9 +19,9 @@ type ModelUsage = usage.ModelUsage
 // AgentUsage is cost/token usage breakdown for a single agent.
 type AgentUsage = usage.AgentUsage
 
-// TokenSummaryRow and TokenAgentRow are aliases for the telemetry package types.
-type TokenSummaryRow = telemetry.SummaryRow
-type TokenAgentRow = telemetry.AgentRow
+// TokenSummaryRow and TokenAgentRow are aliases for the inlined telemetry types.
+type TokenSummaryRow = SummaryRow
+type TokenAgentRow = AgentRow
 
 // CmdUsage implements `tetora usage [today|week|month] [--model] [--agent] [--days N]`
 // and `tetora usage tokens [--days N]`.
@@ -239,10 +238,10 @@ func cmdUsageTokens(args []string) {
 		if json.Unmarshal(body, &data) == nil {
 			fmt.Printf("Token Telemetry (last %d days):\n\n", data.Days)
 			fmt.Println("By Complexity:")
-			fmt.Println(telemetry.FormatSummary(data.Summary))
+			fmt.Println(telemetryFormatSummary(data.Summary))
 			fmt.Println()
 			fmt.Println("By Agent:")
-			fmt.Println(telemetry.FormatByRole(data.ByRole))
+			fmt.Println(telemetryFormatByRole(data.ByRole))
 			return
 		}
 	}
@@ -250,20 +249,20 @@ func cmdUsageTokens(args []string) {
 	// Fallback: direct DB query.
 	fmt.Printf("Token Telemetry (last %d days):\n\n", days)
 
-	summaryRows, err := telemetry.QueryUsageSummary(cfg.HistoryDB, days)
+	summaryRows, err := telemetryQueryUsageSummary(cfg.HistoryDB, days)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error querying token summary: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("By Complexity:")
-	fmt.Println(telemetry.FormatSummary(telemetry.ParseSummaryRows(summaryRows)))
+	fmt.Println(telemetryFormatSummary(telemetryParseSummaryRows(summaryRows)))
 	fmt.Println()
 
-	roleRows, err := telemetry.QueryUsageByRole(cfg.HistoryDB, days)
+	roleRows, err := telemetryQueryUsageByRole(cfg.HistoryDB, days)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error querying token by agent: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("By Agent:")
-	fmt.Println(telemetry.FormatByRole(telemetry.ParseAgentRows(roleRows)))
+	fmt.Println(telemetryFormatByRole(telemetryParseAgentRows(roleRows)))
 }

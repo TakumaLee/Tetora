@@ -66,7 +66,6 @@ func ResolveEnvRef(value, fieldName string) string {
 // ResolveSecrets resolves $ENV_VAR references in secret config fields.
 func ResolveSecrets(cfg *Config) {
 	cfg.APIToken = ResolveEnvRef(cfg.APIToken, "apiToken")
-	cfg.Telegram.BotToken = ResolveEnvRef(cfg.Telegram.BotToken, "telegram.botToken")
 	if cfg.DashboardAuth.Password != "" {
 		cfg.DashboardAuth.Password = ResolveEnvRef(cfg.DashboardAuth.Password, "dashboardAuth.password")
 	}
@@ -99,15 +98,6 @@ func ResolveSecrets(cfg *Config) {
 			cfg.IncomingWebhooks[name] = wh
 		}
 	}
-	if cfg.Slack.BotToken != "" {
-		cfg.Slack.BotToken = ResolveEnvRef(cfg.Slack.BotToken, "slack.botToken")
-	}
-	if cfg.Slack.SigningSecret != "" {
-		cfg.Slack.SigningSecret = ResolveEnvRef(cfg.Slack.SigningSecret, "slack.signingSecret")
-	}
-	if cfg.Slack.AppToken != "" {
-		cfg.Slack.AppToken = ResolveEnvRef(cfg.Slack.AppToken, "slack.appToken")
-	}
 	if cfg.Discord.BotToken != "" {
 		cfg.Discord.BotToken = ResolveEnvRef(cfg.Discord.BotToken, "discord.botToken")
 	}
@@ -126,12 +116,6 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.Voice.TTS.FalAPIKey != "" {
 		cfg.Voice.TTS.FalAPIKey = ResolveEnvRef(cfg.Voice.TTS.FalAPIKey, "voice.tts.falApiKey")
 	}
-	if cfg.WhatsApp.AccessToken != "" {
-		cfg.WhatsApp.AccessToken = ResolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
-	}
-	if cfg.WhatsApp.AppSecret != "" {
-		cfg.WhatsApp.AppSecret = ResolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
-	}
 	if cfg.Push.VAPIDPublicKey != "" {
 		cfg.Push.VAPIDPublicKey = ResolveEnvRef(cfg.Push.VAPIDPublicKey, "push.vapidPublicKey")
 	}
@@ -148,6 +132,41 @@ func ResolveSecrets(cfg *Config) {
 	}
 	if cfg.Tools.Vision.APIKey != "" {
 		cfg.Tools.Vision.APIKey = ResolveEnvRef(cfg.Tools.Vision.APIKey, "tools.vision.apiKey")
+	}
+	cfg.OAuth.EncryptionKey = ResolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
+	for name, svc := range cfg.OAuth.Services {
+		svc.ClientID = ResolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))
+		svc.ClientSecret = ResolveEnvRef(svc.ClientSecret, fmt.Sprintf("oauth.services.%s.clientSecret", name))
+		cfg.OAuth.Services[name] = svc
+	}
+	if cfg.TaskManager.Todoist.APIKey != "" {
+		cfg.TaskManager.Todoist.APIKey = ResolveEnvRef(cfg.TaskManager.Todoist.APIKey, "taskManager.todoist.apiKey")
+	}
+	if cfg.TaskManager.Notion.APIKey != "" {
+		cfg.TaskManager.Notion.APIKey = ResolveEnvRef(cfg.TaskManager.Notion.APIKey, "taskManager.notion.apiKey")
+	}
+
+	// Messaging platforms — all secret fields support $ENV_VAR. The integrations
+	// in main.go gate on these (e.g. cfg.Telegram.Enabled && BotToken != ""), so
+	// failing to resolve here would leave the literal "$ENV_VAR" in place and
+	// silently break authentication at runtime.
+	if cfg.Telegram.BotToken != "" {
+		cfg.Telegram.BotToken = ResolveEnvRef(cfg.Telegram.BotToken, "telegram.botToken")
+	}
+	if cfg.Slack.BotToken != "" {
+		cfg.Slack.BotToken = ResolveEnvRef(cfg.Slack.BotToken, "slack.botToken")
+	}
+	if cfg.Slack.SigningSecret != "" {
+		cfg.Slack.SigningSecret = ResolveEnvRef(cfg.Slack.SigningSecret, "slack.signingSecret")
+	}
+	if cfg.Slack.AppToken != "" {
+		cfg.Slack.AppToken = ResolveEnvRef(cfg.Slack.AppToken, "slack.appToken")
+	}
+	if cfg.WhatsApp.AccessToken != "" {
+		cfg.WhatsApp.AccessToken = ResolveEnvRef(cfg.WhatsApp.AccessToken, "whatsapp.accessToken")
+	}
+	if cfg.WhatsApp.AppSecret != "" {
+		cfg.WhatsApp.AppSecret = ResolveEnvRef(cfg.WhatsApp.AppSecret, "whatsapp.appSecret")
 	}
 	if cfg.LINE.ChannelSecret != "" {
 		cfg.LINE.ChannelSecret = ResolveEnvRef(cfg.LINE.ChannelSecret, "line.channelSecret")
@@ -173,18 +192,8 @@ func ResolveSecrets(cfg *Config) {
 	if cfg.GoogleChat.ServiceAccountKey != "" {
 		cfg.GoogleChat.ServiceAccountKey = ResolveEnvRef(cfg.GoogleChat.ServiceAccountKey, "googleChat.serviceAccountKey")
 	}
-	cfg.IMessage.Password = ResolveEnvRef(cfg.IMessage.Password, "imessage.password")
-	cfg.OAuth.EncryptionKey = ResolveEnvRef(cfg.OAuth.EncryptionKey, "oauth.encryptionKey")
-	for name, svc := range cfg.OAuth.Services {
-		svc.ClientID = ResolveEnvRef(svc.ClientID, fmt.Sprintf("oauth.services.%s.clientId", name))
-		svc.ClientSecret = ResolveEnvRef(svc.ClientSecret, fmt.Sprintf("oauth.services.%s.clientSecret", name))
-		cfg.OAuth.Services[name] = svc
-	}
-	if cfg.TaskManager.Todoist.APIKey != "" {
-		cfg.TaskManager.Todoist.APIKey = ResolveEnvRef(cfg.TaskManager.Todoist.APIKey, "taskManager.todoist.apiKey")
-	}
-	if cfg.TaskManager.Notion.APIKey != "" {
-		cfg.TaskManager.Notion.APIKey = ResolveEnvRef(cfg.TaskManager.Notion.APIKey, "taskManager.notion.apiKey")
+	if cfg.IMessage.Password != "" {
+		cfg.IMessage.Password = ResolveEnvRef(cfg.IMessage.Password, "imessage.password")
 	}
 }
 
