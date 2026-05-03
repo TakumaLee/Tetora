@@ -104,13 +104,22 @@ func Configure(claudePath, agentsDir, ioProtocolPath, agentName string) (*Config
 		return nil, err
 	}
 
+	// Only keep known capability IDs in the result so callers don't see
+	// hallucinated IDs that have no files on disk.
+	var selectedKnown []string
+	for _, id := range resp.SelectedCapabilities {
+		if known[id] {
+			selectedKnown = append(selectedKnown, id)
+		}
+	}
+
 	result := &ConfigureResult{
 		Agent:       agentName,
-		Selected:    resp.SelectedCapabilities,
+		Selected:    selectedKnown,
 		Reason:      resp.Reason,
 		ConfigFlags: make(map[string]bool),
 	}
-	for _, id := range resp.SelectedCapabilities {
+	for _, id := range selectedKnown {
 		for _, cap := range BuiltinCapabilities {
 			if cap.ID != id {
 				continue
@@ -306,7 +315,13 @@ func generateCapabilityFiles(agentDir, ioProtocolPath string, resp *capabilityRe
 }
 
 func writeCLAUDEMD(agentDir, ioProtocolPath string) error {
-	content := fmt.Sprintf("@SOUL.md\n@capabilities/index.md\n@%s\n", ioProtocolPath)
+	// Use a path relative to agentDir so the generated CLAUDE.md is portable
+	// across machines and workspace relocations.
+	includePath := ioProtocolPath
+	if rel, err := filepath.Rel(agentDir, ioProtocolPath); err == nil {
+		includePath = rel
+	}
+	content := fmt.Sprintf("@SOUL.md\n@capabilities/index.md\n@%s\n", includePath)
 	return os.WriteFile(filepath.Join(agentDir, "CLAUDE.md"), []byte(content), 0o644)
 }
 

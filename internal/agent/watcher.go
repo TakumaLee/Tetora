@@ -6,12 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"tetora/internal/db"
 )
+
+// taskIDRe allows only UUID/slug characters so a crafted assignee or task ID
+// cannot inject arbitrary text before the XML delimiter in the prompt.
+var taskIDRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // WatchConfig holds the parameters for the task watcher.
 type WatchConfig struct {
@@ -210,13 +215,23 @@ func markTaskDoing(dbPath, taskID string) (bool, error) {
 
 func buildTaskPrompt(t watchedTask) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Task ID: %s\n", t.ID))
-	sb.WriteString(fmt.Sprintf("Title: %s\n", t.Title))
+
+	// Validate task ID: only embed if it matches the expected UUID/slug pattern.
+	id := t.ID
+	if !taskIDRe.MatchString(id) {
+		id = "(redacted)"
+	}
+	// Strip newlines from title to prevent multi-line injection before the delimiter.
+	title := strings.ReplaceAll(t.Title, "\n", " ")
+
+	sb.WriteString(fmt.Sprintf("Task ID: %s\n", id))
+	sb.WriteString(fmt.Sprintf("Title: %s\n", title))
 	if t.Description != "" {
-		// Wrap in XML delimiters to raise the bar for prompt injection via
-		// crafted DB values. The model is instructed to treat this block as data.
+		// Strip the closing tag so a crafted description cannot break out of the
+		// XML delimiter and inject instructions at a higher-trust position.
+		desc := strings.ReplaceAll(t.Description, "</task-description>", "")
 		sb.WriteString("\n<task-description>\n")
-		sb.WriteString(t.Description)
+		sb.WriteString(desc)
 		sb.WriteString("\n</task-description>\n")
 	}
 	return sb.String()

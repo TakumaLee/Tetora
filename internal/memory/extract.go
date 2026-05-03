@@ -145,9 +145,28 @@ func AppendToAutoExtractsMD(memoryDir, agent string, score int, e Extract) error
 		lines = lines[:autoExtractsMaxEntries]
 	}
 
-	// Write back with header.
+	// Write back atomically (temp file + rename) so a SIGTERM mid-write cannot
+	// leave a partially-written FIFO file.
 	content := "# Auto-Extracts\n\n" + strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(fpath, []byte(content), 0o644)
+	tmp, err := os.CreateTemp(filepath.Dir(fpath), ".auto-extracts-*.md")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := fmt.Fprint(tmp, content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, fpath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename: %w", err)
+	}
+	return nil
 }
 
 // dailyBudget tracks cumulative deep-memory-extract spend per UTC day.

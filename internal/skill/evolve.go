@@ -293,7 +293,18 @@ func readProposalStatus(fpath string) string {
 	if err != nil {
 		return "unknown"
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	raw := string(data)
+	// Only scan the frontmatter block (between the two "---" delimiters) so
+	// that body text containing "status: rejected" is never mis-read.
+	if !strings.HasPrefix(raw, "---") {
+		return "pending"
+	}
+	end := strings.Index(raw[3:], "\n---")
+	if end == -1 {
+		return "pending"
+	}
+	fm := raw[3 : 3+end]
+	for _, line := range strings.Split(fm, "\n") {
 		if strings.HasPrefix(line, "status: ") {
 			return strings.TrimPrefix(line, "status: ")
 		}
