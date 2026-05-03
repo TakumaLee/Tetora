@@ -170,10 +170,10 @@ func spawnAgent(cfg WatchConfig, t watchedTask, sem chan struct{}) error {
 	fmt.Printf("[watcher] spawning %s → task %s: %s\n", t.Assignee, t.ID, t.Title)
 	if err := cmd.Start(); err != nil {
 		// Roll back to "todo" so the task can be retried.
-		_ = db.Exec(cfg.HistoryDB, fmt.Sprintf(
-			`UPDATE tasks SET status = 'todo', updated_at = datetime('now') WHERE id = '%s'`,
-			db.Escape(t.ID),
-		))
+		_ = db.ExecArgs(cfg.HistoryDB,
+			`UPDATE tasks SET status = 'todo', updated_at = datetime('now') WHERE id = ?`,
+			t.ID,
+		)
 		return fmt.Errorf("start claude: %w", err)
 	}
 
@@ -200,10 +200,10 @@ func markTaskDoing(dbPath, taskID string) (bool, error) {
 	markTaskDoingMu.Lock()
 	defer markTaskDoingMu.Unlock()
 
-	rows, err := db.Query(dbPath, fmt.Sprintf(
-		`UPDATE tasks SET status = 'doing', updated_at = datetime('now') WHERE id = '%s' AND status = 'todo'; SELECT changes() AS changed;`,
-		db.Escape(taskID),
-	))
+	rows, err := db.QueryArgs(dbPath,
+		`UPDATE tasks SET status = 'doing', updated_at = datetime('now') WHERE id = ? AND status = 'todo'; SELECT changes() AS changed;`,
+		taskID,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -221,8 +221,14 @@ func buildTaskPrompt(t watchedTask) string {
 	if !taskIDRe.MatchString(id) {
 		id = "(redacted)"
 	}
-	// Strip newlines from title to prevent multi-line injection before the delimiter.
-	title := strings.ReplaceAll(t.Title, "\n", " ")
+	// Strip control characters from title to prevent multi-line injection (including
+	// \r\n on Windows-style line endings) before the XML delimiter.
+	title := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, t.Title)
 
 	sb.WriteString(fmt.Sprintf("Task ID: %s\n", id))
 	sb.WriteString(fmt.Sprintf("Title: %s\n", title))
