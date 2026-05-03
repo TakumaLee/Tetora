@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 )
 
 func TestTruncateDiffLines(t *testing.T) {
@@ -95,6 +98,178 @@ func TestPostReviewComment_GitLabBadURL(t *testing.T) {
 //   -F/--field reads `@file` as JSON string field (correct for note body)
 //   --form does multipart upload (wrong — uploads body as binary attachment)
 // If you change this, update the test and the comment in reviewCommentCmdArgs.
+// makeComments builds n prContextItems with authors "comment-1" .. "comment-N"
+// for use in formatter tests.
+func makeComments(n int) []prContextItem {
+	items := make([]prContextItem, n)
+	for i := range items {
+		items[i] = prContextItem{
+			Author:    fmt.Sprintf("comment-%d", i+1),
+			Body:      fmt.Sprintf("body of comment %d", i+1),
+			CreatedAt: time.Unix(int64(i*3600), 0),
+		}
+	}
+	return items
+}
+
+func TestFormatPRContext(t *testing.T) {
+	t.Run("last_two_only", func(t *testing.T) {
+		view := prContextView{Comments: makeComments(10)}
+		out := formatPRContext(view)
+		// Authors are embedded in "Comment by comment-N (created …):" lines.
+		// Check for the exact "Comment by comment-N " pattern to avoid
+		// "comment-1" matching as a prefix of "comment-10".
+		for _, want := range []string{"Comment by comment-9 ", "Comment by comment-10 "} {
+			if !strings.Contains(out, want) {
+				t.Errorf("expected %q in output, got:\n%s", want, out)
+			}
+		}
+		for i := 1; i <= 8; i++ {
+			name := fmt.Sprintf("Comment by comment-%d ", i)
+			if strings.Contains(out, name) {
+				t.Errorf("unexpected %q in output (should be dropped), got:\n%s", name, out)
+			}
+		}
+	})
+
+	t.Run("chronological_order", func(t *testing.T) {
+		view := prContextView{Comments: makeComments(10)}
+		out := formatPRContext(view)
+		// Use the "Comment by comment-N " pattern to avoid substring false-match.
+		pos9 := strings.Index(out, "Comment by comment-9 ")
+		pos10 := strings.Index(out, "Comment by comment-10 ")
+		if pos9 < 0 || pos10 < 0 {
+			t.Fatalf("missing comment-9 or comment-10 in output: %s", out)
+		}
+		if pos9 >= pos10 {
+			t.Errorf("expected comment-9 before comment-10 (oldest-first), but positions are %d >= %d", pos9, pos10)
+		}
+	})
+
+	t.Run("system_notes_filtered", func(t *testing.T) {
+		// The system filter is at the fetch layer, not in formatPRContext.
+		// All items passed to the formatter should be emitted (no dedup/skip here).
+		items := []prContextItem{
+			{Author: "alice", Body: "body-alice", CreatedAt: time.Unix(1000, 0)},
+			{Author: "bob", Body: "body-bob", CreatedAt: time.Unix(2000, 0)},
+			{Author: "carol", Body: "body-carol", CreatedAt: time.Unix(3000, 0)},
+		}
+		view := prContextView{Comments: items}
+		out := formatPRContext(view)
+		// Only last 2 shown (bob and carol); alice is dropped by lastN.
+		if strings.Contains(out, "alice") {
+			t.Errorf("alice should be dropped by lastN(2), got: %s", out)
+		}
+		if !strings.Contains(out, "bob") {
+			t.Errorf("bob should appear in output, got: %s", out)
+		}
+		if !strings.Contains(out, "carol") {
+			t.Errorf("carol should appear in output, got: %s", out)
+		}
+	})
+
+	t.Run("description_does_not_displace_latest", func(t *testing.T) {
+		desc := strings.Repeat("x", 50_000)
+		view := prContextView{
+			Title:       "big desc PR",
+			Description: desc,
+			Comments:    makeComments(5),
+		}
+		out := formatPRContext(view)
+		// Latest two comments must always appear regardless of description size.
+		if !strings.Contains(out, "comment-4") {
+			t.Errorf("comment-4 missing from output with large description")
+		}
+		if !strings.Contains(out, "comment-5") {
+			t.Errorf("comment-5 missing from output with large description")
+		}
+	})
+
+	t.Run("middle_elision", func(t *testing.T) {
+		// Build a 50KB comment body with distinctive head and tail.
+		head100 := strings.Repeat("H", 100)
+		tail100 := strings.Repeat("T", 100)
+		padding := strings.Repeat("M", 50_000-200)
+		body := head100 + padding + tail100
+
+		view := prContextView{
+			Comments: []prContextItem{
+				{Author: "author-elide", Body: body, CreatedAt: time.Unix(0, 0)},
+			},
+		}
+		out := formatPRContext(view)
+		if !strings.Contains(out, "[truncated middle:") {
+			t.Errorf("expected truncation marker in output, got: %s", out[:min(200, len(out))])
+		}
+		if !strings.Contains(out, head100) {
+			t.Errorf("expected head preserved in output")
+		}
+		if !strings.Contains(out, tail100) {
+			t.Errorf("expected tail preserved in output")
+		}
+	})
+
+	t.Run("rune_boundary", func(t *testing.T) {
+		// "中" is 3 bytes in UTF-8; 20000 runes = 60000 bytes > 32KB threshold.
+		body := strings.Repeat("中", 20_000)
+		view := prContextView{
+			Comments: []prContextItem{
+				{Author: "author-rune", Body: body, CreatedAt: time.Unix(0, 0)},
+			},
+		}
+		out := formatPRContext(view)
+		// No UTF-8 replacement character (U+FFFD) in output.
+		if strings.ContainsRune(out, utf8.RuneError) {
+			t.Errorf("output contains UTF-8 replacement char (rune boundary not respected)")
+		}
+		if !strings.Contains(out, "[truncated middle:") {
+			t.Errorf("expected truncation marker for 60KB input")
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		out := formatPRContext(prContextView{})
+		if out != "" {
+			t.Errorf("expected empty string for empty view, got: %q", out)
+		}
+	})
+}
+
+func TestElideMiddle(t *testing.T) {
+	t.Run("small_passthrough", func(t *testing.T) {
+		body := "hello world"
+		got := elideMiddle(body, 32_000)
+		if got != body {
+			t.Errorf("small input should be unchanged: got %q", got)
+		}
+	})
+
+	t.Run("exact_boundary_passthrough", func(t *testing.T) {
+		body := strings.Repeat("a", 32_000)
+		got := elideMiddle(body, 32_000)
+		if got != body {
+			t.Errorf("input at exact limit should be unchanged")
+		}
+	})
+
+	t.Run("large_has_marker", func(t *testing.T) {
+		body := strings.Repeat("a", 50_000)
+		got := elideMiddle(body, 32_000)
+		if !strings.Contains(got, "[truncated middle:") {
+			t.Errorf("expected truncation marker; got length %d", len(got))
+		}
+	})
+
+	t.Run("rune_safe", func(t *testing.T) {
+		// 20 000 × "中" (3 bytes each) = 60 000 bytes.
+		body := strings.Repeat("中", 20_000)
+		got := elideMiddle(body, 32_000)
+		if strings.ContainsRune(got, utf8.RuneError) {
+			t.Errorf("elideMiddle produced invalid UTF-8 (rune sliced)")
+		}
+	})
+}
+
 func TestReviewCommentCmdArgs(t *testing.T) {
 	cases := []struct {
 		name    string
