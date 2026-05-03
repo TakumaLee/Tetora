@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -5137,7 +5138,7 @@ func (s *Server) registerDispatchRoutes(mux *http.ServeMux) {
 			promptBuf.WriteString("When writing your review, be aware of issues already discussed in the pr_context block, but still flag any security or correctness concerns you find independently.\n\n")
 		}
 		if xref != "" {
-			log.Debug("review: injecting xref summary", "url", req.PRURL, "entries", strings.Count(xref, "\n"))
+			log.Debug("review: injecting xref summary", "url", req.PRURL, "entries", strings.Count(xref, "\n- "))
 			promptBuf.WriteString("<diff_xref>\n")
 			promptBuf.WriteString(xref)
 			promptBuf.WriteString("</diff_xref>\n")
@@ -7972,8 +7973,9 @@ func validateReviewHost(host string) error {
 	return fmt.Errorf("untrusted review host %q: only github.com and gitlab.com (and their subdomains) are allowed", host)
 }
 
-// newFuncDefRe matches a newly added Go function definition in a diff hunk.
-// Captures the function name so we can track cross-file call sites.
+// newFuncDefRe matches a newly added top-level Go function definition in a diff
+// hunk. Method receivers ("+func (T) Name()") are intentionally excluded — the
+// regex requires an identifier immediately after "func ".
 var newFuncDefRe = regexp.MustCompile(`^\+func\s+([A-Za-z][A-Za-z0-9_]*)`)
 
 // xrefDef records one newly-defined function and the files that call it.
@@ -7988,8 +7990,12 @@ type xrefDef struct {
 // call them. The index is injected into the review prompt so the reviewer can
 // quickly verify cross-file call relationships without reading every hunk.
 //
-// Only Go files are processed (`.go` suffix). Returns an empty string when no
-// cross-file references are found.
+// Only top-level functions in .go files are tracked; method receivers are
+// excluded. Call-site detection is text-based (strings.Contains), so string
+// literals and comments that contain "funcName(" will appear as callers — an
+// acceptable trade-off given the tool is advisory only. When two files in the
+// same diff define a function with the same name, only the first occurrence is
+// tracked. Returns an empty string when no cross-file references are found.
 func buildCrossRefSummary(diff string) string {
 	var defs []*xrefDef
 	defIndex := map[string]*xrefDef{}
@@ -8044,7 +8050,7 @@ func buildCrossRefSummary(diff string) string {
 			if m := newFuncDefRe.FindStringSubmatch(line); m != nil && m[1] == d.name {
 				continue
 			}
-			if !xrefContains(d.calledIn, currentFile) {
+			if !slices.Contains(d.calledIn, currentFile) {
 				d.calledIn = append(d.calledIn, currentFile)
 			}
 		}
@@ -8068,26 +8074,13 @@ func buildCrossRefSummary(diff string) string {
 }
 
 // diffFilePath extracts the destination file path from a unified-diff +++ header.
-// Returns ("", false) for /dev/null (deleted file) or non-header lines.
+// Returns ("", false) for non-header lines. Deleted files use "+++ /dev/null"
+// (no "b/" prefix) and are therefore excluded by the prefix check.
 func diffFilePath(line string) (string, bool) {
 	if !strings.HasPrefix(line, "+++ b/") {
 		return "", false
 	}
-	path := strings.TrimPrefix(line, "+++ b/")
-	if path == "/dev/null" {
-		return "", false
-	}
-	return path, true
-}
-
-// xrefContains reports whether s contains v (small-slice linear scan).
-func xrefContains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
+	return strings.TrimPrefix(line, "+++ b/"), true
 }
 
 // sanitizeDiff inserts a zero-width non-joiner (U+200C) into each substring
