@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -85,5 +86,70 @@ func TestPostReviewComment_GitLabBadURL(t *testing.T) {
 	err := postReviewComment(context.Background(), "https://gitlab.com/no-mr-id-here", "body")
 	if err == nil || !strings.Contains(err.Error(), "unrecognized GitLab MR URL") {
 		t.Fatalf("expected unrecognized GitLab MR URL error, got %v", err)
+	}
+}
+
+// TestReviewCommentCmdArgs locks down the exact CLI args used to post comments.
+// This code has regressed multiple times — flapping between glab flags
+// (-F / -f / --form). Per `glab api --help`:
+//   -F/--field reads `@file` as JSON string field (correct for note body)
+//   --form does multipart upload (wrong — uploads body as binary attachment)
+// If you change this, update the test and the comment in reviewCommentCmdArgs.
+func TestReviewCommentCmdArgs(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		wantBin string
+		wantHas []string
+		wantNot []string
+	}{
+		{
+			name:    "github_pr",
+			raw:     "https://github.com/owner/repo/pull/42",
+			wantBin: "gh",
+			wantHas: []string{"pr", "comment", "https://github.com/owner/repo/pull/42", "--body-file", "/tmp/body.md"},
+		},
+		{
+			name:    "gitlab_mr",
+			raw:     "https://gitlab.com/group/sub/repo/-/merge_requests/40",
+			wantBin: "glab",
+			wantHas: []string{"api", "--hostname", "gitlab.com", "-X", "POST", "projects/group%2Fsub%2Frepo/merge_requests/40/notes", "-F", "body=@/tmp/body.md"},
+			wantNot: []string{"--form", "-f"}, // -f is --raw-field in glab (no @file support); --form does multipart
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.raw)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			bin, args, err := reviewCommentCmdArgs(u, tc.raw, "/tmp/body.md")
+			if err != nil {
+				t.Fatalf("reviewCommentCmdArgs: %v", err)
+			}
+			if bin != tc.wantBin {
+				t.Fatalf("bin = %q, want %q", bin, tc.wantBin)
+			}
+			joined := strings.Join(args, " ")
+			for _, want := range tc.wantHas {
+				found := false
+				for _, a := range args {
+					if a == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("args missing %q; got: %s", want, joined)
+				}
+			}
+			for _, bad := range tc.wantNot {
+				for _, a := range args {
+					if a == bad {
+						t.Fatalf("args must NOT contain %q (regression risk); got: %s", bad, joined)
+					}
+				}
+			}
+		})
 	}
 }
