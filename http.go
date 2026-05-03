@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -7505,9 +7506,12 @@ func fetchReviewDiff(prURL string) (string, string, error) {
 		// exactly 100 would be ambiguous (could be a complete result).
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/diffs?per_page=101",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint).CombinedOutput()
+		cmd := exec.Command("glab", "api", "--hostname", u.Hostname(), apiEndpoint)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
 		if err != nil {
-			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(string(out)))
+			return "", "MR", fmt.Errorf("glab api mr diffs: %s", strings.TrimSpace(stderr.String()))
 		}
 		diff, parseErr := glabDiffsToUnified(out)
 		if parseErr != nil {
@@ -7746,28 +7750,42 @@ func postReviewComment(ctx context.Context, prURL, body string) error {	u, err :
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	bin, args, err := reviewCommentCmdArgs(u, prURL, tmpFile.Name())
+	if err != nil {
+		return err
+	}
+	out, runErr := exec.CommandContext(cmdCtx, bin, args...).CombinedOutput()
+	if runErr != nil {
+		return fmt.Errorf("%s: %s", bin, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// reviewCommentCmdArgs returns the binary and args used to post a review comment
+// on a PR (GitHub) or MR (GitLab). Pure function so the arg shape is unit-tested
+// (this code has regressed multiple times — see the glab flag note below).
+//
+// glab flag semantics (DO NOT FLIP):
+//   -F / --field      → JSON field; `@file` reads file contents as string ✓ (used here)
+//   -f / --raw-field  → raw string, no @file support
+//   --form            → multipart/form-data; `@file` uploads as binary attachment
+//
+// Note: glab's -F/-f are SWAPPED relative to gh's -F/-f. Confirm via `glab api --help`.
+func reviewCommentCmdArgs(u *url.URL, prURL, bodyFile string) (string, []string, error) {
 	host := strings.ToLower(u.Hostname())
 	switch {
 	case strings.Contains(host, "github"):
-		out, err := exec.CommandContext(cmdCtx, "gh", "pr", "comment", prURL, "--body-file", tmpFile.Name()).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("gh pr comment: %s", strings.TrimSpace(string(out)))
-		}
-		return nil
+		return "gh", []string{"pr", "comment", prURL, "--body-file", bodyFile}, nil
 	case strings.Contains(host, "gitlab"):
 		projectPath, mrIID, ok := parseGitLabMRPath(u)
 		if !ok {
-			return fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
+			return "", nil, fmt.Errorf("unrecognized GitLab MR URL: %q", prURL)
 		}
 		apiEndpoint := fmt.Sprintf("projects/%s/merge_requests/%s/notes",
 			url.PathEscape(projectPath), mrIID)
-		out, err := exec.CommandContext(cmdCtx, "glab", "api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "--form", "body=@"+tmpFile.Name()).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("glab api mr note: %s", strings.TrimSpace(string(out)))
-		}
-		return nil
+		return "glab", []string{"api", "--hostname", u.Hostname(), "-X", "POST", apiEndpoint, "-F", "body=@" + bodyFile}, nil
 	default:
-		return fmt.Errorf("unsupported host %q for comment posting", host)
+		return "", nil, fmt.Errorf("unsupported host %q for comment posting", host)
 	}
 }
 
