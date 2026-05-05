@@ -104,8 +104,6 @@ import (
 	warroomAutoupdate "tetora/internal/warroom/autoupdate"
 	"tetora/internal/webhook"
 	"tetora/internal/workspace"
-	"tetora/internal/search"
-	"tetora/internal/search/providers"
 )
 
 // ============================================================
@@ -1761,31 +1759,6 @@ type OpenAITTSProvider = voice.OpenAITTSProvider
 type ElevenLabsTTSProvider = voice.ElevenLabsTTSProvider
 type VoiceEngine = voice.VoiceEngine
 
-// --- Search (from internal/search) ---
-
-type SearchProvider = search.SearchProvider
-type SearchResult = search.SearchResult
-type SearchOptions = search.SearchOptions
-type SearchService = search.SearchService
-type SerpAPIProvider = providers.SerpAPIProvider
-type FeloProvider = providers.FeloProvider
-
-func newSearchService(cfg *Config) (*SearchService, error) {
-	s, err := search.NewSearchService(cfg.BaseDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Register providers based on config
-	if cfg.Tools.WebSearch.Provider == "serp" && cfg.Tools.WebSearch.APIKey != "" {
-		s.Registry.Register(providers.NewSerpAPIProvider(cfg.Tools.WebSearch.APIKey))
-	}
-	
-	// Always register Felo as fallback
-	s.Registry.Register(providers.NewFeloProvider())
-
-	return s, nil
-}
 
 func newVoiceEngine(cfg *Config) *VoiceEngine {
 	dbPath := cfg.HistoryDB
@@ -2067,8 +2040,6 @@ func embeddingDecayHalfLifeOrDefault(cfg EmbeddingConfig) float64 {
 type OAuthManager = iOAuth.OAuthManager
 type OAuthToken = iOAuth.OAuthToken
 type OAuthTokenStatus = iOAuth.OAuthTokenStatus
-
-var globalApp *App
 
 var globalOAuthManager *OAuthManager
 
@@ -3943,69 +3914,6 @@ func buildCoreDeps() tools.CoreDeps {
 		AgentListHandler:     toolAgentList,
 		AgentDispatchHandler: toolAgentDispatch,
 		AgentMessageHandler:  toolAgentMessage,
-		CompetitiveSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-			if globalApp == nil || globalApp.Search == nil {
-				return "", fmt.Errorf("search service not initialized")
-			}
-			var args struct {
-				Query string `json:"query"`
-				Limit int    `json:"limit"`
-			}
-			if err := json.Unmarshal(input, &args); err != nil {
-				return "", err
-			}
-			if args.Limit <= 0 {
-				args.Limit = 10
-			}
-			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Limit: args.Limit})
-			if err != nil {
-				return "", err
-			}
-			out, _ := json.Marshal(results)
-			return string(out), nil
-		},
-		NewsSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-			if globalApp == nil || globalApp.Search == nil {
-				return "", fmt.Errorf("search service not initialized")
-			}
-			var args struct {
-				Query string `json:"query"`
-				Limit int    `json:"limit"`
-			}
-			if err := json.Unmarshal(input, &args); err != nil {
-				return "", err
-			}
-			if args.Limit <= 0 {
-				args.Limit = 5
-			}
-			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "news", Limit: args.Limit})
-			if err != nil {
-				return "", err
-			}
-			out, _ := json.Marshal(results)
-			return string(out), nil
-		},
-		XSearchHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
-			if globalApp == nil || globalApp.Search == nil {
-				return "", fmt.Errorf("search service not initialized")
-			}
-			var args struct {
-				Query string `json:"query"`
-				Limit int    `json:"limit"`
-			}
-			if err := json.Unmarshal(input, &args); err != nil {
-				return "", err
-			}
-			if args.Limit <= 0 {
-				args.Limit = 10
-			}
-			results, err := globalApp.Search.CompetitiveSearch(ctx, args.Query, SearchOptions{Type: "social", Limit: args.Limit})
-			if err != nil {
-				return "", err
-			}
-			out, _ := json.Marshal(results)
-			return string(out), nil
-		},
 		SearchToolsHandler:   toolSearchTools,
 		ExecuteToolHandler:   toolExecuteTool,
 		ImageAnalyzeHandler: func(ctx context.Context, cfg *Config, input json.RawMessage) (string, error) {
@@ -11915,58 +11823,48 @@ func initProviders(cfg *Config) *provider.Registry {
 // --- buildProviderRequest ---
 // Stays in root because it depends on Config, Task, and SSEEvent.
 
-func resolveProviderName(cfg *Config, task Task, agentName string) string {
-	// Priority 1: Task-level override (highest priority)
+// resolveProviderNameState resolves provider priority using a pre-loaded active state.
+// Priority: Task > Active override > Agent ("auto" falls through) > Global > legacy.
+func resolveProviderNameState(cfg *Config, task Task, agentName string, active *ActiveProviderState) string {
 	if task.Provider != "" {
 		return task.Provider
 	}
-
-	// Priority 2: Active provider override (CLI/API session-level override)
-	if cfg.ActiveProviderStore != nil {
-		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
-		if activeState != nil && activeState.ProviderName != "" {
-			return activeState.ProviderName
-		}
+	if active != nil && active.ProviderName != "" {
+		return active.ProviderName
 	}
-
-	// Priority 3: Agent-level provider
 	if agentName != "" {
-		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" {
-			// If agent uses "auto", fall through to global default
-			if rc.Provider == "auto" {
-				// Continue to default resolution
-			} else {
-				return rc.Provider
-			}
+		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" && rc.Provider != "auto" {
+			return rc.Provider
 		}
 	}
-
-	// Priority 4: Global default provider
 	if cfg.DefaultProvider != "" {
 		return cfg.DefaultProvider
 	}
-
-	// Fallback: legacy default
 	return "claude"
 }
 
-func buildProviderCandidates(cfg *Config, task Task, agentName string) []string {
-	primary := resolveProviderName(cfg, task, agentName)
+func resolveProviderName(cfg *Config, task Task, agentName string) string {
+	var active *ActiveProviderState
+	if cfg.ActiveProviderStore != nil {
+		active, _ = cfg.ActiveProviderStore.LoadFromFile()
+	}
+	return resolveProviderNameState(cfg, task, agentName, active)
+}
+
+func buildProviderCandidatesState(cfg *Config, task Task, agentName string, active *ActiveProviderState) []string {
+	primary := resolveProviderNameState(cfg, task, agentName, active)
 	seen := map[string]bool{primary: true}
 	candidates := []string{primary}
 
-	// If active provider override is set, only use global fallback providers
-	if cfg.ActiveProviderStore != nil {
-		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
-		if activeState != nil && activeState.ProviderName != "" {
-			for _, fb := range cfg.FallbackProviders {
-				if !seen[fb] {
-					seen[fb] = true
-					candidates = append(candidates, fb)
-				}
+	// Active override: skip agent-level fallbacks, use only global fallbacks.
+	if active != nil && active.ProviderName != "" {
+		for _, fb := range cfg.FallbackProviders {
+			if !seen[fb] {
+				seen[fb] = true
+				candidates = append(candidates, fb)
 			}
-			return candidates
 		}
+		return candidates
 	}
 
 	// Normal flow: use agent-level and global fallback providers
@@ -11991,29 +11889,32 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 	return candidates
 }
 
-// buildProviderRequest constructs a provider.Request from task, config, and provider name.
-// The eventCh is bridged into the provider.Request.OnEvent callback.
-func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
+func buildProviderCandidates(cfg *Config, task Task, agentName string) []string {
+	var active *ActiveProviderState
+	if cfg.ActiveProviderStore != nil {
+		active, _ = cfg.ActiveProviderStore.LoadFromFile()
+	}
+	return buildProviderCandidatesState(cfg, task, agentName, active)
+}
+
+// buildProviderRequestState constructs a provider.Request using a pre-loaded active state.
+func buildProviderRequestState(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent, active *ActiveProviderState) provider.Request {
 	model := task.Model
 
-	// If active provider override is set, check whether the task model is just
-	// the global default (e.g. "sonnet" from main.go) that is incompatible with
-	// the selected provider. In that case, use the provider's configured model.
-	if cfg.ActiveProviderStore != nil {
-		activeState, _ := cfg.ActiveProviderStore.LoadFromFile()
-		if activeState != nil && activeState.ProviderName != "" {
-			// Task model matches global default → treat it as "use provider default"
-			if model == cfg.DefaultModel {
-				if pc, ok := cfg.Providers[activeState.ProviderName]; ok && pc.Model != "" {
-					model = pc.Model
-				}
-			} else if activeState.Model != "" && activeState.Model != "auto" {
-				model = activeState.Model
+	// Active override: if the task model is just the global default it is likely
+	// incompatible with the selected provider (e.g. "sonnet" sent to Qwen → 404).
+	// Use the provider's configured model instead.
+	if active != nil && active.ProviderName != "" {
+		if model == cfg.DefaultModel {
+			if pc, ok := cfg.Providers[active.ProviderName]; ok && pc.Model != "" {
+				model = pc.Model
 			}
+		} else if active.Model != "" && active.Model != "auto" {
+			model = active.Model
 		}
 	}
 
-	// Resolve "auto" model to the provider's default model.
+	// Resolve "auto" / empty model to the provider's default model.
 	if model == "" || model == "auto" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
 			model = pc.Model
@@ -12082,11 +11983,26 @@ func buildProviderRequest(cfg *Config, task Task, agentName, providerName string
 	return req
 }
 
+// buildProviderRequest is the public wrapper that loads active state for one-off callers.
+func buildProviderRequest(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent) provider.Request {
+	var active *ActiveProviderState
+	if cfg.ActiveProviderStore != nil {
+		active, _ = cfg.ActiveProviderStore.LoadFromFile()
+	}
+	return buildProviderRequestState(cfg, task, agentName, providerName, eventCh, active)
+}
+
 // --- executeWithProvider ---
 // Stays in root because it depends on Config.circuits (circuit breaker).
 
 func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName string, registry *provider.Registry, eventCh chan<- SSEEvent) *provider.Result {
-	candidates := buildProviderCandidates(cfg, task, agentName)
+	// Read active provider state once for the entire dispatch to avoid repeated disk reads
+	// in resolveProviderName, buildProviderCandidates, and buildProviderRequest.
+	var active *ActiveProviderState
+	if cfg.ActiveProviderStore != nil {
+		active, _ = cfg.ActiveProviderStore.LoadFromFile()
+	}
+	candidates := buildProviderCandidatesState(cfg, task, agentName, active)
 
 	var lastErr string
 	for i, providerName := range candidates {
@@ -12107,7 +12023,7 @@ func executeWithProvider(ctx context.Context, cfg *Config, task Task, agentName 
 			continue
 		}
 
-		req := buildProviderRequest(cfg, task, agentName, providerName, eventCh)
+		req := buildProviderRequestState(cfg, task, agentName, providerName, eventCh, active)
 		result, execErr := p.Execute(ctx, req)
 
 		errMsg := ""

@@ -1406,19 +1406,6 @@ func startHTTPServer(s *Server) *http.Server {
 			}
 			return result
 		},
-		ExecuteTool: func(ctx context.Context, name string, input json.RawMessage) (string, error) {
-			if cfg.Runtime.ToolRegistry == nil {
-				return "", fmt.Errorf("tool registry not initialized")
-			}
-			t, ok := cfg.Runtime.ToolRegistry.(*ToolRegistry).Get(name)
-			if !ok {
-				return "", fmt.Errorf("tool %q not found", name)
-			}
-			if t.Handler == nil {
-				return "", fmt.Errorf("tool %q has no handler", name)
-			}
-			return t.Handler(ctx, cfg, input)
-		},
 		MCPStatus: func() any {
 			if s.mcpHost == nil {
 				return []any{}

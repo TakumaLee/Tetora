@@ -415,7 +415,7 @@ func CmdInit(deps InitDeps) {
 		"defaultModel":          defaultModel,
 		"defaultTimeout":        defaultTimeout,
 		"defaultBudget":         2.0,
-		"defaultPermissionMode": "bypassPermissions",
+		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
 		"listenAddr":            listenAddr,
 		"jobsFile":              "jobs.json",

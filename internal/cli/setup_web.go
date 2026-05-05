@@ -197,7 +197,7 @@ func writeSetupConfig(req setupSaveRequest, deps SetupWebDeps) error {
 		"defaultModel":          model,
 		"defaultTimeout":        "15m",
 		"defaultBudget":         2.0,
-		"defaultPermissionMode": "bypassPermissions",
+		"defaultPermissionMode": "acceptEdits",
 		"defaultWorkdir":        defaultWorkdir,
 		"listenAddr":            RandomListenAddr(),
 		"jobsFile":              "jobs.json",

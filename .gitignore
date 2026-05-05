@@ -22,10 +22,6 @@ active-provider.json
 # Secrets
 .env
 .env.*
-
-# Config files with credentials (API keys, tokens, etc.)
-config.json
-config.local.json
 config.local.*.json
 *.secret.json
 
@@ -88,6 +84,7 @@ temp_move_project/
 14_report/
 ~$*.docx
 ~$*.doc
+teams/
 
 # Client onboarding configs (generated per client)
 config.client*.json

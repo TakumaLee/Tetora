@@ -226,11 +226,11 @@ func writeOnboardingAgent(scanner *bufio.Scanner, configPath, configDir, soulCon
 	desc := strings.TrimSpace(scanner.Text())
 
 	// Ask for permission mode.
-	fmt.Print("  Permission mode (plan|acceptEdits|auto|bypassPermissions) [bypassPermissions]: ")
+	fmt.Print("  Permission mode (plan|acceptEdits|auto|bypassPermissions) [acceptEdits]: ")
 	scanner.Scan()
 	perm := strings.TrimSpace(scanner.Text())
 	if perm == "" {
-		perm = "bypassPermissions"
+		perm = "acceptEdits"
 	}
 
 	// Write files.

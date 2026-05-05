@@ -353,14 +353,6 @@ func main() {
 	// Services are initialized into app fields below, then SyncToGlobals()
 	// backfills global vars for callers that haven't migrated yet.
 	app := &App{Cfg: cfg}
-	globalApp = app
-
-	// Search Infrastructure
-	if s, err := newSearchService(cfg); err == nil {
-		app.Search = s
-	} else {
-		log.Error("failed to initialize search service", "error", err)
-	}
 
 	// Initialize hooks event receiver.
 	hookRecv := newHookReceiver(state.broker, cfg)
@@ -1613,7 +1605,6 @@ type App struct {
 	ImageGenLimiter *tools.ImageGenLimiter
 	Presence        *presenceManager
 	Reminder        *ReminderEngine
-	Search          *SearchService
 }
 
 // SyncToGlobals sets all global singletons from App fields.
@@ -1817,6 +1808,7 @@ type NotionConfig = config.NotionConfig
 type WebhookConfig = config.WebhookConfig
 type AgentConfig = config.AgentConfig
 type ProviderConfig = config.ProviderConfig
+type ActiveProviderState = config.ActiveProviderState
 type CostAlertConfig = config.CostAlertConfig
 type DashboardAuthConfig = config.DashboardAuthConfig
 type QuietHoursConfig = config.QuietHoursConfig
