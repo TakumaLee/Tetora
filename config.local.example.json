@@ -1,13 +1,4 @@
 {
-  "//": "============================================================",
-  "//": "Tetora Local Configuration Template",
-  "//": "============================================================",
-  "//": "This file contains ALL local configuration options.",
-  "//": "Copy the fields you need to config.local.json",
-  "//": "DO NOT commit config.local.json to git.",
-  "//": "============================================================",
-
-  "//": "=== Basic Configuration ===",
   "apiToken": "your-api-token-here",
   "encryptionKey": "your-encryption-key-here",
   "claudePath": "/opt/homebrew/bin/claude",
@@ -19,14 +10,12 @@
   "runtimeDir": "~/.tetora/runtime",
   "vaultDir": "~/.tetora/vault",
 
-  "//": "=== Allowed Directories ===",
   "allowedDirs": [
     "~/.tetora/workspace",
     "~/projects",
     "~/Documents"
   ],
 
-  "//": "=== Default Settings ===",
   "defaultProvider": "qwen",
   "defaultModel": "auto",
   "defaultAgent": "coder",
@@ -35,8 +24,6 @@
   "defaultWorkdir": "~/.tetora/workspace",
   "defaultAddDirs": ["~/.tetora/workspace"],
 
-  "//": "=== Provider Configuration ===",
-  "//": "Only override fields that differ from config.json defaults",
   "providers": {
     "qwen": {
       "apiKey": "your-qwen-api-key",
@@ -51,8 +38,6 @@
     }
   },
 
-  "//": "=== Agent Configuration ===",
-  "//": "Override agent-specific settings",
   "agents": {
     "coder": {
       "provider": "qwen",
@@ -68,13 +53,11 @@
     }
   },
 
-  "//": "=== Telegram Configuration ===",
   "telegram": {
     "botToken": "your-telegram-bot-token",
     "chatID": 123456789
   },
 
-  "//": "=== Discord Configuration ===",
   "discord": {
     "botToken": "your-discord-bot-token",
     "publicKey": "your-discord-public-key",
@@ -89,7 +72,6 @@
     }
   },
 
-  "//": "=== OAuth Configuration ===",
   "oauth": {
     "encryptionKey": "your-oauth-encryption-key",
     "services": {
@@ -104,14 +86,12 @@
     }
   },
 
-  "//": "=== Dashboard Authentication ===",
   "dashboardAuth": {
     "username": "admin",
     "password": "your-dashboard-password",
     "token": "your-dashboard-token"
   },
 
-  "//": "=== Budget and Cost Control ===",
   "costAlert": {
     "dailyLimit": 50.0,
     "weeklyLimit": 200.0
@@ -124,7 +104,6 @@
     }
   },
 
-  "//": "=== Notifications ===",
   "notifications": [
     {
       "type": "webhook",
@@ -132,27 +111,14 @@
     }
   ],
 
-  "//": "=== Push Notifications ===",
   "push": {
     "vapidPublicKey": "your-vapid-public-key",
     "vapidPrivateKey": "your-vapid-private-key"
   },
 
-  "//": "=== Multi-Client Configuration ===",
   "defaultClientID": "default",
   "clientsDir": "~/.tetora/clients",
 
-  "//": "=== Other Messaging Platforms ===",
-  "whatsapp": {},
-  "signal": {},
-  "line": {},
-  "teams": {},
-  "matrix": {},
-  "googleChat": {},
-  "imessage": {},
-  "slack": {},
-
-  "//": "=== Integrations ===",
   "todoist": {
     "apiKey": "your-todoist-api-key"
   },
@@ -163,7 +129,6 @@
     "token": "your-browser-relay-token"
   },
 
-  "//": "=== Webhooks ===",
   "webhooks": [
     {
       "url": "https://your-webhook-url.com",
@@ -173,13 +138,8 @@
     }
   ],
 
-  "//": "=== TLS Configuration ===",
   "tls": {
     "certFile": "/path/to/cert.pem",
     "keyFile": "/path/to/key.pem"
-  },
-
-  "//": "============================================================",
-  "//": "End of Template",
-  "//": "============================================================"
+  }
 }
