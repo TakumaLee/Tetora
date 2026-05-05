@@ -180,11 +180,11 @@ tetora provider set gemini
 ```json
 {
   "defaultProvider": "claude",
-  "fallbackProviders": ["gemini", "qwen"]
+  "fallbackProviders": ["codex", "gemini", "qwen"]
 }
 ```
 
-當 Claude 失敗時，自動嘗試 Gemini → Qwen。
+當 Claude 失敗時，自動嘗試 Codex → Gemini → Qwen。
 
 ### 2. 斷路器整合
 
@@ -258,7 +258,7 @@ tetora provider set claude
 
 # config.json 中設置 fallbackProviders
 # "defaultProvider": "claude"
-# "fallbackProviders": ["gemini", "qwen"]
+# "fallbackProviders": ["codex", "gemini", "qwen"]
 
 # 現在即使主要提供商失敗，系統也會自動降級
 ```

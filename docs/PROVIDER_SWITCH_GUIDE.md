@@ -180,11 +180,11 @@ Even with Active Provider set, the global `fallbackProviders` configuration is s
 ```json
 {
   "defaultProvider": "claude",
-  "fallbackProviders": ["gemini", "qwen"]
+  "fallbackProviders": ["codex", "gemini", "qwen"]
 }
 ```
 
-When Claude fails, automatically try Gemini → Qwen.
+When Claude fails, automatically try Codex → Gemini → Qwen.
 
 ### 2. Circuit Breaker Integration
 
@@ -258,7 +258,7 @@ tetora provider set claude
 
 # In config.json set fallback chain:
 # "defaultProvider": "claude"
-# "fallbackProviders": ["gemini", "qwen"]
+# "fallbackProviders": ["codex", "gemini", "qwen"]
 
 # Now even if primary provider fails, system auto-fallbacks
 ```
