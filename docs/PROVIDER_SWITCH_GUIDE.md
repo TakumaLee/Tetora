@@ -59,7 +59,7 @@ tetora provider status
 Example output:
 ```
 Active Provider Override:
-  Provider: qwen
+  Provider: claude
   Model:    auto (use provider default)
   Set at:   2026-04-16 10:30:00
   Set by:   CLI
@@ -139,8 +139,8 @@ In `config.json`, configure agents to use automatic provider:
 Now switch all agents' providers with a single command:
 
 ```bash
-tetora provider set qwen
-# All agents will use Qwen, no need to modify each agent config
+tetora provider set claude
+# All agents will use Claude, no need to modify each agent config
 ```
 
 ### Pinning an Agent to a Specific Provider
@@ -179,12 +179,12 @@ Even with Active Provider set, the global `fallbackProviders` configuration is s
 
 ```json
 {
-  "defaultProvider": "qwen",
-  "fallbackProviders": ["google", "claude"]
+  "defaultProvider": "claude",
+  "fallbackProviders": ["gemini", "qwen"]
 }
 ```
 
-When Qwen fails, automatically try Google → Claude.
+When Claude fails, automatically try Gemini → Qwen.
 
 ### 2. Circuit Breaker Integration
 
@@ -253,12 +253,12 @@ tetora dispatch "write a sorting algorithm"
 ### Scenario 3: Production Environment with Stable Provider
 
 ```bash
-# Set production provider
-tetora provider set claude claude-sonnet-4-20250514
+# Set production provider (default: Claude)
+tetora provider set claude
 
-# Configure fallback list
-tetora provider set qwen auto
-# In config.json set fallbackProviders: [google, claude]
+# In config.json set fallback chain:
+# "defaultProvider": "claude"
+# "fallbackProviders": ["gemini", "qwen"]
 
 # Now even if primary provider fails, system auto-fallbacks
 ```
@@ -275,7 +275,7 @@ Active Provider state is stored at:
 Format:
 ```json
 {
-  "providerName": "qwen",
+  "providerName": "claude",
   "model": "auto",
   "setAt": "2026-04-16T10:30:00Z",
   "setBy": "CLI"
