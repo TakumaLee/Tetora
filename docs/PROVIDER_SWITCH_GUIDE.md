@@ -35,16 +35,22 @@ tetora provider set qwen auto
 ### 2. Switch to Gemini
 
 ```bash
-tetora provider set google gemini-2.5-pro
+tetora provider set gemini
 ```
 
 ### 3. Switch to Claude
 
 ```bash
-tetora provider set claude claude-sonnet-4-20250514
+tetora provider set claude
 ```
 
-### 4. Check Current Provider
+### 4. Switch to Codex
+
+```bash
+tetora provider set codex
+```
+
+### 5. Check Current Provider
 
 ```bash
 tetora provider status
@@ -62,13 +68,13 @@ This override affects ALL agent executions.
 Use 'tetora provider clear' to remove this override.
 ```
 
-### 5. Clear Override, Return to Agent-Level Config
+### 6. Clear Override, Return to Agent-Level Config
 
 ```bash
 tetora provider clear
 ```
 
-### 6. List All Configured Providers
+### 7. List All Configured Providers
 
 ```bash
 tetora provider list
@@ -80,16 +86,17 @@ tetora provider list
 
 ### Priority Chain
 
-Provider resolution now follows this priority:
+Provider resolution follows this priority:
 
 ```
-1. Task-level Provider (task-level override) ← highest priority
-2. Active Provider Override (CLI/API setting)
-3. Agent-level Provider (agent config)
-   - Supports "auto" mode, follows global setting
+1. Task-level Provider (task-level override)     ← highest priority
+2. Agent-level Provider (explicit pin in config) ← immune to global override
+3. Active Provider Override (CLI/API setting)
 4. Global Default Provider
 5. Legacy Fallback
 ```
+
+**Agent pinning:** if an agent has an explicit `"provider"` set in config (not `"auto"`), it is pinned to that provider and cannot be overridden by `tetora provider set`. This is useful for agents that must always use a specific CLI (e.g., Claude Code-only agents).
 
 ### Automatic Parameter Optimization
 
@@ -108,7 +115,7 @@ These parameters are automatically applied when switching providers, no manual t
 
 ## Agent Configuration Example
 
-### Using "auto" Mode
+### Using "auto" Mode (follows global override)
 
 In `config.json`, configure agents to use automatic provider:
 
@@ -134,6 +141,32 @@ Now switch all agents' providers with a single command:
 ```bash
 tetora provider set qwen
 # All agents will use Qwen, no need to modify each agent config
+```
+
+### Pinning an Agent to a Specific Provider
+
+Set an explicit `"provider"` (not `"auto"`) to lock an agent to a provider regardless of any global override:
+
+```json
+{
+  "agents": {
+    "takuma": {
+      "provider": "claude",
+      "model": "auto",
+      "description": "Always uses Claude Code"
+    },
+    "analyst": {
+      "provider": "auto",
+      "description": "Follows global provider override"
+    }
+  }
+}
+```
+
+```bash
+tetora provider set gemini
+# analyst → gemini (follows override)
+# takuma  → claude (pinned, unaffected)
 ```
 
 ---
@@ -189,7 +222,7 @@ Includes:
 ```bash
 # Problem detected: Qwen error
 # Quick switch
-tetora provider set google gemini-2.5-pro
+tetora provider set gemini
 
 # Continue working, no need to modify any agent config
 tetora dispatch "analyze codebase architecture"
@@ -203,11 +236,15 @@ tetora provider set qwen
 tetora dispatch "write a sorting algorithm"
 
 # Test Gemini
-tetora provider set google
+tetora provider set gemini
 tetora dispatch "write a sorting algorithm"
 
 # Test Claude
 tetora provider set claude
+tetora dispatch "write a sorting algorithm"
+
+# Test Codex
+tetora provider set codex
 tetora dispatch "write a sorting algorithm"
 
 # Compare results, choose best provider
@@ -249,12 +286,17 @@ Format:
 
 ## Troubleshooting
 
+### Q: `provider set` rejects my provider name?
+
+A: The name must match a key in the `providers` section of `config.json`. Run `tetora provider list` to see valid names. You can also use the provider's `type` name as an alias (e.g., `gemini-cli` → resolves to `gemini`).
+
 ### Q: Active Provider not taking effect after setting?
 
 A: Check the following:
-1. Is the provider configured in `config.json`?
-2. Does the task have a higher-level provider override?
-3. Check logs to verify provider resolution: `tetora logs | grep provider`
+1. Is the provider key in `config.json`? (`tetora provider list`)
+2. Is the agent pinned? Agents with an explicit `"provider"` (not `"auto"`) in config ignore the global override.
+3. Does the task have a higher-level provider override?
+4. Check logs to verify provider resolution: `tetora logs | grep provider`
 
 ### Q: How do I know which provider is currently in use?
 
@@ -287,8 +329,8 @@ A: System automatically applies preset parameters. To customize, edit the corres
    ```go
    func resolveProviderName(cfg *Config, task Task, agentName string) string {
        // 1. Task-level (highest)
-       // 2. Active Provider Override
-       // 3. Agent-level (supports "auto")
+       // 2. Agent-level pin (explicit provider, not "auto")
+       // 3. Active Provider Override
        // 4. Global default
    }
    ```

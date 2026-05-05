@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Changed
+- **Provider resolution priority**: agent-level `"provider"` config now takes priority over the global active override — agents with an explicit provider are pinned and unaffected by `tetora provider set`
+- **`provider set` validation**: unknown provider keys are now hard errors (exit 1) instead of warn-and-continue; prevents broken `active-provider.json` state
+- **Provider type-name alias**: `provider set gemini-cli` now resolves to the config key whose `type` matches (`gemini`), so users can refer to providers by type or by key
+- **Codex CLI provider**: added `codex` to the supported provider list (`type: "codex"`, `/opt/homebrew/bin/codex`)
+
 ---
 
 ## [v2.4.2] - 2026-04-19
