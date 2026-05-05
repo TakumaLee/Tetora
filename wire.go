@@ -11829,13 +11829,16 @@ func resolveProviderNameState(cfg *Config, task Task, agentName string, active *
 	if task.Provider != "" {
 		return task.Provider
 	}
-	if active != nil && active.ProviderName != "" {
-		return active.ProviderName
-	}
+	// Agent-level provider pins the agent to a specific provider regardless of
+	// the global active override, so e.g. claude-only agents stay on Claude even
+	// when the operator runs "tetora provider set gemini".
 	if agentName != "" {
 		if rc, ok := cfg.Agents[agentName]; ok && rc.Provider != "" && rc.Provider != "auto" {
 			return rc.Provider
 		}
+	}
+	if active != nil && active.ProviderName != "" {
+		return active.ProviderName
 	}
 	if cfg.DefaultProvider != "" {
 		return cfg.DefaultProvider
@@ -11856,8 +11859,16 @@ func buildProviderCandidatesState(cfg *Config, task Task, agentName string, acti
 	seen := map[string]bool{primary: true}
 	candidates := []string{primary}
 
-	// Active override: skip agent-level fallbacks, use only global fallbacks.
-	if active != nil && active.ProviderName != "" {
+	// An agent is "pinned" when it has an explicit provider in config (not "auto").
+	// Pinned agents and task-level overrides ignore the global active override and
+	// keep their own fallback chain.
+	agentPinned := agentName != "" && func() bool {
+		rc, ok := cfg.Agents[agentName]
+		return ok && rc.Provider != "" && rc.Provider != "auto"
+	}()
+
+	// Active override on non-pinned agent: skip agent-level fallbacks, use only global fallbacks.
+	if !agentPinned && task.Provider == "" && active != nil && active.ProviderName != "" {
 		for _, fb := range cfg.FallbackProviders {
 			if !seen[fb] {
 				seen[fb] = true
@@ -11867,7 +11878,7 @@ func buildProviderCandidatesState(cfg *Config, task Task, agentName string, acti
 		return candidates
 	}
 
-	// Normal flow: use agent-level and global fallback providers
+	// Pinned agent or task override or no active override: use agent-level and global fallbacks.
 	if agentName != "" {
 		if rc, ok := cfg.Agents[agentName]; ok {
 			for _, fb := range rc.FallbackProviders {

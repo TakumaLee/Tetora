@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"tetora/internal/config"
-	"tetora/internal/provider"
 )
 
 // CmdProvider is the entry point for the "tetora provider" subcommand.
@@ -83,16 +81,18 @@ func providerSetCmd(args []string) {
 		os.Exit(1)
 	}
 
-	// Validate provider exists in config.
+	// If the exact name isn't a config key, try matching by provider type
+	// (e.g. "gemini-cli" → the provider whose type is "gemini-cli", keyed "gemini").
 	if _, exists := cfg.Providers[providerName]; !exists {
-		// Check if it's a known preset
-		if !isKnownPreset(providerName) {
-			fmt.Fprintf(os.Stderr, "Warning: provider '%s' is not configured in config.json\n", providerName)
+		if matched := providerKeyByType(cfg, providerName); matched != "" {
+			providerName = matched
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: provider '%s' is not configured in config.json\n", providerName)
 			fmt.Fprintln(os.Stderr, "Available providers:")
 			for name := range cfg.Providers {
 				fmt.Fprintf(os.Stderr, "  - %s\n", name)
 			}
-			fmt.Fprintln(os.Stderr, "\nContinuing anyway (provider will be used if configured at runtime)...")
+			os.Exit(1)
 		}
 	}
 
@@ -241,15 +241,6 @@ func getActiveProviderPath(cfg *config.Config) string {
 	return filepath.Join(cfg.RuntimeDir, "active-provider.json")
 }
 
-// isKnownPreset checks if the provider name is a known preset.
-func isKnownPreset(name string) bool {
-	for _, p := range provider.Presets {
-		if strings.EqualFold(name, p.Name) {
-			return true
-		}
-	}
-	return false
-}
 
 // loadConfig loads the full Tetora configuration.
 // Applies the same BaseDir/RuntimeDir defaulting as the main daemon so that
@@ -272,6 +263,17 @@ func loadConfig() (*config.Config, error) {
 	cfg.NormalizePaths()
 
 	return &cfg, nil
+}
+
+// providerKeyByType returns the config key of the first provider whose Type
+// field matches typeName, or "" if none found.
+func providerKeyByType(cfg *config.Config, typeName string) string {
+	for key, p := range cfg.Providers {
+		if p.Type == typeName {
+			return key
+		}
+	}
+	return ""
 }
 
 // getConfigPath returns the path to the config file.
