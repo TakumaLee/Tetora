@@ -656,11 +656,17 @@ func runSingleTask(ctx context.Context, cfg *Config, task Task, sem, childSem ch
 	}
 
 	providerName := resolveProviderName(cfg, task, agentName)
+	resolvedModel := resolveTaskModel(cfg, task, providerName)
 
-	log.DebugCtx(ctx, "task start",
+	logFields := []any{
 		"source", task.Source, "taskId", task.ID[:8], "name", task.Name,
-		"model", task.Model, "provider", providerName,
-		"agent", agentName, "workdir", task.Workdir)
+		"model", resolvedModel, "provider", providerName,
+		"agent", agentName, "workdir", task.Workdir,
+	}
+	if resolvedModel != task.Model {
+		logFields = append(logFields, "requestedModel", task.Model)
+	}
+	log.DebugCtx(ctx, "task start", logFields...)
 
 	timeout, err := time.ParseDuration(task.Timeout)
 	if err != nil {
@@ -959,11 +965,17 @@ func runTask(ctx context.Context, cfg *Config, task Task, state *dispatchState) 
 	}
 
 	providerName := resolveProviderName(cfg, task, agentName)
+	resolvedModel := resolveTaskModel(cfg, task, providerName)
 
-	log.DebugCtx(ctx, "task start",
+	logFields := []any{
 		"taskId", task.ID[:8], "name", task.Name,
-		"model", task.Model, "provider", providerName,
-		"role", agentName, "workdir", task.Workdir)
+		"model", resolvedModel, "provider", providerName,
+		"role", agentName, "workdir", task.Workdir,
+	}
+	if resolvedModel != task.Model {
+		logFields = append(logFields, "requestedModel", task.Model)
+	}
+	log.DebugCtx(ctx, "task start", logFields...)
 
 	// Discord thread-per-task notification (top-level tasks only).
 	doDiscordNotify := task.Depth == 0 && state.discordBot != nil && state.discordBot.notifier != nil

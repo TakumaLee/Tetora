@@ -11908,13 +11908,13 @@ func buildProviderCandidates(cfg *Config, task Task, agentName string) []string 
 	return buildProviderCandidatesState(cfg, task, agentName, active)
 }
 
-// buildProviderRequestState constructs a provider.Request using a pre-loaded active state.
-func buildProviderRequestState(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent, active *ActiveProviderState) provider.Request {
+// resolveTaskModelState returns the effective model that will be sent to the
+// provider, after applying the active-provider override remap and auto/empty
+// fallbacks. Mirrors the resolution inside buildProviderRequestState so
+// callers (e.g. dispatch logging) can observe the post-remap model.
+func resolveTaskModelState(cfg *Config, task Task, providerName string, active *ActiveProviderState) string {
 	model := task.Model
 
-	// Active override: if the task model is just the global default it is likely
-	// incompatible with the selected provider (e.g. "sonnet" sent to Qwen → 404).
-	// Use the provider's configured model instead.
 	if active != nil && active.ProviderName != "" {
 		if model == cfg.DefaultModel {
 			if pc, ok := cfg.Providers[active.ProviderName]; ok && pc.Model != "" {
@@ -11925,7 +11925,6 @@ func buildProviderRequestState(cfg *Config, task Task, agentName, providerName s
 		}
 	}
 
-	// Resolve "auto" / empty model to the provider's default model.
 	if model == "" || model == "auto" {
 		if pc, ok := cfg.Providers[providerName]; ok && pc.Model != "" {
 			model = pc.Model
@@ -11933,6 +11932,23 @@ func buildProviderRequestState(cfg *Config, task Task, agentName, providerName s
 			model = cfg.DefaultModel
 		}
 	}
+
+	return model
+}
+
+// resolveTaskModel is the convenience wrapper that loads the active provider
+// state itself, for callers (like log sites) that don't already have it.
+func resolveTaskModel(cfg *Config, task Task, providerName string) string {
+	var active *ActiveProviderState
+	if cfg.ActiveProviderStore != nil {
+		active, _ = cfg.ActiveProviderStore.LoadFromFile()
+	}
+	return resolveTaskModelState(cfg, task, providerName, active)
+}
+
+// buildProviderRequestState constructs a provider.Request using a pre-loaded active state.
+func buildProviderRequestState(cfg *Config, task Task, agentName, providerName string, eventCh chan<- SSEEvent, active *ActiveProviderState) provider.Request {
+	model := resolveTaskModelState(cfg, task, providerName, active)
 
 	timeout, parseErr := time.ParseDuration(task.Timeout)
 	if parseErr != nil {
